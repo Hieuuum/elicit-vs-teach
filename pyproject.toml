@@ -1,0 +1,28 @@
+[project]
+name = "geode"
+version = "0.0.1"
+description = "Mechanistic analysis infrastructure for elicitation vs. teaching (EDL, steering sufficiency, base-SAE diffing)"
+requires-python = ">=3.11"
+dependencies = [
+  "torch>=2.3",
+  "transformers>=4.44",
+  "peft>=0.12",
+  "datasets>=2.20",
+  "safetensors>=0.4",
+  "sae-lens>=4.0",
+  "transformer-lens>=2.0",
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "pyarrow>=16",
+  "einops>=0.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.5", "matplotlib>=3.9"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
