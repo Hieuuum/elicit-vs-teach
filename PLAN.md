@@ -8,79 +8,40 @@ under the four-stage protocol in CLAUDE.md (restated in "Execution protocol").
 
 ---
 
-## Open questions (resolve before or during the affected task — do not guess silently)
+## Resolved decisions (owner-approved 2026-07-11)
 
-Ops preconditions:
+Ops: repo initialized (initial commit `e8d3bc8`); `reference/
+sparsity-artifacts-crosscoders` cloned (OQ-1, OQ-2 closed).
 
-- **OQ-1 — No git repository.** The working tree has no `.git`, but CLAUDE.md
-  requires a commit after every task and spec 00 §2 requires `git_commit` in
-  every manifest. *Proposed:* `git init` + initial commit as part of SETUP-0.
-  Needs owner confirmation (maybe the repo is meant to live elsewhere / be
-  cloned differently).
-- **OQ-2 — `reference/` is empty.** `sparsity-artifacts-crosscoders` is not
-  cloned. Planning skimmed the GitHub repo remotely; ADAPT-1 requires the real
-  clone (`git clone https://github.com/science-of-finetuning/sparsity-artifacts-crosscoders reference/sparsity-artifacts-crosscoders`,
-  per README). One-time network operation, outside the test suite.
-
-Spec ambiguities:
-
-- **OQ-3 — Manifest validation depth (spec 00 §2, V0.1).** V0.1 requires
-  "missing any required field fails with an error naming the field", but the
-  spec doesn't say whether required-ness is recursive into nested objects
-  (`training.lora.rank`, `cost.est_usd`, …) or whether types are validated.
-  *Proposed:* all listed keys required recursively; `null` permitted only where
-  the schema says `|null`; primitive type checks; errors name the dotted path
-  (e.g. `training.optimizer.lr`).
-- **OQ-4 — `example_ids` universe (spec 00 §3, V0.3).** "Enumerates each unique
-  training example exactly once" — against what universe? *Proposed:* ids are
-  `0..n_unique_examples-1` from the run's manifest; the checker takes
-  `n_unique_examples` and rejects skips, repeats, and out-of-range ids.
-- **OQ-5 — Position-policy vocabulary.** Spec 00 §6 says `all | answer_only |
-  last`; spec 02 §2 I1 says "all positions or generated positions only".
-  *Proposed:* one shared enum `{all, answer_only, last}`; "generated positions"
-  ≡ `answer_only`. Spec 02 wording updated in the same PR (schema-change rule).
-- **OQ-6 — `results/` file naming and append semantics (spec 00 §7).** The spec
-  fixes columns but not file layout. *Proposed:* one parquet per analysis
-  invocation, `results/{analysis_name}.parquet` (overwrite-by-name);
-  `read_results` concatenates the directory. Joins happen in pandas on the
-  mandated key columns.
-- **OQ-7 — Hash definitions.** Neither `masking_config_hash` (spec 00 §5) nor
-  `tokenizer hash` (spec 00 §6) defines the hashed payload. *Proposed:*
-  `tokenizer_hash` = sha256 of the tokenizer's canonical serialized JSON;
+- **OQ-3 — manifest validation:** all listed keys required recursively;
+  `null` only where the schema says `|null`; primitive type checks; errors
+  name the dotted path (e.g. `training.optimizer.lr`).
+- **OQ-4 — `example_ids` universe:** ids are `0..n_unique_examples-1` from
+  the run's manifest; checker rejects skips, repeats, out-of-range.
+- **OQ-5 — position policy:** one shared enum `{all, answer_only, last}`;
+  "generated positions" ≡ `answer_only`; spec 02 wording updated in same PR.
+- **OQ-6 — results layout:** one parquet per analysis,
+  `results/{analysis_name}.parquet`, overwrite-by-name; `read_results`
+  concatenates the directory; joins in pandas on mandated key columns.
+- **OQ-7 — hashes:** `tokenizer_hash` = sha256 of canonical tokenizer JSON;
   `masking_config_hash` = sha256 of canonical JSON of
   `{task name, format_version, mask-rule parameters, tokenizer_hash}`.
-- **OQ-8 — How a batch encodes the prompt/label boundary (spec 01 §3
-  `label_mask(batch, task_format)`).** Unspecified. *Proposed:* the dataset
-  builder emits per-example label-token spans; `task_format` declares the
-  span rule (name + format_version); `label_mask` is the single construction
-  path used by both training loop and test evaluator (this *is* M1's
-  "single shared function").
-- **OQ-9 — `refit_lowrank(...) -> Direction` (spec 02 §5).** A rank-r linear
-  map is not a single vector, so `Direction` is the wrong container. *Proposed:*
-  return a `LowRankMap` dataclass (hook, U, S, Vh, method, provenance); spec 02
-  §5 edited accordingly in the same PR (schema-change rule).
-- **OQ-10 — Unpinned defaults.** E2 "top-k singular triples" k, and I1's α
-  grid, are unspecified. *Proposed:* explicit keyword parameters with
-  documented defaults (`k=8`, `alphas=(0.25, 0.5, 1.0, 2.0, 4.0)`); never
-  hidden constants.
-- **OQ-11 — Capacity metric has no API entry.** Spec 01 §1 defines
-  `EDL(P,D)/EDL_ref(D)` but §3 lists no function for it. *Proposed:* it stays
-  an analysis-notebook ratio of two `edl_nats` calls; no library function.
-  Confirm this is intended.
-- **OQ-12 — `load_sae` dependency choice (spec 03 §4).** Re-implement the
-  SAELens on-disk format, or wrap `sae-lens` (already a pyproject dependency)?
-  *Proposed:* thin wrapper over `sae_lens.SAE.load_from_disk`, imported inside
-  the function (keeps CPU test collection fast); all metric functions accept
-  any object satisfying an internal `SAEProtocol` (encode/decode/W_dec), so
-  tests use in-process synthetic SAEs and never touch the network.
-- **OQ-13 — `residual_pcs` centering + streaming method (spec 03 §2, V3.6).**
-  PCA centered or not; streaming algorithm unspecified. *Proposed:* centered
-  PCA; streaming accumulates residual mean + d×d second moment, then
-  eigendecomposes (exact, so V3.6 equality holds to float tolerance; d_model
-  is small enough that d×d is cheap).
-- **OQ-14 — `topk_grad_subspace_overlap` (spec 00 §4).** Definition explicitly
-  deferred to a future analysis spec. *Proposed:* the training wrapper always
-  writes `null` for now; field reserved.
+- **OQ-8 — label boundary:** dataset builder emits per-example label-token
+  spans; `task_format` declares the span rule; `label_mask` is the single
+  construction path for training loop and test evaluator (M1's shared fn).
+- **OQ-9 — refit return type:** `LowRankMap` dataclass (hook, U, S, Vh,
+  method, provenance); spec 02 §5 edited in same PR.
+- **OQ-10 — defaults:** explicit kwargs, `k=8`,
+  `alphas=(0.25, 0.5, 1.0, 2.0, 4.0)`; never hidden constants.
+- **OQ-11 — capacity metric:** notebook ratio of two `edl_nats` calls; no
+  library function.
+- **OQ-12 — `load_sae`:** thin wrapper over `sae_lens.SAE.load_from_disk`,
+  function-local import; all metrics accept `SAEProtocol`
+  (encode/decode/W_dec); tests use in-process synthetic SAEs.
+- **OQ-13 — `residual_pcs`:** centered PCA; streaming accumulates residual
+  mean + d×d second moment, then eigendecomposes (exact ⇒ V3.6 holds).
+- **OQ-14 — `topk_grad_subspace_overlap`:** always `null` for now; field
+  reserved for a future analysis spec.
 
 ---
 
@@ -123,7 +84,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 - **Protocol deviation:** the four-stage pipeline does not apply (there is no
   spec-behavior to test-first). Executed as a single implementation pass +
   review. Stated here so the deviation is planned, not improvised.
-- **Boundaries:** `git init` + initial commit (pending OQ-1);
+- **Boundaries:** repo already initialized (OQ-1 resolved);
   `geode/{zoo,edl,steering,saediff}/__init__.py`; `tests/conftest.py` with:
   - `tiny_llama(seed, n_layers=2, d_model=64, vocab_size=128) -> LlamaForCausalLM`
     — random-init in-process via `transformers.LlamaConfig`; never downloads.
@@ -137,8 +98,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 - **Tests:** none of its own; acceptance is that the (empty) suite collects and
   fixtures import.
 - **Acceptance:** `pytest -q` green; `ruff check` clean; fixtures build models
-  and tokenizers with zero network access (verifiable by running offline);
-  git history initialized (if OQ-1 confirmed).
+  and tokenizers with zero network access (verifiable by running offline).
 - **Depends on:** nothing.
 
 ---
@@ -763,9 +723,9 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
   must decide" (items 1–5), "Attribution reminder".
 - **Deliverable:** `docs/crosscoder-adaptation-plan.md`. **No code.**
   `reference/` untouched (read-only policy).
-- **Prerequisite:** OQ-2 — clone `sparsity-artifacts-crosscoders` into
-  `reference/` (plus reading their `dictionary_learning` fork on GitHub;
-  it is where the crosscoder/BatchTopK classes actually live).
+- **Prerequisite:** OQ-2 met — reference clone present (plus reading their
+  `dictionary_learning` fork on GitHub; it is where the crosscoder/BatchTopK
+  classes actually live).
 - **Protocol deviation:** four-stage pipeline doesn't apply to a document.
   Two stages instead: AUTHOR (fresh context, reads specs/03–04 + reference
   clone) → ADVERSARIAL-REVIEWER (fresh context, checks each of the five
@@ -852,6 +812,12 @@ context**:
 3. **IMPLEMENTER** — makes the tests pass. Must not modify tests.
 4. **CONFORMANCE-REVIEWER** — reviews the diff against spec + tests; reports
    gaps with file/line references.
+
+Stage models (owner decision 2026-07-11; `opus` is the capability ceiling):
+TEST-WRITER, TEST-AUDITOR, CONFORMANCE-REVIEWER run on `opus`; IMPLEMENTER
+runs on `sonnet`, escalated to `opus` for EDL-3, STEER-2, SAE-3 (pre-update
+determinism, bit-identical restoration, streaming math). ADAPT-1's AUTHOR
+and ADVERSARIAL-REVIEWER run on `opus`.
 
 A task is **done** only when stage 4 reports no findings and the full suite
 passes (`pytest -q`: CPU-only, <~2 min, no network). Commit after each
