@@ -77,7 +77,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ## Tasks
 
-### SETUP-0 — Repo bootstrap + shared test fixtures (~0.5 day)
+### SETUP-0 — Repo bootstrap + shared test fixtures (~0.5 day) — ✅ DONE
 
 - **Spec sections:** none (infrastructure). Governed by CLAUDE.md "Testing
   policy" (fixture models = tiny random in-process configs) and "Conventions".
@@ -103,7 +103,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### ZOO-1 — Run manifest + registry (~1 day)
+### ZOO-1 — Run manifest + registry (~1 day) — ✅ DONE
 
 - **Spec sections:** specs/00 §1 "Directory layout", §2 "Run manifest",
   §8 "Public API surface" (`RunManifest`, `register_run`, `load_run`,
