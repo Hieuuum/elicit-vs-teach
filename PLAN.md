@@ -148,7 +148,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### ZOO-2 — Run logs: records, invariants, consistency (~1 day)
+### ZOO-2 — Run logs: records, invariants, consistency (~1 day) — ✅ DONE
 
 - **Spec sections:** specs/00 §3 "Prequential log", §4 "Gradient statistics",
   §5 "Test loss", §8 (`prequential_records`, `test_loss`).
