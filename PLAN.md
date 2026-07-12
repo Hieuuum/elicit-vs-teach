@@ -260,7 +260,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### EDL-1 — Label masking (M1) + masking config hash (~1 day) — ✅ DONE
+### EDL-1 — Label masking (M1) + masking config hash (~1 day)
 
 - **Spec sections:** specs/01 §2 "Masking rules" (M1), §3 "Public API"
   (`label_mask`); specs/00 §5 (`masking_config_hash` semantics).
@@ -291,7 +291,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### EDL-2 — Prequential accumulator + EDL metrics (~1 day) — ✅ DONE
+### EDL-2 — Prequential accumulator + EDL metrics (~1 day)  — ✅ DONE
 
 - **Spec sections:** specs/01 §1 "Definitions" (MDL, EDL, normalizations, PGR,
   units), §2 M2, §3 (`prequential_step`, `PrequentialAccumulator`, `mdl_nats`,
