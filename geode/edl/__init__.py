@@ -1,9 +1,29 @@
 """Prequential MDL / EDL harness (specs/01)."""
 
 from geode.edl.masking import TaskFormat, label_mask, masking_config_hash
+from geode.edl.metrics import (
+    edl_nats,
+    edl_per_label_token,
+    edl_per_param,
+    mdl_nats,
+    nats_to_bits,
+    pgr,
+    training_curve,
+)
+from geode.edl.prequential import PrequentialAccumulator, StepLoss, prequential_step
 
 __all__ = [
+    "PrequentialAccumulator",
+    "StepLoss",
     "TaskFormat",
+    "edl_nats",
+    "edl_per_label_token",
+    "edl_per_param",
     "label_mask",
     "masking_config_hash",
+    "mdl_nats",
+    "nats_to_bits",
+    "pgr",
+    "prequential_step",
+    "training_curve",
 ]
