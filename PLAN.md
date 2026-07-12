@@ -291,7 +291,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### EDL-2 — Prequential accumulator + EDL metrics (~1 day)
+### EDL-2 — Prequential accumulator + EDL metrics (~1 day) — ✅ DONE
 
 - **Spec sections:** specs/01 §1 "Definitions" (MDL, EDL, normalizations, PGR,
   units), §2 M2, §3 (`prequential_step`, `PrequentialAccumulator`, `mdl_nats`,
