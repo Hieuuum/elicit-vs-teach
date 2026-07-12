@@ -192,7 +192,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### ZOO-3 — Activation store with matched-input enforcement (~1 day)
+### ZOO-3 — Activation store with matched-input enforcement (~1 day) — ✅ DONE
 
 - **Spec sections:** specs/00 §6 "Activation storage" (+ §1 layout).
 - **Boundaries:** `geode/zoo/activations.py`.
@@ -234,7 +234,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### ZOO-4 — Results table writer (~0.5 day)
+### ZOO-4 — Results table writer (~0.5 day) — ✅ DONE
 
 - **Spec sections:** specs/00 §7 "Results tables".
 - **Boundaries:** `geode/zoo/results.py`.
@@ -260,7 +260,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### EDL-1 — Label masking (M1) + masking config hash (~1 day)
+### EDL-1 — Label masking (M1) + masking config hash (~1 day) — ✅ DONE
 
 - **Spec sections:** specs/01 §2 "Masking rules" (M1), §3 "Public API"
   (`label_mask`); specs/00 §5 (`masking_config_hash` semantics).
