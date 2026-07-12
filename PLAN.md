@@ -394,6 +394,8 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
     ⇒ guard would fire on every legitimate run, or never.
 - **Acceptance:** V1.3, V1.6, V1.7 named tests pass; wrapper writes all four
   artifact kinds in one run on a tiny model in seconds; no `cuda` literals.
+- **Stage models:** IMPLEMENTER escalates to `opus` (pre-update determinism);
+  all other stages per the Execution-protocol table (`fable` reviews).
 - **Depends on:** EDL-2, ZOO-1, ZOO-2.
 
 ---
@@ -520,6 +522,8 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
     the error path (spec explicitly requires it).
 - **Acceptance:** V2.1, V2.2, V2.3 named tests pass; both interventions are
   context managers with exception-safe restoration; device-agnostic.
+- **Stage models:** IMPLEMENTER escalates to `opus` (bit-identical
+  restoration); all other stages per the Execution-protocol table.
 - **Depends on:** STEER-1.
 
 ---
@@ -713,6 +717,8 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
     in-test and join. Failure ⇒ §3's "no special code path" promise unmet.
 - **Acceptance:** all four V3.6 tests pass; orchestrator handles multiple
   hooks × checkpoints; results rows verified against ZOO-4 schema.
+- **Stage models:** IMPLEMENTER escalates to `opus` (streaming-equivalence
+  math); all other stages per the Execution-protocol table.
 - **Depends on:** SAE-2, ZOO-4, ZOO-1.
 
 ---
@@ -731,6 +737,8 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
   clone) → ADVERSARIAL-REVIEWER (fresh context, checks each of the five
   decision points is *decided*, not surveyed; checks attribution against
   CLAUDE.md).
+- **Stage models:** AUTHOR = `adapt-author` on `opus`; ADVERSARIAL-REVIEWER
+  = `adapt-reviewer` on `fable` (see Execution-protocol table).
 - **The document must decide (from specs/04):**
   1. Consumed as-is vs re-wired: expected split is crosscoder module +
      BatchTopK + latent-scaler closed form (`compute_scalers.py`) as-is from
@@ -813,11 +821,31 @@ context**:
 4. **CONFORMANCE-REVIEWER** — reviews the diff against spec + tests; reports
    gaps with file/line references.
 
-Stage models (owner decision 2026-07-11; `opus` is the capability ceiling):
-TEST-WRITER, TEST-AUDITOR, CONFORMANCE-REVIEWER run on `opus`; IMPLEMENTER
-runs on `sonnet`, escalated to `opus` for EDL-3, STEER-2, SAE-3 (pre-update
-determinism, bit-identical restoration, streaming math). ADAPT-1's AUTHOR
-and ADVERSARIAL-REVIEWER run on `opus`.
+Stage agents and models (owner decision 2026-07-11; amended 2026-07-12 —
+`fable` is now the capability ceiling). Each stage runs as the corresponding
+checked-in subagent in `.claude/agents/`; restrictions are hard-enforced, not
+advisory: per-agent tool allowlists in frontmatter, path guards in
+`.claude/hooks/agent-guard.sh` (PreToolUse, keyed on `agent_type`), and
+`reference/**` edit-denied for everyone via `.claude/settings.json`
+`permissions.deny`.
+
+| Stage | Agent (`.claude/agents/`) | Model | Hard restrictions |
+|---|---|---|---|
+| 1 TEST-WRITER | `test-writer` | `fable` | writes only `tests/` (+ `/tmp` scratch); cannot Read/Grep/Glob/shell into `geode/` |
+| 2 TEST-AUDITOR | `test-auditor` | `fable` | same guards; the only stage allowed to modify test files |
+| 3 IMPLEMENTER | `implementer` | `sonnet`; launch-time override to `opus` for EDL-3, STEER-2, SAE-3 | cannot edit `tests/` or `specs/` |
+| 4 CONFORMANCE-REVIEWER | `conformance-reviewer` | `fable` | no Edit/Write tools at all |
+| ADAPT-1 AUTHOR | `adapt-author` | `opus` | writes only `docs/` |
+| ADAPT-1 ADVERSARIAL-REVIEWER | `adapt-reviewer` | `fable` (upgraded from `opus` 2026-07-12) | no Edit/Write tools at all |
+
+Rationale for the fable/sonnet split: review stages carry the tier premium —
+the 2026-07-12 fable audit found 8 major test gaps that the earlier
+opus-staged pipeline missed — and IMPLEMENTER escalates only where the tests
+alone can't carry correctness (pre-update determinism, bit-identical
+restoration, streaming math). Known enforcement gap: Bash redirects are not
+path-filtered for `implementer`/`adapt-author`; the hook blocks the leak
+that matters most (writer/auditor shell access to `geode/`), the remainder
+stays protocol discipline.
 
 A task is **done** only when stage 4 reports no findings and the full suite
 passes (`pytest -q`: CPU-only, <~2 min, no network). Commit after each
