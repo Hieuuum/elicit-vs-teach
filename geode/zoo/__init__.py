@@ -1,5 +1,12 @@
 """Checkpoint manifest, run registry, run logs, and artifact store (specs/00)."""
 
+from geode.zoo.activations import (
+    ActivationMeta,
+    load_activations,
+    load_matched_pair,
+    save_activations,
+    tokenizer_hash,
+)
 from geode.zoo.checks import (
     ConsistencyError,
     check_epoch1_coverage,
@@ -28,6 +35,7 @@ from geode.zoo.results import (
 )
 
 __all__ = [
+    "ActivationMeta",
     "ConsistencyError",
     "GradStatRecord",
     "ManifestError",
@@ -39,11 +47,15 @@ __all__ = [
     "check_masking_consistency",
     "gradstat_records",
     "iter_runs",
+    "load_activations",
+    "load_matched_pair",
     "load_run",
     "prequential_records",
     "read_results",
     "register_run",
+    "save_activations",
     "test_loss",
+    "tokenizer_hash",
     "write_jsonl",
     "write_results",
 ]
