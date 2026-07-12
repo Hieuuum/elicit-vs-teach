@@ -21,12 +21,18 @@ from geode.zoo.records import (
     test_loss,
     write_jsonl,
 )
+from geode.zoo.results import (
+    REQUIRED_COLUMNS,
+    read_results,
+    write_results,
+)
 
 __all__ = [
     "ConsistencyError",
     "GradStatRecord",
     "ManifestError",
     "PrequentialRecord",
+    "REQUIRED_COLUMNS",
     "RunManifest",
     "TestLoss",
     "check_epoch1_coverage",
@@ -35,7 +41,9 @@ __all__ = [
     "iter_runs",
     "load_run",
     "prequential_records",
+    "read_results",
     "register_run",
     "test_loss",
     "write_jsonl",
+    "write_results",
 ]
