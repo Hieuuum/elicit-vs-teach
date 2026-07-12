@@ -347,7 +347,7 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
-### EDL-3 — Prequential training-loop wrapper (~1 day)
+### EDL-3 — Prequential training-loop wrapper (~1 day) — ✅ DONE
 
 - **Spec sections:** specs/01 §3 final paragraph ("thin training-loop wrapper
   around PEFT: pre-update loss, optimizer step, prequential + gradstat
