@@ -57,7 +57,8 @@ TOK_HASH_B = "b2" * 32
 # Snippet run in a fresh interpreter (test 3): imports the module, rebuilds the
 # *same* config from scratch, and prints its hash. A fresh process gives fresh
 # object identities and (with a distinct PYTHONHASHSEED) a distinct built-in
-# hash seed, so an equal digest can only come from canonical serialization.
+# hash seed, so an equal digest rules out object-identity hashing and any
+# dependence on Python's randomized built-in ``hash()``.
 _SUBPROCESS_SNIPPET = (
     "from geode.edl.masking import TaskFormat, masking_config_hash\n"
     "tf = TaskFormat(name={name!r}, format_version={version!r})\n"
@@ -181,7 +182,7 @@ def test_mask_count_matches_label_span_lengths(
 
 
 def test_same_config_same_hash_across_processes() -> None:
-    """Identical config ⇒ identical hash from canonical serialization.
+    """Identical config ⇒ identical hash, even across fresh interpreters.
 
     Two independently constructed ``TaskFormat`` objects (distinct identities)
     must hash identically, and two *fresh interpreters* with *different*
@@ -263,3 +264,22 @@ def test_hash_changes_when_mask_rule_or_tokenizer_changes(component: str) -> Non
 
     other_hash = masking_config_hash(other, tok)
     assert other_hash != base_hash
+
+
+# ---------------------------------------------------------------------------
+# OQ-7 — field boundaries are delimited (no concatenation collisions)
+# ---------------------------------------------------------------------------
+
+
+def test_hash_distinguishes_field_boundaries() -> None:
+    """Moving a character across a field boundary changes the digest.
+
+    ``name="a_", format_version="b"`` and ``name="a", format_version="_b"``
+    concatenate to the same string, so a delimiter-free digest (e.g. sha256
+    over ``name + format_version + ...``) collides on them. OQ-7's
+    canonical-JSON hash — or any serialization that quotes/delimits fields —
+    must keep them distinct. Implementation-agnostic: no key names assumed.
+    """
+    h1 = masking_config_hash(_task_format(name="a_", format_version="b"), TOK_HASH_A)
+    h2 = masking_config_hash(_task_format(name="a", format_version="_b"), TOK_HASH_A)
+    assert h1 != h2

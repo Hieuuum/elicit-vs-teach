@@ -221,30 +221,86 @@ def test_null_allowed_only_where_schema_says(tmp_path: Path, field: str, null_ok
 # OQ-3 — primitive type checks, error names the dotted path
 # ---------------------------------------------------------------------------
 
-WRONG_TYPE_CASES = (
-    ("schema_version", "1"),
-    ("run_id", 123),
-    ("created_utc", 20260711),
-    ("git_commit", 42),
-    ("base_model", "meta-llama/Llama-3.2-1B"),
-    ("base_model.hf_id", 7),
-    ("task.name", 3.5),
-    ("dataset.n_unique_examples", "512"),
-    ("dataset.seed", "0"),
-    ("training.lora.rank", "8"),  # nullable, but a non-null value is still type-checked
-    ("training.lora.target_modules", "q_proj"),
-    ("training.optimizer.lr", "1e-4"),
-    ("training.optimizer.batch_size", "8"),
-    ("training.epochs_total", "3"),
-    ("trainable_param_count", "4096"),
-    ("snapshot_steps", 8),
-    ("snapshot_steps", [0, "8"]),  # declared ["int"]: element types are part of the type
-    ("cost.est_usd", "1.5"),
+# Closed-enum fields (regime, training.method, status) are exercised by the
+# enum tests below — a wrong-typed value there is just another invalid enum
+# value — so they are excluded from the wrong-type map.
+ENUM_FIELDS = ("regime", "training.method", "status")
+
+# Every remaining spec 00 §2 field (containers included) mapped to one or
+# more wrong-typed values. Numeric fields get strings and string fields get
+# numbers, so no case hinges on JSON int/float leniency. List-typed fields
+# get an extra case with one wrong-typed *element*, since the schema declares
+# element types (["str"], ["int"]).
+WRONG_TYPE_VALUES: dict[str, tuple[object, ...]] = {
+    "schema_version": ("1",),
+    "run_id": (123,),
+    "created_utc": (20260711,),
+    "git_commit": (42,),
+    "base_model": ("meta-llama/Llama-3.2-1B",),
+    "base_model.hf_id": (7,),
+    "base_model.revision": (2,),
+    "task": ("task_a",),
+    "task.name": (3.5,),
+    "task.format_version": (1,),
+    "dataset": ("dataset_a",),
+    "dataset.name": (11,),
+    "dataset.n_unique_examples": ("512",),
+    "dataset.seed": ("0",),
+    "training": ("lora",),
+    "training.lora": (8,),
+    "training.lora.rank": ("8",),  # nullable, but a non-null value is still type-checked
+    "training.lora.alpha": ("16.0",),
+    "training.lora.target_modules": ("q_proj", ["q_proj", 3]),
+    "training.lora.dropout": ("0.05",),
+    "training.lora.sparse_param_count": ("4096",),
+    "training.optimizer": ("adamw",),
+    "training.optimizer.name": (1,),
+    "training.optimizer.lr": ("1e-4",),
+    "training.optimizer.batch_size": ("8",),
+    "training.optimizer.weight_decay": ("0.01",),
+    "training.epochs_total": ("3",),
+    "training.seed": ("0",),
+    "trainable_param_count": ("4096",),
+    "snapshot_steps": (8, [0, "8"]),
+    "cost": ("A100",),
+    "cost.gpu_type": (100,),
+    "cost.est_usd": ("1.5",),
+    "cost.actual_usd": ("0.9",),
+}
+
+WRONG_TYPE_CASES = tuple(
+    (field, bad_value)
+    for field, bad_values in WRONG_TYPE_VALUES.items()
+    for bad_value in bad_values
 )
+
+
+def test_wrong_type_map_covers_every_schema_field() -> None:
+    """Guard: the wrong-type map stays exhaustive as the schema evolves."""
+    assert set(WRONG_TYPE_VALUES) == set(REQUIRED_FIELDS) - set(ENUM_FIELDS)
 
 
 @pytest.mark.parametrize("field,bad_value", WRONG_TYPE_CASES)
 def test_wrong_primitive_type_rejected(tmp_path: Path, field: str, bad_value: object) -> None:
+    fields = make_manifest()
+    _set_field(fields, field, bad_value)
+    with pytest.raises(ManifestError) as excinfo:
+        _load_and_validate(tmp_path, fields)
+    assert field in str(excinfo.value)
+
+
+# JSON true/false must not satisfy "int": bool is a subclass of int in
+# Python, so ``isinstance(True, int)`` holds and a naive validator would
+# accept booleans in every int-typed field by default.
+BOOL_FOR_INT_CASES = (
+    ("schema_version", True),
+    ("training.epochs_total", False),
+    ("snapshot_steps", [0, True, 64]),
+)
+
+
+@pytest.mark.parametrize("field,bad_value", BOOL_FOR_INT_CASES)
+def test_bool_rejected_for_int_typed_field(tmp_path: Path, field: str, bad_value: object) -> None:
     fields = make_manifest()
     _set_field(fields, field, bad_value)
     with pytest.raises(ManifestError) as excinfo:

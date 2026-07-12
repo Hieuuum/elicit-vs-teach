@@ -138,8 +138,9 @@ def _write_test_loss(run_dir: Path, *, mask_hash: str, l_test: float) -> dict:
 
 
 def test_accumulator_rejects_epoch_gt1() -> None:
-    """V1.5 / M2: epoch-1 records accumulate; an epoch>1 record raises ValueError
-    (D-8) and leaves MDL untouched (the failed add must not corrupt state).
+    """V1.5 / M2: epoch-1 records accumulate; an epoch!=1 record (epoch 2, and
+    epoch 0 per D-8's "epoch != 1") raises ValueError and leaves MDL untouched
+    (the failed add must not corrupt state).
     """
     # V1.5 / M2 "structurally incapable": the constructor must be zero-arg —
     # injecting a record list would bypass add_epoch1 (the only entry point)
@@ -169,7 +170,14 @@ def test_accumulator_rejects_epoch_gt1() -> None:
                 step=2, epoch=2, example_ids=[0], label_token_count=3, loss_sum_nats=9.0
             )
         )
-    # The rejected add must not have mutated the accumulated MDL.
+    # D-8 is epoch != 1, not epoch > 1: an epoch-0 record must be rejected too.
+    with pytest.raises(ValueError):
+        acc.add_epoch1(
+            PrequentialRecord(
+                step=2, epoch=0, example_ids=[0], label_token_count=3, loss_sum_nats=9.0
+            )
+        )
+    # The rejected adds must not have mutated the accumulated MDL.
     assert acc.mdl_nats() == pytest.approx(before)
 
 
@@ -264,25 +272,32 @@ def test_edl_identity_mdl_minus_nlabel_times_testloss(geode_store: Path) -> None
 def test_edl_refuses_on_masking_hash_mismatch(geode_store: Path) -> None:
     """V1.4(a): ``edl_nats`` compares the manifest's ``masking_config_hash`` extra
     (D-1) with ``eval/test_loss.json``'s. Mismatch OR a missing manifest hash
-    raises ``ConsistencyError``; equal hashes yield a float.
+    raises ``ConsistencyError``; equal hashes yield a float. Spec 01 §2 refuses
+    "to compute EDL" generally, so the EDL-derived normalizations
+    ``edl_per_label_token`` and ``edl_per_param`` must refuse identically.
     """
     records = [
         PrequentialRecord(step=0, epoch=1, example_ids=[0], label_token_count=2, loss_sum_nats=2.0),
     ]
 
-    # (a) manifest hash != test-loss hash -> refuse.
+    # (a) manifest hash != test-loss hash -> refuse (all EDL entry points).
     mism = _register(geode_store, "run-mismatch", n_unique=1, extra={"masking_config_hash": HASH_B})
     _write_preq(mism, records)
     _write_test_loss(mism, mask_hash=HASH_A, l_test=0.5)
     with pytest.raises(ConsistencyError):
         edl_nats("run-mismatch")
+    with pytest.raises(ConsistencyError):
+        edl_per_label_token("run-mismatch")
+    with pytest.raises(ConsistencyError):
+        edl_per_param("run-mismatch")
 
-    # (b) equal hashes -> a real float value.
+    # (b) equal hashes -> the exact §1 value: EDL = 2.0 − 2·0.5 = 1.0.
     ok = _register(geode_store, "run-match", n_unique=1, extra={"masking_config_hash": HASH_A})
     _write_preq(ok, records)
     _write_test_loss(ok, mask_hash=HASH_A, l_test=0.5)
     value = edl_nats("run-match")
     assert isinstance(value, float)
+    assert value == pytest.approx(1.0)
 
     # (c) manifest lacks the hash extra -> cannot verify parity -> refuse.
     nohash = _register(geode_store, "run-nohash", n_unique=1)
@@ -290,6 +305,10 @@ def test_edl_refuses_on_masking_hash_mismatch(geode_store: Path) -> None:
     _write_test_loss(nohash, mask_hash=HASH_A, l_test=0.5)
     with pytest.raises(ConsistencyError):
         edl_nats("run-nohash")
+    with pytest.raises(ConsistencyError):
+        edl_per_label_token("run-nohash")
+    with pytest.raises(ConsistencyError):
+        edl_per_param("run-nohash")
 
 
 # ---------------------------------------------------------------------------
@@ -300,24 +319,28 @@ def test_edl_refuses_on_masking_hash_mismatch(geode_store: Path) -> None:
 def test_normalizations_per_token_per_param(geode_store: Path) -> None:
     """specs/01 §1: ``edl_per_label_token`` uses the epoch-1 ``N_label``;
     ``edl_per_param`` uses the manifest's ``trainable_param_count``. Constructed
-    so the two denominators differ (8 vs 1000); both are checked exactly.
+    so the two denominators differ (10 vs 1000); both are checked exactly.
     """
+    # Deliberately Σloss_sum_nats (8.0) != Σlabel_token_count (10): a wrong
+    # denominator (dividing EDL by the epoch-1 loss mass instead of N_label,
+    # or any field swap among 8.0 / 10 / 1000 / the §5 test token count 16)
+    # cannot reproduce the expected values.
     records = [
         PrequentialRecord(
             step=0, epoch=1, example_ids=[0, 1], label_token_count=4, loss_sum_nats=5.0
         ),
         PrequentialRecord(
-            step=1, epoch=1, example_ids=[2, 3], label_token_count=4, loss_sum_nats=3.0
+            step=1, epoch=1, example_ids=[2, 3], label_token_count=6, loss_sum_nats=3.0
         ),
     ]
     run_dir = _register(geode_store, "run-norm", n_unique=4, extra={"masking_config_hash": HASH_A})
     _write_preq(run_dir, records)
     _write_test_loss(run_dir, mask_hash=HASH_A, l_test=0.5)
 
-    # MDL=8, N_label=8, L_test=0.5 -> EDL = 8 - 8*0.5 = 4.0; param count = 1000.
-    edl = 4.0
+    # MDL=8, N_label=10, L_test=0.5 -> EDL = 8 - 10*0.5 = 3.0; param count = 1000.
+    edl = 3.0
     assert edl_nats("run-norm") == pytest.approx(edl)
-    assert edl_per_label_token("run-norm") == pytest.approx(edl / 8)
+    assert edl_per_label_token("run-norm") == pytest.approx(edl / 10)
     assert edl_per_param("run-norm") == pytest.approx(edl / 1000)
 
 
@@ -347,6 +370,11 @@ def test_pgr_formula_and_degenerate_denominator() -> None:
     assert pgr(0.9, 0.5, 0.9) == pytest.approx(1.0)  # tuned == fullft -> full recovery
     with pytest.raises(ValueError):
         pgr(0.8, 0.5, 0.5)  # P_fullft == P_base: degenerate denominator
+    with pytest.raises(ValueError):
+        # Tiny but NONZERO denominator (~1e-15): must refuse rather than
+        # return a huge, silently-meaningless ratio (exact-equality checks
+        # would let this through).
+        pgr(0.8, 0.5, 0.5 + 1e-15)
 
 
 # ---------------------------------------------------------------------------

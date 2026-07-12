@@ -23,6 +23,10 @@ from pathlib import Path
 import pytest
 import torch
 from safetensors.torch import load_file
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import WhitespaceSplit
+from transformers import PreTrainedTokenizerFast
 
 from geode.zoo.activations import (
     ActivationMeta,
@@ -66,15 +70,17 @@ META_KEYS = {
 def _meta(
     *,
     model_key: str = MODEL_A,
+    hf_id: str = "org/tiny-model",
+    revision: str = "main",
     dataset_key: str = DATASET,
     position_policy: str = "all",
     tok_hash: str = TOK_HASH_A,
 ) -> ActivationMeta:
-    """A fully populated ActivationMeta; override exactly one field per test."""
+    """A fully populated ActivationMeta; override only the fields under test."""
     return ActivationMeta(
         model_key=model_key,
-        hf_id="org/tiny-model",
-        revision="main",
+        hf_id=hf_id,
+        revision=revision,
         dataset_key=dataset_key,
         position_policy=position_policy,
         n_samples=N_SAMPLES,
@@ -227,18 +233,30 @@ def test_matched_pair_error_message_is_clear(geode_store: Path) -> None:
 
 def test_matched_pair_matched_returns_both(geode_store: Path) -> None:
     """Positive V0.4 contract: with identical dataset_key/position_policy/
-    tokenizer_hash, the loader returns both tensors and the shared provenance."""
-    _save(_meta(model_key=MODEL_A), geode_store, seed=1)
-    _save(_meta(model_key=MODEL_B), geode_store, seed=2)
+    tokenizer_hash, the loader returns both tensors — in (a, b) order — and
+    the shared provenance. hf_id/revision differ deliberately: real matched
+    pairs are different models, and §6 gates only on the three matched-input
+    fields, so a gate demanding whole-meta equality must fail here."""
+    _save(
+        _meta(model_key=MODEL_A, hf_id="org/model-a", revision="rev-a"),
+        geode_store,
+        seed=1,
+    )
+    _save(
+        _meta(model_key=MODEL_B, hf_id="org/model-b", revision="rev-b"),
+        geode_store,
+        seed=2,
+    )
 
     acts_a, acts_b, meta = load_matched_pair(MODEL_A, MODEL_B, DATASET, HOOK, store=geode_store)
 
-    assert acts_a.shape == (N_SAMPLES, N_POS, D_MODEL)
-    assert acts_b.shape == (N_SAMPLES, N_POS, D_MODEL)
     assert acts_a.dtype == torch.float16
     assert acts_b.dtype == torch.float16
-    # Distinct tensors: the two models were loaded from their own files.
-    assert not torch.equal(acts_a, acts_b)
+    # Exact values pin the (a, b) return order: slot a is model A's saved
+    # tensor (seed 1), slot b is model B's (seed 2), both float16 on disk —
+    # a swapped (acts_b, acts_a) return must fail.
+    assert torch.equal(acts_a, _acts(1).to(torch.float16))
+    assert torch.equal(acts_b, _acts(2).to(torch.float16))
     # The returned meta carries the shared matched-input provenance (§6).
     assert meta.dataset_key == DATASET
     assert meta.position_policy == "all"
@@ -248,6 +266,21 @@ def test_matched_pair_matched_returns_both(geode_store: Path) -> None:
 # ---------------------------------------------------------------------------
 # OQ-7 — tokenizer_hash is deterministic across instances and vocab-sensitive.
 # ---------------------------------------------------------------------------
+
+
+def _wordlevel_tokenizer(words: list[str]) -> PreTrainedTokenizerFast:
+    """An in-process word-level tokenizer over ``words`` (conftest pattern)."""
+    specials = ["[PAD]", "[UNK]", "[BOS]", "[EOS]"]
+    vocab = {tok: i for i, tok in enumerate([*specials, *words])}
+    backend = Tokenizer(WordLevel(vocab, unk_token="[UNK]"))
+    backend.pre_tokenizer = WhitespaceSplit()
+    return PreTrainedTokenizerFast(
+        tokenizer_object=backend,
+        pad_token="[PAD]",
+        unk_token="[UNK]",
+        bos_token="[BOS]",
+        eos_token="[EOS]",
+    )
 
 
 def test_tokenizer_hash_deterministic_and_sensitive(tiny_tokenizer) -> None:
@@ -265,3 +298,13 @@ def test_tokenizer_hash_deterministic_and_sensitive(tiny_tokenizer) -> None:
     # Sensitivity: a smaller vocabulary changes the canonical tokenizer JSON.
     h_small = tokenizer_hash(tiny_tokenizer(vocab_size=64))
     assert h_small != h1
+
+    # Content sensitivity at equal vocab size (OQ-7: the hash covers the
+    # canonical tokenizer JSON, not just the vocab size): renaming a single
+    # word token must change the hash even though both vocabs have the same
+    # size — a hash of vocab_size alone must fail here.
+    words = [f"t{i}" for i in range(8)]
+    renamed = ["z0", *words[1:]]
+    h_words = tokenizer_hash(_wordlevel_tokenizer(words))
+    h_renamed = tokenizer_hash(_wordlevel_tokenizer(renamed))
+    assert h_words != h_renamed
