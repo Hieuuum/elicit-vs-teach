@@ -1,0 +1,26 @@
+# Pilot override for run 1 (spec 05 §11): tiny end-to-end de-risk pass.
+# Inherits run1_pretrain.yaml; keys here win. Uploads go to the -pilot
+# HF repo, never the production one.
+
+run_id: evt-pilot-run1-base
+
+model:                      # scaled-down same-family arch for the pipeline test
+  hidden_size: 512
+  intermediate_size: 2048
+  num_hidden_layers: 8
+  num_attention_heads: 8
+  num_key_value_heads: 4
+
+data:
+  seq_len: 256
+  max_documents: 20000      # subset of TinyStories for the pilot
+  val_fraction: 0.02
+
+train:
+  lr: 3.0e-4
+  batch_size: 32
+  eval_every: 100
+  max_steps: 2000
+  stopping:
+    eps_nats: 0.01
+    k: 3

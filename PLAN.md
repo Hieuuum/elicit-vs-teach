@@ -55,9 +55,10 @@ geode/
   steering/   __init__.py  types.py  extract.py  interventions.py
               refit.py  controls.py  ladder.py
   saediff/    __init__.py  sae.py  metrics.py  stats.py  orchestrate.py
+  train/      __init__.py  packing.py  stopping.py  loop.py   # TRAIN-1 (spec 05)
 tests/
   conftest.py                       # shared tiny-model / task / store fixtures
-  zoo/  edl/  steering/  saediff/   # one test module per task, named below
+  zoo/  edl/  steering/  saediff/  train/   # one test module per task, named below
 docs/
   crosscoder-adaptation-plan.md     # ADAPT-1 deliverable (document, not code)
 ```
@@ -773,6 +774,50 @@ The reference repo informs exactly one deliverable: ADAPT-1's document.
 
 ---
 
+### TRAIN-1 — Corpus packing + full-FT/pretrain trainer (~1 day) — ✅ DONE
+
+- **Spec sections:** specs/05 §6 "Training runs — per-run needs" (Runs 1–4
+  paragraph) and §6.1 "`geode.train` — corpus packing + full-FT trainer"
+  (interface, `train_full` contract, V5.17–V5.25). §6.2 (launch script,
+  config) is protocol-exempt and NOT part of this task's test scope.
+- **Boundaries:** `geode/train/__init__.py`, `packing.py`, `stopping.py`,
+  `loop.py` — API exactly as spec 05 §6.1. Pretrain mode only (all
+  next-token positions); no zoo imports, no `datasets` imports, no label
+  masking (that arrives with the runs-2–4 task).
+- **Adapted vs fresh:** fresh (plain torch/transformers; deliberately
+  independent of `geode.edl.loop` so the validated prequential path stays
+  untouched).
+- **Tests** (`tests/train/test_packing.py`, `test_stopping.py`,
+  `test_loop.py`; tiny fixtures from SETUP-0):
+  - `test_pack_sequences_exact_len_and_stream_order` **(V5.17)**
+  - `test_pack_drops_short_tail` **(V5.17)**
+  - `test_pack_missing_eos_raises`, `test_pack_deterministic` **(V5.17)**
+  - `test_split_exact_partition_and_sizes` **(V5.18)**
+  - `test_split_seeded_deterministic` **(V5.18)**
+  - `test_eval_nll_matches_manual_reference` **(V5.19)**
+  - `test_eval_nll_invariant_to_batch_size` **(V5.19)**
+  - `test_stopping_plateau_stops_after_exactly_k` **(V5.20)**
+  - `test_stopping_improvement_resets_counter` **(V5.20)**
+  - `test_stopping_eps_boundary_is_strict`, `test_stopping_nan_raises`
+    **(V5.20)**
+  - `test_train_converges_and_stops_on_tiny_corpus` **(V5.21)**
+  - `test_same_seed_identical_logs` **(V5.22)**
+  - `test_log_schema_and_eval_step_set` **(V5.23)**
+  - `test_checkpoint_roundtrip_same_val_nll` **(V5.24)**
+  - `test_max_steps_cap_reason` **(V5.25)**
+- **Acceptance:** all V5.17–V5.25 named tests pass; suite stays CPU-only
+  < ~2 min; ruff clean; no `cuda` literals; module imports neither
+  `geode.zoo` nor `datasets`.
+- **Stage models (owner decision 2026-07-16, task-scoped):** TEST-WRITER =
+  `opus`, TEST-AUDITOR = `fable`, IMPLEMENTER = `sonnet`,
+  CONFORMANCE-REVIEWER = `fable`. Fable is reserved for the two review
+  stages (where the 2026-07-12 audit showed the tier premium pays);
+  future tasks may repeat this split unless a task is escalation-listed.
+- **Depends on:** SETUP-0 only (fixtures); independent of all other
+  tracks.
+
+---
+
 ## Task DAG and topological order
 
 ```
@@ -889,6 +934,15 @@ uncovered V-number is a planning error.
 | V3.4 | 03 | SAE-2 | `test_top_residual_pc_matches_planted_direction` |
 | V3.5 | 03 | SAE-1 | `test_nfm_raises_on_metadata_mismatch` |
 | V3.6 | 03 | SAE-3 | `test_streaming_fvu_equals_inmemory`, `test_streaming_nfm_equals_inmemory`, `test_streaming_latent_stats_equal_inmemory`, `test_streaming_residual_pcs_equal_inmemory` |
+| V5.17 | 05 | TRAIN-1 | `test_pack_sequences_exact_len_and_stream_order`, `test_pack_drops_short_tail`, `test_pack_missing_eos_raises`, `test_pack_deterministic` |
+| V5.18 | 05 | TRAIN-1 | `test_split_exact_partition_and_sizes`, `test_split_seeded_deterministic` |
+| V5.19 | 05 | TRAIN-1 | `test_eval_nll_matches_manual_reference`, `test_eval_nll_invariant_to_batch_size` |
+| V5.20 | 05 | TRAIN-1 | `test_stopping_plateau_stops_after_exactly_k`, `test_stopping_improvement_resets_counter`, `test_stopping_eps_boundary_is_strict`, `test_stopping_nan_raises` |
+| V5.21 | 05 | TRAIN-1 | `test_train_converges_and_stops_on_tiny_corpus` |
+| V5.22 | 05 | TRAIN-1 | `test_same_seed_identical_logs` |
+| V5.23 | 05 | TRAIN-1 | `test_log_schema_and_eval_step_set` |
+| V5.24 | 05 | TRAIN-1 | `test_checkpoint_roundtrip_same_val_nll` |
+| V5.25 | 05 | TRAIN-1 | `test_max_steps_cap_reason` |
 
 Non-V coverage worth naming: spec 00 §7 (results tables — no V-number) is
 covered by ZOO-4's tests + `test_ladder_rows_conform_to_results_schema` +

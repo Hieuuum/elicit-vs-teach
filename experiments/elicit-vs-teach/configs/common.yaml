@@ -1,0 +1,28 @@
+# Shared config blocks for all elicit-vs-teach runs (spec 05 §6).
+# Values from the experiment spec's fixed tables unless marked OPEN(n).
+
+optimizer:
+  name: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+
+training:
+  lr_scheduler: constant
+  grad_clip: 1.0
+  precision: bf16          # library falls back to fp32 on CPU smoke tests
+  batch_size: 128          # paper: effective 1024 on 8xH100; single-GPU here
+
+# LoRA block applies to target runs (5-6) only; kept here so both arm
+# configs inherit identical values.
+lora:
+  r: 64
+  alpha: 32
+  scaling: alpha_over_2r
+  dropout: 0.0
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+gpu:
+  type: null               # set at rental time (e.g. A100-80GB)
+  tflops_bf16: 312.0       # A100 dense bf16 peak; used only for cost estimate
+  utilization: 0.35        # conservative MFU guess for cost estimate
+  usd_per_hour: 1.90

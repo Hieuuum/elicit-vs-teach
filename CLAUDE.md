@@ -75,6 +75,23 @@ Each task runs as four sequential subagent stages, each in a fresh context:
 A task is done only when stage 4 reports no findings and the full suite
 passes. Commit after each completed task with the task ID in the message.
 
+## Documentation policy (non-negotiable)
+
+Every implementation run (a PLAN.md task through its stage cycle) ends
+with an implementation log at `docs/impl-logs/<TASK-ID>.md`, written
+before the task's commit, following `docs/impl-logs/README.md` (template
++ index there). Logs record every decision with its why, a
+stage-by-stage account including findings verbatim and their
+disposition, test rationale, and verification evidence. Include mermaid
+diagrams where structure helps; when the task produced runnable numeric
+behavior (schedules, curves, distributions), generate plots into
+`docs/impl-logs/assets/<TASK-ID>/` and embed them.
+
+Stage-model economy: `fable` is reserved for review stages
+(TEST-AUDITOR, CONFORMANCE-REVIEWER) unless a task is explicitly
+escalation-listed in PLAN.md; TEST-WRITER runs on `opus`, IMPLEMENTER on
+`sonnet` (owner decision 2026-07-16).
+
 ## Budget rule
 
 Nothing in this repo launches a GPU job implicitly. Any script that could
