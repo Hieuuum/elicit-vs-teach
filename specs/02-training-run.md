@@ -140,26 +140,37 @@ same PR that implements validation.
 
 **Generator requirements.** Procedural (own generator; not DMM splits —
 those are ~87% decimals, mixed formats). Operands 1–4 digits; ops add/sub
-(mult for the installer). Formats: NL (`"What is 23 plus 45? 68"`-style)
-and operator notation (`23 + 45 = 68`-style; exact template frozen at
-pilot — OPEN(9); ~12–15 tokens, padded length OPEN(5)). Label modes:
+(mult for the installer). Both formats share a two-line `Question: <body>` / `Answer: <answer>`
+scaffold (exact template frozen 2026-07-17, closing OPEN(9); padded length
+OPEN(5)): operator body `a op b` (e.g. `Question: 23 + 45` then `Answer: 68`),
+NL body `What is the sum of a and b?` / `What is the difference between a and
+b?` (add/sub only). Label modes:
 correct | random. Random-label sampling distribution OPEN(6) (default:
 uniform over answers with digit-count distribution matched to true
-answers). Subtraction negatives OPEN(7) (default: allowed). Every emitted
-example carries label-token spans (spec 00 OQ-8 shape) so masking goes
-through `geode.edl.masking.label_mask` — the single mask path.
+answers). Subtraction negatives OPEN(7) (default: allowed). Datasets are
+generated **once** by `scripts/make_data.py` and frozen to files (not
+regenerated at train time); `geode.arith` supplies only rendering, the
+random-label rule, evals, the water-fill allocation, and the validators.
+Every emitted example carries the answer **character** span (tokenizer-
+agnostic); token-level label spans are derived at load once the tokenizer is
+fixed (OPEN(11)), and masking then goes through `geode.edl.masking.label_mask`
+— the single mask path.
 
-**Integrity rules.** Dedup on (a, b, op). Probe operand pairs (a, b) are
-excluded from the target set **and every pre-teach/installer set**,
-regardless of op and format. Both target runs consume the identical
-dataset in identical order; the index-sequence hash is stored as
-`data_order_hash` in both manifests.
+**Integrity rules.** Every training row is a distinct question `(a, op, b)`
+— no repeats. Probe **questions** (the triple `(a, op, b)`, format-independent)
+are excluded from the target set **and every pre-teach/installer set**; the
+same operand pair under a different op, or commuted, is *not* excluded.
+(Softened from the original pair rule: both arms train on the identical target
+set, so probe overlap inflates both equally and never biases the A-vs-B
+comparison.) Both target runs consume the identical dataset in identical order;
+the index-sequence hash is stored as `data_order_hash` in both manifests.
 
 **Probe set.** 1024 held-out examples, target format, fixed across arms
-and snapshots. Stratified 256 per digit class, class = max(digits(a),
-digits(b)) ∈ {1,2,3,4}, ops balanced within class (uniform sampling would
-give ~98% 4-digit). Serialized once with `probe_set_hash`; every consumer
-records that hash.
+and snapshots. Stratified 64 per `(x_digits, y_digits)` cell (16 cells,
+x, y ∈ {1,2,3,4}), ops balanced within cell (uniform sampling would give
+~98% 4-digit). Training sets use the same 16-cell grid with capacity-capped
+water-fill (`geode.arith.stratify`). Serialized once with `probe_set_hash`;
+every consumer records that hash.
 
 **Evals.** Answer parser + exact-match accuracy (negatives included),
 format-validity check (output parses as a number in the expected slot),
@@ -167,11 +178,16 @@ zero/16-shot prompt builder for G5.
 
 **Validation properties (tests derive from these at task cut):**
 
-- V5.1 no probe operand pair appears in any generated train set.
-- V5.2 dedup: all (a, b, op) unique; requested n produced exactly.
-- V5.3 probe stratification: exactly 256 per digit class, ops balanced.
+- V5.1 no probe **question** `(a, op, b)` appears in any generated train set;
+  the same operand pair under a different op, or commuted, is allowed.
+- V5.2 every question unique: all `(a, op, b)` distinct in each set; requested
+  n produced exactly (1,000,000 per training set).
+- V5.3 stratification: 16 `(x_digits, y_digits)` cells filled by capacity-capped
+  water-fill — small cells taken whole, the remainder split as evenly as
+  capacities allow; ops balanced where capacity permits.
 - V5.4 determinism: same seed ⇒ byte-identical datasets.
-- V5.5 label spans cover exactly the answer tokens under the real template.
+- V5.5 label spans cover exactly the answer characters under the
+  `Question:/Answer:` scaffold (both formats), negatives included.
 - V5.6 random-label mode: labels statistically independent of operands.
 - V5.7 parser/exact-match correct on constructed outputs incl. negatives
   and malformed strings.
@@ -464,8 +480,8 @@ real gradient-alignment plot. Then parameter pilots close open items:
 - OPEN(3): ε, k frozen from pilot validation curves.
 - OPEN(4): batch → step count → snapshot-schedule parameters (needs
   OPEN(2)).
-- OPEN(5)/OPEN(9): tokenize real templates ⇒ padded max seq_len (~16) and
-  frozen template string.
+- OPEN(5): tokenize the frozen `Question:/Answer:` templates ⇒ padded max
+  seq_len (OPEN(9) template string decided 2026-07-17).
 
 Pilot outcomes are logged in `notes/decisions.md`, then the `OPEN(n)`
 markers in this spec are replaced with pinned values in the same PR.
@@ -482,7 +498,7 @@ markers in this spec are replaced with pinned values in the same PR.
 | OPEN(6) | Random-label sampling distribution (installer) | decision before pilot; default digit-count-matched uniform |
 | OPEN(7) | Subtraction negatives allowed | decision before pilot; default allowed |
 | OPEN(8) | Run 1: pretrain from scratch vs external TinyStories checkpoint | mentor (cost flag: run 1 is the most expensive item and pure reproduction; no existing checkpoint matches Llama-3.2-1B arch exactly) |
-| OPEN(9) | Exact operator-notation template string | pilot tokenizer check (with OPEN(5)) |
+| OPEN(9) | Exact template string (both formats) | **decided 2026-07-17**: two-line `Question: <body>` / `Answer: <answer>` scaffold; padded length still OPEN(5) |
 | OPEN(10) | Keep optimizer-state snapshots (3.6 GB) | decision before production run 5 |
 | OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) and tokenizer choice (vocab size drives embedding params; Llama-3.2 tokenizer is license-gated — mirror or alternative needed) | paper tables / mentor, before any `--confirm-cost` spend; config ships documented placeholders |
 
