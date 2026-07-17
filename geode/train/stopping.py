@@ -1,4 +1,4 @@
-"""Validation-loss convergence stopping rule (specs/05 §6.1).
+"""Validation-loss convergence stopping rule (specs/02 §6.1).
 
 An eval "improves" iff ``(best_so_far - val_loss_nats) > eps_nats`` (strict;
 an improvement of exactly ``eps_nats`` does not count). Improvement updates

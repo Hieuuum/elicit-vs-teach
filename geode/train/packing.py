@@ -1,4 +1,4 @@
-"""Corpus packing + train/val split (specs/05 §6.1).
+"""Corpus packing + train/val split (specs/02 §6.1).
 
 ``pack_corpus`` turns a stream of documents into fixed-length rows for
 next-token pretraining; ``train_val_split`` partitions packed rows into a

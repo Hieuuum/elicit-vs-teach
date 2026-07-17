@@ -1,10 +1,10 @@
-"""TRAIN-1 loop tests — specs/05 §6.1 ``evaluate_nll_nats`` / ``train_full``.
+"""TRAIN-1 loop tests — specs/02 §6.1 ``evaluate_nll_nats`` / ``train_full``.
 
 Module under test (does not exist yet):
 
     from geode.train.loop import TrainResult, evaluate_nll_nats, train_full
 
-Derived from the spec only (specs/05-elicit-vs-teach.md §6.1 and the Runs 1-4
+Derived from the spec only (specs/02-training-run.md §6.1 and the Runs 1-4
 paragraph):
 
 - ``evaluate_nll_nats``: mean next-token cross-entropy in nats over ALL

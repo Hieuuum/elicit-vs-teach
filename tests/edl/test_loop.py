@@ -21,7 +21,7 @@ Derived from specs, never from an implementation:
   schema + epoch-1 enumeration invariant; §4 gradstats.jsonl schema (OQ-14:
   overlap always null); §5 test_loss.json schema + ``masking_config_hash``
   parity (V0.5 producer side).
-- PLAN.md "### EDL-3" and resolved decisions OQ-4 (example_ids universe),
+- the retired build plan (git history) "### EDL-3" and resolved decisions OQ-4 (example_ids universe),
   OQ-7 (hash construction), OQ-8 (span-carrying examples + shared
   ``label_mask``), OQ-14 (overlap null).
 

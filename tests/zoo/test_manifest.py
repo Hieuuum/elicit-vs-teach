@@ -2,7 +2,7 @@
 
 Derived from specs/00-interfaces.md — §1 "Directory layout", §2 "Run
 manifest", §8 "Public API surface" — validation properties V0.1 and V0.2,
-and PLAN.md resolved decision OQ-3 (all listed keys required recursively;
+and resolved decision (specs/00 §9) OQ-3 (all listed keys required recursively;
 ``null`` only where the schema says ``|null``; primitive type checks;
 errors name the dotted path, e.g. ``training.optimizer.lr``).
 

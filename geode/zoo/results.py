@@ -3,7 +3,7 @@
 Analysis outputs are long-format parquet files in ``results/``: one row per
 measurement, keyed by the eight mandated columns below. This is the join key
 structure for the EDL-vs-internals bridge plots — EDL values (from the
-harness) and internal quantities (from steering/saediff) land in the same
+harness) and internal quantities (from analysis drivers) land in the same
 table shape and join on ``run_id``/``dataset_size``.
 
 Per OQ-6: one parquet per analysis at ``results/{name}.parquet`` under the

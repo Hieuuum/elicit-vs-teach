@@ -1,4 +1,4 @@
-# Run 1 — TinyStories pretrain (spec 05 §1 row 1, §6.2).
+# Run 1 — TinyStories pretrain (spec 02 §1 row 1, §6.2).
 # ALL hyperparameters below marked OPEN(11) are documented placeholders:
 # pin from paper tables / mentor before any --confirm-cost spend.
 # OPEN(8): this run may be replaced entirely by an external checkpoint.

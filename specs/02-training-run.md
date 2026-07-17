@@ -1,4 +1,4 @@
-# 05 — Elicit-vs-Teach: experiment organization & requirements
+# 02 — Training Runs: elicit-vs-teach experiment organization & requirements
 
 Status: **design, pre-implementation** (2026-07-16). Defines folder/run
 organization and per-part requirements for the mechanistic
@@ -11,9 +11,10 @@ Decisions locked 2026-07-16 (owner):
 
 - **Code home:** thin scripts/configs in `experiments/elicit-vs-teach/`;
   reusable logic as geode library modules (`geode.arith`, `geode.probe`).
-- **Rigor:** four-stage spec-first protocol applies to the library modules
-  only. Experiment scripts, configs, and plotting are single-pass + review
-  (SETUP-0-style planned deviation).
+- **Rigor:** library modules (`geode.arith`, `geode.probe`) are written
+  with their property tests in one pass (CLAUDE.md → "Workflow");
+  experiment scripts, configs, and plotting are single-pass +
+  self-review.
 - **Run tracking:** geode.zoo is the local registry for all six runs; the HF
   dataset repo holds bulk tensors; `manifest.parquet` is an *export* of zoo
   records, never a second source of truth.
@@ -66,14 +67,14 @@ experiments/elicit-vs-teach/
     decisions.md       # running log; pilot outcomes close OPEN items here first
 
 geode/
-  arith/               # library, spec-first (§5): generator, formats, evals
-  train/               # library, spec-first (§6.1): packing, full-FT/pretrain loop
-  probe/               # library, spec-first (§7): schedule, extraction, metrics
+  arith/               # library (§5): generator, formats, evals
+  train/               # library (§6.1): packing, full-FT/pretrain loop
+  probe/               # library (§7): schedule, extraction, metrics
 ```
 
-Library modules go through the four-stage protocol against §5/§7 of this
-spec (interfaces finalized at task-cut time). Everything under
-`experiments/` is exempt (single-pass + review).
+Library modules are written together with their property tests against
+§5/§7 of this spec. Everything under `experiments/` is script-land:
+single-pass + self-review.
 
 ## 3. Store layout (artifacts)
 
@@ -135,7 +136,7 @@ per-snapshot metrics + staging file paths; it carries no information that
 zoo lacks. The schema rule (CLAUDE.md) applies: spec 00 is edited in the
 same PR that implements validation.
 
-## 5. `geode.arith` — task data + evals (library, spec-first)
+## 5. `geode.arith` — task data + evals
 
 **Generator requirements.** Procedural (own generator; not DMM splits —
 those are ~87% decimals, mixed formats). Operands 1–4 digits; ops add/sub
@@ -330,7 +331,7 @@ def train_full(model, train_seqs: torch.LongTensor,
 - V5.25 with stopping effectively disabled (huge k), training stops at
   exactly `max_steps` with `stop_reason="max_steps"`.
 
-### 6.2 Run-1 launch surface (protocol-exempt)
+### 6.2 Run-1 launch surface (scripts — single-pass)
 
 `experiments/elicit-vs-teach/scripts/train.py` + `configs/`: parses the
 run YAML, builds the Llama-3.2-1B-shaped `LlamaConfig` from the config
@@ -355,7 +356,7 @@ launch.
 
 **Optimizer state:** ~10 checkpoints, optional — OPEN(10).
 
-## 7. `geode.probe` — schedule, extraction, analysis metrics (library, spec-first)
+## 7. `geode.probe` — schedule, extraction, analysis metrics
 
 **Snapshot scheduler.** `snapshot_steps(total_steps, n=1024, dense_until≈30)`
 → strictly increasing, includes first and final step, dense unit-stride
@@ -386,9 +387,11 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
   per-example gradient matrix. Expectation: elicitation ⇒ near-parallel;
   teaching ⇒ diverse.
 - Representation drift from the init snapshot, per layer, per digit class.
-- Adapter diffs: cumulative ‖ΔW‖, effective rank, per-layer allocation —
-  reuses `geode.steering.extract_weight_diff` (E2, α-scaling already
-  validated by V2.6); only small summary helpers are new.
+- Adapter diffs: cumulative ‖ΔW‖, effective rank, per-layer allocation.
+  Needs a small weight-diff helper written fresh in
+  `analysis/adapters.py` (LoRA ΔW = B@A × α/2r per module, ~20 lines).
+  (`geode.steering` was planned but never built and was deleted in the
+  2026-07-17 cut; its V2.6 was a spec property, never a test.)
 - Performance-aligned matching: map snapshots across arms at equal probe
   accuracy (primary comparison axis); step-aligned secondary.
 
@@ -443,7 +446,7 @@ gradient-alignment plot end-to-end (§11).
 `manifest.parquet` from zoo, uploads in 50–100-file commits with retry +
 resume, verifies remote file listing + sizes/hashes against staging, and
 never deletes remote content without an explicit flag. Pilot repo is
-separate (`-pilot` suffix). Script-level code (protocol-exempt) but must
+separate (`-pilot` suffix). Script-level code (scripts — single-pass) but must
 have a `--dry-run` mode that prints the commit plan without network.
 
 ## 11. Pilot protocol (runs before any production run)
@@ -494,6 +497,6 @@ markers in this spec are replaced with pinned values in the same PR.
   conventions bind on `geode.arith` / `geode.probe` exactly as on
   existing modules.
 
-Next step (not this session): cut §5/§7 into PLAN.md tasks (ARITH-*,
-PROBE-*, plus the spec 00 `experiment`-block edit) with named tests per
-validation property, then pilot.
+Next step: implement `geode.arith` (§5) with property tests V5.1–V5.7,
+then `geode.probe` (§7) with V5.8–V5.16, then pilot (§11). Order and
+rationale: `EXPERIMENTS.md` §4.

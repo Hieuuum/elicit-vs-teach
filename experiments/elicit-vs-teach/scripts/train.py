@@ -1,4 +1,4 @@
-"""Launch script for elicit-vs-teach training runs (spec 05 §6.2).
+"""Launch script for elicit-vs-teach training runs (spec 02 §6.2).
 
 Protocol-exempt glue: parses run YAML, packs data, registers the run in
 geode.zoo, prints a cost estimate, and refuses to train without
@@ -138,11 +138,11 @@ def manifest_fields(cfg: dict, n_params: int, n_docs: int, est_usd: float) -> di
             "seed": t["seed"],
         },
         "trainable_param_count": n_params,
-        "snapshot_steps": [],  # runs 1-4: final checkpoint only (spec 05 §6)
+        "snapshot_steps": [],  # runs 1-4: final checkpoint only (spec 02 §6)
         "cost": {"gpu_type": cfg["gpu"]["type"], "est_usd": est_usd, "actual_usd": None},
         "status": "running",
         # Extra fields below ride as preserved unknowns (spec 00 V0.2) until
-        # the experiment-block validation task lands (spec 05 §4).
+        # the experiment-block validation task lands (spec 02 §4).
         "experiment": cfg["experiment"] | {"gates": {}},
     }
 

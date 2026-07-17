@@ -3,7 +3,7 @@
 Mechanistic comparison between a model whose target-task capability is
 **latent** (Arm A, `armA_elicit`: algorithm pre-taught, format installed)
 and one where it is **absent** (Arm B, `armB_teach`: format installed
-only). Design source of truth: [`specs/05-elicit-vs-teach.md`](../../specs/05-elicit-vs-teach.md).
+only). Design source of truth: [`specs/02-training-run.md`](../../specs/02-training-run.md).
 Never reuse the paper's "pre-elicit" (E.1.1) for Arm A's E.2-style
 pre-teaching.
 
@@ -32,7 +32,7 @@ graph LR
 - `scripts/train.py` — launch a run: registers it in geode.zoo, prints a
   cost estimate, **refuses to train without `--confirm-cost`**.
 - `analysis/`, `notes/decisions.md` — filled as runs land; pilot outcomes
-  close spec 05 OPEN items in `notes/decisions.md` first, then the spec.
+  close spec 02 OPEN items in `notes/decisions.md` first, then the spec.
 
 ## Launching run 1 (once OPEN(8)/OPEN(11) are pinned)
 
@@ -40,7 +40,7 @@ graph LR
 export GEODE_STORE=/path/to/store
 python scripts/train.py --config configs/run1_pretrain.yaml            # prints cost, refuses
 python scripts/train.py --config configs/run1_pretrain.yaml --confirm-cost
-# pilot-scale end-to-end first (spec 05 §11):
+# pilot-scale end-to-end first (spec 02 §11):
 python scripts/train.py --config configs/run1_pretrain.yaml \
   --override configs/pilot/run1_pretrain.yaml --confirm-cost
 ```

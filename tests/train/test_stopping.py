@@ -1,10 +1,10 @@
-"""TRAIN-1 stopping tests — specs/05 §6.1 ``StoppingRule`` / ``ConvergenceTracker``.
+"""TRAIN-1 stopping tests — specs/02 §6.1 ``StoppingRule`` / ``ConvergenceTracker``.
 
 Module under test (does not exist yet):
 
     from geode.train.stopping import StoppingRule, ConvergenceTracker
 
-Derived from the spec only (specs/05-elicit-vs-teach.md §6.1):
+Derived from the spec only (specs/02-training-run.md §6.1):
 
     An eval improves iff ``(best_so_far - val_loss_nats) > eps_nats`` (STRICT;
     equality does NOT improve). Improvement updates ``best_nats`` and resets

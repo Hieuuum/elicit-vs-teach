@@ -1,7 +1,7 @@
 # decisions.md — running log
 
 Pilot outcomes and design decisions land here first, then close their
-`OPEN(n)` markers in `specs/05-elicit-vs-teach.md` (same PR).
+`OPEN(n)` markers in `specs/02-training-run.md` (same PR).
 
 ## 2026-07-16 — TRAIN-1 (run-1 infrastructure)
 
@@ -19,4 +19,4 @@ Pilot outcomes and design decisions land here first, then close their
 
 ## Open at the moment
 
-OPEN(1)–OPEN(11): see spec 05 §12 table.
+OPEN(1)–OPEN(11): see spec 02 §12 table.

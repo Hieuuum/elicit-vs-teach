@@ -7,7 +7,7 @@ Derived from spec, never from an implementation:
   construction that mechanically enforces this) and §3 "Public API" (``label_mask``).
 - specs/00-interfaces.md §5 "Test loss" — ``masking_config_hash`` is the
   mechanical guard for the train/test mask-parity footgun.
-- PLAN.md "### EDL-1" and resolved decisions:
+- the retired build plan (git history) "### EDL-1" and resolved decisions:
   - OQ-8: the dataset builder emits per-example label-token spans;
     ``tests/conftest.py::TaskExample`` carries ``input_ids`` + half-open
     ``label_span`` ``[start, end)``. ``label_mask`` is the single construction
@@ -17,13 +17,13 @@ Derived from spec, never from an implementation:
     deterministic across processes (canonical serialization, not object
     identity) and sensitive to every component.
 
-Written test-first: the imports below target the public API fixed in PLAN.md
+Written test-first: the imports below target the public API fixed in the retired build plan (git history)
 "### EDL-1" and are expected to fail until ``geode/edl/masking.py`` exists.
 
 Design notes (so the TEST-AUDITOR can check the reasoning, not guess it):
 
 - ``TaskFormat`` carries span-rule parameters beyond ``name``/``format_version``
-  (PLAN.md: "# + span rule params (OQ-8)"), but their names are an
+  (specs/00 §9, OQ-8: the builder emits span-rule parameters), but their names are an
   implementation choice this stage must not invent. Two consequences:
     * the mask tests construct ``TaskFormat`` from ``name``/``format_version``
       only (the mask is built from the *examples'* spans, not from the format —

@@ -1,4 +1,4 @@
-"""TRAIN-1 packing tests — specs/05 §6.1 ``pack_corpus`` / ``train_val_split``.
+"""TRAIN-1 packing tests — specs/02 §6.1 ``pack_corpus`` / ``train_val_split``.
 
 Module under test (does not exist yet):
 
@@ -6,12 +6,12 @@ Module under test (does not exist yet):
 
 Derived from the spec only:
 
-- specs/05-elicit-vs-teach.md §6.1 ``pack_corpus`` contract — tokenize each
+- specs/02-training-run.md §6.1 ``pack_corpus`` contract — tokenize each
   document (no special tokens added), append exactly one ``eos_token_id``
   after every document, concatenate in input order, slice into consecutive
   rows of length ``seq_len``, drop the short tail; ValueError if
   ``eos_token_id is None`` or ``seq_len < 2``; deterministic (pure function).
-- specs/05 §6.1 ``train_val_split`` contract — seeded permutation then split,
+- specs/02 §6.1 ``train_val_split`` contract — seeded permutation then split,
   ``n_val = round(val_fraction * n)`` clamped to ``[1, n-1]``; requires
   ``0 < val_fraction < 1`` and ``n >= 2``, else ValueError; rows preserved
   exactly (a partition, no mutation).

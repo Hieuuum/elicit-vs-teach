@@ -1,4 +1,4 @@
-# Pilot override for run 1 (spec 05 §11): tiny end-to-end de-risk pass.
+# Pilot override for run 1 (spec 02 §11): tiny end-to-end de-risk pass.
 # Inherits run1_pretrain.yaml; keys here win. Uploads go to the -pilot
 # HF repo, never the production one.
 

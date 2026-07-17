@@ -1,5 +1,13 @@
 # docs/impl-logs — implementation logs
 
+> **⚠ SUPERSEDED 2026-07-17.** The per-task implementation-log policy was
+> retired with the four-stage protocol; see `CLAUDE.md` → "Documentation".
+> This directory is frozen history. Do not add logs. Record decisions in
+> `experiments/elicit-vs-teach/notes/decisions.md` or `EXPERIMENTS.md`.
+> The text below describes the retired process and references the deleted
+> `PLAN.md` and the pre-rename `specs/05`; both are preserved as-written
+> so the existing logs read in context.
+
 **Policy (binding, see CLAUDE.md "Documentation policy"):** every
 implementation run — one PLAN.md task through its full stage cycle — ends
 with a log written here, `<TASK-ID>.md`, before the task's commit. The

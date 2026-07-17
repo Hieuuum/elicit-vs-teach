@@ -1,4 +1,4 @@
-"""Full-FT / pretrain training loop (specs/05 §6.1; Runs 1-4 "pretrain" mode).
+"""Full-FT / pretrain training loop (specs/02 §6.1; Runs 1-4 "pretrain" mode).
 
 ``evaluate_nll_nats`` is the shared held-out evaluator (mean next-token CE in
 nats, batch-size invariant). ``train_full`` is a thin AdamW loop over *all*
@@ -93,7 +93,7 @@ def train_full(
     out_dir: Path,
     precision: Literal["fp32", "bf16"] = "fp32",
 ) -> TrainResult:
-    """Train ``model`` in place with AdamW at a constant LR (specs/05 §6.1).
+    """Train ``model`` in place with AdamW at a constant LR (specs/02 §6.1).
 
     Data order is a seeded permutation of ``train_seqs`` per epoch (fixed-size,
     drop-last batches); epochs repeat until a ``ConvergenceTracker`` built
@@ -222,7 +222,7 @@ def _epoch_batches(n: int, batch_size: int, seed: int, epoch: int) -> list[torch
 def _batch_stream(n: int, batch_size: int, seed: int) -> Iterator[torch.Tensor]:
     """Yield row-index batches epoch after epoch, indefinitely.
 
-    Epochs repeat until the caller stops iterating (specs/05 §6.1: "epochs
+    Epochs repeat until the caller stops iterating (specs/02 §6.1: "epochs
     repeat until a stop condition fires").
     """
     epoch = 0
