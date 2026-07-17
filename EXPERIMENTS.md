@@ -83,8 +83,9 @@ This is safe *because* PLAN.md is deleted — it was the only live file
 citing `specs/02` as the steering spec, so nothing surviving resolves
 `02` to the old meaning. Git history still does; accepted.
 
-The `experiments/elicit-vs-teach/` **directory keeps its name** — only
-the spec file is renamed. Property IDs stay `V5.x`: renumbering means
+The `experiments/` directory was later renamed `elicit-vs-teach` →
+`training-run` (2026-07-17) so it matches the spec file `02-training-run`;
+`elicit-vs-teach` is now the project/repo name. Property IDs stay `V5.x`: renumbering means
 editing 25 IDs plus the shipped `tests/train/*.py` docstrings that cite
 V5.17–V5.25, and IDs are labels, not paths.
 
@@ -119,7 +120,7 @@ specs/                       # only the used specs, renamed sequentially (§1.5)
   00-interfaces.md           # live schemas + §9 resolved decisions (OQ-n, §1.4)
   01-edl-harness.md          # EDL math ground truth
   02-training-run.md         # experiment design (detailed source for §3)
-experiments/elicit-vs-teach/ # scripts — smoke tests at most, no ceremony
+experiments/training-run/    # scripts — smoke tests at most, no ceremony
   README.md                  #   experiment card: goal, arms, DAG, gate status
   configs/                   #   common.yaml, run1…run6 yamls, pilot/ overrides
   scripts/                   #   make_data.py train.py extract.py gates.py export_hf.py

@@ -1,4 +1,4 @@
-# elicit-vs-teach — experiment card
+# training-run — experiment card
 
 Mechanistic comparison between a model whose target-task capability is
 **latent** (Arm A, `armA_elicit`: algorithm pre-taught, format installed)

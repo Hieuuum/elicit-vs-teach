@@ -5,7 +5,7 @@
 
 run_id: evt-run1-base
 experiment:
-  name: elicit-vs-teach
+  name: training-run
   arm: shared
   role: pretrain
   parent_run_id: null

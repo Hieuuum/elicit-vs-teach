@@ -1,4 +1,4 @@
-# 02 — Training Runs: elicit-vs-teach experiment organization & requirements
+# 02 — Training Runs: experiment organization & requirements
 
 Status: **design, pre-implementation** (2026-07-16). Defines folder/run
 organization and per-part requirements for the mechanistic
@@ -9,7 +9,7 @@ without `--confirm-cost` (CLAUDE.md budget rule).
 
 Decisions locked 2026-07-16 (owner):
 
-- **Code home:** thin scripts/configs in `experiments/elicit-vs-teach/`;
+- **Code home:** thin scripts/configs in `experiments/training-run/`;
   reusable logic as geode library modules (`geode.arith`, `geode.probe`).
 - **Rigor:** library modules (`geode.arith`, `geode.probe`) are written
   with their property tests in one pass (CLAUDE.md → "Workflow");
@@ -48,7 +48,7 @@ is missing, incomplete, or has failing gates.
 ## 2. Repository layout (code)
 
 ```
-experiments/elicit-vs-teach/
+experiments/training-run/
   README.md            # experiment card: goal, arm definitions, DAG, gate status
   configs/
     common.yaml        # shared blocks: optimizer, precision, batch, LoRA
@@ -85,7 +85,7 @@ $GEODE_STORE/
   runs/<run_id>/...                    # spec 00 §1, unchanged: manifest.json,
                                        # prequential.jsonl, gradstats.jsonl,
                                        # snapshots/step_k/, eval/
-  experiments/elicit-vs-teach/
+  experiments/training-run/
     data/                              # generated datasets, probe set, hash files
     hf-staging/                        # exact mirror of the HF repo below
 ```
@@ -121,7 +121,7 @@ present:
 
 ```json
 "experiment": {
-  "name": "elicit-vs-teach",
+  "name": "training-run",
   "arm": "armA_elicit" | "armB_teach" | "shared",
   "role": "pretrain" | "preteach" | "installer" | "target",
   "parent_run_id": "<run_id>" | null,
@@ -349,7 +349,7 @@ def train_full(model, train_seqs: torch.LongTensor,
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
-`experiments/elicit-vs-teach/scripts/train.py` + `configs/`: parses the
+`experiments/training-run/scripts/train.py` + `configs/`: parses the
 run YAML, builds the Llama-3.2-1B-shaped `LlamaConfig` from the config
 block, loads + packs TinyStories-v2 (the only place `datasets` is
 imported), registers the run in zoo (spec 00 §2 required fields;

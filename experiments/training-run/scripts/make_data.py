@@ -1,4 +1,4 @@
-"""Generate the frozen arithmetic datasets for elicit-vs-teach (spec 02 §5).
+"""Generate the frozen arithmetic datasets for the training-run experiment (spec 02 §5).
 
 Design pivot (EXPERIMENTS.md 2026-07-17): datasets are produced **once** by this
 script and frozen to files (later uploaded to HF), rather than generated from a

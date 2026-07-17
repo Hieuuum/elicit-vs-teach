@@ -1,4 +1,4 @@
-# Shared config blocks for all elicit-vs-teach runs (spec 02 §6).
+# Shared config blocks for all training-run experiment runs (spec 02 §6).
 # Values from the experiment spec's fixed tables unless marked OPEN(n).
 
 optimizer:

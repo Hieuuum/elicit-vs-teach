@@ -1,4 +1,4 @@
-"""Launch script for elicit-vs-teach training runs (spec 02 §6.2).
+"""Launch script for the training-run experiment (spec 02 §6.2).
 
 Protocol-exempt glue: parses run YAML, packs data, registers the run in
 geode.zoo, prints a cost estimate, and refuses to train without

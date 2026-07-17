@@ -5,7 +5,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 runs/
-experiments/elicit-vs-teach/notebooks/data/
+experiments/training-run/notebooks/data/
 activations/
 saes/
 results/

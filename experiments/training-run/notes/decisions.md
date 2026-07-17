@@ -58,7 +58,8 @@ implementation brief: `notes/dataset-generation.md`. Key decisions:
 - **Schema:** tokenizer-agnostic — text + answer **character** span; token span
   derived at load once the tokenizer (OPEN(11)) is fixed.
 - **HF upload:** separate script, `--dry-run` default; **owner runs the real
-  push**. Repo name / visibility TBD by owner.
+  push**. Dataset repo `Hieuuum/elicit-vs-teach-arith` (owner decision
+  2026-07-17); visibility TBD by owner.
 
 Spec-02 §5 deviations to reconcile when this lands (edit the spec in the same
 commit): V5.1 pair→triple exclusion; V5.2 now "every question unique, exactly
@@ -100,5 +101,6 @@ content byte-identical across two runs). Decisions locked this session:
 OPEN(1)–OPEN(11): see spec 02 §12 table. Still open for the dataset:
 - `--scale full` run not yet executed — awaiting owner sign-off on the pilot
   distribution above (then a few minutes CPU).
-- HF repo name + visibility, and the uploader script (`--dry-run` default),
-  not yet built. Owner runs the real `--push`.
+- HF dataset repo named `Hieuuum/elicit-vs-teach-arith` (visibility TBD); the
+  uploader script (`--dry-run` default) not yet built. Owner runs the real
+  `--push`.

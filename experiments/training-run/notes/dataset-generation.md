@@ -9,7 +9,7 @@ pre-pivot runtime generator; see §8 for the reconciliation edits owed).
 
 ## 0. What this is
 
-Generate the frozen arithmetic datasets for the elicit-vs-teach experiment,
+Generate the frozen arithmetic datasets for the training-run experiment,
 **once**, as files, then upload to HuggingFace. They are not regenerated from a
 seed at train time. This replaces the original `geode.arith` runtime generator.
 
@@ -37,7 +37,7 @@ Tested core, **built and passing (25 tests)** — mostly final:
   encode the old NL wording / old leakage rule.
 
 Script, **pilot-only, superseded design — rewrite**:
-- `experiments/elicit-vs-teach/scripts/make_data.py` — currently does
+- `experiments/training-run/scripts/make_data.py` — currently does
   commutative pair-level exclusion and a *hybrid with-replacement* fill (repeats
   in small cells). The finalized design forbids repeated questions and uses
   question-level exclusion. Keep its structure (build_probe / build_dataset /
@@ -197,8 +197,9 @@ New `scripts/upload_hf.py` (or extend `export_hf.py` per spec §3.8): `--dry-run
 default prints the commit plan and writes nothing to the network; a `--push`
 flag performs the upload in 50–100-file commits with hash verification, resumable,
 never deleting remote content without an explicit flag. **Do not push** — build
-and dry-run it; the owner runs `--push`. Repo name + visibility are owner
-decisions (still OPEN). This is not GPU compute, so `--confirm-cost` does not
+and dry-run it; the owner runs `--push`. Dataset repo is
+`Hieuuum/elicit-vs-teach-arith` (owner decision 2026-07-17; visibility still
+owner's call). This is not GPU compute, so `--confirm-cost` does not
 apply, but the network write must stay behind `--push`.
 
 ## 10. Verify
@@ -206,7 +207,7 @@ apply, but the network write must stay behind `--push`.
 ```
 python -m pytest -p no:cacheprovider              # 242 (cut) + arith tests, 0 failed
 ruff check . && ruff format --check .
-python experiments/elicit-vs-teach/scripts/make_data.py --scale pilot --out <scratch> --seed 20260717
+python experiments/training-run/scripts/make_data.py --scale pilot --out <scratch> --seed 20260717
 # then a second run to a second dir; report.json must be byte-identical (V5.4)
 # inspect report.json: leakage 0, all-unique, per-cell distribution matches the plan
 ```

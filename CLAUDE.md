@@ -99,7 +99,7 @@ Per-task implementation logs are retired (2026-07-17 cut);
 `docs/impl-logs/` is frozen history. Record decisions where they belong:
 
 - Experiment decisions, pilot outcomes, closed OPEN(n) items →
-  `experiments/elicit-vs-teach/notes/decisions.md`.
+  `experiments/training-run/notes/decisions.md`.
 - Structure / plan changes → `EXPERIMENTS.md`.
 - Spec changes → the spec itself, in the same commit as the code.
 
