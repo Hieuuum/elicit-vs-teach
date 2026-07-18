@@ -96,6 +96,32 @@ content byte-identical across two runs). Decisions locked this session:
   arithmetic," but flag if a strict always-wrong guarantee is wanted (a
   resample-on-collision tweak to `labels.py`).
 
+## 2026-07-18 — adversarial review of dataset generation (owner: accept gaps)
+
+Reviewed `make_data.py` + `geode.arith` core; independently re-validated the
+pilot parquets (from-scratch checks, not the repo's own validators). **Pipeline
+is correct**: zero duplicate triples, zero probe leakage, byte-exact re-render
+of every row, all correct-mode labels correct, operands in their claimed cells,
+full-scale allocation matches the owner-approved per-cell plan. The findings
+below are **accepted as-is (won't-fix)** — none bias the A-vs-B comparison:
+
+- **Random labels coincide with the truth in ~0.07%** (7/10k pilot, ≈700/1M).
+  Owner: labels are random enough; no resample-on-collision. Closes OPEN(6).
+- **`D_inst` labels are digit-count/sign-matched, so they leak the *shape* of
+  `a*b` (not the value).** By design; "installer teaches no arithmetic" is
+  good enough (it can't teach the answers, only their length). Owner: accept.
+- **Stored `idx` doesn't reproduce the random labels** — labels are seeded by
+  the pre-shuffle build index, which the post-shuffle reindex overwrites.
+  Regeneration is still byte-identical; only row-by-row audit from the frozen
+  file is lost. Accept (not fixing before the full run).
+- **`+` always wins odd op-split remainders** (5001/4999 pilot, ≤~16 rows).
+  Deterministic, negligible. Accept.
+- Minor hygiene, accept: `random_label(0)` returns a positive digit
+  (unreachable — mult answers ≥ 1); `allocate()` type hint says cell-tuple keys
+  but is also called with op-string keys (works); `DIGIT_BANDS` (script)
+  duplicates `DIGIT_BAND_SIZES` (`stratify`); V5.4 byte-identity stays a manual
+  two-run check, not script-enforced.
+
 ## Open at the moment
 
 OPEN(1)–OPEN(11): see spec 02 §12 table. Still open for the dataset:
