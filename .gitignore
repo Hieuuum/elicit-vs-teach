@@ -6,6 +6,7 @@ __pycache__/
 .ruff_cache/
 runs/
 experiments/training-run/notebooks/data/
+experiments/training-run/data/
 activations/
 saes/
 results/
