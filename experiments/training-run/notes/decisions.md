@@ -316,9 +316,54 @@ data. Config echoes verified (each run trained at its intended LR).
   alive (dataset + packed cache on it). Fix decision recorded in the
   next entry.
 
+## 2026-07-19 — G0 fix: cosine retrain (owner + Claude), fallback PRE-COMMITTED
+
+Owner initially argued the samples were "good enough for a 35M model"
+(capacity ceiling). Settled against by the TinyStories paper itself
+(Eldan & Li 2023, owner supplied the text): their "28M, 8 layers" model
+is near-identical to our arch (hidden 512, 8 layers, 10K vocab, context
+512) and scores Grammar 9/10, Consistency 9/10 — including a Figure-7
+sample at **temperature 0.8**, our G0 setting. Depth buys context
+tracking (their finding), and we have the depth; capacity is not the
+binding constraint. Caveat kept honest: the paper reports **no**
+optimizer/LR/schedule details, so cosine-fixes-it stays a hypothesis
+that the retrain itself tests — if val loss barely moves off 1.146
+nats, the capacity/data floor is demonstrated and G0 gets an
+evidence-backed recalibration instead.
+
+Decisions (owner, before launch):
+
+- **Retrain from scratch** with cosine decay, 17,000-step horizon
+  (matches what the constant-LR run took ⇒ same ~$0.55 cost, clean
+  constant-vs-decay comparison). Anneal-from-checkpoint rejected
+  (resume plumbing + two-stage provenance for ~40¢ saved).
+- **Fallback PRE-COMMITTED now** (pre-registration, not post-hoc): one
+  retrain only; if G0 still fails, the better of the two checkpoints
+  becomes floor 1 and G0 is recalibrated citing the demonstrated floor.
+  No further retrains, no silent bar-lowering.
+- **Schedule smoke pilot first** (~$0.01, owner request): 300 steps via
+  `configs/pilot/run1_v2_smoke.yaml`, only to de-risk the new scheduler
+  code path on the box (lr column decays 1e-3→1e-4, meta echoes
+  schedule). Explicitly NOT a hyperparameter pilot — a short horizon
+  says nothing about the 17k endgame.
+
+Implementation (Claude, small decisions delegated):
+
+- `train_full` gains `lr_schedule="cosine"` + `min_lr` (spec 02 §6.1 +
+  V5.35/V5.36 property tests, same commit): half cosine, exact
+  endpoints, per-step lr logged; plateau rule **inert** under cosine
+  (decay pushes late deltas below ε by design — honoring it would cut
+  the schedule short), run always ends at `max_steps`. No warmup (sweep
+  showed 1e-3 stable from step 0). min_lr = lr/10 = 1e-4. SFT trainer
+  (runs 2–4) untouched.
+- Retrain run_id **`evt-run1-base-v2`** — the failed `evt-run1-base`
+  artifacts stay on the box untouched (needed for the comparison and
+  the pre-committed fallback).
+- Suite 308 green.
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
-at the runs 2–6 pilots. Run-1 items: **G0 FAILED** — floor 1 does not
-exist yet; a fixed pretrain (LR decay) must pass G0 before anything is
-built on it. Dataset items: none.
+at the runs 2–6 pilots. Run-1 items: **G0 FAILED, fix in flight** —
+cosine retrain `evt-run1-base-v2` (smoke pilot → ~$0.55 production →
+re-judge G0, fallback pre-committed above). Dataset items: none.
