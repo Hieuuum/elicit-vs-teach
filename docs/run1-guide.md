@@ -24,6 +24,42 @@ Run **everything below inside the tmux session**.
 
 ---
 
+## Optional: a phone ping when a run finishes
+
+The long waits (Phases 2, 3, 5) don't need you watching. [ntfy.sh](https://ntfy.sh)
+is a free relay: anything the box `curl`s to your topic URL pops up as a
+push notification. No signup.
+
+**Once, on your phone or laptop:** install the **ntfy** app (Android/iOS)
+or open `https://ntfy.sh/<your-topic>` in a browser tab and allow
+notifications. Pick a long random topic name (e.g. `geode-run1-kx83q1`) —
+the topic name is effectively the password. Subscribe to it.
+
+**For each launch**, append a curl so it fires when the command ends:
+
+```bash
+python train.py ...usual arguments... ; \
+    curl -d "run finished (exit $?)" ntfy.sh/geode-run1-kx83q1
+```
+
+Use `;`, not `&&` — some commands exit non-zero *by design* (the Phase-2
+cache run ends "refusing to train", exit 1), and `;` notifies regardless.
+`exit $?` in the message tells you the exit code, so crashes ping you too.
+
+**If the run is already going** and you forgot the curl: open a second
+tmux window (`Ctrl+b` then `c`) and run a watcher that polls for the
+process to exit:
+
+```bash
+while pgrep -f train.py > /dev/null; do sleep 30; done
+curl -d "run finished" ntfy.sh/geode-run1-kx83q1
+```
+
+(`Ctrl+b` then `n` cycles back to the run's window. New tmux windows need
+`export GEODE_STORE=$HOME/geode-store` again — see the note in Phase 0.)
+
+---
+
 ## Phase 0 — set up the box (~15 min, no GPU cost)
 
 Goal: repo cloned, dependencies installed, test suite green.
@@ -137,7 +173,8 @@ python train.py --config ../configs/run1_pretrain.yaml --device cuda \
 Expect: `... wrote packed cache ...` then `refusing to train`.
 
 Good moment to practice detaching: `Ctrl+b` `d`, come back later with
-`tmux attach -t train`.
+`tmux attach -t train` — or add the ntfy ping (see "phone ping" section
+above) and walk away.
 
 The cache is keyed to (data file, seq_len, max_documents, tokenizer); if
 a config ever drifts, the mismatch raises loudly instead of silently
@@ -220,7 +257,8 @@ python train.py --config ../configs/run1_pretrain.yaml --device cuda \
     --packed-cache $HOME/packed_full.pt --confirm-cost
 ```
 
-**5.2 — detach and monitor.** `Ctrl+b` `d` to detach; check in with
+**5.2 — detach and monitor.** `Ctrl+b` `d` to detach (add the ntfy ping
+from the "phone ping" section if you're leaving); check in with
 `tmux attach -t train`, or from a second SSH window
 (re-export `GEODE_STORE` there first):
 
