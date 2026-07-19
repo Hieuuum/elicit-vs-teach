@@ -292,8 +292,33 @@ data. Config echoes verified (each run trained at its intended LR).
 - Runs 2–4 inherit ε/k; revisit only if their arithmetic-val curves
   misbehave (different loss scale — noted in spec §6).
 
+## 2026-07-19 — Gate G0: **FAIL** (run-1 production pretrain)
+
+- Production run `evt-run1-base`: `stop_reason=converged` at step 17,000
+  (≈2.1 epochs at batch 128 — matches the 2-epoch cost assumption),
+  final val 1.1464 nats (1.65 bits/token). The curve was genuinely
+  flattening — last per-500-step deltas 3.5 → 2.1 → 1.3 → 0.9 millinats
+  — so the ε/k stopping rule behaved as designed; the run was NOT cut
+  early.
+- G0 (20 samples, temp 0.8, seed 316): **~5/20 coherent**, pass needed
+  ≥16 (owner delegated the count to Claude; samples archived as
+  `floor1_samples.txt`). Failure modes: referent-tracking collapses
+  ("the cat and the cat", "Tom and Tom"), mid-sentence grammar breaks,
+  non-sequitur morals, topic drift. No repetition loops and local
+  syntax mostly intact — an undertrained-quality model, not a broken
+  pipeline.
+- Diagnosis: the binding constraint is the **constant LR** (structural:
+  no scheduler exists — noted in the 2026-07-19 paper-audit entry). At
+  fixed LR 1e-3 the model orbits the minimum at a gradient-noise floor;
+  more epochs at the same LR would not help. Capacity is not the
+  suspect (TinyStories 33M models write coherent prose; ours is 38.7M).
+- Consequence: runs 2–4 NOT launched (per protocol); GPU instance kept
+  alive (dataset + packed cache on it). Fix decision recorded in the
+  next entry.
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
-at the runs 2–6 pilots. Run-1 items: none; next gate is G0 (story
-coherence) after the production pretrain. Dataset items: none.
+at the runs 2–6 pilots. Run-1 items: **G0 FAILED** — floor 1 does not
+exist yet; a fixed pretrain (LR decay) must pass G0 before anything is
+built on it. Dataset items: none.
