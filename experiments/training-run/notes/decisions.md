@@ -203,11 +203,46 @@ Pre-training blockers cleared this session; spec 02 edited in the same commit.
 - Floor-2 reminder: label-masked SFT mode in `geode.train` is deliberately
   not built yet (spec §6) — next code task after the pretrain validates.
 
+## 2026-07-19 — dataset frozen on HF (owner); run-1 launch tooling (this session)
+
+- **Full-scale dataset generated, approved, and pushed — dataset track
+  closed.** Owner approved the pilot distribution and had already run
+  `--scale full` (2026-07-18, seed 20260717) into
+  `experiments/training-run/data/full/` (gitignored): 3×1M + 1024 probe,
+  `report.json` shows zero probe leakage, all questions unique, per-cell
+  counts matching the owner-approved water-fill plan. Owner pushed to HF
+  personally; the live repo is **`mhieuuu/elicit-vs-teach-arith`** —
+  **not** `Hieuuum/...` as recorded 2026-07-17 (`Hieuuum` is the GitHub
+  username; the HF account is `mhieuuu`). Visibility: **public** (verified
+  unauthenticated 2026-07-19). Remote `report.json` matches the local one
+  exactly (all three `order_hash` values + `probe_set_hash`). The planned
+  uploader script is obsolete and will not be built.
+- G6 partial: generation-time validation (leakage 0, all-unique in
+  `report.json`) is the V5.1/V5.2 evidence; the formal re-run lands with
+  `scripts/gates.py` when that exists.
+- **`pack_corpus` streams (V5.27).** Full-corpus packing RAM drops from
+  ~15–20 GB (Python int list of 532M tokens) to roughly the output tensor
+  (~4.3 GB): chunked row emission, byte-identical output for every
+  `chunk_tokens`, property tests incl. a tokenize-all-then-slice reference.
+  Rental box needs ≥32 GB RAM, no longer ≥64.
+- **`--packed-cache` in `train.py`** — pack once (~30–60 CPU-min), reuse
+  across sweep + production launches; cache key (data file, seq_len,
+  max_documents, tokenizer) raises loudly on mismatch. Verified locally:
+  write → hit → mismatch guard, all behind the `--confirm-cost` refusal;
+  cache-hit run reproduces the exact pre-streaming dry-run row counts
+  (7,568/154 @ 512).
+- **OPEN(11) closure design (owner: de-risk + sweep).** Four LR-sweep
+  overlays (`configs/pilot/run1_sweep_lr{1e-4,3e-4,1e-3,3e-3}.yaml`) at
+  production batch 128 + full data, 2000 steps each (~$0.07/run, honest
+  0.25-epoch cost estimates). De-risk pilot unchanged. Owner-facing launch
+  protocol: **`docs/run1-checklist.md`** (rent → pilot → cache → sweep →
+  pin → production → G0 → archive).
+- **Label-masked SFT pulled forward** (owner): built now rather than after
+  the pretrain validates — zero code work between G0 passing and launching
+  runs 2–4. Properties V5.28+ in spec 02.
+
 ## Open at the moment
 
-OPEN(1)–OPEN(11): see spec 02 §12 table. Still open for the dataset:
-- `--scale full` run not yet executed — awaiting owner sign-off on the pilot
-  distribution above (then a few minutes CPU).
-- HF dataset repo named `Hieuuum/elicit-vs-teach-arith` (visibility TBD); the
-  uploader script (`--dry-run` default) not yet built. Owner runs the real
-  `--push`.
+OPEN(1)–OPEN(4), OPEN(10): see spec 02 §12 table. The OPEN(11) remainder
+(LR, eval cadence) + OPEN(3) (stopping ε/k) close at the run-1 LR sweep —
+`docs/run1-checklist.md` phases 3–4. Dataset items: none.
