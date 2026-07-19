@@ -315,10 +315,13 @@ meter stops.
 host, and port from the instance's connect button on vast.ai:
 
 ```bash
-rsync -avz -e "ssh -p <port>" <user>@<host>:geode-store/ ~/geode-store/
+rsync -avPW -e "ssh -p <port>" <user>@<host>:geode-store/ ~/geode-store/
 ```
 
-(Skip `packed_full.pt` — the cache is regenerable.)
+No `-z`: safetensors are incompressible, compression only burns CPU. `-P`
+shows per-file progress and resumes an interrupted pull; `-W` skips rsync's
+delta algorithm, which is wasted work on checkpoints that are new files
+anyway. (Skip `packed_full.pt` — the cache is regenerable.)
 
 **7.2 — verify before destroying:**
 
