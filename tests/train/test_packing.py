@@ -34,7 +34,7 @@ from tokenizers.pre_tokenizers import WhitespaceSplit
 from tokenizers.processors import TemplateProcessing
 from transformers import PreTrainedTokenizerFast
 
-from geode.train.packing import pack_corpus, train_val_split
+from geode.train.packing import pack_corpus, split_documents, train_val_split
 
 
 def _distinct_rows(n: int, seq_len: int = 4) -> torch.LongTensor:
@@ -187,6 +187,72 @@ def test_split_too_few_rows_raises():
     # V5.18 / §6.1 interface: requires n >= 2, else ValueError.
     with pytest.raises(ValueError):
         train_val_split(_distinct_rows(1), 0.5, seed=0)
+
+
+# --------------------------------------------------------------------------
+# V5.26 — split_documents
+# --------------------------------------------------------------------------
+def test_split_documents_between_delimiter_lines():
+    # V5.26: documents are the stripped text between delimiter-only lines,
+    # in input order; internal newlines within a document are preserved.
+    lines = [
+        "story one line a\n",
+        "story one line b\n",
+        "<|endoftext|>\n",
+        "story two\n",
+        "<|endoftext|>\n",
+    ]
+    assert list(split_documents(lines)) == [
+        "story one line a\nstory one line b",
+        "story two",
+    ]
+
+
+def test_split_documents_drops_empties_and_never_emits_delimiter():
+    # V5.26: leading, trailing, and consecutive delimiter lines yield no
+    # empty documents; the delimiter string never appears in any output;
+    # a final undelimited document is still emitted.
+    lines = [
+        "<|endoftext|>\n",  # leading
+        "  \n",  # whitespace-only doc -> dropped after strip
+        "<|endoftext|>\n",
+        "<|endoftext|>\n",  # consecutive
+        "alpha\n",
+        "<|endoftext|>  \n",  # trailing whitespace on a delimiter line is fine
+        "omega no trailing delimiter\n",
+    ]
+    docs = list(split_documents(lines))
+    assert docs == ["alpha", "omega no trailing delimiter"]
+    assert all("<|endoftext|>" not in d for d in docs)
+
+
+def test_split_documents_mid_line_delimiter_raises():
+    # V5.26: a line containing the delimiter that is not exactly a delimiter
+    # line must raise (silently keeping delimiter text would corrupt the
+    # corpus); the error must be raised at the offending line even lazily.
+    lines = ["ok\n", "bad<|endoftext|>tail\n", "never reached\n"]
+    with pytest.raises(ValueError):
+        list(split_documents(lines))
+
+
+def test_split_documents_is_lazy():
+    # V5.26: consumes the line stream incrementally — documents before an
+    # exhausted point are yielded without reading past their delimiter.
+    def gen():
+        yield "doc\n"
+        yield "<|endoftext|>\n"
+        raise RuntimeError("must not be pulled for the first document")
+
+    it = split_documents(gen())
+    assert next(it) == "doc"
+    with pytest.raises(RuntimeError):
+        next(it)
+
+
+def test_split_documents_custom_delimiter():
+    # V5.26: the delimiter is a parameter, not a hardcoded constant.
+    lines = ["a\n", "###\n", "b\n"]
+    assert list(split_documents(lines, delimiter="###")) == ["a", "b"]
 
 
 def test_split_seeded_deterministic():

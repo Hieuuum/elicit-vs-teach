@@ -11,9 +11,10 @@ formats; nothing else in `geode` may depend on external repo internals.
 $GEODE_STORE/
   runs/{run_id}/
     manifest.json
-    adapter/                  # PEFT adapter (final)
-    merged/                   # optional merged weights, safetensors
-    snapshots/step_{k}/       # within-run PEFT adapter snapshots
+    snapshots/step_{k}/       # self-contained full-model snapshots:
+                              #   model.safetensors = the complete state_dict
+                              #   (base + adapter tensors; 2026-07-18 decision —
+                              #   adapter-only saving + base reassembly retired)
     logs/
       prequential.jsonl       # per-batch first-epoch label losses (§3)
       gradstats.jsonl         # per-step gradient statistics (§4)

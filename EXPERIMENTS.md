@@ -154,7 +154,7 @@ pre-taught the algorithm in another format.
 
 | # | run_id | Role | Init | Method | Data |
 |---|---|---|---|---|---|
-| 1 | `evt-run1-base` | pretrain | random | full FT | TinyStories-v2, Llama-3.2-1B arch |
+| 1 | `evt-run1-base` | pretrain | random | full FT | TinyStories-v2, custom small arch (2026-07-18, spec 02) |
 | 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | NL add/sub, correct labels, 1M, 1 epoch |
 | 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | operator-notation mult, random labels |
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical dataset + count as run 3 |
@@ -188,12 +188,14 @@ missing, incomplete, or has failing gates.
 ### 3.3 Training — runs 1–4 (`geode.train`) and 5–6 (`geode.edl`)
 
 - **Runs 1–4 (full FT):** `geode.train.train_full` — AdamW, constant
-  LR 2e-5, clip 1.0, bf16, batch 128, loss on label tokens only
+  LR (pilot-determined; the paper's 1B values are void at the
+  2026-07-18 scale), clip 1.0, bf16, batch 128, loss on label tokens only
   (run 1: all positions, pretrain mode), validation-convergence
   stopping (ε, k from pilot). Snapshot = final checkpoint only.
 - **Runs 5–6 (LoRA target):** `train_prequential` as-is — pre-update
-  losses, gradstats, adapter snapshots at manifest steps. LoRA r=64 on
-  Q,K,V,O,G,U,D all layers, α=32, LR 3.53e-4. Small logging extension
+  losses, gradstats, full-model snapshots at manifest steps (spec 00
+  §1). LoRA r=128 on Q,K,V,O,G,U,D all layers, α=32, LR
+  pilot-determined. Small logging extension
   needed: LR + train-acc scalars per step.
 - **Snapshots:** 1024, dense unit-stride through ~step 30 then
   log/uniform, from `geode.probe.schedule`, written into the manifest
@@ -204,9 +206,10 @@ missing, incomplete, or has failing gates.
 
 ### 3.4 Extraction — `geode.probe` (tested core)
 
-Offline pass per snapshot: load base + adapter, forward + backward on
+Offline pass per snapshot: load the self-contained snapshot (spec 00
+§1), forward + backward on
 the probe set (label-token loss, sum reduction), capture activations
-and activation-gradients at all n_layers+1 residual points (17 for this
+and activation-gradients at all n_layers+1 residual points (9 for this
 arch, never hardcoded), per example, bf16, mask stored alongside. One
 safetensors file per (snapshot, quantity); sidecar metadata: run_id,
 arm, step, probe_set_hash, tokenizer_hash, base_model_key, dtype.
@@ -260,7 +263,8 @@ values in the same PR. Full OPEN table: spec 02 §12.
 zoo (export, never a second source of truth), uploads in 50–100-file
 commits with resume + hash verification, never deletes remote content
 without an explicit flag, and has a `--dry-run` printing the commit
-plan without network. Budget ≈ 4.5 TB on HF PRO (≤10 TB).
+plan without network. Budget ≈ ~1 TB on HF PRO (≤10 TB; 2026-07-18
+arch — re-estimate at pilot).
 
 ---
 

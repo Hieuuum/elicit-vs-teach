@@ -2,8 +2,8 @@
 
 ``train_prequential`` is the thin harness that turns a pretrained model + an
 ordered dataset into the four run artifacts of specs/00: per-batch
-``logs/prequential.jsonl`` (§3), per-step ``logs/gradstats.jsonl`` (§4), PEFT
-adapter snapshots at the manifest's ``snapshot_steps`` (§1–§2), and the final
+``logs/prequential.jsonl`` (§3), per-step ``logs/gradstats.jsonl`` (§4),
+full-model snapshots at the manifest's ``snapshot_steps`` (§1–§2), and the final
 held-out ``eval/test_loss.json`` (§5). It is deliberately thin: the per-batch
 pre-update loss routes through the shared ``prequential_step`` (``no_grad``, so
 the logged evaluation can never contaminate the gradient of the update). The
@@ -24,8 +24,9 @@ EDL-3 tests):
   (L-7 leaves this unpinned; sum would descend too). The value written to
   ``prequential.jsonl`` is always the shared ``prequential_step`` sum, never
   this training scalar.
-- **Snapshot semantics** (L-5/A-1/A-2): ``snapshots/step_{k}`` is the adapter
-  after exactly ``k`` optimizer updates — the same θ_k under which batch ``k``'s
+- **Snapshot semantics** (L-5/A-1/A-2): ``snapshots/step_{k}`` holds the
+  complete model state (base + adapter tensors, one safetensors file) after
+  exactly ``k`` optimizer updates — the same θ_k under which batch ``k``'s
   pre-update loss is recorded — and ``k`` may equal the total update count
   ``T`` (the final state θ_T, taken after the last update). A declared ``k``
   outside ``0..T`` is unreachable and rejected up front (spec 00 §2).
@@ -51,6 +52,7 @@ from typing import Sequence
 
 import torch
 from peft import LoraConfig, TaskType, get_peft_model
+from safetensors.torch import save_model
 
 from geode.edl.masking import TaskFormat, label_mask, masking_config_hash
 from geode.edl.prequential import PrequentialAccumulator, prequential_step
@@ -307,9 +309,19 @@ def _append_records(path: Path, records: Sequence[PrequentialRecord]) -> None:
 
 
 def _save_snapshot(model: torch.nn.Module, run_id: str, step: int, *, store: Path | None) -> None:
-    """Save the PEFT adapter for θ_step to ``snapshots/step_{step}`` (specs/00 §1)."""
+    """Save the complete ``model.state_dict()`` for θ_step (specs/00 §1).
+
+    One self-contained ``snapshots/step_{step}/model.safetensors`` holding base
+    + adapter tensors together (2026-07-18 arch decision: at ~30M params a full
+    snapshot is ~77 MB, so adapter-only saving + base-checkpoint reassembly is
+    retired). Saving the *unmerged* state keeps the reload bit-exact (L-5) —
+    merging would perturb weights by float rounding — and keeps the LoRA
+    factors readable for the adapter-diff analysis. ``save_model`` handles
+    tied-weight aliases.
+    """
     snap_dir = run_dir(run_id, store=store) / "snapshots" / f"step_{step}"
-    model.save_pretrained(str(snap_dir))
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    save_model(model, str(snap_dir / "model.safetensors"))
 
 
 def _write_test_loss(

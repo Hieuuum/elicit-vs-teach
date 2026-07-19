@@ -45,13 +45,16 @@ EDL-2's D-* decisions):
   fixtures, where an epoch-2 record continues the epoch-1 numbering); epochs
   are 1-based; one record per optimizer batch (spec 00 §3), so a full epoch
   over n examples at batch size b yields ceil(n/b) records.
-- L-5: ``snapshots/step_{k}/`` holds the trainable (PEFT adapter) state after
-  exactly k optimizer updates — equivalently the pre-update state for batch k
-  — loadable via ``peft.PeftModel.from_pretrained(base_model, dir)``. This is
-  the convention that makes the snapshot at step k reproduce the loss recorded
-  at step k, and ``step_0`` the initialization. Per spec 01 §1 (θ₀ = the
-  pretrained parameters), the freshly wrapped model at step 0 must compute the
-  same function as the unwrapped pretrained model.
+- L-5 (revised 2026-07-18, arch-downscale decision): ``snapshots/step_{k}/``
+  holds the complete model state — base + adapter tensors in one
+  ``model.safetensors`` — after exactly k optimizer updates, equivalently the
+  pre-update state for batch k. Loadable by rebuilding the module tree (base
+  arch + LoRA wrap mirroring the manifest's ``training.lora``) and
+  ``safetensors.torch.load_model``; no separately stored base checkpoint is
+  needed. This is the convention that makes the snapshot at step k reproduce
+  the loss recorded at step k, and ``step_0`` the initialization. Per spec 01
+  §1 (θ₀ = the pretrained parameters), the freshly wrapped model at step 0
+  must compute the same function as the unwrapped pretrained model.
 - L-6: gradstats are logged at steps where ``step % gradstats_stride == 0``;
   ``topk_grad_subspace_overlap`` is always null (OQ-14).
 - L-7: optimizer built from ``manifest.training.optimizer``; these tests
@@ -95,7 +98,8 @@ from pathlib import Path
 
 import pytest
 import torch
-from peft import PeftModel
+from peft import LoraConfig, PeftModel, TaskType, get_peft_model
+from safetensors.torch import load_model
 
 from geode.edl import TaskFormat, label_mask
 from geode.edl.loop import train_prequential
@@ -203,11 +207,25 @@ def _batch_of(train: list[TaskExample], example_ids: list[int]) -> list[TaskExam
 def _model_at_step(tiny_llama, run_dir: Path, step: int) -> PeftModel:
     """L-5: rebuild the loop's model state θ_step from its saved snapshot.
 
-    ``tiny_llama(seed=MODEL_SEED)`` reconstructs the identical pretrained base
-    (deterministic init); the adapter snapshot supplies the trained state.
+    ``tiny_llama(seed=MODEL_SEED)`` rebuilds the module tree and the LoRA wrap
+    mirrors ``_manifest_fields``'s ``training.lora`` block (independent-path
+    rule: derived from the fixture, not from the loop); every tensor value then
+    comes from the snapshot file, so no separately stored base checkpoint is
+    involved.
     """
-    base = tiny_llama(seed=MODEL_SEED)
-    return PeftModel.from_pretrained(base, str(run_dir / "snapshots" / f"step_{step}"))
+    wrapped = get_peft_model(
+        tiny_llama(seed=MODEL_SEED),
+        LoraConfig(
+            r=2,
+            lora_alpha=4.0,
+            target_modules=["q_proj", "v_proj"],
+            lora_dropout=0.0,
+            bias="none",
+            task_type=TaskType.CAUSAL_LM,
+        ),
+    )
+    load_model(wrapped, str(run_dir / "snapshots" / f"step_{step}" / "model.safetensors"))
+    return wrapped
 
 
 def _sorted_records(run_id: str):

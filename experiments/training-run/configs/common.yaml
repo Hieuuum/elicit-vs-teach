@@ -15,14 +15,16 @@ training:
 # LoRA block applies to target runs (5-6) only; kept here so both arm
 # configs inherit identical values.
 lora:
-  r: 64
+  r: 128                   # 2026-07-18 arch decision (was 64 at 1B scale)
   alpha: 32
   scaling: alpha_over_2r
   dropout: 0.0
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 gpu:
-  type: null               # set at rental time (e.g. A100-80GB)
-  tflops_bf16: 312.0       # A100 dense bf16 peak; used only for cost estimate
+  type: null               # set at rental time (e.g. RTX-4090-24GB)
+  # Estimate block sized for an RTX 4090 (2026-07-18): a ~39M-param model
+  # needs no A100. These numbers only feed the printed cost estimate.
+  tflops_bf16: 165.0       # 4090 dense bf16 peak
   utilization: 0.35        # conservative MFU guess for cost estimate
-  usd_per_hour: 1.90
+  usd_per_hour: 0.45

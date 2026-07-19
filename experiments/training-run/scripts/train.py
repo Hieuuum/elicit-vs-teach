@@ -25,7 +25,7 @@ from typing import Any
 import torch
 import yaml
 
-from geode.train import StoppingRule, pack_corpus, train_full, train_val_split
+from geode.train import StoppingRule, pack_corpus, split_documents, train_full, train_val_split
 from geode.zoo import register_run
 
 
@@ -63,22 +63,30 @@ def build_model(cfg: dict, vocab_size: int) -> torch.nn.Module:
         num_hidden_layers=m["num_hidden_layers"],
         num_attention_heads=m["num_attention_heads"],
         num_key_value_heads=m["num_key_value_heads"],
-        rope_theta=m.get("rope_theta", 500000.0),
+        rope_theta=m.get("rope_theta", 10000.0),
         tie_word_embeddings=m.get("tie_word_embeddings", True),
-        max_position_embeddings=cfg["data"]["seq_len"],
+        max_position_embeddings=m.get("max_position_embeddings", cfg["data"]["seq_len"]),
     )
     return LlamaForCausalLM(config)
 
 
 def load_texts(cfg: dict) -> list[str]:
-    from datasets import load_dataset
+    # TinyStories-v2 exists only as a delimiter-separated txt file inside the
+    # v1 repo (verified 2026-07-18); the repo's parquet config is v1 data.
+    from huggingface_hub import hf_hub_download
 
     d = cfg["data"]
-    ds = load_dataset(d["hf_id"], split=d["train_split"])
-    texts = ds[d["text_field"]]
-    if d.get("max_documents"):
-        texts = texts[: d["max_documents"]]
-    return list(texts)
+    path = hf_hub_download(d["hf_id"], d["file"], repo_type="dataset")
+    with open(path, encoding="utf-8") as f:
+        if d.get("max_documents"):
+            texts = []
+            for doc in split_documents(f):
+                texts.append(doc)
+                if len(texts) == d["max_documents"]:
+                    break
+        else:
+            texts = list(split_documents(f))
+    return texts
 
 
 def estimate_cost_usd(cfg: dict, n_params: int, n_train_tokens: int) -> tuple[float, str]:
@@ -112,7 +120,7 @@ def manifest_fields(cfg: dict, n_params: int, n_docs: int, est_usd: float) -> di
         "created_utc": datetime.datetime.now(datetime.UTC).isoformat(),
         "git_commit": git_commit(),
         "regime": "unknown",  # run 1 is shared; regimes attach to target runs
-        "base_model": {"hf_id": "random-init/llama-3.2-1b-arch", "revision": "none"},
+        "base_model": {"hf_id": "random-init/llama-arch-d512-L8", "revision": "none"},
         "task": {"name": "tinystories_pretrain", "format_version": "v1"},
         "dataset": {
             "name": cfg["data"]["hf_id"],
@@ -159,7 +167,17 @@ def main() -> int:
 
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"]["hf_id"])
+    tok_path = cfg["tokenizer"]["path"]
+    if not tok_path:
+        print(
+            "[evt] tokenizer.path is null — train the custom tokenizer first "
+            "(scripts/make_tokenizer.py; see configs/run1_pretrain.yaml). Exiting."
+        )
+        return 1
+    # Relative paths resolve against the config dir; anything that doesn't
+    # resolve to a local directory passes through as an HF id.
+    local = (args.config.parent / tok_path).resolve()
+    tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else tok_path)
     print(f"[evt] loading + packing {cfg['data']['hf_id']} ...", flush=True)
     texts = load_texts(cfg)
     seqs = pack_corpus(texts, tokenizer, cfg["data"]["seq_len"])

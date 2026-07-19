@@ -1,16 +1,46 @@
 """Corpus packing + train/val split (specs/02 §6.1).
 
+``split_documents`` cuts a raw-text line stream into documents on
+delimiter-only lines (the TinyStories ``<|endoftext|>`` convention);
 ``pack_corpus`` turns a stream of documents into fixed-length rows for
 next-token pretraining; ``train_val_split`` partitions packed rows into a
-seeded train/validation split. Neither function imports ``geode.zoo`` or
-``datasets`` — this module consumes and returns in-memory token tensors only.
+seeded train/validation split. Nothing here imports ``geode.zoo`` or
+``datasets`` — this module consumes in-memory text/token streams only.
 """
 
 from __future__ import annotations
 
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 import torch
+
+
+def split_documents(lines: Iterable[str], delimiter: str = "<|endoftext|>") -> Iterator[str]:
+    """Split a line stream into documents on delimiter-only lines (V5.26).
+
+    A document is the text strictly between consecutive delimiter lines
+    (lines whose stripped content equals ``delimiter``), stripped of
+    surrounding whitespace; empty documents are dropped, so leading,
+    trailing, or consecutive delimiter lines yield nothing. The delimiter
+    never appears in any yielded document: a line that *contains* the
+    delimiter without being exactly a delimiter line raises ``ValueError``
+    (silently training on delimiter text would corrupt the corpus).
+    Lazy: consumes ``lines`` incrementally, so multi-GB files stream.
+    """
+    buf: list[str] = []
+    for line in lines:
+        if line.strip() == delimiter:
+            doc = "".join(buf).strip()
+            if doc:
+                yield doc
+            buf = []
+        elif delimiter in line:
+            raise ValueError(f"split_documents: delimiter {delimiter!r} appears mid-line: {line!r}")
+        else:
+            buf.append(line)
+    doc = "".join(buf).strip()
+    if doc:
+        yield doc
 
 
 def pack_corpus(texts: Iterable[str], tokenizer: Any, seq_len: int) -> torch.LongTensor:

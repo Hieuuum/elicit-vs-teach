@@ -122,6 +122,87 @@ below are **accepted as-is (won't-fix)** — none bias the A-vs-B comparison:
   duplicates `DIGIT_BAND_SIZES` (`stratify`); V5.4 byte-identity stays a manual
   two-run check, not script-enforced.
 
+## 2026-07-18 — architecture downscale (owner)
+
+Llama-3.2-1B arch dropped for a custom small config: hidden 512, 8 layers,
+intermediate 2048 (4×d), 8 heads (head_dim 64), KV heads = 8 (plain MHA),
+RoPE/RMSNorm/SwiGLU/pre-norm kept, tied embeddings, vocab ~10K from a custom
+BPE tokenizer trained on TinyStories-v2 with digits 0–9 forced as single
+tokens (plus `+`, `-`, `*` and the template literals). ~25–34M non-embedding
+params, ~77 MB full checkpoint (bf16). LoRA r 64 → 128 (~12.1M adapter
+params, ~24 MB). Snapshots now save the complete model `state_dict` — one
+self-contained `model.safetensors` per step (spec 00 §1); adapter-only saving
++ base reassembly retired (`geode.edl.loop._save_snapshot` + test L-5 revised
+in the same commit; the *unmerged* state is saved so reloads stay bit-exact).
+OPEN(8) closed: pretrain from scratch. OPEN(11) tokenizer half closed: custom
+tokenizer above, to be trained + frozen by `scripts/make_tokenizer.py` (not
+yet written). All 1B-derived numbers (paper Table-3 LRs, ~300K teaching peak,
+capacity thresholds) are void — hyperparameters are pilot-determined.
+
+**Datasets unaffected:** frozen files carry text + answer char spans
+(tokenizer-agnostic by design); no regeneration. Pilot config's model
+override removed — production is now pilot-sized, so the pilot exercises the
+exact production arch and only shrinks data/steps.
+
+## 2026-07-18 — run-1 launch prep (tokenizer frozen, dataset verified, OPEN(5) closed)
+
+Pre-training blockers cleared this session; spec 02 edited in the same commit.
+
+- **Dataset id verified (OPEN(11) half).** `roneneldan/TinyStoriesV2` does
+  not exist; the repo's parquet config is **v1** data. v2 (GPT-4-only) ships
+  solely as `TinyStoriesV2-GPT4-train.txt` (+ `-valid`) inside
+  `roneneldan/TinyStories`: 2,717,495 stories separated by `<|endoftext|>`
+  lines (delimiter always on its own line — verified), stories contain
+  internal newlines. Loader = `hf_hub_download` + new
+  `geode.train.split_documents` (promotion rule: used by train + tokenizer
+  scripts, silent mis-split corrupts the corpus; property V5.26, mid-line
+  delimiter raises). `datasets` is no longer imported anywhere.
+- **Tokenizer frozen** at `experiments/training-run/tokenizer/` by
+  `scripts/make_tokenizer.py`: byte-level BPE, vocab exactly 10,000, no
+  normalizer (exact round-trip), specials `<|endoftext|>` (EOS; pack_corpus
+  requires one) + `<|pad|>` (added now because post-freeze vocab changes are
+  impossible). Digits 0–9 forced single via a `Digits(individual_digits)`
+  pre-split — asserted post-hoc on the reloaded artifact: `"9999"` → 4×`"9"`,
+  no learned token contains an ASCII digit, `+ - *` single tokens, worst-case
+  renders round-trip exactly. **Owner decision: `Question:`/`Answer:` stay
+  plain BPE** (5 / 6 tokens incl. leading `\n`) — subword pieces carry
+  pretrained embeddings into SFT; forced single tokens would enter SFT at
+  random init. Provenance (corpus sha256 + lib versions) in `meta.json`;
+  artifact is committed and deterministic (no timestamps).
+- **Lengths re-measured** with the frozen tokenizer
+  (`scripts/measure_lengths.py`). Stories: 532.3M tokens/epoch, mean 196,
+  p50 174, p90 265, p99 566, max 1507. **seq_len stays 512** (p90 > 256; at
+  512 only 1.6% of stories exceed one row; ~1.045M packed rows). **OPEN(5)
+  closed**: padded per-example max **33 tokens** across all four frozen full
+  files (longest: 4-digit NL sum, 5-digit answer; D_algo 33 / D_inst 30 /
+  D_target 27 / probe 27). G5 16-shot worst case (17× longest, blank-line
+  joined, exact tokenization) = **593 tokens > 512** ⇒ new model key
+  `max_position_embeddings: 1024`, decoupled from packing seq_len — free
+  with RoPE (no learned positions).
+- **Gate G0 (floor-1 coherence) criterion — owner decision, fixed
+  pre-training:** 20 seeded samples (`scripts/sample_stories.py`, EOS
+  context, temperature 0.8, seed 316), pass = ≥16/20 coherent under the
+  written rubric (grammatical sentences, narrative continuity, no repetition
+  loops); samples archived as `floor1_samples.txt` next to the checkpoint,
+  val loss already in `eval_log.jsonl`. Script smoke-tested on a random-init
+  checkpoint. Added to spec §8 as G0.
+- **Minor calls (implementer judgment):** `rope_theta` 500000 → **10000**
+  (textbook at seq 512; Llama's long-context artifact dropped before floor 1
+  bakes it in). Pilot **no longer overrides seq_len** (was 256) — pilot packs
+  exactly like production. GPU cost block re-sized A100@$1.90/h → **RTX 4090**
+  (165 TFLOPs bf16, $0.45/h; estimate-only numbers). Tokenizer path resolves
+  relative to the config dir.
+- **Dry run green:** pilot overlay without `--confirm-cost` → 20K docs,
+  7,568/154 train/val rows @ 512, 38.7M params, prints estimate, refuses to
+  train. Production estimate at 2 epochs ≈ 1.2 GPU-h ≈ **$0.54**.
+- **Flag for the rental box (not fixed here):** `pack_corpus` accumulates the
+  full token stream as a Python int list — at 532M tokens that is roughly
+  15–20 GB RAM, and it tokenizes doc-by-doc (single-threaded; expect tens of
+  minutes for 2.7M docs). Rent ≥64 GB RAM, or batch/stream the packing if it
+  hurts. Fails loud (OOM), never silent.
+- Floor-2 reminder: label-masked SFT mode in `geode.train` is deliberately
+  not built yet (spec §6) — next code task after the pretrain validates.
+
 ## Open at the moment
 
 OPEN(1)–OPEN(11): see spec 02 §12 table. Still open for the dataset:

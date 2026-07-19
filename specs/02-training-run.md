@@ -24,11 +24,26 @@ Decisions locked 2026-07-16 (owner):
   spelled out; the paper's vocabulary is never reused for a different
   procedure.
 
+Decision locked 2026-07-18 (owner) — **architecture downscale**: the
+Llama-3.2-1B arch is replaced by a custom small Llama-style config —
+hidden 512, 8 layers, intermediate 2048 (4×d), 8 heads (head_dim 64),
+num_key_value_heads 8 (plain MHA; GQA is an inference optimization,
+unneeded at this scale), RoPE/RMSNorm/SwiGLU/pre-norm kept, tied
+embeddings, vocab ~10K from a **custom BPE tokenizer** trained on
+TinyStories-v2 with digits 0–9 forced as single tokens (plus `+`, `-`,
+`*` and the template literals) — single-digit tokenization makes
+arithmetic easier to learn and removes Llama's 3-digit chunking.
+~25–34M non-embedding params; ~77 MB full checkpoint (bf16).
+Consequences threaded through this spec: 9 residual points (§7), LoRA
+r=128 (§6), self-contained full-model snapshots (spec 00 §1), and all
+1B-derived numbers (paper Table-3 LRs, the ~300K teaching peak,
+capacity thresholds) are void — the pilot re-establishes them (§11).
+
 ## 1. Runs, arms, DAG
 
 | # | run_id (proposed)      | Role            | Init      | Method  | Data |
 |---|------------------------|-----------------|-----------|---------|------|
-| 1 | `evt-run1-base`        | pretrain        | random    | full FT | TinyStories-v2 (~2.6M stories), Llama-3.2-1B arch |
+| 1 | `evt-run1-base`        | pretrain        | random    | full FT | TinyStories-v2 (~2.6M stories), custom small arch (2026-07-18) |
 | 2 | `evt-run2-armA-algo`   | pre-teach       | run 1     | full FT | NL add/sub, correct labels, 1M unique, 1 epoch |
 | 3 | `evt-run3-armA-inst`   | format install  | run 2     | full FT | operator-notation mult, random labels, OPEN(1) count |
 | 4 | `evt-run4-armB-inst`   | format install  | run 1     | full FT | identical dataset + count as run 3 |
@@ -37,9 +52,10 @@ Decisions locked 2026-07-16 (owner):
 
 DAG: `1 → 2 → 3 → 5` (Arm A) and `1 → 4 → 6` (Arm B). Arms differ **only**
 in run 2's presence. No Arm C (generic-transfer confound assumed away per
-paper Table 6). Single seed — recorded limitation (§13). Run 1 may be
-replaced by an external TinyStories checkpoint pending mentor — OPEN(8);
-only `bases/` contents change downstream.
+paper Table 6). Single seed — recorded limitation (§13). Run 1 is
+pretrained from scratch (OPEN(8) closed 2026-07-18: the custom arch +
+tokenizer match no external checkpoint, and at ~30M params the run is
+single-GPU, <30h territory).
 
 Every run is registered in zoo before training starts and marked complete
 only after its gates (§8) pass. A run refuses to launch if its parent run
@@ -99,20 +115,22 @@ elicit-vs-teach/
                                        # run_id, arm, step, probe/train metrics,
                                        # digit metadata, file paths
   probe/                               # probe_set.safetensors + probe_set.json (hashes, strata)
-  bases/                               # run1 final + run2/3/4 finals (~5 GB)
+  bases/                               # run1 final + run2/3/4 finals (~0.3 GB)
   armA_elicit/
-    adapters/{000,001,002}/step_XXXXXXX.safetensors
-    acts/{000,...}/step_XXXXXXX.safetensors      # 17 named tensors each (§7)
+    snapshots/{000,001,002}/step_XXXXXXX.safetensors   # full model state (spec 00 §1)
+    acts/{000,...}/step_XXXXXXX.safetensors      # 9 named tensors each (§7)
     grads/{000,...}/step_XXXXXXX.safetensors
   armB_teach/                          # same shape
-  optimizer/                           # optional, ~10 ckpts, 3.6 GB — OPEN(10)
+  optimizer/                           # optional, ~10 ckpts — OPEN(10)
 ```
 
 Chunking: subdir index = snapshot_index // 500 (keeps every dir ≤ 1000
 files). One file per (snapshot, quantity). Uploads in commits of 50–100
-files, resumable, verified against local hashes after push. Budget:
-~2.14 GB/snapshot × 1024 × 2 arms ≈ 4.38 TB tensors + 92 GB adapters +
-5 GB bases (+3.6 GB optimizer) + logs < 1 GB.
+files, resumable, verified against local hashes after push. Budget
+(2026-07-18 arch, rough): ~0.4 GB/snapshot × 1024 × 2 arms ≈ ~0.9 TB
+tensors + ~158 GB full-model snapshots (~77 MB each) + <1 GB bases +
+logs < 1 GB; re-estimate at pilot (padded seq_len closed 2026-07-18:
+per-example max 33 tokens).
 
 ## 4. Zoo schema additions (spec 00 edit, same PR as implementation)
 
@@ -142,7 +160,8 @@ same PR that implements validation.
 those are ~87% decimals, mixed formats). Operands 1–4 digits; ops add/sub
 (mult for the installer). Both formats share a two-line `Question: <body>` / `Answer: <answer>`
 scaffold (exact template frozen 2026-07-17, closing OPEN(9); padded length
-OPEN(5)): operator body `a op b` (e.g. `Question: 23 + 45` then `Answer: 68`),
+closed 2026-07-18: max 33 tokens, see OPEN(5)): operator body `a op b`
+(e.g. `Question: 23 + 45` then `Answer: 68`),
 NL body `What is the sum of a and b?` / `What is the difference between a and
 b?` (add/sub only). Label modes:
 correct | random. Random-label sampling distribution OPEN(6) (default:
@@ -152,8 +171,9 @@ generated **once** by `scripts/make_data.py` and frozen to files (not
 regenerated at train time); `geode.arith` supplies only rendering, the
 random-label rule, evals, the water-fill allocation, and the validators.
 Every emitted example carries the answer **character** span (tokenizer-
-agnostic); token-level label spans are derived at load once the tokenizer is
-fixed (OPEN(11)), and masking then goes through `geode.edl.masking.label_mask`
+agnostic); token-level label spans are derived at load against the frozen
+tokenizer (`experiments/training-run/tokenizer/`, built 2026-07-18), and
+masking then goes through `geode.edl.masking.label_mask`
 — the single mask path.
 
 **Integrity rules.** Every training row is a distinct question `(a, op, b)`
@@ -198,15 +218,18 @@ zero/16-shot prompt builder for G5.
 init (parent run_id | external | random), model (arch config), data
 (task, format, label mode, n_examples, seed), train (optimizer, lr,
 schedule, clip, precision, batch, stopping), lora (target runs only),
-snapshots, logging. Fixed values from the paper's tables:
+snapshots, logging. Fixed values (paper conventions where they survive
+the 2026-07-18 downscale):
 
 - AdamW β₁ 0.9, β₂ 0.999, wd 0.01; constant LR; grad clip 1.0; bfloat16.
-- LR 2e-5 full FT / 3.53e-4 LoRA (TinyStories-1B row). Batch 128
-  (paper: eff. 1024 on 8×H100) — step count and snapshot schedule follow
-  from OPEN(2)+OPEN(4).
-- LoRA (runs 5–6 only): r=64; Q,K,V,O,G,U,D all layers; α=32; scaling
-  α/2r; dropout 0; A Kaiming 1/√d_in, B zero. 45.09M params,
-  ~90 MB/adapter bf16.
+- LR: the paper's Table-3 values (2e-5 full FT / 3.53e-4 LoRA) were
+  tuned for 1B and are void at this scale — LR is pilot-determined
+  (starting points ~3e-4 pretrain, ~1e-4 full-FT pre-teach, ~3e-4 LoRA;
+  brief sweep). Batch 128 placeholder — step count and snapshot schedule
+  follow from OPEN(2)+OPEN(4).
+- LoRA (runs 5–6 only): r=128; Q,K,V,O,G,U,D all layers; α=32; scaling
+  α/2r; dropout 0; A Kaiming 1/√d_in, B zero. 12.1M params,
+  ~24 MB/adapter bf16.
 - Loss on label tokens only, identical masking train/test (masking hash
   guard from spec 00 §5 applies as usual).
 - Stopping (runs 1–4): validation-loss convergence with pinned ε, k —
@@ -226,10 +249,16 @@ Files: `geode/train/{__init__,packing,stopping,loop}.py`. All CLAUDE.md
 conventions bind (device-agnostic, explicit seeds, `_nats` suffixes,
 CPU-only tests on tiny in-process models). The module never touches the
 zoo registry — registration is the launch script's job (§6.2) — and never
-imports `datasets`/network loaders; it consumes in-memory token tensors.
+imports `datasets`/network loaders; it consumes in-memory text/token streams.
 
 ```python
 # geode/train/packing.py
+def split_documents(lines: Iterable[str], delimiter: str = "<|endoftext|>") -> Iterator[str]
+    # Cut a raw-text line stream into documents on delimiter-only lines
+    # (the TinyStories txt convention). Documents are stripped; empties
+    # dropped; the delimiter never appears in output — a mid-line
+    # delimiter raises ValueError (silent corpus corruption otherwise).
+    # Lazy: multi-GB files stream.
 def pack_corpus(texts: Iterable[str], tokenizer, seq_len: int) -> torch.LongTensor
     # Tokenize each document (no special tokens added), append exactly one
     # eos_token_id after every document, concatenate in input order, slice
@@ -346,22 +375,31 @@ def train_full(model, train_seqs: torch.LongTensor,
   `training_meta.json` fields match the returned `TrainResult`.
 - V5.25 with stopping effectively disabled (huge k), training stops at
   exactly `max_steps` with `stop_reason="max_steps"`.
+- V5.26 document splitting: documents are exactly the stripped text
+  between delimiter-only lines, in order, empties dropped, delimiter
+  never emitted; a mid-line delimiter raises; consumption is lazy.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
 `experiments/training-run/scripts/train.py` + `configs/`: parses the
-run YAML, builds the Llama-3.2-1B-shaped `LlamaConfig` from the config
-block, loads + packs TinyStories-v2 (the only place `datasets` is
-imported), registers the run in zoo (spec 00 §2 required fields;
+run YAML, builds the `LlamaConfig` from the config's model block
+(custom small arch, 2026-07-18), loads + packs TinyStories-v2 — which
+ships **only** as the delimiter-separated `TinyStoriesV2-GPT4-train.txt`
+inside `roneneldan/TinyStories` (verified 2026-07-18; the repo's parquet
+config is v1 data): downloaded via `huggingface_hub`, split with
+`geode.train.split_documents`, the script's only network data access.
+Registers the run in zoo (spec 00 §2 required fields;
 `experiment` block rides as preserved extra fields until its validation
 task lands), prints a cost estimate and refuses to run without
 `--confirm-cost` (CLAUDE.md budget rule), then calls
-`geode.train.train_full`. Pretrain hyperparameter values in
-`run1_pretrain.yaml` are placeholders — OPEN(11) — and say so inline.
+`geode.train.train_full`. Remaining pretrain hyperparameter values in
+`run1_pretrain.yaml` (LR, batch, eval cadence, val fraction) are
+placeholders — OPEN(11) — and say so inline; seq_len 512 and the
+tokenizer are pinned (2026-07-18).
 
 **Runs 5–6 (LoRA target):** use `train_prequential` as-is — pre-update
-losses, gradstats (per-module grad norms already covered), PEFT adapter
-snapshots at `manifest.snapshot_steps`. Additions needed: LR + train-acc
+losses, gradstats (per-module grad norms already covered), full-model
+snapshots (spec 00 §1) at `manifest.snapshot_steps`. Additions needed: LR + train-acc
 scalars per step (small logging extension). Probe loss/acc are **not**
 computed in-training: the extraction pass (§7) yields per-example probe
 loss at every snapshot, and early snapshots are per-step anyway, so probe
@@ -379,12 +417,13 @@ launch.
 prefix, log-then-uniform tail. Exact parameters OPEN(4).
 
 **Extraction pass** (offline, separate rental). For each snapshot: load
-base + adapter; run the probe set forward + backward (loss on label
+the self-contained snapshot (spec 00 §1 — no separate base checkpoint);
+run the probe set forward + backward (loss on label
 tokens, **sum** reduction); capture activations and activation gradients
-at all 17 residual points (embedding output + 16 post-block residuals for
+at all 9 residual points (embedding output + 8 post-block residuals for
 this arch — hook count is n_layers+1, never hardcoded), per example,
 bf16, padded + attention mask stored alongside. Write one safetensors
-file per (snapshot, quantity ∈ {acts, grads}) containing 17 named
+file per (snapshot, quantity ∈ {acts, grads}) containing 9 named
 tensors; sidecar meta: run_id, arm, step, probe_set_hash, tokenizer_hash,
 base_model_key, dtype. Per-example probe loss saved per snapshot (late
 gradients are numerically degenerate — analyses condition on nonzero
@@ -405,7 +444,8 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
 - Representation drift from the init snapshot, per layer, per digit class.
 - Adapter diffs: cumulative ‖ΔW‖, effective rank, per-layer allocation.
   Needs a small weight-diff helper written fresh in
-  `analysis/adapters.py` (LoRA ΔW = B@A × α/2r per module, ~20 lines).
+  `analysis/adapters.py` (LoRA ΔW = B@A × α/2r per module, ~20 lines;
+  B/A are read straight from the full-model snapshot tensors).
   (`geode.steering` was planned but never built and was deleted in the
   2026-07-17 cut; its V2.6 was a spec property, never a test.)
 - Performance-aligned matching: map snapshots across arms at equal probe
@@ -438,6 +478,7 @@ while a parent gate fails. Thresholds frozen at pilot where marked.
 
 | Gate | After | Check |
 |------|-------|-------|
+| G0 | run 1 | Base generates coherent stories (criterion decided 2026-07-18, pre-training): 20 seeded samples via `scripts/sample_stories.py`, pass = ≥16/20 coherent under the written rubric — grammatical sentences, narrative continuity, no repetition loops. Samples archived next to the checkpoint (`floor1_samples.txt`); val loss recorded in `eval_log.jsonl`. Owner judges; the archive makes it auditable |
 | G1 | run 2 | Arm A near ceiling on NL add/sub (threshold ~≥95%, frozen at pilot) |
 | G2 | run 3 | Arm A still near ceiling on NL add/sub (installer didn't corrupt; δ frozen at pilot) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak; ≤ chance + margin) |
@@ -480,8 +521,7 @@ real gradient-alignment plot. Then parameter pilots close open items:
 - OPEN(3): ε, k frozen from pilot validation curves.
 - OPEN(4): batch → step count → snapshot-schedule parameters (needs
   OPEN(2)).
-- OPEN(5): tokenize the frozen `Question:/Answer:` templates ⇒ padded max
-  seq_len (OPEN(9) template string decided 2026-07-17).
+- OPEN(5): **closed 2026-07-18** — see §12.
 
 Pilot outcomes are logged in `notes/decisions.md`, then the `OPEN(n)`
 markers in this spec are replaced with pinned values in the same PR.
@@ -494,13 +534,13 @@ markers in this spec are replaced with pinned values in the same PR.
 | OPEN(2) | Target dataset size | pilot (B convergence sweep) |
 | OPEN(3) | Stopping-rule ε, k | pilot validation curves |
 | OPEN(4) | Batch → step count → snapshot schedule params | after OPEN(2) |
-| OPEN(5) | Padded max seq_len | tokenizer check on frozen template |
+| OPEN(5) | Padded max seq_len | **closed 2026-07-18**: per-example max 33 tokens over all four frozen full-scale files (longest: 4-digit NL sum, 5-digit answer); G5 16-shot worst case 593 tokens ⇒ model `max_position_embeddings: 1024` (free with RoPE), packing stays at `data.seq_len` 512 |
 | OPEN(6) | Random-label sampling distribution (installer) | decision before pilot; default digit-count-matched uniform |
 | OPEN(7) | Subtraction negatives allowed | decision before pilot; default allowed |
-| OPEN(8) | Run 1: pretrain from scratch vs external TinyStories checkpoint | mentor (cost flag: run 1 is the most expensive item and pure reproduction; no existing checkpoint matches Llama-3.2-1B arch exactly) |
+| OPEN(8) | Run 1: pretrain from scratch vs external TinyStories checkpoint | **closed 2026-07-18**: from scratch — the custom arch + tokenizer match no external checkpoint, and the run is single-GPU small |
 | OPEN(9) | Exact template string (both formats) | **decided 2026-07-17**: two-line `Question: <body>` / `Answer: <answer>` scaffold; padded length still OPEN(5) |
-| OPEN(10) | Keep optimizer-state snapshots (3.6 GB) | decision before production run 5 |
-| OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) and tokenizer choice (vocab size drives embedding params; Llama-3.2 tokenizer is license-gated — mirror or alternative needed) | paper tables / mentor, before any `--confirm-cost` spend; config ships documented placeholders |
+| OPEN(10) | Keep optimizer-state snapshots (sizes TBD at 2026-07-18 scale) | decision before production run 5 |
+| OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) | tokenizer **frozen 2026-07-18** at `experiments/training-run/tokenizer/`: 10K byte-level BPE on TinyStories-v2, digits 0–9 single-token forced, `Question:`/`Answer:` plain BPE (owner decision), EOS `<|endoftext|>` + PAD `<|pad|>`, provenance in `meta.json`. Dataset id verified 2026-07-18 (v2 = txt file in `roneneldan/TinyStories`; no v2 repo exists) and seq_len pinned at 512 (story p90 = 265 > 256; 1.6% of stories exceed 512). Remaining (LR, batch, epochs, val split, eval cadence): pilot, before any `--confirm-cost` spend; config ships documented placeholders |
 
 ## 13. Limitations / notes
 
