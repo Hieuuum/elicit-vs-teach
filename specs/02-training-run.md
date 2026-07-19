@@ -259,12 +259,18 @@ def split_documents(lines: Iterable[str], delimiter: str = "<|endoftext|>") -> I
     # dropped; the delimiter never appears in output — a mid-line
     # delimiter raises ValueError (silent corpus corruption otherwise).
     # Lazy: multi-GB files stream.
-def pack_corpus(texts: Iterable[str], tokenizer, seq_len: int) -> torch.LongTensor
+def pack_corpus(texts: Iterable[str], tokenizer, seq_len: int,
+                *, chunk_tokens: int = 1 << 20) -> torch.LongTensor
     # Tokenize each document (no special tokens added), append exactly one
     # eos_token_id after every document, concatenate in input order, slice
     # the stream into consecutive rows of length seq_len, drop the short
-    # tail. Raises ValueError if tokenizer.eos_token_id is None or
-    # seq_len < 2. Deterministic: output is a pure function of inputs.
+    # tail. Streaming: documents are consumed one at a time; completed rows
+    # move to tensor storage whenever the token buffer reaches chunk_tokens
+    # (the buffer never exceeds chunk_tokens + one document), so full-corpus
+    # packing costs the output tensor's memory, not a full-stream Python
+    # list. chunk_tokens never changes the result. Raises ValueError if
+    # tokenizer.eos_token_id is None, seq_len < 2, or chunk_tokens <
+    # seq_len. Deterministic: a pure function of (texts, tokenizer, seq_len).
 def train_val_split(seqs: torch.LongTensor, val_fraction: float, seed: int
                     ) -> tuple[torch.LongTensor, torch.LongTensor]
     # Seeded permutation, then split. n_val = round(val_fraction * n)
@@ -378,6 +384,10 @@ def train_full(model, train_seqs: torch.LongTensor,
 - V5.26 document splitting: documents are exactly the stripped text
   between delimiter-only lines, in order, empties dropped, delimiter
   never emitted; a mid-line delimiter raises; consumption is lazy.
+- V5.27 packing streams: the packed tensor is identical for every valid
+  `chunk_tokens` and equals a tokenize-all-then-slice reference; documents
+  are pulled and tokenized one at a time (the iterable is never drained
+  first); `chunk_tokens < seq_len` raises.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

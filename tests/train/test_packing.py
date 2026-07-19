@@ -15,7 +15,7 @@ Derived from the spec only:
   ``n_val = round(val_fraction * n)`` clamped to ``[1, n-1]``; requires
   ``0 < val_fraction < 1`` and ``n >= 2``, else ValueError; rows preserved
   exactly (a partition, no mutation).
-- V5.17 (packing), V5.18 (split).
+- V5.17 (packing), V5.18 (split), V5.27 (streamed packing).
 
 Fixture note (verified against ``tests/conftest.py``): ``tiny_tokenizer``
 builds word tokens ``t0..t123`` after the four specials, so the mapping is
@@ -267,3 +267,67 @@ def test_split_seeded_deterministic():
     # the ordered concatenation differs (collision probability ~ 1/20!).
     assert v0.shape == v1.shape and t0.shape == t1.shape
     assert not torch.equal(torch.cat([t0, v0]), torch.cat([t1, v1]))
+
+
+# --------------------------------------------------------------------------
+# V5.27 — pack_corpus streams
+# --------------------------------------------------------------------------
+def test_v5_27_chunked_equals_reference(tiny_tokenizer):
+    # V5.27: the packed tensor is identical for every valid chunk_tokens and
+    # equals a naive tokenize-everything-then-slice reference built here,
+    # independent of pack_corpus internals.
+    tok = tiny_tokenizer()
+    texts = [f"t{i} t{i + 1} t{i + 2}" for i in range(0, 60, 3)]
+    ref_stream: list[int] = []
+    for text in texts:
+        ref_stream.extend(tok(text, add_special_tokens=False)["input_ids"])
+        ref_stream.append(tok.eos_token_id)
+    for seq_len in (2, 4, 7):
+        n_rows = len(ref_stream) // seq_len
+        expected = torch.tensor(ref_stream[: n_rows * seq_len], dtype=torch.long).reshape(
+            n_rows, seq_len
+        )
+        for chunk_tokens in (seq_len, seq_len + 1, 3 * seq_len, 1 << 20):
+            got = pack_corpus(texts, tok, seq_len, chunk_tokens=chunk_tokens)
+            assert got.dtype == torch.long
+            assert torch.equal(got, expected), (seq_len, chunk_tokens)
+
+
+def test_v5_27_empty_and_subrow_corpora(tiny_tokenizer):
+    # V5.27 edge: no texts, or fewer tokens than one full row, still yield a
+    # (0, seq_len) long tensor regardless of chunking.
+    tok = tiny_tokenizer()
+    for texts in ([], ["t0"]):  # "t0" + eos == 2 tokens < seq_len 4
+        packed = pack_corpus(texts, tok, seq_len=4, chunk_tokens=4)
+        assert packed.shape == (0, 4)
+        assert packed.dtype == torch.long
+
+
+def test_v5_27_incremental_consumption(tiny_tokenizer):
+    # V5.27: documents are pulled and tokenized one at a time — the iterable
+    # is never drained into a list before tokenization starts.
+    tok = tiny_tokenizer()
+    events: list[str] = []
+
+    class RecordingTokenizer:
+        @property
+        def eos_token_id(self) -> int:
+            return tok.eos_token_id
+
+        def __call__(self, text: str, **kwargs):
+            events.append(f"tok:{text}")
+            return tok(text, **kwargs)
+
+    def gen():
+        for i in range(3):
+            events.append(f"yield:t{i}")
+            yield f"t{i}"
+
+    pack_corpus(gen(), RecordingTokenizer(), seq_len=2)
+    assert events == ["yield:t0", "tok:t0", "yield:t1", "tok:t1", "yield:t2", "tok:t2"]
+
+
+def test_v5_27_chunk_tokens_below_seq_len_raises(tiny_tokenizer):
+    # V5.27 interface: chunk_tokens < seq_len must raise ValueError.
+    with pytest.raises(ValueError):
+        pack_corpus(["t0 t1"], tiny_tokenizer(), seq_len=4, chunk_tokens=3)

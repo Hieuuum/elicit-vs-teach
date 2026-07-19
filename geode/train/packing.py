@@ -43,34 +43,54 @@ def split_documents(lines: Iterable[str], delimiter: str = "<|endoftext|>") -> I
         yield doc
 
 
-def pack_corpus(texts: Iterable[str], tokenizer: Any, seq_len: int) -> torch.LongTensor:
-    """Pack ``texts`` into consecutive rows of length ``seq_len`` (V5.17).
+def pack_corpus(
+    texts: Iterable[str], tokenizer: Any, seq_len: int, *, chunk_tokens: int = 1 << 20
+) -> torch.LongTensor:
+    """Pack ``texts`` into consecutive rows of length ``seq_len`` (V5.17, V5.27).
 
     Each document is tokenized independently with ``add_special_tokens=False``
     (a tokenizer-added template, e.g. an auto-prepended BOS, is never applied
     here), and exactly one ``tokenizer.eos_token_id`` is appended after every
     document. The per-document token streams are concatenated in input order
     and sliced into consecutive rows of length ``seq_len``; a trailing
-    partial row (strictly shorter than ``seq_len``) is dropped. Deterministic:
-    a pure function of ``texts``, ``tokenizer``, and ``seq_len``.
+    partial row (strictly shorter than ``seq_len``) is dropped.
 
-    Raises ``ValueError`` if ``tokenizer.eos_token_id is None`` or
-    ``seq_len < 2``.
+    Streaming (V5.27): documents are pulled and tokenized one at a time, and
+    completed rows move into tensor storage whenever the Python token buffer
+    reaches ``chunk_tokens``, so the buffer never holds more than
+    ``chunk_tokens`` tokens plus one document — packing a 500M-token corpus
+    costs the memory of the output tensor, not of a full-stream int list.
+    ``chunk_tokens`` only tunes that memory profile: the result is identical
+    for every valid value (a pure function of ``texts``, ``tokenizer``, and
+    ``seq_len``).
+
+    Raises ``ValueError`` if ``tokenizer.eos_token_id is None``,
+    ``seq_len < 2``, or ``chunk_tokens < seq_len``.
     """
     if seq_len < 2:
         raise ValueError(f"pack_corpus: seq_len must be >= 2, got {seq_len}")
+    if chunk_tokens < seq_len:
+        raise ValueError(
+            f"pack_corpus: chunk_tokens must be >= seq_len, got {chunk_tokens} < {seq_len}"
+        )
     eos_token_id = tokenizer.eos_token_id
     if eos_token_id is None:
         raise ValueError("pack_corpus: tokenizer.eos_token_id is None")
 
-    stream: list[int] = []
+    chunks: list[torch.Tensor] = []
+    buf: list[int] = []
     for text in texts:
-        stream.extend(tokenizer(text, add_special_tokens=False)["input_ids"])
-        stream.append(eos_token_id)
-
-    n_rows = len(stream) // seq_len
-    stream = stream[: n_rows * seq_len]
-    return torch.tensor(stream, dtype=torch.long).reshape(n_rows, seq_len)
+        buf.extend(tokenizer(text, add_special_tokens=False)["input_ids"])
+        buf.append(eos_token_id)
+        if len(buf) >= chunk_tokens:
+            n_rows = len(buf) // seq_len
+            chunks.append(
+                torch.tensor(buf[: n_rows * seq_len], dtype=torch.long).reshape(n_rows, seq_len)
+            )
+            del buf[: n_rows * seq_len]
+    n_rows = len(buf) // seq_len
+    chunks.append(torch.tensor(buf[: n_rows * seq_len], dtype=torch.long).reshape(n_rows, seq_len))
+    return torch.cat(chunks) if len(chunks) > 1 else chunks[0]
 
 
 def train_val_split(
