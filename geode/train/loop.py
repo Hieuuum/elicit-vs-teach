@@ -2,8 +2,9 @@
 
 ``evaluate_nll_nats`` is the shared held-out evaluator (mean next-token CE in
 nats, batch-size invariant). ``train_full`` is a thin AdamW loop over *all*
-next-token positions (no label masking — that arrives with the runs-2-4
-task): seeded per-epoch data order, constant LR, global-norm grad clipping,
+next-token positions (no label masking — the runs-2-4 SFT mode lives in
+``geode.train.sft``): seeded per-epoch data order, constant LR, global-norm
+grad clipping,
 periodic + final-step eval against a ``ConvergenceTracker``, incremental
 JSONL logs, and a final ``save_pretrained`` checkpoint. Deliberately
 independent of ``geode.edl.loop`` (no ``geode.zoo`` / ``datasets`` imports)

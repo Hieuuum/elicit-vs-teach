@@ -240,12 +240,12 @@ stopping; snapshots = final checkpoint only (plus the base). **Decided
 2026-07-16 (task TRAIN-1):** a separate thin module `geode.train` (§6.1),
 leaving the validated prequential loop untouched. Run 1 needs only the
 pretrain mode (loss over all next-token positions); the label-masked SFT
-mode for runs 2–4 routes through `geode.edl.masking.label_mask` and is
-added when those runs are cut, not before.
+mode for runs 2–4 routes through `geode.edl.masking.label_mask` and landed
+2026-07-19 as `geode/train/sft.py` (§6.1).
 
 ### 6.1 `geode.train` — corpus packing + full-FT trainer (task TRAIN-1)
 
-Files: `geode/train/{__init__,packing,stopping,loop}.py`. All CLAUDE.md
+Files: `geode/train/{__init__,packing,stopping,loop,sft}.py`. All CLAUDE.md
 conventions bind (device-agnostic, explicit seeds, `_nats` suffixes,
 CPU-only tests on tiny in-process models). The module never touches the
 zoo registry — registration is the launch script's job (§6.2) — and never
@@ -352,6 +352,46 @@ def train_full(model, train_seqs: torch.LongTensor,
 - `precision="bf16"` wraps forward/loss in autocast; tests exercise fp32
   only (CPU) and treat bf16 as config plumbing.
 
+**Label-masked SFT mode** (`geode/train/sft.py`, added 2026-07-19; runs
+2–4):
+
+```python
+# geode/train/sft.py
+def evaluate_sft_nll_nats(model, examples: Sequence[SpanExample],
+                          task_format: TaskFormat, *, batch_size: int,
+                          device: str) -> float
+def train_sft(model, train_examples: Sequence[SpanExample],
+              val_examples: Sequence[SpanExample], task_format: TaskFormat,
+              *, lr, batch_size, stopping, eval_every, max_steps,
+              grad_clip, weight_decay, betas, device, seed, out_dir,
+              precision="fp32") -> TrainResult
+```
+
+- Examples are span-carrying (`input_ids` + half-open `label_span`, spec 00
+  OQ-8); masks are built by `geode.edl.masking.label_mask` — the single
+  mask path (§5) — and applied via the standard label=-100 convention.
+  Loss = mean CE (nats) over label positions only; question/format tokens
+  and padding never contribute to loss or gradients.
+- Batches right-pad `input_ids` to the set max length (pad id 0), no
+  attention mask — the `geode.edl.loop` convention: under causal attention
+  a right-pad position cannot influence logits at earlier (label)
+  positions.
+- Span guard (upfront `ValueError`, before any training or disk write):
+  every span must satisfy `1 <= start < end <= len(input_ids)` — a label
+  at position 0 has no predecessor under the causal shift, an empty span
+  contributes no loss, and a span past the sequence end would silently
+  mark padding as labels.
+- Everything else inherits the `train_full` contract verbatim (optimizer,
+  seeded per-epoch data order, step/eval/stopping semantics and tie-break,
+  log schemas — `train_loss_nats` is the masked mean — final checkpoint +
+  `training_meta.json`); the config echo additionally records
+  `task_format: {name, format_version, span_source}`.
+- `evaluate_sft_nll_nats` sums loss and label-token count over the whole
+  set before dividing once (batch-size invariant, as `evaluate_nll_nats`).
+- `masking_config_hash` recording (spec 00 §5) stays with the launch
+  script (§6.2 pattern): the module has no tokenizer hash and never
+  touches zoo.
+
 **Validation properties (tests derive from these):**
 
 - V5.17 packing: every emitted row has length exactly `seq_len`; the
@@ -388,6 +428,27 @@ def train_full(model, train_seqs: torch.LongTensor,
   `chunk_tokens` and equals a tokenize-all-then-slice reference; documents
   are pulled and tokenized one at a time (the iterable is never drained
   first); `chunk_tokens < seq_len` raises.
+- V5.28 SFT loss reference: `evaluate_sft_nll_nats` and the step-1
+  training loss equal a hand-computed mean CE over exactly the label-span
+  positions on a tiny fixture model; the all-positions mean differs
+  (the exclusion has teeth).
+- V5.29 full-coverage reduction: with spans covering every predictable
+  position (`(1, L)`) on an equal-length pad-free batch, the SFT loss
+  equals `evaluate_nll_nats` on the same rows.
+- V5.30 padding/question inertness: on a ragged batch the set loss equals
+  the label-count-weighted combination of per-example pad-free losses and
+  is batch-size invariant; parameter gradients of the training objective
+  equal those of a pad-free, label-positions-only reference — padding and
+  question tokens contribute zero loss and zero gradient.
+- V5.31 span guard: a label span touching position 0, empty, reversed, or
+  extending past its sequence raises `ValueError` before any training or
+  disk write.
+- V5.32 SFT determinism: identical seed + inputs on CPU (fixed threads) ⇒
+  byte-identical `train_log.jsonl` and `eval_log.jsonl` across two
+  `train_sft` runs.
+- V5.33 SFT convergence: on a memorizable question→answer task,
+  `train_sft` stops with `stop_reason="converged"` before a generous
+  `max_steps`, with final train loss below initial.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
