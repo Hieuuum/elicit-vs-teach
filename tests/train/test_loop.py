@@ -416,6 +416,97 @@ def test_grad_accum_matches_full_batch(tiny_llama, tmp_path):
     assert meta_full["config"]["micro_batch_size"] == 8
 
 
+# --------------------------------------------------------------------------
+# V5.35 / V5.36 — cosine LR schedule
+# --------------------------------------------------------------------------
+def test_v5_35_cosine_lr_endpoints_monotone(tiny_llama, tmp_path):
+    # V5.35: logged per-step lr is exactly lr at step 1, exactly min_lr at
+    # step max_steps, non-increasing throughout, and matches the closed-form
+    # half cosine at an interior point. max_steps=9 puts step 5 at the exact
+    # midpoint, where cos(pi/2)=0 gives lr_5 = (lr + min_lr)/2 — an
+    # independent reference that never calls the implementation.
+    train_seqs = _toy_seqs(12, 8, seed=1)
+    val_seqs = _toy_seqs(4, 8, seed=2)
+    lr, min_lr = 1e-3, 1e-4
+    _train(
+        tiny_llama(seed=0),
+        train_seqs,
+        val_seqs,
+        tmp_path,
+        lr=lr,
+        batch_size=4,
+        eval_every=5,
+        max_steps=9,
+        lr_schedule="cosine",
+        min_lr=min_lr,
+    )
+    lrs = [r["lr"] for r in _read_jsonl(tmp_path / "train_log.jsonl")]
+    assert len(lrs) == 9
+    assert lrs[0] == lr  # exact endpoint, not approx
+    assert lrs[-1] == min_lr
+    assert all(a >= b for a, b in zip(lrs, lrs[1:]))
+    assert lrs[4] == pytest.approx((lr + min_lr) / 2)
+
+
+def test_v5_36_cosine_ignores_plateau_runs_full_horizon(tiny_llama, tmp_path):
+    # V5.36: a rule that stops the constant-LR control at its second eval
+    # (eps huge, k=1 — same construction as the max_steps=None test) cannot
+    # end the cosine run, which reaches exactly max_steps and echoes the
+    # schedule in training_meta.json.
+    train_seqs = _toy_seqs(12, 8, seed=1)
+    val_seqs = _toy_seqs(4, 8, seed=2)
+    rule = StoppingRule(eps_nats=1e9, k=1)
+    res_const = _train(
+        tiny_llama(seed=0),
+        train_seqs,
+        val_seqs,
+        tmp_path / "const",
+        eval_every=2,
+        max_steps=10,
+        stopping=rule,
+    )
+    assert res_const.stop_reason == "converged"
+    assert res_const.final_step == 4
+    res_cos = _train(
+        tiny_llama(seed=0),
+        train_seqs,
+        val_seqs,
+        tmp_path / "cos",
+        eval_every=2,
+        max_steps=10,
+        stopping=rule,
+        lr_schedule="cosine",
+        min_lr=1e-4,
+    )
+    assert res_cos.stop_reason == "max_steps"
+    assert res_cos.final_step == 10
+    meta = json.loads((tmp_path / "cos" / "training_meta.json").read_text())
+    assert meta["config"]["lr_schedule"] == "cosine"
+    assert meta["config"]["min_lr"] == 1e-4
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"lr_schedule": "cosine", "min_lr": 1e-4, "max_steps": None},  # no horizon
+        {"lr_schedule": "cosine", "min_lr": None},  # min_lr missing
+        {"lr_schedule": "cosine", "min_lr": 1.0},  # min_lr > lr
+        {"lr_schedule": "cosine", "min_lr": -1e-4},  # min_lr < 0
+        {"lr_schedule": "linear", "min_lr": 1e-4},  # unknown schedule
+        {"lr_schedule": "constant", "min_lr": 1e-4},  # min_lr without cosine
+    ],
+)
+def test_v5_36_schedule_guards_raise(tiny_llama, tmp_path, overrides):
+    # V5.36: invalid schedule configurations raise upfront, before any disk
+    # write.
+    train_seqs = _toy_seqs(8, 8, seed=1)
+    val_seqs = _toy_seqs(4, 8, seed=2)
+    out = tmp_path / "bad"
+    with pytest.raises(ValueError):
+        _train(tiny_llama(seed=0), train_seqs, val_seqs, out, batch_size=4, **overrides)
+    assert not out.exists()
+
+
 @pytest.mark.parametrize("bad_micro", [0, -1, 3, 16])
 def test_grad_accum_invalid_micro_batch_raises(tiny_llama, tmp_path, bad_micro):
     # V5.34: micro_batch_size that is 0, negative, larger than batch_size,

@@ -4,7 +4,13 @@
 # OPEN(8) closed 2026-07-18: pretrain from scratch (custom arch + tokenizer
 # match no external checkpoint).
 
-run_id: evt-run1-base
+# 2026-07-19 retrain (v2): the constant-LR production run (evt-run1-base)
+# converged at its gradient-noise floor (1.1464 nats @ step 17000) and
+# FAILED gate G0 (~5/20 coherent vs >=16). Fix: cosine LR decay over the
+# same 17k-step horizon. New run_id so the failed run's artifacts survive
+# for the comparison — the pre-committed fallback is "better checkpoint
+# becomes floor 1" (decisions.md 2026-07-19).
+run_id: evt-run1-base-v2
 experiment:
   name: training-run
   arm: shared
@@ -62,19 +68,28 @@ train:
                                     # 24 GB 4090 (fp32 logits at vocab 10K
                                     # alone are ~2.6 GB); effective batch
                                     # unchanged
+  lr_schedule: cosine               # 2026-07-19 G0 fix: decay 1e-3 -> 1e-4
+                                    # over the full horizon. No warmup: the
+                                    # sweep showed 1e-3 stable from step 0
+                                    # (grad norms tame), so warmup is dead
+                                    # weight at this scale
+  min_lr: 1.0e-4                    # lr/10, textbook cosine floor
   eval_every: 500                   # pinned 2026-07-19: ~3% eval overhead
-                                    # (5225 val seqs @ micro 32); stop lag
-                                    # k*eval_every = 1500 steps
-  max_steps: null                   # no cap; stopping rule decides
-  stopping:
-    eps_nats: 0.005                 # pinned 2026-07-19: sweep curves are
-                                    # monotone at 100-step spacing (eval
-                                    # noise well under 0.005); end-of-sweep
-                                    # progress ~0.06 nats/500 steps = 12x
-    k: 3                            # pinned 2026-07-19
+                                    # (5225 val seqs @ micro 32)
+  max_steps: 17000                  # cosine horizon = exactly what the
+                                    # constant-LR run took (~2.1 epochs),
+                                    # keeping cost (~$0.55) and the
+                                    # constant-vs-decay comparison matched
+  stopping:                         # INERT under lr_schedule: cosine (spec
+                                    # 02 §6.1: decay shrinks late deltas
+                                    # below eps by design); retained for
+                                    # best_val_nats tracking in meta
+    eps_nats: 0.005
+    k: 3
   precision: bf16
   seed: 316
-  epochs_total_planned: 4           # manifest metadata cap, not a control
+  epochs_total_planned: 2           # manifest metadata: 17000 steps @ batch
+                                    # 128 ~= 2.1 epochs of 1.034M train seqs
 
 cost:
   # printed estimate = 6 * n_params * tokens_seen_per_step * steps guess;

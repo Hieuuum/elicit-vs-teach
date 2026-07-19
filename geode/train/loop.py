@@ -3,8 +3,8 @@
 ``evaluate_nll_nats`` is the shared held-out evaluator (mean next-token CE in
 nats, batch-size invariant). ``train_full`` is a thin AdamW loop over *all*
 next-token positions (no label masking — the runs-2-4 SFT mode lives in
-``geode.train.sft``): seeded per-epoch data order, constant LR, global-norm
-grad clipping,
+``geode.train.sft``): seeded per-epoch data order, constant or
+cosine-decayed LR, global-norm grad clipping,
 periodic + final-step eval against a ``ConvergenceTracker``, incremental
 JSONL logs, and a final ``save_pretrained`` checkpoint. Deliberately
 independent of ``geode.edl.loop`` (no ``geode.zoo`` / ``datasets`` imports)
@@ -25,6 +25,7 @@ Implementation notes:
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Literal
@@ -94,8 +95,10 @@ def train_full(
     out_dir: Path,
     precision: Literal["fp32", "bf16"] = "fp32",
     micro_batch_size: int | None = None,
+    lr_schedule: Literal["constant", "cosine"] = "constant",
+    min_lr: float | None = None,
 ) -> TrainResult:
-    """Train ``model`` in place with AdamW at a constant LR (specs/02 §6.1).
+    """Train ``model`` in place with AdamW (specs/02 §6.1).
 
     Data order is a seeded permutation of ``train_seqs`` per epoch (fixed-size,
     drop-last batches); epochs repeat until a ``ConvergenceTracker`` built
@@ -114,6 +117,17 @@ def train_full(
     Must divide ``batch_size`` exactly. Held-out evals also run
     ``micro_batch_size`` rows at a time (value-safe by V5.19 batch-size
     invariance).
+
+    ``lr_schedule="cosine"`` (added 2026-07-19, run-1 gate-G0 fix) decays the
+    LR along a half cosine from exactly ``lr`` at step 1 to exactly ``min_lr``
+    at step ``max_steps``, set on the optimizer before every update and logged
+    per step. It requires ``max_steps`` (the schedule needs a fixed horizon)
+    and ``min_lr`` in ``[0, lr]``; ``min_lr`` with a constant schedule raises
+    (likely a config typo). Under cosine the plateau rule is inert — decay
+    shrinks late-run improvements below any sensible ``eps_nats`` by design,
+    so honoring it would cut the schedule short; the run always ends at
+    exactly ``max_steps`` with ``stop_reason="max_steps"`` (the tracker still
+    records ``best_val_nats``).
 
     Evaluates ``evaluate_nll_nats(val_seqs)`` at every step where
     ``step % eval_every == 0`` and additionally at the final step (deduped).
@@ -137,6 +151,22 @@ def train_full(
             "accumulated mean-of-means equal to the full-batch mean)"
         )
     n_micro = batch_size // micro_batch_size
+    if lr_schedule not in ("constant", "cosine"):
+        raise ValueError(f"train_full: unknown lr_schedule {lr_schedule!r}")
+    if lr_schedule == "cosine":
+        if max_steps is None:
+            raise ValueError(
+                "train_full: lr_schedule='cosine' requires max_steps — the schedule "
+                "decays over a fixed horizon"
+            )
+        if min_lr is None or not 0.0 <= min_lr <= lr:
+            raise ValueError(
+                f"train_full: lr_schedule='cosine' requires min_lr in [0, lr={lr}], got {min_lr}"
+            )
+    elif min_lr is not None:
+        raise ValueError(
+            f"train_full: min_lr={min_lr} is only meaningful with lr_schedule='cosine'"
+        )
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -166,13 +196,18 @@ def train_full(
                 (loss / n_micro).backward()
                 train_loss_nats += loss.item() / n_micro
             grad_norm = torch.nn.utils.clip_grad_norm_(params, grad_clip)
+            step_lr = _scheduled_lr(
+                step + 1, lr=lr, min_lr=min_lr, max_steps=max_steps, schedule=lr_schedule
+            )
+            for group in optimizer.param_groups:
+                group["lr"] = step_lr
             optimizer.step()
             step += 1
 
             train_record = {
                 "step": step,
                 "train_loss_nats": train_loss_nats,
-                "lr": lr,
+                "lr": step_lr,
                 "grad_norm": grad_norm.item(),
             }
             train_f.write(json.dumps(train_record) + "\n")
@@ -186,7 +221,7 @@ def train_full(
                 )
                 eval_f.write(json.dumps({"step": step, "val_loss_nats": val_loss_nats}) + "\n")
                 eval_f.flush()
-                if tracker.update(val_loss_nats):
+                if tracker.update(val_loss_nats) and lr_schedule == "constant":
                     stop_reason = "converged"
                 elif is_capped_final:
                     stop_reason = "max_steps"
@@ -208,6 +243,8 @@ def train_full(
         "best_val_nats": result.best_val_nats,
         "config": {
             "lr": lr,
+            "lr_schedule": lr_schedule,
+            "min_lr": min_lr,
             "batch_size": batch_size,
             "micro_batch_size": micro_batch_size,
             "eval_every": eval_every,
@@ -222,6 +259,22 @@ def train_full(
     }
     (out_dir / "training_meta.json").write_text(json.dumps(meta, indent=2))
     return result
+
+
+def _scheduled_lr(
+    step: int, *, lr: float, min_lr: float | None, max_steps: int | None, schedule: str
+) -> float:
+    """LR applied at 1-indexed optimizer step ``step`` (spec §6.1): constant
+    ``lr``, or a half cosine from ``lr`` (step 1) to ``min_lr`` (step
+    ``max_steps``). ``max_steps == 1`` degenerates to a single step at ``lr``.
+    Endpoints are returned exactly (the V5.35 contract), not via the formula,
+    whose float rounding can miss ``lr`` by an ulp at step 1."""
+    if schedule == "constant" or max_steps == 1 or step == 1:
+        return lr
+    if step == max_steps:
+        return min_lr
+    frac = (step - 1) / (max_steps - 1)
+    return min_lr + 0.5 * (lr - min_lr) * (1.0 + math.cos(math.pi * frac))
 
 
 def _device_type(device: str) -> str:

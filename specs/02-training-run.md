@@ -312,13 +312,32 @@ def train_full(model, train_seqs: torch.LongTensor,
                weight_decay: float, betas: tuple[float, float],
                device: str, seed: int, out_dir: Path,
                precision: Literal["fp32", "bf16"] = "fp32",
-               micro_batch_size: int | None = None) -> TrainResult
+               micro_batch_size: int | None = None,
+               lr_schedule: Literal["constant", "cosine"] = "constant",
+               min_lr: float | None = None) -> TrainResult
 ```
 
 `train_full` contract:
 
-- Optimizer AdamW(lr, betas, weight_decay); **constant** LR; global-norm
-  grad clipping at `grad_clip`.
+- Optimizer AdamW(lr, betas, weight_decay); **constant** LR by default;
+  global-norm grad clipping at `grad_clip`.
+- LR schedule (added 2026-07-19 after gate G0 failed at the constant-LR
+  loss floor; decisions.md): `lr_schedule="cosine"` sets the LR applied at
+  1-indexed optimizer step `t` to
+  `min_lr + 0.5*(lr - min_lr)*(1 + cos(pi*(t-1)/(max_steps-1)))` — exactly
+  `lr` at step 1, exactly `min_lr` at step `max_steps`, non-increasing in
+  between (`max_steps=1` degenerates to a single step at `lr`). The value
+  is set on the optimizer before every update and is what the train log's
+  `lr` field records. Guards (all `ValueError` upfront, before any disk
+  write): unknown schedule name; cosine with `max_steps=None` (the
+  schedule needs a fixed horizon); cosine with `min_lr` missing or outside
+  `[0, lr]`; `min_lr` supplied with a constant schedule (likely config
+  typo). Under cosine the plateau rule is **inert**: decay shrinks
+  late-run improvements below any sensible `eps_nats` by design, so
+  honoring it would cut the schedule short — the run always ends at
+  exactly `max_steps` with `stop_reason="max_steps"`, while the tracker
+  still records `best_val_nats`. The SFT mode (`geode.train.sft`) is
+  deliberately unchanged.
 - Data order: a seeded permutation of `train_seqs` per epoch, derived
   deterministically from `seed` and the epoch index; fixed-size batches,
   drop-last. Epochs repeat until a stop condition fires (multi-epoch is
@@ -350,14 +369,15 @@ def train_full(model, train_seqs: torch.LongTensor,
   silent infinite busy-loop, unreachable by timing-safe tests).
 - Logs, written under `out_dir`: `train_log.jsonl` with
   `{"step", "train_loss_nats", "lr", "grad_norm"}` per step (`grad_norm`
-  is the pre-clip global norm); `eval_log.jsonl` with
+  is the pre-clip global norm; `lr` is the per-step scheduled value —
+  constant `lr` in constant mode); `eval_log.jsonl` with
   `{"step", "val_loss_nats"}` per eval.
 - Checkpoint: final model saved to `out_dir/model/` via `save_pretrained`,
   plus `out_dir/training_meta.json` recording `stop_reason`, `final_step`,
   `best_val_nats`, and a `config` object echoing exactly the call
-  arguments {lr, batch_size, micro_batch_size (resolved: equals
-  batch_size when accumulation is unused), eval_every, max_steps,
-  grad_clip, weight_decay, betas, seed, precision,
+  arguments {lr, lr_schedule, min_lr, batch_size, micro_batch_size
+  (resolved: equals batch_size when accumulation is unused), eval_every,
+  max_steps, grad_clip, weight_decay, betas, seed, precision,
   stopping: {eps_nats, k}}.
   (Echo keys pinned 2026-07-16 after TEST-AUDITOR flagged the phrase as
   untestable; the echo itself stays untested — asserting it would overfit
@@ -471,6 +491,18 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   tolerance (same seed, same init, fp32/CPU); a `micro_batch_size` that
   is 0, negative, larger than `batch_size`, or not a divisor of it
   raises `ValueError` before any training or disk write.
+- V5.35 cosine schedule values: with `lr_schedule="cosine"` the logged
+  per-step `lr` equals exactly `lr` at step 1 and exactly `min_lr` at
+  step `max_steps`, is non-increasing throughout, and matches the
+  closed-form half cosine at an interior point; constant mode still logs
+  a constant `lr` (V5.23 unchanged).
+- V5.36 cosine horizon semantics + guards: a stopping rule that halts an
+  otherwise-identical constant-LR run early cannot end a cosine run —
+  the cosine run reaches exactly `max_steps` with
+  `stop_reason="max_steps"` and echoes `lr_schedule`/`min_lr` in
+  `training_meta.json`; cosine with `max_steps=None`, `min_lr` missing
+  or outside `[0, lr]`, an unknown schedule name, or `min_lr` supplied
+  with a constant schedule raises `ValueError` before any disk write.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
@@ -633,7 +665,7 @@ markers in this spec are replaced with pinned values in the same PR.
 | OPEN(8) | Run 1: pretrain from scratch vs external TinyStories checkpoint | **closed 2026-07-18**: from scratch — the custom arch + tokenizer match no external checkpoint, and the run is single-GPU small |
 | OPEN(9) | Exact template string (both formats) | **decided 2026-07-17**: two-line `Question: <body>` / `Answer: <answer>` scaffold; padded length still OPEN(5) |
 | OPEN(10) | Keep optimizer-state snapshots (sizes TBD at 2026-07-18 scale) | decision before production run 5 |
-| OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) | tokenizer **frozen 2026-07-18** at `experiments/training-run/tokenizer/`: 10K byte-level BPE on TinyStories-v2, digits 0–9 single-token forced, `Question:`/`Answer:` plain BPE (owner decision), EOS `<|endoftext|>` + PAD `<|pad|>`, provenance in `meta.json`. Dataset id verified 2026-07-18 (v2 = txt file in `roneneldan/TinyStories`; no v2 repo exists) and seq_len pinned at 512 (story p90 = 265 > 256; 1.6% of stories exceed 512). Remainder **closed 2026-07-19** by the 4-point LR sweep (docs/run1-guide.md phase 3; 2000 steps each, production batch 128 via grad-accum 4×32, full data): **LR=1e-3** — best val 1.4389 nats vs 1.4552 @ 3e-4 with a consistent lead from step ~600, monotone descent, grad-norm max 6.4 / last 0.19; 3e-3 unstable (grad spike 109, val plateau ~3.15, self-stopped at 1700); 1e-4 far behind (1.7241). Constant LR, no schedule/warmup (structural — no scheduler exists). Batch 128, val_fraction 0.005, eval_every 500 as swept; epochs uncapped, ended by the stopping rule (ε/k → OPEN(3)) |
+| OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) | tokenizer **frozen 2026-07-18** at `experiments/training-run/tokenizer/`: 10K byte-level BPE on TinyStories-v2, digits 0–9 single-token forced, `Question:`/`Answer:` plain BPE (owner decision), EOS `<|endoftext|>` + PAD `<|pad|>`, provenance in `meta.json`. Dataset id verified 2026-07-18 (v2 = txt file in `roneneldan/TinyStories`; no v2 repo exists) and seq_len pinned at 512 (story p90 = 265 > 256; 1.6% of stories exceed 512). Remainder **closed 2026-07-19** by the 4-point LR sweep (docs/run1-guide.md phase 3; 2000 steps each, production batch 128 via grad-accum 4×32, full data): **LR=1e-3** — best val 1.4389 nats vs 1.4552 @ 3e-4 with a consistent lead from step ~600, monotone descent, grad-norm max 6.4 / last 0.19; 3e-3 unstable (grad spike 109, val plateau ~3.15, self-stopped at 1700); 1e-4 far behind (1.7241). Constant LR, no schedule/warmup (structural — no scheduler exists). Batch 128, val_fraction 0.005, eval_every 500 as swept; epochs uncapped, ended by the stopping rule (ε/k → OPEN(3)). **Amended 2026-07-19 (gate G0 FAIL):** the constant-LR run plateaued at its gradient-noise floor (1.146 nats) with ~5/20 coherent samples; §6.1 gained a cosine schedule and the run-1 retrain uses cosine 1e-3→1e-4 over `max_steps=17000` (decisions.md). Constant LR remains the default elsewhere |
 
 ## 13. Limitations / notes
 

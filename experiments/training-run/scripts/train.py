@@ -240,6 +240,8 @@ def main() -> int:
         stopping=StoppingRule(eps_nats=t["stopping"]["eps_nats"], k=t["stopping"]["k"]),
         eval_every=t["eval_every"],
         max_steps=t["max_steps"],
+        lr_schedule=t.get("lr_schedule", "constant"),
+        min_lr=t.get("min_lr"),
         grad_clip=cfg["training"]["grad_clip"],
         weight_decay=cfg["optimizer"]["weight_decay"],
         betas=tuple(cfg["optimizer"]["betas"]),
