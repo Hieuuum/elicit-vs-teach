@@ -268,8 +268,32 @@ Pre-training blockers cleared this session; spec 02 edited in the same commit.
   (value-safe by V5.19). SFT mode deliberately not extended (short
   sequences; add on demonstrated need).
 
+## 2026-07-19 — OPEN(11)/OPEN(3) closed (run-1 LR sweep, owner + Claude)
+
+Sweep: 4 LRs × 2000 steps, production batch 128 (grad-accum 4×32), full
+data. Config echoes verified (each run trained at its intended LR).
+
+| run | best val (nats) | verdict |
+|---|---|---|
+| lr1e-4 | 1.7241 | stable but far behind |
+| lr3e-4 | 1.4552 | stable, monotone |
+| **lr1e-3** | **1.4389** | **winner** — monotone, leads 3e-4 from ~step 600, grad max 6.4 / last 0.19 |
+| lr3e-3 | 3.1186 | unstable: grad spike 109, val plateau ~3.15, self-stopped @1700 |
+
+- **LR = 1e-3.** Not a tie (consistent 0.016-nat lead, equal stability),
+  so the conservative-on-ties clause doesn't bite; 3× below the
+  demonstrated 3e-3 instability cliff.
+- **ε=0.005 / k=3 / eval_every=500 confirmed** (placeholders survived
+  contact with data): good curves are monotone at 100-step spacing ⇒
+  eval noise ≪ ε; end-of-sweep progress ~0.06 nats/500 steps = 12× ε;
+  crude extrapolation puts sub-ε progress (= convergence) at ~1.5–2.5
+  epochs, consistent with the 2-epoch cost assumption. Stop lag
+  k·eval_every = 1500 steps ≈ minutes of GPU.
+- Runs 2–4 inherit ε/k; revisit only if their arithmetic-val curves
+  misbehave (different loss scale — noted in spec §6).
+
 ## Open at the moment
 
-OPEN(1)–OPEN(4), OPEN(10): see spec 02 §12 table. The OPEN(11) remainder
-(LR, eval cadence) + OPEN(3) (stopping ε/k) close at the run-1 LR sweep —
-`docs/run1-checklist.md` phases 3–4. Dataset items: none.
+OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
+at the runs 2–6 pilots. Run-1 items: none; next gate is G0 (story
+coherence) after the production pretrain. Dataset items: none.

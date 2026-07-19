@@ -45,23 +45,33 @@ data:
   file: TinyStoriesV2-GPT4-train.txt
   seq_len: 512                      # pinned 2026-07-18: story p90=265 (>256),
                                     # only 1.6% of stories exceed 512
-  val_fraction: 0.005               # OPEN(11)
+  val_fraction: 0.005               # pinned 2026-07-19 (sweep: 5225 val
+                                    # seqs give eval noise well under the
+                                    # stopping eps)
   seed: 316
 
 train:
-  lr: 3.0e-4                        # OPEN(11): pilot-determined (1B paper
-                                    # values void at this scale)
-  batch_size: 128                   # OPEN(11) for pretrain specifically
+  lr: 1.0e-3                        # pinned 2026-07-19, run-1 LR sweep:
+                                    # best val 1.4389 nats @2000 (vs 1.4552
+                                    # @3e-4), monotone descent, grad norms
+                                    # tame; 3e-3 unstable (grad spike 109),
+                                    # 1e-4 far behind
+  batch_size: 128                   # pinned 2026-07-19 (sweep ran at 128)
   micro_batch_size: 32              # grad accumulation 4×32 (2026-07-19):
                                     # a full 128-batch fwd+loss OOMs the
                                     # 24 GB 4090 (fp32 logits at vocab 10K
                                     # alone are ~2.6 GB); effective batch
                                     # unchanged
-  eval_every: 500                   # OPEN(11)
+  eval_every: 500                   # pinned 2026-07-19: ~3% eval overhead
+                                    # (5225 val seqs @ micro 32); stop lag
+                                    # k*eval_every = 1500 steps
   max_steps: null                   # no cap; stopping rule decides
   stopping:
-    eps_nats: 0.005                 # OPEN(3): placeholder
-    k: 3                            # OPEN(3): placeholder
+    eps_nats: 0.005                 # pinned 2026-07-19: sweep curves are
+                                    # monotone at 100-step spacing (eval
+                                    # noise well under 0.005); end-of-sweep
+                                    # progress ~0.06 nats/500 steps = 12x
+    k: 3                            # pinned 2026-07-19
   precision: bf16
   seed: 316
   epochs_total_planned: 4           # manifest metadata cap, not a control

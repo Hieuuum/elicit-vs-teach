@@ -232,8 +232,9 @@ the 2026-07-18 downscale):
   ~24 MB/adapter bf16.
 - Loss on label tokens only, identical masking train/test (masking hash
   guard from spec 00 §5 applies as usual).
-- Stopping (runs 1–4): validation-loss convergence with pinned ε, k —
-  OPEN(3).
+- Stopping (runs 1–4): validation-loss convergence with ε=0.005 nats,
+  k=3 (OPEN(3) closed 2026-07-19 from the run-1 LR sweep — §12; runs 2–4
+  inherit, revisit only if their val curves misbehave).
 
 **Runs 1–4 (full FT):** need a small full-FT trainer with validation-loss
 stopping; snapshots = final checkpoint only (plus the base). **Decided
@@ -484,10 +485,10 @@ Registers the run in zoo (spec 00 §2 required fields;
 `experiment` block rides as preserved extra fields until its validation
 task lands), prints a cost estimate and refuses to run without
 `--confirm-cost` (CLAUDE.md budget rule), then calls
-`geode.train.train_full`. Remaining pretrain hyperparameter values in
-`run1_pretrain.yaml` (LR, batch, eval cadence, val fraction) are
-placeholders — OPEN(11) — and say so inline; seq_len 512 and the
-tokenizer are pinned (2026-07-18).
+`geode.train.train_full`. All hyperparameter values in
+`run1_pretrain.yaml` are now pinned: seq_len + tokenizer 2026-07-18;
+LR, batch, eval cadence, val fraction, stopping ε/k closed 2026-07-19
+from the run-1 LR sweep (§12 OPEN(11)/OPEN(3)).
 
 **Runs 5–6 (LoRA target):** use `train_prequential` as-is — pre-update
 losses, gradstats (per-module grad norms already covered), full-model
@@ -610,7 +611,7 @@ real gradient-alignment plot. Then parameter pilots close open items:
   where B lands within a few points of A. (Paper's teaching peak for this
   task ≈300K; 10K likely far too small — Fig 1(b)'s "60K" is a cartoon,
   not a measurement.)
-- OPEN(3): ε, k frozen from pilot validation curves.
+- OPEN(3): **closed 2026-07-19** — see §12.
 - OPEN(4): batch → step count → snapshot-schedule parameters (needs
   OPEN(2)).
 - OPEN(5): **closed 2026-07-18** — see §12.
@@ -624,7 +625,7 @@ markers in this spec are replaced with pinned values in the same PR.
 |----|------|-----------|
 | OPEN(1) | Format-installer example count | pilot (installer convergence) |
 | OPEN(2) | Target dataset size | pilot (B convergence sweep) |
-| OPEN(3) | Stopping-rule ε, k | pilot validation curves |
+| OPEN(3) | Stopping-rule ε, k | **closed 2026-07-19** (run-1 LR sweep): ε=0.005 nats, k=3 at eval_every=500. Sweep val curves at the pinned LR are monotone at 100-step spacing (eval noise ≪ 0.005 with 5225 val seqs) and end-of-sweep improvement is ~0.06 nats/500 steps (12× ε), so ε separates signal from noise with wide margin. Runs 2–4 inherit; revisit only if their (arithmetic-val) curves misbehave |
 | OPEN(4) | Batch → step count → snapshot schedule params | after OPEN(2) |
 | OPEN(5) | Padded max seq_len | **closed 2026-07-18**: per-example max 33 tokens over all four frozen full-scale files (longest: 4-digit NL sum, 5-digit answer); G5 16-shot worst case 593 tokens ⇒ model `max_position_embeddings: 1024` (free with RoPE), packing stays at `data.seq_len` 512 |
 | OPEN(6) | Random-label sampling distribution (installer) | decision before pilot; default digit-count-matched uniform |
@@ -632,7 +633,7 @@ markers in this spec are replaced with pinned values in the same PR.
 | OPEN(8) | Run 1: pretrain from scratch vs external TinyStories checkpoint | **closed 2026-07-18**: from scratch — the custom arch + tokenizer match no external checkpoint, and the run is single-GPU small |
 | OPEN(9) | Exact template string (both formats) | **decided 2026-07-17**: two-line `Question: <body>` / `Answer: <answer>` scaffold; padded length still OPEN(5) |
 | OPEN(10) | Keep optimizer-state snapshots (sizes TBD at 2026-07-18 scale) | decision before production run 5 |
-| OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) | tokenizer **frozen 2026-07-18** at `experiments/training-run/tokenizer/`: 10K byte-level BPE on TinyStories-v2, digits 0–9 single-token forced, `Question:`/`Answer:` plain BPE (owner decision), EOS `<|endoftext|>` + PAD `<|pad|>`, provenance in `meta.json`. Dataset id verified 2026-07-18 (v2 = txt file in `roneneldan/TinyStories`; no v2 repo exists) and seq_len pinned at 512 (story p90 = 265 > 256; 1.6% of stories exceed 512). Remaining (LR, batch, epochs, val split, eval cadence): pilot, before any `--confirm-cost` spend; config ships documented placeholders |
+| OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) | tokenizer **frozen 2026-07-18** at `experiments/training-run/tokenizer/`: 10K byte-level BPE on TinyStories-v2, digits 0–9 single-token forced, `Question:`/`Answer:` plain BPE (owner decision), EOS `<|endoftext|>` + PAD `<|pad|>`, provenance in `meta.json`. Dataset id verified 2026-07-18 (v2 = txt file in `roneneldan/TinyStories`; no v2 repo exists) and seq_len pinned at 512 (story p90 = 265 > 256; 1.6% of stories exceed 512). Remainder **closed 2026-07-19** by the 4-point LR sweep (docs/run1-guide.md phase 3; 2000 steps each, production batch 128 via grad-accum 4×32, full data): **LR=1e-3** — best val 1.4389 nats vs 1.4552 @ 3e-4 with a consistent lead from step ~600, monotone descent, grad-norm max 6.4 / last 0.19; 3e-3 unstable (grad spike 109, val plateau ~3.15, self-stopped at 1700); 1e-4 far behind (1.7241). Constant LR, no schedule/warmup (structural — no scheduler exists). Batch 128, val_fraction 0.005, eval_every 500 as swept; epochs uncapped, ended by the stopping rule (ε/k → OPEN(3)) |
 
 ## 13. Limitations / notes
 
