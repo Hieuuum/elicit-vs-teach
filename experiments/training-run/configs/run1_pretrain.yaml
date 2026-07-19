@@ -52,6 +52,11 @@ train:
   lr: 3.0e-4                        # OPEN(11): pilot-determined (1B paper
                                     # values void at this scale)
   batch_size: 128                   # OPEN(11) for pretrain specifically
+  micro_batch_size: 32              # grad accumulation 4×32 (2026-07-19):
+                                    # a full 128-batch fwd+loss OOMs the
+                                    # 24 GB 4090 (fp32 logits at vocab 10K
+                                    # alone are ~2.6 GB); effective batch
+                                    # unchanged
   eval_every: 500                   # OPEN(11)
   max_steps: null                   # no cap; stopping rule decides
   stopping:

@@ -93,6 +93,7 @@ def train_full(
     seed: int,
     out_dir: Path,
     precision: Literal["fp32", "bf16"] = "fp32",
+    micro_batch_size: int | None = None,
 ) -> TrainResult:
     """Train ``model`` in place with AdamW at a constant LR (specs/02 §6.1).
 
@@ -102,6 +103,17 @@ def train_full(
     reached (``max_steps=None`` means no cap). Loss is the mean next-token
     cross-entropy (nats) over the batch; gradients are clipped to a global
     norm of ``grad_clip`` (the *pre-clip* norm is what gets logged).
+
+    ``micro_batch_size`` (default: ``batch_size``) is plain gradient
+    accumulation: each optimizer step runs ``batch_size // micro_batch_size``
+    sequential micro-batches whose ``1/n_micro``-scaled losses accumulate
+    gradients before the single clip + update. The effective batch, the
+    logged ``train_loss_nats`` (mean over the full batch — exact because
+    micro-batches are equal-sized and every position counts), and all
+    step/eval/stopping semantics are unchanged; only peak memory drops.
+    Must divide ``batch_size`` exactly. Held-out evals also run
+    ``micro_batch_size`` rows at a time (value-safe by V5.19 batch-size
+    invariance).
 
     Evaluates ``evaluate_nll_nats(val_seqs)`` at every step where
     ``step % eval_every == 0`` and additionally at the final step (deduped).
@@ -116,6 +128,15 @@ def train_full(
             f"train_full: train_seqs has {n_train} rows, fewer than batch_size={batch_size} "
             "(drop-last would yield zero batches per epoch)"
         )
+    if micro_batch_size is None:
+        micro_batch_size = batch_size
+    if not 1 <= micro_batch_size <= batch_size or batch_size % micro_batch_size:
+        raise ValueError(
+            f"train_full: micro_batch_size={micro_batch_size} must lie in [1, batch_size] "
+            f"and divide batch_size={batch_size} exactly (equal micro-batches keep the "
+            "accumulated mean-of-means equal to the full-batch mean)"
+        )
+    n_micro = batch_size // micro_batch_size
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -133,22 +154,24 @@ def train_full(
     eval_log_path = out_dir / "eval_log.jsonl"
     with train_log_path.open("w") as train_f, eval_log_path.open("w") as eval_f:
         for batch_idx in _batch_stream(n_train, batch_size, seed):
-            batch = train_seqs[batch_idx.to(train_seqs.device)].to(device)
-
             optimizer.zero_grad(set_to_none=True)
-            if precision == "bf16":
-                with torch.autocast(device_type=_device_type(device), dtype=torch.bfloat16):
+            train_loss_nats = 0.0
+            for micro_idx in batch_idx.split(micro_batch_size):
+                batch = train_seqs[micro_idx.to(train_seqs.device)].to(device)
+                if precision == "bf16":
+                    with torch.autocast(device_type=_device_type(device), dtype=torch.bfloat16):
+                        loss = _mean_ce_nats(model(batch).logits, batch)
+                else:
                     loss = _mean_ce_nats(model(batch).logits, batch)
-            else:
-                loss = _mean_ce_nats(model(batch).logits, batch)
-            loss.backward()
+                (loss / n_micro).backward()
+                train_loss_nats += loss.item() / n_micro
             grad_norm = torch.nn.utils.clip_grad_norm_(params, grad_clip)
             optimizer.step()
             step += 1
 
             train_record = {
                 "step": step,
-                "train_loss_nats": loss.item(),
+                "train_loss_nats": train_loss_nats,
                 "lr": lr,
                 "grad_norm": grad_norm.item(),
             }
@@ -159,7 +182,7 @@ def train_full(
             is_capped_final = max_steps is not None and step == max_steps
             if is_periodic or is_capped_final:
                 val_loss_nats = evaluate_nll_nats(
-                    model, val_seqs, batch_size=batch_size, device=device
+                    model, val_seqs, batch_size=micro_batch_size, device=device
                 )
                 eval_f.write(json.dumps({"step": step, "val_loss_nats": val_loss_nats}) + "\n")
                 eval_f.flush()
@@ -186,6 +209,7 @@ def train_full(
         "config": {
             "lr": lr,
             "batch_size": batch_size,
+            "micro_batch_size": micro_batch_size,
             "eval_every": eval_every,
             "max_steps": max_steps,
             "grad_clip": grad_clip,

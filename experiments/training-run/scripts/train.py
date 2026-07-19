@@ -236,6 +236,7 @@ def main() -> int:
         val_seqs,
         lr=t["lr"],
         batch_size=t["batch_size"],
+        micro_batch_size=t.get("micro_batch_size"),
         stopping=StoppingRule(eps_nats=t["stopping"]["eps_nats"], k=t["stopping"]["k"]),
         eval_every=t["eval_every"],
         max_steps=t["max_steps"],

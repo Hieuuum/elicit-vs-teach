@@ -378,3 +378,58 @@ def test_train_batch_larger_than_corpus_raises(tiny_llama, tmp_path):
         max_steps=1,
     )
     assert result.final_step == 1
+
+
+# --------------------------------------------------------------------------
+# V5.34 — gradient accumulation
+# --------------------------------------------------------------------------
+def test_grad_accum_matches_full_batch(tiny_llama, tmp_path):
+    # V5.34: micro_batch_size < batch_size reproduces the full-batch run —
+    # same logged per-step train losses and same final parameters within
+    # float tolerance (same seed, same init, fp32/CPU).
+    train_seqs = _toy_seqs(16, 8, seed=1)
+    val_seqs = _toy_seqs(4, 8, seed=2)
+    m_full = tiny_llama(seed=0)
+    m_micro = tiny_llama(seed=0)
+    _train(m_full, train_seqs, val_seqs, tmp_path / "full", batch_size=8, max_steps=4)
+    _train(
+        m_micro,
+        train_seqs,
+        val_seqs,
+        tmp_path / "micro",
+        batch_size=8,
+        max_steps=4,
+        micro_batch_size=2,
+    )
+    full_log = _read_jsonl(tmp_path / "full" / "train_log.jsonl")
+    micro_log = _read_jsonl(tmp_path / "micro" / "train_log.jsonl")
+    assert len(full_log) == len(micro_log) == 4
+    for rec_full, rec_micro in zip(full_log, micro_log):
+        assert rec_micro["train_loss_nats"] == pytest.approx(rec_full["train_loss_nats"], abs=1e-5)
+    for (name, p_full), (_, p_micro) in zip(m_full.named_parameters(), m_micro.named_parameters()):
+        assert torch.allclose(p_full, p_micro, atol=1e-5), name
+    # The resolved micro size is echoed in training_meta.json (and defaults
+    # to batch_size when accumulation is unused).
+    meta_micro = json.loads((tmp_path / "micro" / "training_meta.json").read_text())
+    assert meta_micro["config"]["micro_batch_size"] == 2
+    meta_full = json.loads((tmp_path / "full" / "training_meta.json").read_text())
+    assert meta_full["config"]["micro_batch_size"] == 8
+
+
+@pytest.mark.parametrize("bad_micro", [0, -1, 3, 16])
+def test_grad_accum_invalid_micro_batch_raises(tiny_llama, tmp_path, bad_micro):
+    # V5.34: micro_batch_size that is 0, negative, larger than batch_size,
+    # or not a divisor of it raises upfront, before any disk write.
+    train_seqs = _toy_seqs(8, 8, seed=1)
+    val_seqs = _toy_seqs(4, 8, seed=2)
+    out = tmp_path / "bad"
+    with pytest.raises(ValueError, match="micro_batch_size"):
+        _train(
+            tiny_llama(seed=0),
+            train_seqs,
+            val_seqs,
+            out,
+            batch_size=8,
+            micro_batch_size=bad_micro,
+        )
+    assert not out.exists()

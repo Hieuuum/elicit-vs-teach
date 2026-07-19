@@ -253,6 +253,21 @@ Pre-training blockers cleared this session; spec 02 edited in the same commit.
   writer (1024 manifest steps) deferred to the runs-2-4 build; run 1 is
   final-checkpoint-only per EXPERIMENTS.md.
 
+## 2026-07-19 — run-1 sweep OOM → gradient accumulation (owner launch)
+
+- Phase-3 sweep launch died at step 1: `torch.OutOfMemoryError` on the
+  24 GB 4090 at production batch 128 (seq 512, vocab 10K — the fp32
+  logits + flatten copy in the loss are ~2.6 GB *each*, on top of ~17 GB
+  of stored activations). Batch 128 genuinely does not fit; the pilot
+  passed only because it runs batch 32.
+- Fix: `micro_batch_size` gradient accumulation in `train_full`
+  (spec §6.1 + V5.34, same commit). `run1_pretrain.yaml` pins
+  `micro_batch_size: 32` (4×32 per step) — effective batch, logged
+  losses, and stopping semantics unchanged, so the sweep still sweeps
+  LR at the production batch. In-loop evals now run at micro size
+  (value-safe by V5.19). SFT mode deliberately not extended (short
+  sequences; add on demonstrated need).
+
 ## Open at the moment
 
 OPEN(1)–OPEN(4), OPEN(10): see spec 02 §12 table. The OPEN(11) remainder

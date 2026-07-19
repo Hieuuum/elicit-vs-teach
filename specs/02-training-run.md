@@ -310,7 +310,8 @@ def train_full(model, train_seqs: torch.LongTensor,
                max_steps: int | None, grad_clip: float,
                weight_decay: float, betas: tuple[float, float],
                device: str, seed: int, out_dir: Path,
-               precision: Literal["fp32", "bf16"] = "fp32") -> TrainResult
+               precision: Literal["fp32", "bf16"] = "fp32",
+               micro_batch_size: int | None = None) -> TrainResult
 ```
 
 `train_full` contract:
@@ -324,6 +325,16 @@ def train_full(model, train_seqs: torch.LongTensor,
   are not in play).
 - Step = one optimizer update. Loss = mean next-token CE per token (nats)
   over the batch.
+- Gradient accumulation (added 2026-07-19: a full 128-row fwd+loss OOMs
+  the 24 GB 4090): `micro_batch_size` (default `batch_size`) runs each
+  step as `batch_size // micro_batch_size` sequential micro-batches whose
+  `1/n_micro`-scaled losses accumulate gradients before the single
+  clip + update. Must divide `batch_size` exactly, else `ValueError`
+  upfront (equal micro-batches keep mean-of-means equal to the full-batch
+  mean — in pretrain mode every position counts, so this is exact, not
+  approximate). Effective batch, logged `train_loss_nats`, and all
+  step/eval/stopping semantics are unchanged. In-loop evals run
+  `evaluate_nll_nats` at `micro_batch_size` rows (value-safe by V5.19).
 - Eval: `evaluate_nll_nats(val_seqs)` at every step where
   `step % eval_every == 0`, and additionally at the final step. Every eval
   updates one `ConvergenceTracker`; a True return stops training with
@@ -343,8 +354,10 @@ def train_full(model, train_seqs: torch.LongTensor,
 - Checkpoint: final model saved to `out_dir/model/` via `save_pretrained`,
   plus `out_dir/training_meta.json` recording `stop_reason`, `final_step`,
   `best_val_nats`, and a `config` object echoing exactly the call
-  arguments {lr, batch_size, eval_every, max_steps, grad_clip,
-  weight_decay, betas, seed, precision, stopping: {eps_nats, k}}.
+  arguments {lr, batch_size, micro_batch_size (resolved: equals
+  batch_size when accumulation is unused), eval_every, max_steps,
+  grad_clip, weight_decay, betas, seed, precision,
+  stopping: {eps_nats, k}}.
   (Echo keys pinned 2026-07-16 after TEST-AUDITOR flagged the phrase as
   untestable; the echo itself stays untested — asserting it would overfit
   — but CONFORMANCE-REVIEWER checks it by inspection.)
@@ -381,7 +394,9 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   at position 0 has no predecessor under the causal shift, an empty span
   contributes no loss, and a span past the sequence end would silently
   mark padding as labels.
-- Everything else inherits the `train_full` contract verbatim (optimizer,
+- Everything else inherits the `train_full` contract verbatim except
+  `micro_batch_size`, which is pretrain-mode only for now (SFT sequences
+  are short Q/A pairs; add on demonstrated need) (optimizer,
   seeded per-epoch data order, step/eval/stopping semantics and tie-break,
   log schemas — `train_loss_nats` is the masked mean — final checkpoint +
   `training_meta.json`); the config echo additionally records
@@ -449,6 +464,12 @@ def train_sft(model, train_examples: Sequence[SpanExample],
 - V5.33 SFT convergence: on a memorizable question→answer task,
   `train_sft` stops with `stop_reason="converged"` before a generous
   `max_steps`, with final train loss below initial.
+- V5.34 gradient accumulation: `train_full` with
+  `micro_batch_size < batch_size` reproduces the full-batch run — same
+  logged per-step train losses and same final parameters within float
+  tolerance (same seed, same init, fp32/CPU); a `micro_batch_size` that
+  is 0, negative, larger than `batch_size`, or not a divisor of it
+  raises `ValueError` before any training or disk write.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
