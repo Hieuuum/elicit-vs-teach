@@ -234,10 +234,11 @@ applies: lowest best-val that's clearly stable, conservative on ties.
 `run1_pretrain.yaml` + spec 02 §12 (closing OPEN(11)/OPEN(3)), records
 the decision, and pushes.
 
-**4.3 — pull on the box:**
+**4.3 — pull on the box** (from anywhere inside the repo clone — on
+vast.ai images it's usually `/workspace/elicit-vs-teach`, not `~`):
 
 ```bash
-git -C ~/elicit-vs-teach pull
+git pull
 ```
 
 ✅ Done when: `git pull` shows the config commit arriving.
