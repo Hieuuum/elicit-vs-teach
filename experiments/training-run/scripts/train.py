@@ -160,6 +160,12 @@ def main() -> int:
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--override", type=Path, default=None, help="e.g. a pilot overlay")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    parser.add_argument(
+        "--packed-cache",
+        type=Path,
+        default=None,
+        help="pack once, reuse: .pt of packed rows; loaded if present, else written after packing",
+    )
     parser.add_argument("--confirm-cost", action="store_true")
     args = parser.parse_args()
 
@@ -178,17 +184,40 @@ def main() -> int:
     # resolve to a local directory passes through as an HF id.
     local = (args.config.parent / tok_path).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else tok_path)
-    print(f"[evt] loading + packing {cfg['data']['hf_id']} ...", flush=True)
-    texts = load_texts(cfg)
-    seqs = pack_corpus(texts, tokenizer, cfg["data"]["seq_len"])
-    train_seqs, val_seqs = train_val_split(seqs, cfg["data"]["val_fraction"], cfg["data"]["seed"])
+    d = cfg["data"]
+    # Packing 2.7M documents takes tens of CPU-minutes; the cache lets the LR
+    # sweep + production launches reuse one packing pass. The key guards
+    # against silently training on rows packed under a different config.
+    cache_key = {
+        "data_file": d["file"],
+        "seq_len": d["seq_len"],
+        "max_documents": d.get("max_documents"),
+        "tokenizer_path": str(cfg["tokenizer"]["path"]),
+    }
+    if args.packed_cache is not None and args.packed_cache.exists():
+        blob = torch.load(args.packed_cache)
+        if blob["key"] != cache_key:
+            raise ValueError(
+                f"--packed-cache mismatch: cache built for {blob['key']}, config wants {cache_key}"
+            )
+        seqs, n_docs = blob["seqs"], blob["n_docs"]
+        print(f"[evt] loaded {len(seqs)} packed rows from {args.packed_cache}", flush=True)
+    else:
+        print(f"[evt] loading + packing {d['hf_id']} ...", flush=True)
+        texts = load_texts(cfg)
+        seqs = pack_corpus(texts, tokenizer, d["seq_len"])
+        n_docs = len(texts)
+        if args.packed_cache is not None:
+            torch.save({"key": cache_key, "seqs": seqs, "n_docs": n_docs}, args.packed_cache)
+            print(f"[evt] wrote packed cache {args.packed_cache}", flush=True)
+    train_seqs, val_seqs = train_val_split(seqs, d["val_fraction"], d["seed"])
 
     model = build_model(cfg, vocab_size=len(tokenizer))
     n_params = sum(p.numel() for p in model.parameters())
     est_usd, detail = estimate_cost_usd(cfg, n_params, train_seqs.numel())
 
     print(
-        f"[evt] run_id={cfg['run_id']} docs={len(texts)} train_seqs={len(train_seqs)} "
+        f"[evt] run_id={cfg['run_id']} docs={n_docs} train_seqs={len(train_seqs)} "
         f"val_seqs={len(val_seqs)} seq_len={cfg['data']['seq_len']}"
     )
     print(f"[evt] estimated cost: ${est_usd:,.2f}  ({detail})")
@@ -197,7 +226,7 @@ def main() -> int:
         return 1
 
     store = Path(os.environ["GEODE_STORE"])
-    manifest = register_run(manifest_fields(cfg, n_params, len(texts), est_usd))
+    manifest = register_run(manifest_fields(cfg, n_params, n_docs, est_usd))
     out_dir = store / "runs" / cfg["run_id"] / "pretrain"
 
     t = cfg["train"]
