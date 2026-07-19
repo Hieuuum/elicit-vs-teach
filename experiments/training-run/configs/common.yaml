@@ -19,6 +19,8 @@ lora:
   alpha: 32
   scaling: alpha_over_2r
   dropout: 0.0
+  init_a: kaiming_1_over_sqrt_d_in   # paper Table 2 / spec 02 §6: A Kaiming 1/√d_in
+  init_b: zeros                      # B zero ⇒ adapters start as identity
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 
 gpu:

@@ -240,6 +240,18 @@ Pre-training blockers cleared this session; spec 02 edited in the same commit.
 - **Label-masked SFT pulled forward** (owner): built now rather than after
   the pretrain validates — zero code work between G0 passing and launching
   runs 2–4. Properties V5.28+ in spec 02.
+- **Paper hyperparameter audit** (owner-supplied split of scale-independent
+  vs. scale-dependent values). All scale-independent values (AdamW β/wd,
+  constant LR, clip 1.0, bf16, label-masked loss, LoRA r/α/scaling/dropout/
+  targets) verified present in `common.yaml` and wired through `train.py`
+  into both loops; constant LR is structural (no scheduler object exists).
+  One gap fixed: `lora.init_a`/`init_b` added to `common.yaml` (A Kaiming
+  1/√d_in, B zero — spec 02 §6 already recorded it). Owner verdicts:
+  sweep grid stays 4-point — the paper's 2e-5 full-FT LR is a *fine-tune*
+  value; the run-1 sweep is from-scratch pretrain, and the ~1e-4-start
+  advice instead seeds the future runs-2-4 SFT LR mini-sweep. Snapshot
+  writer (1024 manifest steps) deferred to the runs-2-4 build; run 1 is
+  final-checkpoint-only per EXPERIMENTS.md.
 
 ## Open at the moment
 
