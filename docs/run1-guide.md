@@ -315,10 +315,34 @@ meter stops.
 host, and port from the instance's connect button on vast.ai:
 
 ```bash
-rsync -avz -e "ssh -p <port>" <user>@<host>:geode-store/ ~/geode-store/
+rsync -avP -e "ssh -p <port>" <user>@<host>:geode-store/ ~/geode-store/
 ```
 
 (Skip `packed_full.pt` — the cache is regenerable.)
+
+Transfer notes (learned from run 1):
+
+- **No `-z`.** `model.safetensors` is high-entropy tensor bytes — gzip gets
+  ~1.0x on it, so compression just burns CPU for zero size win. The only
+  compressible text (JSONL logs) is tiny.
+- **`-P`** (= `--partial --progress`) shows per-file progress and lets an
+  interrupted transfer resume the big file instead of restarting it.
+- **Re-pulling checkpoints:** add `-W` (`--whole-file`). Each checkpoint is
+  a completely new binary, so rsync's delta algorithm is wasted work.
+  rsync still skips unchanged files, so keep using it for the run tree.
+- **If a single big checkpoint is still slow:** the bottleneck is one SSH
+  stream over ~100 ms RTT (throughput ≈ TCP window ÷ RTT), not bandwidth.
+  `rclone` over an sftp remote breaks that ceiling by multi-streaming the
+  file (one-time setup: `rclone config` → new sftp remote with the box's
+  host/port/key):
+
+  ```bash
+  rclone copy vastbox:geode-store ~/geode-store \
+    --transfers 8 --multi-thread-streams 4 --multi-thread-cutoff 50M -P
+  ```
+- **Optional:** if a checkpoint is fp32 but analysis only needs bf16,
+  saving it as bf16 on the box halves the bytes on the wire — a decision
+  for the remote/save side, only if it fits the pipeline.
 
 **7.2 — verify before destroying:**
 
