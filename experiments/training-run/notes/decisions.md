@@ -463,10 +463,36 @@ Small decisions (delegated):
   both exercised; `gates.py g1` recorded a correct FAIL (0%) on the
   random-init smoke checkpoint.
 
+## 2026-07-20 — run 1 CLOSED: ext converged, G0 PASS, floor 1 = v2-ext
+
+- Extension outcome: `evt-run1-base-v2-ext` **converged** at step 4,000
+  (`stop_reason=converged` — the ε/k rule fired well under the 17k cost
+  ceiling, ~$0.13 of the budgeted ~$0.55). True min val **1.1066 nats**
+  @ step 4000 vs v2's 1.1125 @ 17000 — the extension bought ~0.006 nats
+  plus an actual convergence signal. Artifacts pulled to the local
+  store, sha256-verified against `mhieuuu/geode-store`.
+- **`min_val_nats` discovery (V5.41, same day):** manifest
+  `best_val_nats` is ε-gated (only updates on > ε improvement), so it
+  reads stale — v2-ext's said 1.1110 (its step-1000 value), v2's 1.1140
+  (not its true 1.1125). `train.py` now also records `min_val_nats`,
+  the un-gated minimum. Both existing manifests **backfilled** from
+  their `eval_log.jsonl` minima and re-pushed to the HF relay. Compare
+  runs via `min_val_nats`; `best_val_nats` is a stopping-rule artifact.
+- **G0 PASS** (owner verdict 2026-07-20, judged on the v2-ext
+  checkpoint per the extension entry above): 20 seeded samples
+  (`floor1_samples.txt` beside the checkpoint) against the spec 02 §8
+  rubric. Recorded in `experiment.gates.G0` of the v2-ext manifest;
+  `require_parent_ready(..., required_gates=("G0",))` verified passing.
+  The 2026-07-19 pre-committed fallback was not needed.
+- **Floor 1 = `evt-run1-base-v2-ext`.** `parent_run_id` pinned in
+  `configs/run2_algo.yaml`. Run-2 sequence: 4-LR full-length sweep
+  (`configs/pilot/run2_sweep_lr*.yaml`, ~$0.25) → pin `train.lr` from
+  the winner → launch canonical `evt-run2-armA-algo` (~$0.06).
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
-at the runs 2–6 pilots. Run-1 items: cosine retrain `evt-run1-base-v2`
-complete (best val 1.1140 nats, G0 verdict pending); **extension
-`evt-run1-base-v2-ext` queued** (constant 1e-4 to convergence, entry
-above) → judge G0 on the final checkpoint. Dataset items: none.
+at the runs 2–6 pilots. Run-1 items: **none — run 1 closed 2026-07-20**
+(G0 pass on `evt-run1-base-v2-ext`, entry above). Run-2 items: LR sweep
+on the next box, then owner pins `train.lr` and the canonical
+`evt-run2-armA-algo` launches. Dataset items: none.

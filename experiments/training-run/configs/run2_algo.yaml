@@ -1,9 +1,9 @@
 # Run 2 — Arm A pre-teach: NL add/sub, correct labels (spec 02 §1 row 2, §6).
 # Full FT from the run-1 floor-1 checkpoint via scripts/train_sft.py.
 #
-# BEFORE LAUNCH (owner, after the G0 verdict):
-#   1. Pin experiment.parent_run_id to the floor-1 run id
-#      (evt-run1-base-v2 or evt-run1-base-v2-ext, whichever G0 is judged on).
+# BEFORE LAUNCH (owner):
+#   1. [DONE 2026-07-20] parent_run_id pinned to evt-run1-base-v2-ext —
+#      G0 pass recorded in its manifest (decisions.md "run 1 CLOSED").
 #   2. Pin train.lr from the run-2 LR sweep (decisions.md 2026-07-20:
 #      full-length sweep overlays in configs/pilot/run2_sweep_lr*.yaml,
 #      then this canonical run re-launches the winner's exact config).
@@ -12,7 +12,7 @@ experiment:
   name: training-run
   arm: A
   role: pre_teach
-  parent_run_id: null          # pin to the floor-1 run id after the G0 verdict
+  parent_run_id: evt-run1-base-v2-ext  # floor 1; G0 pass recorded 2026-07-20
   parent_required_gates: [G0]  # launcher refuses unless recorded pass:true (V0.6)
 
 model:                         # must match the parent checkpoint (launcher guards)
