@@ -1,12 +1,12 @@
 """ZOO-3 tests: activation store with matched-input enforcement.
 
 Derived from specs/00-interfaces.md — §1 "Directory layout", §6 "Activation
-storage" — validation property V0.4, and PLAN.md resolved decisions OQ-5
+storage" — validation property V0.4, and resolved decisions (specs/00 §9) OQ-5
 (position policy is exactly the enum ``{all, answer_only, last}``) and OQ-7
 (``tokenizer_hash`` = sha256 hex digest of the canonical tokenizer JSON;
 deterministic across instances, sensitive to vocab changes).
 
-Written test-first: the imports below target the public API fixed in PLAN.md
+Written test-first: the imports below target the public API fixed in the retired build plan (git history)
 "### ZOO-3" (module ``geode.zoo.activations``) and are expected to fail until
 ZOO-3 is implemented.
 

@@ -1,0 +1,32 @@
+# Shared config blocks for all training-run experiment runs (spec 02 §6).
+# Values from the experiment spec's fixed tables unless marked OPEN(n).
+
+optimizer:
+  name: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+
+training:
+  lr_scheduler: constant
+  grad_clip: 1.0
+  precision: bf16          # library falls back to fp32 on CPU smoke tests
+  batch_size: 128          # paper: effective 1024 on 8xH100; single-GPU here
+
+# LoRA block applies to target runs (5-6) only; kept here so both arm
+# configs inherit identical values.
+lora:
+  r: 128                   # 2026-07-18 arch decision (was 64 at 1B scale)
+  alpha: 32
+  scaling: alpha_over_2r
+  dropout: 0.0
+  init_a: kaiming_1_over_sqrt_d_in   # paper Table 2 / spec 02 §6: A Kaiming 1/√d_in
+  init_b: zeros                      # B zero ⇒ adapters start as identity
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+
+gpu:
+  type: null               # set at rental time (e.g. RTX-4090-24GB)
+  # Estimate block sized for an RTX 4090 (2026-07-18): a ~39M-param model
+  # needs no A100. These numbers only feed the printed cost estimate.
+  tflops_bf16: 165.0       # 4090 dense bf16 peak
+  utilization: 0.35        # conservative MFU guess for cost estimate
+  usd_per_hour: 0.45

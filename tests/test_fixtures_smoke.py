@@ -1,7 +1,7 @@
 """SETUP-0 acceptance checks: fixtures import, build offline, and behave.
 
 Not spec-derived tests — those start at ZOO-1. This file only proves the
-shared fixtures work (PLAN.md SETUP-0 acceptance).
+shared fixtures work (the retired build plan (git history) SETUP-0 acceptance).
 """
 
 from __future__ import annotations

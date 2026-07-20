@@ -1,0 +1,20 @@
+{
+  "corpus": {
+    "hf_repo": "roneneldan/TinyStories",
+    "file": "TinyStoriesV2-GPT4-train.txt",
+    "sha256": "6418d412de72888f52b5142c761ac21a582f7d1166f0bfbdb5f03ccfdec90443"
+  },
+  "vocab_size": 10000,
+  "special_tokens": {
+    "eos": "<|endoftext|>",
+    "pad": "<|pad|>"
+  },
+  "scheme": "byte-level BPE; Digits(individual_digits) pre-split; no normalizer",
+  "template_literals": "plain BPE (owner decision 2026-07-18)",
+  "versions": {
+    "tokenizers": "0.22.2",
+    "transformers": "5.13.1"
+  },
+  "question_prefix_tokens": 5,
+  "answer_prefix_tokens": 6
+}

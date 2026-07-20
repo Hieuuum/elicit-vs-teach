@@ -1,11 +1,15 @@
 __pycache__/
+/geode-store/
 *.pyc
 *.egg-info/
 .venv/
 .pytest_cache/
 .ruff_cache/
 runs/
+experiments/training-run/notebooks/data/
+experiments/training-run/data/
 activations/
 saes/
 results/
 reference/
+figures/

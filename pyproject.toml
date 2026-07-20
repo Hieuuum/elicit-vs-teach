@@ -1,7 +1,7 @@
 [project]
 name = "geode"
 version = "0.0.1"
-description = "Mechanistic analysis infrastructure for elicitation vs. teaching (EDL, steering sufficiency, base-SAE diffing)"
+description = "Mechanistic analysis infrastructure for elicitation vs. teaching (EDL, prequential MDL, training runs)"
 requires-python = ">=3.11"
 dependencies = [
   "torch>=2.3",
@@ -9,12 +9,11 @@ dependencies = [
   "peft>=0.12",
   "datasets>=2.20",
   "safetensors>=0.4",
-  "sae-lens>=4.0",
-  "transformer-lens>=2.0",
   "numpy>=1.26",
   "pandas>=2.2",
   "pyarrow>=16",
   "einops>=0.8",
+  "pyyaml>=6",
 ]
 
 [project.optional-dependencies]

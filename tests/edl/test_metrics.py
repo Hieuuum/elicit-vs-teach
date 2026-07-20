@@ -36,7 +36,7 @@ Orchestrator-resolved decisions encoded here (BINDING):
   never contributes.
 - D-8: ``PrequentialAccumulator.add_epoch1`` raises ``ValueError`` on epoch!=1.
 
-Written test-first: the imports below target the API fixed in PLAN.md "### EDL-2"
+Written test-first: the imports below target the API fixed in the retired build plan (git history) "### EDL-2"
 and are expected to fail until the modules above exist.
 """
 

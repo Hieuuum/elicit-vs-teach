@@ -1,7 +1,7 @@
 # specs/00-interfaces.md — Shared Interfaces and Storage Schemas
 
-Everything downstream (EDL harness, steering library, base-SAE pipeline,
-external repo adapters) reads and writes through these schemas. External code
+Everything downstream (EDL harness, training runs, probe extraction, analysis
+drivers) reads and writes through these schemas. External code
 (Donoway repo, Minder repo) is wrapped behind adapters that emit these
 formats; nothing else in `geode` may depend on external repo internals.
 
@@ -11,9 +11,10 @@ formats; nothing else in `geode` may depend on external repo internals.
 $GEODE_STORE/
   runs/{run_id}/
     manifest.json
-    adapter/                  # PEFT adapter (final)
-    merged/                   # optional merged weights, safetensors
-    snapshots/step_{k}/       # within-run PEFT adapter snapshots
+    snapshots/step_{k}/       # self-contained full-model snapshots:
+                              #   model.safetensors = the complete state_dict
+                              #   (base + adapter tensors; 2026-07-18 decision —
+                              #   adapter-only saving + base reassembly retired)
     logs/
       prequential.jsonl       # per-batch first-epoch label losses (§3)
       gradstats.jsonl         # per-step gradient statistics (§4)
@@ -26,6 +27,11 @@ $GEODE_STORE/
 ```
 
 `$GEODE_STORE` is an environment variable; no absolute paths in code.
+When it is unset, launch scripts (`experiments/`) default it to
+`<repo-root>/geode-store/` — gitignored, so artifacts sit beside the
+clone (2026-07-20 owner decision; on rental boxes this lands on the
+same volume as the checkout). Library code (`geode.zoo.store`) stays
+strict: explicit `store` argument or the env var, never a guessed path.
 
 ## 2. Run manifest (`manifest.json`)
 
@@ -124,7 +130,7 @@ measurement, with at minimum the columns:
 `run_id, base_model_key, regime, dataset_size, checkpoint_step, layer,
 metric_name, metric_value`.
 This is the join key structure for the EDL-vs-internals bridge plots: EDL
-values (from the harness) and internal quantities (from steering/saediff)
+values (from the harness) and internal quantities (from analysis drivers)
 land in the same table shape and join on `run_id`/`dataset_size`.
 
 ## 8. Public API surface (module `geode.zoo`)
@@ -139,6 +145,32 @@ def prequential_records(run_id: str) -> Iterator[PrequentialRecord]
 def test_loss(run_id: str) -> TestLoss
 ```
 
+## 9. Decisions (owner-approved 2026-07-11)
+
+Noted here from the deleted PLAN.md (2026-07-17 cut) because they explain
+why the shipped code behaves as it does. `OQ-n` labels are kept only
+because existing docstrings already use them — they are a reference note,
+not a contract.
+
+- **OQ-3 — manifest validation:** all listed keys required recursively;
+  `null` only where the schema says `|null`; primitive type checks; errors
+  name the dotted path (e.g. `training.optimizer.lr`).
+- **OQ-4 — `example_ids` universe:** ids are `0..n_unique_examples-1` from
+  the run's manifest; checker rejects skips, repeats, out-of-range.
+- **OQ-5 — position policy:** one shared enum `{all, answer_only, last}`;
+  "generated positions" ≡ `answer_only`.
+- **OQ-6 — results layout:** one parquet per analysis,
+  `results/{analysis_name}.parquet`, overwrite-by-name; `read_results`
+  concatenates the directory; joins in pandas on mandated key columns.
+- **OQ-7 — hashes:** `tokenizer_hash` = sha256 of canonical tokenizer JSON;
+  `masking_config_hash` = sha256 of canonical JSON of
+  `{task name, format_version, mask-rule parameters, tokenizer_hash}`.
+- **OQ-8 — label boundary:** dataset builder emits per-example label-token
+  spans; `task_format` declares the span rule; `label_mask` is the single
+  construction path for training loop and test evaluator (M1's shared fn).
+- **OQ-14 — `topk_grad_subspace_overlap`:** always `null` for now; field
+  reserved for a future analysis spec.
+
 ## Validation properties (tests derive from these)
 
 - **V0.1** A manifest missing any required field fails validation with an
@@ -150,3 +182,9 @@ def test_loss(run_id: str) -> TestLoss
   dataset_key, position policy, or tokenizer hash differ, with a clear error.
 - **V0.5** `masking_config_hash` mismatch between train log and test loss is
   surfaced as an error by `geode.zoo` consistency check.
+- **V0.6** Parent-gate refusal (EXPERIMENTS.md §3.1, added 2026-07-20 with
+  the runs-2–4 launch surface): `require_parent_ready` raises
+  `ConsistencyError` when the parent manifest is missing or invalid, its
+  `status` is not `"complete"`, any recorded `experiment.gates` entry lacks
+  `pass: true`, or a caller-required gate has no recorded verdict. Gate
+  records are objects with at least a boolean `pass` field.

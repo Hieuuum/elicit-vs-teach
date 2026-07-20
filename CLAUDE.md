@@ -7,19 +7,27 @@ with and without latent capabilities. This codebase cracks them open.
 
 ## What lives here
 
-- `specs/` — the source of truth. Every module is specified before it is
-  implemented. Tests are derived from specs, never from implementations.
-- `geode/` — the library: `edl` (prequential/EDL harness), `steering`
-  (direction extraction + sufficiency tests), `saediff` (base-SAE analysis),
-  `zoo` (checkpoint manifest + run registry).
+- `specs/` — schema and math ground truth for the tested core. The property
+  lists in specs 01 and 02 are what tests derive from; new script work needs
+  no spec. Holds exactly three files: `00-interfaces.md`, `01-edl-harness.md`,
+  `02-training-run.md`. Note: pre-cut references to `specs/02`–`specs/05` in
+  git history mean different files (02 was the deleted steering spec; today's
+  02 is the renamed elicit-vs-teach spec).
+- `geode/` — the library: `edl` (prequential/EDL harness), `train` (corpus
+  packing + full-FT/SFT trainers), `zoo` (checkpoint manifest + run
+  registry), `arith` (task data + evals), `probe` (extraction + metrics,
+  planned).
 - `tests/` — pytest suite. See testing policy below.
 - `reference/` — cloned third-party repos. **READ-ONLY. Never modify, never
-  import from at runtime.** Used only to inform adaptation plans.
+  import from at runtime.** Kept read-only in case the crosscoder track
+  revives.
   - `reference/sparsity-artifacts-crosscoders` — Minder et al. 2025
     (arXiv 2504.02922), BatchTopK crosscoders + latent scaling.
   - `reference/quantifying-elicitation` — Donoway et al. NeurIPS 2025 code
     (added when access is granted).
-- `PLAN.md` — the approved build plan. All work executes against it.
+- `EXPERIMENTS.md` — the live plan: runs, DAG, gate status, and remaining
+  work. All work executes against it. (It replaced the 2026-07-17 cut plan;
+  PLAN.md and docs/CUT-PLAN.md are git history.)
 
 ## Attribution (do not confuse these)
 
@@ -31,7 +39,8 @@ with and without latent capabilities. This codebase cracks them open.
 - **Donoway et al.** — EDL (ICML 2026 "Bits That Count"; NeurIPS 2025
   elicitation; arXiv 2601.04728 theory).
 - **Wang et al. 2025** — OOCR ≈ constant steering-vector shift; template for
-  `geode.steering`.
+  direction-extraction analysis under `experiments/…/analysis/`.
+  (`geode.steering` was planned but never built; deleted 2026-07-17.)
 
 ## Conventions
 
@@ -59,21 +68,40 @@ with and without latent capabilities. This codebase cracks them open.
 - Every module's spec has a "Validation properties" section; each property
   maps to at least one named test.
 
-## Execution protocol (per PLAN.md task)
+## Workflow
 
-Each task runs as four sequential subagent stages, each in a fresh context:
+The four-stage spec-first protocol was retired 2026-07-17 (see
+`EXPERIMENTS.md` §5). It cost ~60–70% of each task in ceremony and mostly
+protected clerical code. Replacement:
 
-1. **TEST-WRITER** — writes failing tests from the referenced spec sections
-   only. Must not read any implementation code.
-2. **TEST-AUDITOR** — reviews tests against the spec; flags missing
-   properties, mismatches, or tests that overfit to an assumed
-   implementation. Tests revised until clean.
-3. **IMPLEMENTER** — makes the tests pass. Must not modify tests.
-4. **CONFORMANCE-REVIEWER** — reviews the diff against spec + tests; reports
-   gaps with file/line references.
+**Tested core** (`geode/`): code and its property tests are written
+together in one pass. A change to core math updates its property tests in
+the same commit. Property lists live in `specs/01-edl-harness.md` §4 and
+`specs/02-training-run.md` (V-numbers); name tests after the property
+they check (e.g. `test_v5_1_no_probe_leakage`).
 
-A task is done only when stage 4 reports no findings and the full suite
-passes. Commit after each completed task with the task ID in the message.
+**Scripts** (`experiments/`): single pass, self-reviewed. Smoke test only
+where cheap. No spec edits, no stage agents.
+
+**What earns a property test:** code whose *silent* failure would waste
+GPU budget or invalidate the elicit-vs-teach comparison — EDL/MDL math,
+data integrity, matched-input guards, analysis metrics. Code that fails
+*loudly* (config validators, schema type-checks, serialization plumbing)
+gets one round-trip smoke test at most.
+
+**Promotion rule:** logic used by two or more scripts, or whose silent
+failure would corrupt results, moves into `geode/` and gains property
+tests. Nothing else does.
+
+## Documentation
+
+Per-task implementation logs are retired (2026-07-17 cut);
+`docs/impl-logs/` is frozen history. Record decisions where they belong:
+
+- Experiment decisions, pilot outcomes, closed OPEN(n) items →
+  `experiments/training-run/notes/decisions.md`.
+- Structure / plan changes → `EXPERIMENTS.md`.
+- Spec changes → the spec itself, in the same commit as the code.
 
 ## Budget rule
 

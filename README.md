@@ -5,16 +5,17 @@ vs. teaching (Donoway et al.'s EDL framework). A geode looks identical from
 the outside whether hollow or crystal-lined — like a model with or without a
 latent capability. This code cracks them open.
 
-Modules (specified in `specs/`, implemented via `PLAN.md`):
+Modules (specified in `specs/`; current plan: `EXPERIMENTS.md`):
 
 - `geode.zoo` — checkpoint-zoo manifests, run registry, storage schemas
 - `geode.edl` — prequential MDL / EDL harness (label-masked, first-epoch)
-- `geode.steering` — direction extraction + rank-sufficiency interventions
-- `geode.saediff` — base-SAE reconstruction / novel-feature-mass analysis
+- `geode.train` — corpus packing + full-FT/pretrain trainer
+- `geode.arith` — arithmetic task data + evals (planned)
+- `geode.probe` — snapshot schedule, activation/grad extraction, metrics (planned)
 
-Start here: `CLAUDE.md` (conventions + agent protocol), then
-`PLANNING_PROMPT.md`. Version pins in `pyproject.toml` are minimums —
-tighten them to the exact versions of your environment on first install.
+Start here: `CLAUDE.md` (conventions + workflow), then `EXPERIMENTS.md`.
+Version pins in `pyproject.toml` are minimums — tighten them to the exact
+versions of your environment on first install.
 
 Clone references (read-only):
 

@@ -11,6 +11,7 @@ from geode.zoo.checks import (
     ConsistencyError,
     check_epoch1_coverage,
     check_masking_consistency,
+    require_parent_ready,
 )
 from geode.zoo.manifest import (
     ManifestError,
@@ -53,6 +54,7 @@ __all__ = [
     "prequential_records",
     "read_results",
     "register_run",
+    "require_parent_ready",
     "save_activations",
     "test_loss",
     "tokenizer_hash",

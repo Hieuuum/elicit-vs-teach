@@ -2,7 +2,7 @@
 
 Derived from specs/00-interfaces.md — §1 "Directory layout", §2 "Run
 manifest", §8 "Public API surface" — validation properties V0.1 and V0.2,
-and PLAN.md resolved decision OQ-3 (all listed keys required recursively;
+and resolved decision (specs/00 §9) OQ-3 (all listed keys required recursively;
 ``null`` only where the schema says ``|null``; primitive type checks;
 errors name the dotted path, e.g. ``training.optimizer.lr``).
 
@@ -399,6 +399,27 @@ def test_register_then_load_identity(geode_store: Path) -> None:
     loaded = load_run("run-reg-01")
     assert isinstance(loaded, RunManifest)
     assert loaded.data == expected
+
+
+def test_register_refuses_overwriting_running_run(geode_store: Path) -> None:
+    """register_run refuses a run_id whose existing manifest is status="running"
+    (a live trainer may own it — the 2026-07-19 duplicate-launch guard);
+    any other status is overwritable, as is the same run after the manual
+    escape hatch (editing the stale status)."""
+    fields = make_manifest(run_id="run-dup")
+    fields["status"] = "running"
+    register_run(fields)
+
+    with pytest.raises(ManifestError, match="running"):
+        register_run(make_manifest(run_id="run-dup"))
+
+    # Escape hatch: edit the stale status on disk, then re-register.
+    path = geode_store / "runs" / "run-dup" / "manifest.json"
+    stale = json.loads(path.read_text())
+    stale["status"] = "failed"
+    path.write_text(json.dumps(stale))
+    register_run(make_manifest(run_id="run-dup"))
+    assert json.loads(path.read_text())["status"] == make_manifest()["status"]
 
 
 # ---------------------------------------------------------------------------

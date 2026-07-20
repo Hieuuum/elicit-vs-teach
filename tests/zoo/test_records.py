@@ -2,15 +2,12 @@
 
 Derived from specs/00-interfaces.md — §1 "Directory layout", §3 "Prequential
 log", §4 "Gradient statistics", §5 "Test loss", §8 (``prequential_records``,
-``test_loss``) — validation properties V0.3 and V0.5, and PLAN.md resolved
-decisions OQ-4 (``example_ids`` universe is ``0..n_unique_examples-1`` from
+``test_loss``) — validation properties V0.3 and V0.5, and resolved decisions
+(specs/00 §9) OQ-4 (``example_ids`` universe is ``0..n_unique_examples-1`` from
 the run's manifest; checker rejects skips, repeats, out-of-range), OQ-7
 (``masking_config_hash`` is a sha256 hex digest) and OQ-14
 (``topk_grad_subspace_overlap`` is always ``null`` for now; ``float|null``
 by schema).
-
-Written test-first: the imports below target the public API fixed in
-PLAN.md "### ZOO-2" and are expected to fail until ZOO-2 is implemented.
 """
 
 from __future__ import annotations

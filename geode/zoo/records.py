@@ -48,13 +48,24 @@ class TestLoss:
     masking_config_hash: str
 
 
+def _serialize_record(record: PrequentialRecord | GradStatRecord) -> str:
+    """Serialise one record to a single JSONL line — the shared line format.
+
+    The one source of truth for prequential/gradstat line serialisation, used by
+    both ``write_jsonl`` (the accumulator's ``flush`` writer) and the loop's
+    later-epoch appender, so the two writers into one ``prequential.jsonl`` can
+    never desynchronise if the format ever changes (V1.7 byte-determinism).
+    """
+    return json.dumps(asdict(record)) + "\n"
+
+
 def write_jsonl(path: Path, records: Iterable[PrequentialRecord | GradStatRecord]) -> None:
     """Write ``records`` to ``path``, one JSON object per line (spec §3/§4 field names)."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w") as f:
         for record in records:
-            f.write(json.dumps(asdict(record)) + "\n")
+            f.write(_serialize_record(record))
 
 
 def _iter_jsonl(path: Path) -> Iterator[dict]:

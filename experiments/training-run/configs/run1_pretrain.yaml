@@ -1,0 +1,98 @@
+# Run 1 — TinyStories pretrain (spec 02 §1 row 1, §6.2).
+# ALL hyperparameters below marked OPEN(11) are documented placeholders:
+# pin at pilot before any --confirm-cost spend.
+# OPEN(8) closed 2026-07-18: pretrain from scratch (custom arch + tokenizer
+# match no external checkpoint).
+
+# 2026-07-19 retrain (v2): the constant-LR production run (evt-run1-base)
+# converged at its gradient-noise floor (1.1464 nats @ step 17000) and
+# FAILED gate G0 (~5/20 coherent vs >=16). Fix: cosine LR decay over the
+# same 17k-step horizon. New run_id so the failed run's artifacts survive
+# for the comparison — the pre-committed fallback is "better checkpoint
+# becomes floor 1" (decisions.md 2026-07-19).
+run_id: evt-run1-base-v2
+experiment:
+  name: training-run
+  arm: shared
+  role: pretrain
+  parent_run_id: null
+
+model:                      # custom small Llama-style arch (2026-07-18), random init
+  hidden_size: 512
+  intermediate_size: 2048   # 4×d
+  num_hidden_layers: 8
+  num_attention_heads: 8    # head_dim 64
+  num_key_value_heads: 8    # = heads: plain MHA (GQA unneeded at this scale)
+  rope_theta: 10000.0       # 2026-07-18: textbook small-model value; Llama's
+                            # 500000 was a long-context artifact, dropped
+                            # before floor 1 bakes it into downstream runs
+  max_position_embeddings: 1024   # > G5 16-shot worst case (593 tokens,
+                            # measured 2026-07-18); RoPE has no learned
+                            # positions so headroom is free. Packing stays
+                            # at data.seq_len.
+  tie_word_embeddings: true
+  # vocab_size comes from the tokenizer at build time (10K custom BPE)
+
+tokenizer:
+  # Frozen artifact built by scripts/make_tokenizer.py (2026-07-18): 10K
+  # byte-level BPE on TinyStories-v2, digits 0-9 single-token forced,
+  # Question:/Answer: plain BPE (owner decision), EOS <|endoftext|>,
+  # PAD <|pad|>. Provenance in tokenizer/meta.json. Relative paths resolve
+  # against this config's directory; an HF id also works.
+  path: ../tokenizer
+
+data:
+  # v2 (GPT-4-only) ships ONLY as this txt file inside the v1 repo — there
+  # is no TinyStoriesV2 repo and the repo's parquet config is v1 data
+  # (verified 2026-07-18, closing the OPEN(11) dataset-id check). Stories
+  # are split on <|endoftext|> delimiter lines (geode.train.split_documents);
+  # 2,717,495 stories, 532M tokens with the frozen tokenizer.
+  hf_id: roneneldan/TinyStories
+  file: TinyStoriesV2-GPT4-train.txt
+  seq_len: 512                      # pinned 2026-07-18: story p90=265 (>256),
+                                    # only 1.6% of stories exceed 512
+  val_fraction: 0.005               # pinned 2026-07-19 (sweep: 5225 val
+                                    # seqs give eval noise well under the
+                                    # stopping eps)
+  seed: 316
+
+train:
+  lr: 1.0e-3                        # pinned 2026-07-19, run-1 LR sweep:
+                                    # best val 1.4389 nats @2000 (vs 1.4552
+                                    # @3e-4), monotone descent, grad norms
+                                    # tame; 3e-3 unstable (grad spike 109),
+                                    # 1e-4 far behind
+  batch_size: 128                   # pinned 2026-07-19 (sweep ran at 128)
+  micro_batch_size: 32              # grad accumulation 4×32 (2026-07-19):
+                                    # a full 128-batch fwd+loss OOMs the
+                                    # 24 GB 4090 (fp32 logits at vocab 10K
+                                    # alone are ~2.6 GB); effective batch
+                                    # unchanged
+  lr_schedule: cosine               # 2026-07-19 G0 fix: decay 1e-3 -> 1e-4
+                                    # over the full horizon. No warmup: the
+                                    # sweep showed 1e-3 stable from step 0
+                                    # (grad norms tame), so warmup is dead
+                                    # weight at this scale
+  min_lr: 1.0e-4                    # lr/10, textbook cosine floor
+  eval_every: 500                   # pinned 2026-07-19: ~3% eval overhead
+                                    # (5225 val seqs @ micro 32)
+  max_steps: 17000                  # cosine horizon = exactly what the
+                                    # constant-LR run took (~2.1 epochs),
+                                    # keeping cost (~$0.55) and the
+                                    # constant-vs-decay comparison matched
+  stopping:                         # INERT under lr_schedule: cosine (spec
+                                    # 02 §6.1: decay shrinks late deltas
+                                    # below eps by design); retained for
+                                    # best_val_nats tracking in meta
+    eps_nats: 0.005
+    k: 3
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 2           # manifest metadata: 17000 steps @ batch
+                                    # 128 ~= 2.1 epochs of 1.034M train seqs
+
+cost:
+  # printed estimate = 6 * n_params * tokens_seen_per_step * steps guess;
+  # script recomputes from actual packed corpus size before asking for
+  # --confirm-cost.
+  assumed_epochs_for_estimate: 2

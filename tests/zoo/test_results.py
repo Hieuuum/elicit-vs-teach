@@ -3,7 +3,7 @@
 Derived from specs/00-interfaces.md §7 "Results tables" (the long-format
 parquet schema and the ``run_id``/``dataset_size`` bridge-join contract) and
 §1 "Directory layout" (analysis outputs live at ``$GEODE_STORE/results/``),
-plus PLAN.md resolved decision OQ-6: one parquet per analysis at
+plus resolved decision (specs/00 §9) OQ-6: one parquet per analysis at
 ``results/{analysis_name}.parquet``; overwrite-by-name (writing the same name
 replaces, never appends); ``read_results(None)`` concatenates every parquet in
 ``results/``; joins happen in pandas on the mandated key columns.
@@ -11,7 +11,7 @@ replaces, never appends); ``read_results(None)`` concatenates every parquet in
 Note: §7 carries no V-number (recorded in the coverage map), so these tests
 derive directly from the §7 prose and OQ-6.
 
-Written test-first: the imports below target the public API fixed in PLAN.md
+Written test-first: the imports below target the public API fixed in the retired build plan (git history)
 "### ZOO-4" and are expected to fail until ``geode/zoo/results.py`` exists.
 """
 
