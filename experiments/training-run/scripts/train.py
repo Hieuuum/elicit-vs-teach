@@ -321,6 +321,7 @@ def main() -> int:
     manifest.data["experiment"]["pretrain_result"] = {
         "final_step": result.final_step,
         "best_val_nats": result.best_val_nats,
+        "min_val_nats": result.min_val_nats,
         "stop_reason": result.stop_reason,
         "run_started_utc": run_started.isoformat(),
         "run_ended_utc": run_ended.isoformat(),
@@ -329,7 +330,8 @@ def main() -> int:
     manifest.save(store / "runs" / cfg["run_id"] / "manifest.json")
     print(
         f"[evt] done: {result.stop_reason} at step {result.final_step}, "
-        f"best val {result.best_val_nats:.4f} nats "
+        f"min val {result.min_val_nats:.4f} nats "
+        f"(eps-gated best {result.best_val_nats:.4f}) "
         f"in {datetime.timedelta(seconds=round(duration_s))}. "
         f"Checkpoint: {result.checkpoint_dir}"
     )

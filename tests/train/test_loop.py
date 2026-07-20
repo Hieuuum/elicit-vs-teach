@@ -307,11 +307,15 @@ def test_checkpoint_roundtrip_same_val_nll(tiny_llama, tmp_path):
     assert meta["stop_reason"] == result.stop_reason
     assert meta["final_step"] == result.final_step
     assert meta["best_val_nats"] == result.best_val_nats
+    assert meta["min_val_nats"] == result.min_val_nats
     # This run uses eps_nats=0.0 (_STOPPING_DISABLED), where the tracker's
     # best is exactly the running min of the eval series — so best_val_nats
     # must equal the min of the logged evals under either reading of "best"
     # (tracker best vs plain min). json round-trips doubles exactly.
     assert result.best_val_nats == min(r["val_loss_nats"] for r in eval_recs)
+    # V5.41 propagation: min_val_nats is the true min of the logged evals
+    # unconditionally (no eps gate).
+    assert result.min_val_nats == min(r["val_loss_nats"] for r in eval_recs)
 
 
 # --------------------------------------------------------------------------

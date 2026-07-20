@@ -294,7 +294,12 @@ class ConvergenceTracker:
     # (strict; equality does NOT improve). Improvement updates best and
     # resets the stale counter; the k-th consecutive non-improving eval
     # returns True (and keeps returning True). NaN input raises ValueError.
-    best_nats: float          # +inf before first update
+    best_nats: float          # +inf before first update; eps-gated (freezes
+                              # while improvements stay <= eps_nats)
+    min_nats: float           # +inf before first update; exact min over
+                              # EVERY value passed to update, no eps gate
+                              # (added 2026-07-20: run-1 v2/v2-ext recorded
+                              # a stale first-eval "best")
     stale_evals: int
 
 # geode/train/loop.py
@@ -302,6 +307,7 @@ class ConvergenceTracker:
 class TrainResult:
     final_step: int
     best_val_nats: float
+    min_val_nats: float
     stop_reason: Literal["converged", "max_steps"]
     checkpoint_dir: Path
 def evaluate_nll_nats(model, seqs: torch.LongTensor, *, batch_size: int,
@@ -340,8 +346,8 @@ def train_full(model, train_seqs: torch.LongTensor,
   late-run improvements below any sensible `eps_nats` by design, so
   honoring it would cut the schedule short — the run always ends at
   exactly `max_steps` with `stop_reason="max_steps"`, while the tracker
-  still records `best_val_nats`. The SFT mode (`geode.train.sft`) is
-  deliberately unchanged.
+  still records `best_val_nats` and `min_val_nats`. The SFT mode
+  (`geode.train.sft`) is deliberately unchanged.
 - Data order: a seeded permutation of `train_seqs` per epoch, derived
   deterministically from `seed` and the epoch index; fixed-size batches,
   drop-last. Epochs repeat until a stop condition fires (multi-epoch is
@@ -381,7 +387,7 @@ def train_full(model, train_seqs: torch.LongTensor,
   timestamp-free logs).
 - Checkpoint: final model saved to `out_dir/model/` via `save_pretrained`,
   plus `out_dir/training_meta.json` recording `stop_reason`, `final_step`,
-  `best_val_nats`, and a `config` object echoing exactly the call
+  `best_val_nats`, `min_val_nats`, and a `config` object echoing exactly the call
   arguments {lr, lr_schedule, min_lr, batch_size, micro_batch_size
   (resolved: equals batch_size when accumulation is unused), eval_every,
   max_steps, grad_clip, weight_decay, betas, seed, precision,
@@ -539,6 +545,14 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   content-sensitive, and invariant to parquet round-trip scalar types;
   reproduces the hashes frozen in `report.json`. The SFT launch path and
   `gates.py` refuse on mismatch against the config-pinned value.
+- V5.41 true-min val tracking (2026-07-20): `ConvergenceTracker.min_nats`
+  equals the exact minimum of every value passed to `update` — including
+  sub-eps improvements that leave `best_nats` frozen, and values seen
+  after the stop latches; +inf before the first update; NaN still raises
+  without corrupting the min. `TrainResult.min_val_nats` and
+  `training_meta.json` propagate it (motivation: run-1 v2/v2-ext, where
+  the eps-gated `best_val_nats` overstated the loss actually reached —
+  1.1140-recorded vs 1.1125-true on v2, 1.1110 vs 1.1066 on v2-ext).
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

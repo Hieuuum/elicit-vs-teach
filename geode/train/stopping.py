@@ -7,6 +7,11 @@ non-improving eval trips the stop, and the tracker latches stopped forever
 after — every later call to ``update`` returns ``True`` regardless of its
 value, since a continued-plateau reading of the "keeps returning True" clause
 would make it redundant with the consecutive-count rule itself.
+
+``min_nats`` is the exact running minimum over every value passed to
+``update`` — independent of eps-gating, which freezes ``best_nats`` whenever
+improvements stay <= ``eps_nats`` (run-1 v2/v2-ext manifests recorded a
+first-eval "best" while the model kept improving sub-eps; 2026-07-20).
 """
 
 from __future__ import annotations
@@ -29,6 +34,7 @@ class ConvergenceTracker:
     def __init__(self, rule: StoppingRule) -> None:
         self._rule = rule
         self.best_nats: float = float("inf")  # +inf before first update
+        self.min_nats: float = float("inf")  # +inf before first update
         self.stale_evals: int = 0
         self._stopped = False
 
@@ -39,6 +45,8 @@ class ConvergenceTracker:
         """
         if math.isnan(val_loss_nats):
             raise ValueError("ConvergenceTracker.update: val_loss_nats is NaN")
+        if val_loss_nats < self.min_nats:
+            self.min_nats = val_loss_nats
         if self._stopped:
             return True
         if (self.best_nats - val_loss_nats) > self._rule.eps_nats:

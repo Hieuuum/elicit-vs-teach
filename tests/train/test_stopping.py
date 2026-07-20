@@ -84,6 +84,36 @@ def test_stopping_nan_raises():
         t2.update(float("nan"))
 
 
+def test_v5_41_min_nats_true_minimum():
+    # V5.41: min_nats is the exact minimum of every value passed to update,
+    # independent of the eps gate that freezes best_nats.
+    t = ConvergenceTracker(StoppingRule(eps_nats=0.5, k=3))
+    assert t.min_nats == float("inf")  # +inf before first update
+    assert t.update(1.0) is False  # best <- 1.0, min <- 1.0
+    # The gate compares against the FROZEN best, so the cumulative drop must
+    # stay <= eps (0.125, 0.25, 0.375 vs best 1.0): best freezes, min tracks.
+    assert t.update(0.875) is False  # stale 1
+    assert t.update(0.75) is False  # stale 2
+    assert t.update(0.625) is True  # stale 3 == k -> stop
+    assert t.best_nats == 1.0  # eps-gated: never updated after the first eval
+    assert t.min_nats == 0.625  # true minimum
+    # Post-latch updates still record the min (the latch only pins the
+    # return value); a higher value never raises the min.
+    assert t.update(0.25) is True
+    assert t.min_nats == 0.25
+    assert t.update(0.375) is True
+    assert t.min_nats == 0.25
+
+
+def test_v5_41_nan_does_not_corrupt_min():
+    # V5.41: NaN raises before any state change, so min_nats is untouched.
+    t = ConvergenceTracker(StoppingRule(eps_nats=0.1, k=2))
+    assert t.update(1.0) is False
+    with pytest.raises(ValueError):
+        t.update(float("nan"))
+    assert t.min_nats == 1.0
+
+
 def test_stopping_latches_true_after_stop():
     # V5.20 / §6.1: the k-th non-improving eval returns True "and keeps
     # returning True". Ruling: the latch is unconditional — True even when a

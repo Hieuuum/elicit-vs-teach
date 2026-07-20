@@ -254,6 +254,7 @@ def train_sft(
     result = TrainResult(
         final_step=step,
         best_val_nats=tracker.best_nats,
+        min_val_nats=tracker.min_nats,
         stop_reason=stop_reason,
         checkpoint_dir=checkpoint_dir,
     )
@@ -261,6 +262,7 @@ def train_sft(
         "stop_reason": result.stop_reason,
         "final_step": result.final_step,
         "best_val_nats": result.best_val_nats,
+        "min_val_nats": result.min_val_nats,
         "config": {
             "lr": lr,
             "batch_size": batch_size,

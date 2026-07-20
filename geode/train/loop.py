@@ -41,6 +41,7 @@ from geode.train.stopping import ConvergenceTracker, StoppingRule
 class TrainResult:
     final_step: int
     best_val_nats: float
+    min_val_nats: float
     stop_reason: Literal["converged", "max_steps"]
     checkpoint_dir: Path
 
@@ -128,7 +129,7 @@ def train_full(
     shrinks late-run improvements below any sensible ``eps_nats`` by design,
     so honoring it would cut the schedule short; the run always ends at
     exactly ``max_steps`` with ``stop_reason="max_steps"`` (the tracker still
-    records ``best_val_nats``).
+    records ``best_val_nats`` and ``min_val_nats``).
 
     Evaluates ``evaluate_nll_nats(val_seqs)`` at every step where
     ``step % eval_every == 0`` and additionally at the final step (deduped).
@@ -241,6 +242,7 @@ def train_full(
     result = TrainResult(
         final_step=step,
         best_val_nats=tracker.best_nats,
+        min_val_nats=tracker.min_nats,
         stop_reason=stop_reason,
         checkpoint_dir=checkpoint_dir,
     )
@@ -248,6 +250,7 @@ def train_full(
         "stop_reason": result.stop_reason,
         "final_step": result.final_step,
         "best_val_nats": result.best_val_nats,
+        "min_val_nats": result.min_val_nats,
         "config": {
             "lr": lr,
             "lr_schedule": lr_schedule,

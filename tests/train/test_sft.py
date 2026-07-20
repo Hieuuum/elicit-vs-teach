@@ -278,12 +278,10 @@ def test_v5_32_same_seed_identical_logs(tiny_llama, tmp_path):
         )
         for name in ("train_log.jsonl", "eval_log.jsonl"):
             recs_a = [
-                {k: v for k, v in r.items() if k != "time_unix"}
-                for r in _read_jsonl(dir_a / name)
+                {k: v for k, v in r.items() if k != "time_unix"} for r in _read_jsonl(dir_a / name)
             ]
             recs_b = [
-                {k: v for k, v in r.items() if k != "time_unix"}
-                for r in _read_jsonl(dir_b / name)
+                {k: v for k, v in r.items() if k != "time_unix"} for r in _read_jsonl(dir_b / name)
             ]
             assert recs_a == recs_b
     finally:
@@ -341,3 +339,10 @@ def test_v5_33_sft_converges_on_memorizable_answers(tiny_llama, tmp_path):
     assert result.final_step < 500
     train_recs = _read_jsonl(tmp_path / "train_log.jsonl")
     assert train_recs[-1]["train_loss_nats"] < train_recs[0]["train_loss_nats"]
+    # V5.41 propagation through train_sft: a plateau stop is exactly where
+    # best is eps-gated, so min must equal the true min of the logged evals
+    # (and land in training_meta.json).
+    eval_recs = _read_jsonl(tmp_path / "eval_log.jsonl")
+    assert result.min_val_nats == min(r["val_loss_nats"] for r in eval_recs)
+    meta = json.loads((tmp_path / "training_meta.json").read_text())
+    assert meta["min_val_nats"] == result.min_val_nats

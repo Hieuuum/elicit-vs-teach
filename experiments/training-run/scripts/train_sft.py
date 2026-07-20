@@ -227,12 +227,14 @@ def main() -> int:
     manifest.data["experiment"]["sft_result"] = {
         "final_step": result.final_step,
         "best_val_nats": result.best_val_nats,
+        "min_val_nats": result.min_val_nats,
         "stop_reason": result.stop_reason,
     }
     manifest.save(store / "runs" / cfg["run_id"] / "manifest.json")
     print(
         f"[evt] done: {result.stop_reason} at step {result.final_step}, "
-        f"best val {result.best_val_nats:.4f} nats. Checkpoint: {result.checkpoint_dir}"
+        f"min val {result.min_val_nats:.4f} nats "
+        f"(eps-gated best {result.best_val_nats:.4f}). Checkpoint: {result.checkpoint_dir}"
     )
     print(json.dumps(manifest.data["experiment"], indent=2))
     return 0
