@@ -13,9 +13,11 @@ Usage:
     # box (repo is private by default => `hf auth login` with a read token):
     python hf_checkpoint.py pull
 
-Defaults move runs/evt-run1-base-v2 through mhieuuu/evt-run1-base-v2.
-Idempotent both ways: Xet dedups unchanged chunks, so re-runs are cheap.
-Pull verifies model.safetensors against the hub's stored sha256.
+The hub repo (default mhieuuu/geode-store, private) mirrors the local
+store layout — runs/<run-id>/... — so every run lands as its own folder
+in the one repo; --run-id selects which run moves. Idempotent both ways:
+Xet dedups unchanged chunks, so re-runs are cheap. Pull verifies
+model.safetensors against the hub's stored sha256.
 """
 
 from __future__ import annotations
@@ -47,24 +49,31 @@ def push(store: Path, run_id: str, repo_id: str, public: bool) -> int:
     print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
     api = HfApi()
     api.create_repo(repo_id, private=not public, exist_ok=True)
-    api.upload_folder(repo_id=repo_id, folder_path=src, commit_message=f"{run_id} run artifacts")
-    print(f"[hf] pushed {src} -> https://huggingface.co/{repo_id}")
+    api.upload_folder(
+        repo_id=repo_id,
+        folder_path=src,
+        path_in_repo=f"runs/{run_id}",
+        commit_message=f"{run_id} run artifacts",
+    )
+    print(f"[hf] pushed {src} -> https://huggingface.co/{repo_id}/tree/main/runs/{run_id}")
     print("[hf] next, on the box: python hf_checkpoint.py pull")
     return 0
 
 
 def pull(store: Path, run_id: str, repo_id: str) -> int:
-    dest = store / "runs" / run_id
-    snapshot_download(repo_id=repo_id, local_dir=dest)
-    ckpt = dest / CKPT_REL
+    repo_path = f"runs/{run_id}/{CKPT_REL.as_posix()}"
+    # The repo mirrors the store layout, so unpacking at the store root
+    # puts runs/<run-id>/... exactly where train.py expects it.
+    snapshot_download(repo_id=repo_id, local_dir=store, allow_patterns=[f"runs/{run_id}/*"])
+    ckpt = store / "runs" / run_id / CKPT_REL
     if not ckpt.is_file():
-        raise SystemExit(f"[hf] pull finished but {ckpt} is missing — wrong --repo-id?")
+        raise SystemExit(f"[hf] pull finished but {ckpt} is missing — wrong --repo-id/--run-id?")
     local = sha256_of(ckpt)
-    info = HfApi().get_paths_info(repo_id, [CKPT_REL.as_posix()])
+    info = HfApi().get_paths_info(repo_id, [repo_path])
     remote = info[0].lfs.sha256 if info and info[0].lfs else None
     if remote is None:
         print(
-            f"[hf] WARNING: hub reports no hash for {CKPT_REL}; local sha256 {local} — "
+            f"[hf] WARNING: hub reports no hash for {repo_path}; local sha256 {local} — "
             "compare by eye against the push-side printout"
         )
     elif local != remote:
@@ -79,7 +88,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("cmd", choices=("push", "pull"))
     parser.add_argument("--run-id", default="evt-run1-base-v2")
-    parser.add_argument("--repo-id", default="mhieuuu/evt-run1-base-v2")
+    parser.add_argument("--repo-id", default="mhieuuu/geode-store")
     parser.add_argument(
         "--store",
         type=Path,
