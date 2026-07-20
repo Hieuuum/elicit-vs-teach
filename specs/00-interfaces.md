@@ -27,6 +27,11 @@ $GEODE_STORE/
 ```
 
 `$GEODE_STORE` is an environment variable; no absolute paths in code.
+When it is unset, launch scripts (`experiments/`) default it to
+`<repo-root>/geode-store/` — gitignored, so artifacts sit beside the
+clone (2026-07-20 owner decision; on rental boxes this lands on the
+same volume as the checkout). Library code (`geode.zoo.store`) stays
+strict: explicit `store` argument or the env var, never a guessed path.
 
 ## 2. Run manifest (`manifest.json`)
 

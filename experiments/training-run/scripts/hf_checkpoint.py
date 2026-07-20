@@ -30,6 +30,7 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, snapshot_download
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
 CKPT_REL = Path("pretrain") / "model" / "model.safetensors"
 
 
@@ -92,8 +93,8 @@ def main() -> int:
     parser.add_argument(
         "--store",
         type=Path,
-        default=Path(os.environ.get("GEODE_STORE", Path.home() / "geode-store")),
-        help="artifact store root (default: $GEODE_STORE or ~/geode-store)",
+        default=Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store")),
+        help="artifact store root (default: $GEODE_STORE, else <repo>/geode-store)",
     )
     parser.add_argument(
         "--public",

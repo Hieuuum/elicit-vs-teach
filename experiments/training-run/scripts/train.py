@@ -28,6 +28,14 @@ import yaml
 from geode.train import StoppingRule, pack_corpus, split_documents, train_full, train_val_split
 from geode.zoo import register_run
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def phase(n: int, msg: str) -> None:
+    """Six-phase banner: every long silent stretch (packing, training)
+    must be attributable to a phase on screen."""
+    print(f"[evt] ===== phase {n}/6: {msg} =====", flush=True)
+
 
 def deep_merge(base: dict, override: dict) -> dict:
     out = copy.deepcopy(base)
@@ -180,6 +188,7 @@ def main() -> int:
     parser.add_argument("--confirm-cost", action="store_true")
     args = parser.parse_args()
 
+    phase(1, "config + tokenizer")
     cfg = load_config(args.config, args.override)
 
     from transformers import AutoTokenizer
@@ -205,6 +214,7 @@ def main() -> int:
         "max_documents": d.get("max_documents"),
         "tokenizer_path": str(cfg["tokenizer"]["path"]),
     }
+    phase(2, "corpus — load packed cache, or download + pack (~30-60 min CPU on a miss)")
     if args.packed_cache is not None and args.packed_cache.exists():
         # First output of the run: the multi-GB torch.load below is a silent
         # ~90 s window that already caused a double launch (2026-07-19).
@@ -234,6 +244,7 @@ def main() -> int:
             print(f"[evt] wrote packed cache {args.packed_cache}", flush=True)
     train_seqs, val_seqs = train_val_split(seqs, d["val_fraction"], d["seed"])
 
+    phase(3, "model — warm start from checkpoint" if args.init_from else "model — random init")
     if args.init_from is not None:
         from transformers import LlamaForCausalLM
 
@@ -254,6 +265,7 @@ def main() -> int:
     n_params = sum(p.numel() for p in model.parameters())
     est_usd, detail = estimate_cost_usd(cfg, n_params, train_seqs.numel())
 
+    phase(4, "cost estimate + confirm gate")
     print(
         f"[evt] run_id={cfg['run_id']} docs={n_docs} train_seqs={len(train_seqs)} "
         f"val_seqs={len(val_seqs)} seq_len={cfg['data']['seq_len']}"
@@ -263,9 +275,15 @@ def main() -> int:
         print("[evt] --confirm-cost not given; refusing to train (budget rule). Exiting.")
         return 1
 
+    phase(5, "train — progress lands in eval_log.jsonl; stopping is automatic")
+    # Store default (spec 00 §1, 2026-07-20): repo-root/geode-store when the
+    # env var is unset. setdefault, because register_run resolves the env
+    # var internally and both must agree on one root.
+    os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
     manifest = register_run(manifest_fields(cfg, n_params, n_docs, est_usd, args.init_from))
     out_dir = store / "runs" / cfg["run_id"] / "pretrain"
+    print(f"[evt] store={store}", flush=True)
 
     t = cfg["train"]
     result = train_full(
@@ -289,6 +307,7 @@ def main() -> int:
         precision=t.get("precision", "bf16") if args.device != "cpu" else "fp32",
     )
 
+    phase(6, "finalize — manifest + checkpoint")
     manifest.data["status"] = "complete"
     manifest.data["experiment"]["pretrain_result"] = {
         "final_step": result.final_step,

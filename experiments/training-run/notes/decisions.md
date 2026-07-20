@@ -389,6 +389,24 @@ Implementation (Claude, small decisions delegated):
   is whichever checkpoint is best at convergence, and G0 is judged on
   that.
 
+## 2026-07-20 — store layout: inside the repo, gitignored (owner)
+
+- `geode-store/` moves to the repo root, `.gitignore`d; launch scripts
+  default `$GEODE_STORE` to `<repo-root>/geode-store` when unset
+  (spec 00 §1 edited same commit). `geode.zoo.store` stays strict —
+  explicit arg or env var — so library code never guesses a path.
+  Rationale: kills the re-export-per-shell footgun, and on vast.ai the
+  store automatically lands on `/workspace` (the big persistent disk)
+  beside the clone. Accepted tradeoffs: `git clean -dfx` would delete
+  artifacts; re-clones start empty (the private HF relay repo
+  `mhieuuu/geode-store`, same `runs/<run-id>/` layout, is the archive).
+- vast.ai note for future boxes: login shell starts in `/workspace`;
+  clone = `/workspace/elicit-vs-teach` (box 2026-07-20: C.45384952,
+  137.175.76.24:42350).
+- `train.py` now prints six phase banners (config / corpus / model /
+  cost gate / train / finalize) so long silent stretches on the box are
+  attributable to a phase.
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close

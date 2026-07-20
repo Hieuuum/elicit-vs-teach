@@ -7,8 +7,9 @@ checkpoint, constant LR 1e-4, plateau stopping live. Decision record:
 `configs/run1_extend.yaml`.
 
 Prerequisite on your **laptop**: the v2 artifacts at
-`~/geode-store/runs/evt-run1-base-v2/` (pulled when the old box was
-archived). The tmux survival kit and the ntfy phone-ping setup from
+`<repo>/geode-store/runs/evt-run1-base-v2/` (pulled when the old box was
+archived; the store lives inside the repo, gitignored — 2026-07-20
+decision). The tmux survival kit and the ntfy phone-ping setup from
 `docs/run1-guide.md` apply here unchanged.
 
 Cost picture: ≤ ~$0.55 GPU + ~30–60 min CPU-only packing. Wall clock
@@ -34,14 +35,18 @@ git log --oneline -1       # must show the run-1 extension commit
                            # (SCRIPTS+DOCS: run-1 extension ...) or later —
                            # older clones lack --init-from
 pip install -e ".[dev]"
-export GEODE_STORE=$HOME/geode-store
-mkdir -p $GEODE_STORE
+export GEODE_STORE=$PWD/geode-store   # optional: scripts default here anyway;
+                                      # exporting just makes $GEODE_STORE
+                                      # usable in shell commands below
 python -m pytest -q; echo "suite exit: $?"     # expect: suite exit: 0, ~2 min
 cd experiments/training-run/scripts
 ```
 
-> `export GEODE_STORE=...` only lives in the current shell — every new
-> tmux window needs it again.
+> On vast.ai the login shell starts in `/workspace` (the big persistent
+> disk), so the clone is `/workspace/elicit-vs-teach` and the store
+> `/workspace/elicit-vs-teach/geode-store`. Forgetting the export no
+> longer breaks anything — scripts default to `<repo>/geode-store` — it
+> only blanks `$GEODE_STORE` in hand-typed shell commands (tail, ls).
 
 ✅ Done when: suite exit 0, you're in `experiments/training-run/scripts/`.
 
@@ -55,7 +60,8 @@ as the §7.1 pull: no `-z` (tensor bytes don't compress), `-W`
 (checkpoints are all-new binaries, delta-transfer is wasted work):
 
 ```bash
-rsync -avP -W -e "ssh -p <PORT>" ~/geode-store/runs/ <USER>@<HOST>:geode-store/runs/
+rsync -avP -W --mkpath -e "ssh -p <PORT>" \
+    <repo>/geode-store/runs/ <USER>@<HOST>:/workspace/elicit-vs-teach/geode-store/runs/
 ```
 
 Then verify **on the box**:
@@ -158,9 +164,14 @@ python sample_stories.py \
 regenerable — it lives outside `runs/`, so this skips it automatically):
 
 ```bash
-rsync -avP -W -e "ssh -p <PORT>" <USER>@<HOST>:geode-store/runs/ ~/geode-store/runs/
-ls -laR ~/geode-store/runs/evt-run1-base-v2-ext/    # model/ + logs + manifest arrived?
+rsync -avP -W -e "ssh -p <PORT>" \
+    <USER>@<HOST>:/workspace/elicit-vs-teach/geode-store/runs/ <repo>/geode-store/runs/
+ls -laR <repo>/geode-store/runs/evt-run1-base-v2-ext/   # model/ + logs + manifest arrived?
 ```
+
+Slow route? Same HF relay as Phase 1, reversed: on the box
+`python hf_checkpoint.py push --run-id evt-run1-base-v2-ext`, then on
+the laptop `python hf_checkpoint.py pull --run-id evt-run1-base-v2-ext`.
 
 **4.3 — destroy the instance on vast.ai.** Billing stops only when the
 box does (stopped-but-not-destroyed still bills storage).
@@ -181,4 +192,4 @@ decides whether v2-ext or v2 is the floor-1 candidate.
 | `--packed-cache mismatch: ...` | Cache built under a different data/tokenizer config — delete `$GEODE_STORE/packed_full.pt` and re-run Phase 2. |
 | `register_run: ... already running` | A live launch with this run_id exists (double-launch guard). Check `pgrep -f train.py` before retrying. |
 | First eval slightly *above* 1.1140 | Normal: fresh AdamW moments. Worry only if it's still above after 2–3 evals. |
-| `KeyError: 'GEODE_STORE'` | You're in a new shell/tmux window — re-export `GEODE_STORE`. |
+| `$GEODE_STORE` empty in a shell command | New shell/tmux window — re-export it. Scripts themselves no longer need it (they default to `<repo>/geode-store`). |
