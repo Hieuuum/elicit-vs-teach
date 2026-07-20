@@ -136,3 +136,25 @@ def train_val_split(
     train = seqs[perm[:n_train]]
     val = seqs[perm[n_train:]]
     return train, val
+
+
+def split_indices(n: int, val_fraction: float, seed: int) -> tuple[list[int], list[int]]:
+    """The ``train_val_split`` partition as index lists (V5.39).
+
+    Same permutation, same clamping, same validation — indexing rows with
+    these lists reproduces ``train_val_split`` byte-exactly (pinned by the
+    V5.39 property test; ``train_val_split`` itself is frozen, V5.18). Exists
+    so consumers of non-tensor datasets — the SFT launch path splitting
+    span-carrying examples, and ``gates.py`` re-deriving the *same* held-out
+    split when it evaluates a checkpoint — share one split definition. A
+    divergence would silently evaluate gates on trained examples.
+    """
+    if not (0 < val_fraction < 1):
+        raise ValueError(f"split_indices: val_fraction must be in (0, 1), got {val_fraction}")
+    if n < 2:
+        raise ValueError(f"split_indices: need at least 2 rows, got {n}")
+    n_val = max(1, min(round(val_fraction * n), n - 1))
+    n_train = n - n_val
+    generator = torch.Generator().manual_seed(seed)
+    perm = torch.randperm(n, generator=generator)
+    return perm[:n_train].tolist(), perm[n_train:].tolist()

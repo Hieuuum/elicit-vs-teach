@@ -17,10 +17,37 @@ narrow triple rule is what that argument licenses.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 Triple = tuple[int, str, int]
+
+
+def order_hash(records: Sequence[Mapping]) -> str:
+    """Content-and-order hash of a materialised dataset (V5.40).
+
+    sha256 over the ordered ``(a, b, op, shown_answer, format, label_mode)``
+    tuples — the exact payload ``make_data.py`` has hashed since 2026-07-17,
+    so hashes recorded in the frozen ``report.json`` files stay valid. Values
+    are coerced to built-ins so parquet round-trips (numpy scalars) hash
+    identically to the original in-memory records. Promoted here (2026-07-20)
+    because the SFT launch path re-verifies the frozen files against their
+    pinned hashes before spending GPU budget.
+    """
+    payload = [
+        (
+            int(r["a"]),
+            int(r["b"]),
+            str(r["op"]),
+            int(r["shown_answer"]),
+            str(r["format"]),
+            str(r["label_mode"]),
+        )
+        for r in records
+    ]
+    return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
 
 
 def probe_leakage(

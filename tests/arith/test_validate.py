@@ -7,7 +7,9 @@ froze datasets to files (EXPERIMENTS.md 2026-07-17).
 
 from __future__ import annotations
 
-from geode.arith.validate import cell_counts, probe_leakage, uniqueness_by_cell
+import pytest
+
+from geode.arith.validate import cell_counts, order_hash, probe_leakage, uniqueness_by_cell
 
 
 def test_v5_1_no_leakage_when_disjoint():
@@ -60,3 +62,30 @@ def test_v5_2_detects_planted_duplicate():
     keys = [(3, "+", 4), (3, "+", 4), (5, "-", 6), (7, "+", 8)]
     report = uniqueness_by_cell(cells, keys)
     assert report[(1, 1)] == (4, 3)
+
+
+def _rows():
+    return [
+        {"a": 3, "b": 5, "op": "+", "shown_answer": 8, "format": "nl", "label_mode": "correct"},
+        {"a": 47, "b": 12, "op": "-", "shown_answer": 35, "format": "nl", "label_mode": "correct"},
+    ]
+
+
+def test_v5_40_order_hash_deterministic_and_order_sensitive():
+    rows = _rows()
+    assert order_hash(rows) == order_hash(_rows())  # pure function of content
+    assert order_hash(rows) != order_hash(list(reversed(rows)))  # order counts
+    changed = _rows()
+    changed[0]["shown_answer"] = 9
+    assert order_hash(rows) != order_hash(changed)  # content counts
+
+
+def test_v5_40_order_hash_numpy_scalars_hash_like_builtins():
+    # Parquet round-trips yield numpy scalars; the hash must not change.
+    np = pytest.importorskip("numpy")
+    rows = _rows()
+    coerced = [
+        {**r, "a": np.int64(r["a"]), "b": np.int64(r["b"]), "shown_answer": np.int64(r["shown_answer"])}
+        for r in rows
+    ]
+    assert order_hash(coerced) == order_hash(rows)

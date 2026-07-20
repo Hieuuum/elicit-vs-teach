@@ -182,3 +182,9 @@ not a contract.
   dataset_key, position policy, or tokenizer hash differ, with a clear error.
 - **V0.5** `masking_config_hash` mismatch between train log and test loss is
   surfaced as an error by `geode.zoo` consistency check.
+- **V0.6** Parent-gate refusal (EXPERIMENTS.md §3.1, added 2026-07-20 with
+  the runs-2–4 launch surface): `require_parent_ready` raises
+  `ConsistencyError` when the parent manifest is missing or invalid, its
+  `status` is not `"complete"`, any recorded `experiment.gates` entry lacks
+  `pass: true`, or a caller-required gate has no recorded verdict. Gate
+  records are objects with at least a boolean `pass` field.

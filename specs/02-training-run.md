@@ -521,6 +521,24 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   and `train_sft`) carries `time_unix`; within each log file the values
   are nondecreasing and lie between wall-clock readings taken
   immediately before and after the run.
+- V5.38 span conversion (`geode.arith.spans`, 2026-07-20): the frozen
+  files' answer **char** spans convert to **token** spans exactly — the
+  overlapping tokens form one contiguous, gapless run ending exactly at
+  the span end, with overhang permitted only at the left edge and only
+  over whitespace (the frozen byte-level BPE merges the space after
+  `Answer:` into the sign token of negative answers, measured
+  2026-07-20). Any inexact alignment raises; verified against the real
+  frozen tokenizer artifact across both formats, all ops, negatives.
+- V5.39 example split (`geode.train.split_indices`): the index-list form
+  of the frozen `train_val_split` partition — same permutation, same
+  clamping, byte-exact against V5.18 when used to index rows — shared by
+  the SFT launch path and `gates.py` so a gate can never score trained
+  examples.
+- V5.40 order hash (`geode.arith.order_hash`, promoted from
+  `make_data.py` 2026-07-20): deterministic, order- and
+  content-sensitive, and invariant to parquet round-trip scalar types;
+  reproduces the hashes frozen in `report.json`. The SFT launch path and
+  `gates.py` refuse on mismatch against the config-pinned value.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
@@ -539,6 +557,19 @@ task lands), prints a cost estimate and refuses to run without
 `run1_pretrain.yaml` are now pinned: seq_len + tokenizer 2026-07-18;
 LR, batch, eval cadence, val fraction, stopping ε/k closed 2026-07-19
 from the run-1 LR sweep (§12 OPEN(11)/OPEN(3)).
+
+**Runs 2–4 launch surface** (`scripts/train_sft.py`, 2026-07-20): same
+shape — parses run YAML (`run2_algo.yaml` + `configs/pilot/run2_*`
+overlays), downloads the frozen parquet from
+`mhieuuu/elicit-vs-teach-arith` and refuses on `order_hash` mismatch
+against the config-pinned value (V5.40), converts char→token spans via
+`geode.arith.spans` (V5.38), splits with `split_indices` (V5.39),
+enforces the parent DAG rule via `require_parent_ready` with the
+config's `parent_required_gates` (spec 00 V0.6), records
+`masking_config_hash` + `data_order_hash` in the manifest's experiment
+block, and calls `geode.train.train_sft` behind the same
+`--confirm-cost` gate. Gate verdicts land in `experiment.gates` via
+`scripts/gates.py` (§8).
 
 **Runs 5–6 (LoRA target):** use `train_prequential` as-is — pre-update
 losses, gradstats (per-module grad norms already covered), full-model
@@ -622,7 +653,7 @@ while a parent gate fails. Thresholds frozen at pilot where marked.
 | Gate | After | Check |
 |------|-------|-------|
 | G0 | run 1 | Base generates coherent stories (criterion decided 2026-07-18, pre-training): 20 seeded samples via `scripts/sample_stories.py`, pass = ≥16/20 coherent under the written rubric — grammatical sentences, narrative continuity, no repetition loops. Samples archived next to the checkpoint (`floor1_samples.txt`); val loss recorded in `eval_log.jsonl`. Owner judges; the archive makes it auditable |
-| G1 | run 2 | Arm A near ceiling on NL add/sub (threshold ~≥95%, frozen at pilot) |
+| G1 | run 2 | Arm A near ceiling on NL add/sub, threshold ≥95%. Protocol (owner 2026-07-20, `scripts/gates.py g1`): 1,024 examples seeded-sampled (seed 316) from D_algo's held-out val split — re-derived via `split_indices` (V5.39), so never trained on — greedy decoding, first generated line, `exact_match`; verdict + accuracy recorded in `experiment.gates.G1` |
 | G2 | run 3 | Arm A still near ceiling on NL add/sub (installer didn't corrupt; δ frozen at pilot) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak; ≤ chance + margin) |
 | G4 | runs 3, 4 | Format validity on operator-notation prompts (both arms; ~≥99%) |

@@ -34,7 +34,7 @@ from tokenizers.pre_tokenizers import WhitespaceSplit
 from tokenizers.processors import TemplateProcessing
 from transformers import PreTrainedTokenizerFast
 
-from geode.train.packing import pack_corpus, split_documents, train_val_split
+from geode.train.packing import pack_corpus, split_documents, split_indices, train_val_split
 
 
 def _distinct_rows(n: int, seq_len: int = 4) -> torch.LongTensor:
@@ -345,3 +345,23 @@ def test_v5_27_batch_docs_below_one_raises(tiny_tokenizer, bad_batch_docs):
     # V5.27 interface: batch_docs < 1 must raise ValueError.
     with pytest.raises(ValueError):
         pack_corpus(["t0 t1"], tiny_tokenizer(), seq_len=2, batch_docs=bad_batch_docs)
+
+
+def test_v5_39_split_indices_reproduces_train_val_split():
+    # Indexing rows with split_indices must be byte-exact with the frozen
+    # tensor split — a divergence would let gates.py evaluate on trained rows.
+    seqs = torch.arange(37 * 4).reshape(37, 4)
+    for seed in (0, 316, 20260717):
+        train_ref, val_ref = train_val_split(seqs, 0.1, seed)
+        train_idx, val_idx = split_indices(37, 0.1, seed)
+        assert torch.equal(seqs[train_idx], train_ref)
+        assert torch.equal(seqs[val_idx], val_ref)
+        assert sorted(train_idx + val_idx) == list(range(37))  # exact partition
+    assert split_indices(37, 0.1, 316) == split_indices(37, 0.1, 316)  # deterministic
+
+
+def test_v5_39_split_indices_validation():
+    with pytest.raises(ValueError, match="val_fraction"):
+        split_indices(10, 0.0, 0)
+    with pytest.raises(ValueError, match="at least 2"):
+        split_indices(1, 0.5, 0)

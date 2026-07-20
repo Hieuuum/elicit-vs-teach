@@ -50,6 +50,7 @@ from geode.arith import (
     capacity,
     cell_counts,
     digits,
+    order_hash,
     probe_leakage,
     random_label,
     render,
@@ -165,13 +166,6 @@ def _record(
     }
 
 
-def _order_hash(records: list[dict]) -> str:
-    payload = [
-        (r["a"], r["b"], r["op"], r["shown_answer"], r["format"], r["label_mode"]) for r in records
-    ]
-    return hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
-
-
 def build_probe(seed: int) -> tuple[list[dict], set[Triple]]:
     """Probe: 64 per cell, operator add/sub, correct labels; carved out first."""
     per_cell = PROBE_SIZE // 16
@@ -266,7 +260,7 @@ def validate(
         "leakage": 0,
         "all_unique": True,
         "cell_counts": {f"{x}x{y}": counts[(x, y)] for x, y in CELLS},
-        "order_hash": _order_hash(records),
+        "order_hash": order_hash(records),
     }
 
 
@@ -312,7 +306,7 @@ def main() -> int:
     report: dict = {"scale": args.scale, "seed": args.seed, "datasets": {}}
 
     probe_report = validate(probe, set(), dict.fromkeys(CELLS, PROBE_SIZE // 16))
-    report["probe"] = {"n": len(probe), "probe_set_hash": _order_hash(probe)}
+    report["probe"] = {"n": len(probe), "probe_set_hash": order_hash(probe)}
     pd.DataFrame(probe).to_parquet(args.out / "probe.parquet", index=False)
     print(
         f"[evt]   wrote probe.parquet  n={probe_report['n']}  hash={report['probe']['probe_set_hash'][:12]}…"

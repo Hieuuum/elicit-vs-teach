@@ -407,6 +407,62 @@ Implementation (Claude, small decisions delegated):
   cost gate / train / finalize) so long silent stretches on the box are
   attributable to a phase.
 
+## 2026-07-20 — run-2 optimization review + launch tooling (owner + Claude)
+
+Reviewed run 2 (`evt-run2-armA-algo`) for optimization while the run-1
+extension holds the GPU side. **Compute finding: run 2 is ~$0.02–0.06 and
+2–8 min per epoch** (1M examples × ≤33 padded tokens through 38.7M params
+at batch 128 = 7,773 steps), so compute micro-optimizations were examined
+and rejected: set-max padding in `train_sft` stays (bucketing saves ~25%
+of ~nothing), no packed-cache analogue (batched tokenization of 1M short
+rows is ~1–2 min; a cache adds a key-mismatch surface), no
+`micro_batch_size` (128×33 tokens fits a 24 GB 4090 trivially). The real
+optimization is **readiness**: the launch path didn't exist, and building
+it now eliminates paid idle box time between the G0 verdict and runs 2–4.
+
+Owner decisions (this session):
+
+- **Build the full launch package now** (all landed, smoke-green): span
+  converter, SFT launch script, configs + sweep overlays, parent-gate
+  enforcement, G1 gate script.
+- **Full-length LR sweep, then clean re-run**: 4 LRs × full 1-epoch runs
+  ({3e-5, 1e-4, 3e-4, 1e-3}, `configs/pilot/run2_sweep_lr*.yaml`,
+  ~$0.25 total) — sweep arms are complete candidate runs, killing the
+  short-horizon extrapolation that misled run 1 — then the winner's exact
+  config relaunches as canonical `evt-run2-armA-algo` (~$0.06). Clean DAG
+  provenance at pennies.
+- **G1 eval set defined** (spec §8 edited same commit): 1,024 seeded
+  (seed 316) from D_algo's held-out val split, greedy decoding,
+  `exact_match` ≥95%, recorded in `experiment.gates.G1` by
+  `scripts/gates.py g1`.
+
+Small decisions (delegated):
+
+- **Constant LR kept for run 2** (spec convention). Run 1's cosine lesson
+  doesn't transfer: the bar is G1 task accuracy, not final nats, and the
+  full-length sweep will show a sub-ceiling plateau if there is one.
+- `max_steps` 7,773 = exactly 1 epoch (spec: 1M, 1 epoch) with ε/k
+  stopping live; batch 128, bf16, eval_every 500, val_fraction 0.005
+  (5,000 held-out; question uniqueness ⇒ no train/val leakage).
+- **`geode.arith.spans` (V5.38)**: strict char→token span conversion —
+  contiguous gapless run, exact right edge, whitespace-only left overhang
+  (measured: the frozen BPE merges the `Answer:` space into `` -`` on
+  negatives). Tested against the real frozen tokenizer artifact.
+- **`split_indices` (V5.39)** — index-list twin of the frozen
+  `train_val_split`, shared by launcher and gates so G1 can never score
+  trained rows. **`order_hash` promoted** to `geode.arith.validate`
+  (V5.40, two consumers); verified to reproduce the frozen `report.json`
+  hashes. **`require_parent_ready` (spec 00 V0.6)** in `geode.zoo.checks`;
+  config lists `parent_required_gates: [G0]`.
+- `run2_algo.yaml` ships with `parent_run_id: null` + placeholder LR —
+  the launcher refuses until the owner pins both (floor-1 run id after
+  the G0 verdict; LR after the sweep).
+- Smoke (`configs/pilot/run2_smoke.yaml`, `data.max_rows` knob): parquet
+  download + hash verify + span conversion + 10 CPU SFT steps + manifest
+  finalize all green; parent-gate refusal and `--confirm-cost` refusal
+  both exercised; `gates.py g1` recorded a correct FAIL (0%) on the
+  random-init smoke checkpoint.
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close

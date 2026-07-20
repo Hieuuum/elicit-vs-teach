@@ -49,6 +49,54 @@ def check_epoch1_coverage(records: Iterable[PrequentialRecord], n_unique_example
         )
 
 
+def require_parent_ready(
+    parent_run_id: str,
+    *,
+    required_gates: Iterable[str] = (),
+    store: Path | None = None,
+) -> None:
+    """Refuse a child launch on a bad parent (EXPERIMENTS.md §3.1, V0.6).
+
+    Raises ``ConsistencyError`` when the parent manifest is missing or
+    invalid, its ``status`` is not ``"complete"``, any recorded
+    ``experiment.gates`` entry has ``pass: false`` (or lacks a ``pass``
+    verdict), or a gate named in ``required_gates`` has not been recorded as
+    passing. The DAG's arms are only comparable if every child truly grew
+    from a validated parent; a silently wrong parent burns GPU budget on an
+    invalid comparison.
+    """
+    from geode.zoo.manifest import ManifestError, load_run
+
+    try:
+        manifest = load_run(parent_run_id, store=store)
+    except FileNotFoundError as err:
+        raise ConsistencyError(
+            f"parent run '{parent_run_id}' has no manifest in the store — "
+            "register and complete the parent before launching a child"
+        ) from err
+    except ManifestError as err:
+        raise ConsistencyError(f"parent run '{parent_run_id}' manifest is invalid: {err}") from err
+    status = manifest.data.get("status")
+    if status != "complete":
+        raise ConsistencyError(
+            f"parent run '{parent_run_id}' has status {status!r}, need 'complete'"
+        )
+    gates = manifest.data.get("experiment", {}).get("gates", {})
+    for name, record in gates.items():
+        verdict = record.get("pass") if isinstance(record, dict) else None
+        if verdict is not True:
+            raise ConsistencyError(
+                f"parent run '{parent_run_id}' gate '{name}' is {record!r} — "
+                "every recorded gate must have pass: true"
+            )
+    missing = [name for name in required_gates if name not in gates]
+    if missing:
+        raise ConsistencyError(
+            f"parent run '{parent_run_id}' has no recorded verdict for required "
+            f"gate(s) {missing}: record them (e.g. via scripts/gates.py) first"
+        )
+
+
 def check_masking_consistency(run_id: str, train_hash: str, *, store: Path | None = None) -> None:
     """Enforce train/eval ``masking_config_hash`` parity (spec 00 §5, V0.5).
 
