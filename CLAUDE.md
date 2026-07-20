@@ -14,8 +14,8 @@ with and without latent capabilities. This codebase cracks them open.
   git history mean different files (02 was the deleted steering spec; today's
   02 is the renamed elicit-vs-teach spec).
 - `geode/` — the library: `edl` (prequential/EDL harness), `train` (corpus
-  packing + full-FT trainer), `zoo` (checkpoint manifest + run registry),
-  `arith` (task data + evals, planned), `probe` (extraction + metrics,
+  packing + full-FT/SFT trainers), `zoo` (checkpoint manifest + run
+  registry), `arith` (task data + evals), `probe` (extraction + metrics,
   planned).
 - `tests/` — pytest suite. See testing policy below.
 - `reference/` — cloned third-party repos. **READ-ONLY. Never modify, never
@@ -25,9 +25,9 @@ with and without latent capabilities. This codebase cracks them open.
     (arXiv 2504.02922), BatchTopK crosscoders + latent scaling.
   - `reference/quantifying-elicitation` — Donoway et al. NeurIPS 2025 code
     (added when access is granted).
-- `EXPERIMENTS.md` — the approved plan: post-cut structure + per-experiment
-  specs. All work executes against it. (PLAN.md was deleted in the 2026-07-17
-  cut; see git history.)
+- `EXPERIMENTS.md` — the live plan: runs, DAG, gate status, and remaining
+  work. All work executes against it. (It replaced the 2026-07-17 cut plan;
+  PLAN.md and docs/CUT-PLAN.md are git history.)
 
 ## Attribution (do not confuse these)
 
