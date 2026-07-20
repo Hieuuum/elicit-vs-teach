@@ -195,6 +195,9 @@ def main() -> int:
         "tokenizer_path": str(cfg["tokenizer"]["path"]),
     }
     if args.packed_cache is not None and args.packed_cache.exists():
+        # First output of the run: the multi-GB torch.load below is a silent
+        # ~90 s window that already caused a double launch (2026-07-19).
+        print(f"[evt] pid={os.getpid()} loading packed cache {args.packed_cache} ...", flush=True)
         blob = torch.load(args.packed_cache)
         if blob["key"] != cache_key:
             raise ValueError(

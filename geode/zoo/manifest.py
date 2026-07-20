@@ -149,10 +149,26 @@ class RunManifest:
 
 
 def register_run(fields: dict, *, store: Path | None = None) -> RunManifest:
-    """Validate ``fields`` and write it to ``{store}/runs/{run_id}/manifest.json``."""
+    """Validate ``fields`` and write it to ``{store}/runs/{run_id}/manifest.json``.
+
+    Refuses to overwrite an existing manifest whose ``status`` is
+    ``"running"`` — a live trainer may own it (a silent re-register masked
+    the 2026-07-19 duplicate launch). Staleness is never auto-detected: a
+    crashed run leaves ``"running"`` behind forever, so the escape hatch is
+    manual — delete the stale manifest or edit its ``status``, then retry.
+    """
     manifest = RunManifest(data=fields)
     manifest.validate()
-    manifest.save(manifest_path(fields["run_id"], store=store))
+    path = manifest_path(fields["run_id"], store=store)
+    if path.exists():
+        existing = json.loads(path.read_text())
+        if isinstance(existing, dict) and existing.get("status") == "running":
+            raise ManifestError(
+                f"run '{fields['run_id']}' is already registered with status 'running' "
+                f"at {path} — refusing to overwrite (a live trainer may own it). "
+                "If that run is dead, delete the manifest or edit its status, then retry."
+            )
+    manifest.save(path)
     return manifest
 
 
