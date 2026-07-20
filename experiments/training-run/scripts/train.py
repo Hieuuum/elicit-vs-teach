@@ -168,6 +168,9 @@ def manifest_fields(
 
 
 def main() -> int:
+    # Wall-clock from script start: covers packing + train + save, i.e.
+    # what the box actually bills, not just the GPU phase.
+    run_started = datetime.datetime.now(datetime.UTC)
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--override", type=Path, default=None, help="e.g. a pilot overlay")
@@ -312,16 +315,23 @@ def main() -> int:
     )
 
     phase(6, "finalize — manifest + checkpoint")
+    run_ended = datetime.datetime.now(datetime.UTC)
+    duration_s = (run_ended - run_started).total_seconds()
     manifest.data["status"] = "complete"
     manifest.data["experiment"]["pretrain_result"] = {
         "final_step": result.final_step,
         "best_val_nats": result.best_val_nats,
         "stop_reason": result.stop_reason,
+        "run_started_utc": run_started.isoformat(),
+        "run_ended_utc": run_ended.isoformat(),
+        "run_duration_s": round(duration_s, 1),
     }
     manifest.save(store / "runs" / cfg["run_id"] / "manifest.json")
     print(
         f"[evt] done: {result.stop_reason} at step {result.final_step}, "
-        f"best val {result.best_val_nats:.4f} nats. Checkpoint: {result.checkpoint_dir}"
+        f"best val {result.best_val_nats:.4f} nats "
+        f"in {datetime.timedelta(seconds=round(duration_s))}. "
+        f"Checkpoint: {result.checkpoint_dir}"
     )
     print(json.dumps(manifest.data["experiment"], indent=2))
     return 0
