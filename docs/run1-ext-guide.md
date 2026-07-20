@@ -65,6 +65,18 @@ ls $GEODE_STORE/runs/evt-run1-base-v2/pretrain/model/
 # expect: config.json  generation_config.json  model.safetensors  floor1_samples.txt
 ```
 
+**If the rsync crawls (tens of kB/s):** the direct route to the box is a
+single lossy TCP stream. Relay through HF Hub instead — parallel chunked
+transfer on both legs (`scripts/hf_checkpoint.py`, sha256-verified):
+
+```bash
+# laptop (logged in — `hf auth whoami` shows mhieuuu):
+python experiments/training-run/scripts/hf_checkpoint.py push
+# box (private repo, so log in once with a READ token):
+hf auth login
+python hf_checkpoint.py pull      # from the scripts/ dir, GEODE_STORE exported
+```
+
 ✅ Done when: `model.safetensors` is on the box.
 
 ---
