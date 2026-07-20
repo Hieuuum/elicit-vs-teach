@@ -361,9 +361,38 @@ Implementation (Claude, small decisions delegated):
   the pre-committed fallback).
 - Suite 308 green.
 
+## 2026-07-20 — run-1 extension to convergence (owner)
+
+- v2 cosine outcome: `stop_reason=max_steps` at 17,000, best val
+  **1.1140 nats** (constant-LR v1: 1.1464 — cosine bought 0.032 nats at
+  equal cost). Under cosine the plateau rule is inert by design (spec
+  §6.1), so the fixed horizon ended the run with convergence never
+  actually tested. G0 samples generated (`floor1_samples.txt` on the
+  checkpoint); verdict not yet recorded.
+- Owner decision: **extension run `evt-run1-base-v2-ext`** — warm-start
+  from the v2 checkpoint (`train.py --init-from`, params only: AdamW
+  moments and schedule position reset, absorbed by best-from-inf
+  tracking), constant LR **1e-4** (= v2's cosine floor), plateau rule
+  re-armed (ε 0.005 / k 3), **eval_every 1000** (owner: doubled from
+  500 — ε/k was calibrated at LR 1e-3; at 1e-4 per-eval progress
+  shrinks, so the wider window measures more progress per check; stop
+  lag 3·1000 = 3000 steps ≈ minutes), `max_steps` 17,000 as a **cost
+  ceiling** (~$0.55), not a target — `stop_reason=max_steps` on this
+  run means "budget exhausted before convergence". Same
+  `data.seed`/`val_fraction` ⇒ identical val split, so best_val is
+  directly comparable to v2's 1.1140. Overlay:
+  `configs/run1_extend.yaml`; walkthrough: `docs/run1-ext-guide.md`.
+- Relation to the 2026-07-19 pre-commitment: this is **not** a further
+  retrain-from-scratch — it continues the better checkpoint toward the
+  convergence the fixed horizon never measured. The "no further
+  retrains" clause and the G0 bar are untouched; the floor-1 candidate
+  is whichever checkpoint is best at convergence, and G0 is judged on
+  that.
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
-at the runs 2–6 pilots. Run-1 items: **G0 FAILED, fix in flight** —
-cosine retrain `evt-run1-base-v2` (smoke pilot → ~$0.55 production →
-re-judge G0, fallback pre-committed above). Dataset items: none.
+at the runs 2–6 pilots. Run-1 items: cosine retrain `evt-run1-base-v2`
+complete (best val 1.1140 nats, G0 verdict pending); **extension
+`evt-run1-base-v2-ext` queued** (constant 1e-4 to convergence, entry
+above) → judge G0 on the final checkpoint. Dataset items: none.

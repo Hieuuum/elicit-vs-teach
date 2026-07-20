@@ -7,7 +7,7 @@ geode.train; this file must stay thin.
 
 Usage:
     python train.py --config configs/run1_pretrain.yaml [--override configs/pilot/run1_pretrain.yaml]
-        [--device cuda] [--confirm-cost]
+        [--device cuda] [--init-from <checkpoint_dir>] [--confirm-cost]
 """
 
 from __future__ import annotations
@@ -112,7 +112,9 @@ def git_commit() -> str:
         return "unknown"
 
 
-def manifest_fields(cfg: dict, n_params: int, n_docs: int, est_usd: float) -> dict[str, Any]:
+def manifest_fields(
+    cfg: dict, n_params: int, n_docs: int, est_usd: float, init_from: Path | None
+) -> dict[str, Any]:
     t = cfg["train"]
     return {
         "schema_version": 1,
@@ -151,7 +153,9 @@ def manifest_fields(cfg: dict, n_params: int, n_docs: int, est_usd: float) -> di
         "status": "running",
         # Extra fields below ride as preserved unknowns (spec 00 V0.2) until
         # the experiment-block validation task lands (spec 02 §4).
-        "experiment": cfg["experiment"] | {"gates": {}},
+        "experiment": cfg["experiment"]
+        | {"gates": {}}
+        | ({"init_from": str(init_from)} if init_from is not None else {}),
     }
 
 
@@ -165,6 +169,13 @@ def main() -> int:
         type=Path,
         default=None,
         help="pack once, reuse: .pt of packed rows; loaded if present, else written after packing",
+    )
+    parser.add_argument(
+        "--init-from",
+        type=Path,
+        default=None,
+        help="save_pretrained checkpoint dir to load instead of random init "
+        "(extension runs: pair with a constant-LR override and a NEW run_id)",
     )
     parser.add_argument("--confirm-cost", action="store_true")
     args = parser.parse_args()
@@ -203,7 +214,8 @@ def main() -> int:
             raise ValueError(
                 f"--packed-cache mismatch: cache built for {blob['key']}, config wants {cache_key}"
             )
-        seqs, n_docs = blob["seqs"], blob["n_docs"]
+        # .long() restores int64 for the model/CE; no-op on pre-uint16 caches.
+        seqs, n_docs = blob["seqs"].long(), blob["n_docs"]
         print(f"[evt] loaded {len(seqs)} packed rows from {args.packed_cache}", flush=True)
     else:
         print(f"[evt] loading + packing {d['hf_id']} ...", flush=True)
@@ -211,11 +223,34 @@ def main() -> int:
         seqs = pack_corpus(texts, tokenizer, d["seq_len"])
         n_docs = len(texts)
         if args.packed_cache is not None:
-            torch.save({"key": cache_key, "seqs": seqs, "n_docs": n_docs}, args.packed_cache)
+            # uint16 storage (vocab 10K << 65536): 4x smaller blob, 4x faster
+            # load — the int64 cache was a 4.3 GB / ~90 s startup stall.
+            if len(tokenizer) - 1 > torch.iinfo(torch.uint16).max:
+                raise ValueError(f"--packed-cache: vocab {len(tokenizer)} overflows uint16 storage")
+            torch.save(
+                {"key": cache_key, "seqs": seqs.to(torch.uint16), "n_docs": n_docs},
+                args.packed_cache,
+            )
             print(f"[evt] wrote packed cache {args.packed_cache}", flush=True)
     train_seqs, val_seqs = train_val_split(seqs, d["val_fraction"], d["seed"])
 
-    model = build_model(cfg, vocab_size=len(tokenizer))
+    if args.init_from is not None:
+        from transformers import LlamaForCausalLM
+
+        print(f"[evt] loading init checkpoint {args.init_from} ...", flush=True)
+        model = LlamaForCausalLM.from_pretrained(args.init_from)
+        # A wrong checkpoint path would silently train the wrong model on
+        # real GPU budget; check the loaded arch against config + tokenizer.
+        m = cfg["model"]
+        got = (model.config.vocab_size, model.config.hidden_size, model.config.num_hidden_layers)
+        want = (len(tokenizer), m["hidden_size"], m["num_hidden_layers"])
+        if got != want:
+            raise ValueError(
+                f"--init-from arch mismatch: checkpoint has (vocab, hidden, layers)={got}, "
+                f"config + tokenizer want {want}"
+            )
+    else:
+        model = build_model(cfg, vocab_size=len(tokenizer))
     n_params = sum(p.numel() for p in model.parameters())
     est_usd, detail = estimate_cost_usd(cfg, n_params, train_seqs.numel())
 
@@ -229,7 +264,7 @@ def main() -> int:
         return 1
 
     store = Path(os.environ["GEODE_STORE"])
-    manifest = register_run(manifest_fields(cfg, n_params, n_docs, est_usd))
+    manifest = register_run(manifest_fields(cfg, n_params, n_docs, est_usd, args.init_from))
     out_dir = store / "runs" / cfg["run_id"] / "pretrain"
 
     t = cfg["train"]
