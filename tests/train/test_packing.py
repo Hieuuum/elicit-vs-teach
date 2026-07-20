@@ -273,9 +273,9 @@ def test_split_seeded_deterministic():
 # V5.27 — pack_corpus streams
 # --------------------------------------------------------------------------
 def test_v5_27_chunked_equals_reference(tiny_tokenizer):
-    # V5.27: the packed tensor is identical for every valid chunk_tokens and
-    # equals a naive tokenize-everything-then-slice reference built here,
-    # independent of pack_corpus internals.
+    # V5.27: the packed tensor is identical for every valid chunk_tokens x
+    # batch_docs combination and equals a naive tokenize-everything-then-slice
+    # reference built here, independent of pack_corpus internals.
     tok = tiny_tokenizer()
     texts = [f"t{i} t{i + 1} t{i + 2}" for i in range(0, 60, 3)]
     ref_stream: list[int] = []
@@ -288,9 +288,12 @@ def test_v5_27_chunked_equals_reference(tiny_tokenizer):
             n_rows, seq_len
         )
         for chunk_tokens in (seq_len, seq_len + 1, 3 * seq_len, 1 << 20):
-            got = pack_corpus(texts, tok, seq_len, chunk_tokens=chunk_tokens)
-            assert got.dtype == torch.long
-            assert torch.equal(got, expected), (seq_len, chunk_tokens)
+            for batch_docs in (1, 3, 1024):
+                got = pack_corpus(
+                    texts, tok, seq_len, chunk_tokens=chunk_tokens, batch_docs=batch_docs
+                )
+                assert got.dtype == torch.long
+                assert torch.equal(got, expected), (seq_len, chunk_tokens, batch_docs)
 
 
 def test_v5_27_empty_and_subrow_corpora(tiny_tokenizer):
@@ -304,8 +307,10 @@ def test_v5_27_empty_and_subrow_corpora(tiny_tokenizer):
 
 
 def test_v5_27_incremental_consumption(tiny_tokenizer):
-    # V5.27: documents are pulled and tokenized one at a time — the iterable
-    # is never drained into a list before tokenization starts.
+    # V5.27: at most batch_docs documents are pulled before tokenization
+    # runs — the iterable is never drained into a list first, and each
+    # batch is tokenized in ONE call (that single call is what lets the
+    # fast tokenizer parallelize across cores).
     tok = tiny_tokenizer()
     events: list[str] = []
 
@@ -314,20 +319,29 @@ def test_v5_27_incremental_consumption(tiny_tokenizer):
         def eos_token_id(self) -> int:
             return tok.eos_token_id
 
-        def __call__(self, text: str, **kwargs):
-            events.append(f"tok:{text}")
-            return tok(text, **kwargs)
+        def __call__(self, batch: list[str], **kwargs):
+            events.append("tok:" + "|".join(batch))
+            return tok(batch, **kwargs)
 
     def gen():
         for i in range(3):
             events.append(f"yield:t{i}")
             yield f"t{i}"
 
-    pack_corpus(gen(), RecordingTokenizer(), seq_len=2)
-    assert events == ["yield:t0", "tok:t0", "yield:t1", "tok:t1", "yield:t2", "tok:t2"]
+    pack_corpus(gen(), RecordingTokenizer(), seq_len=2, batch_docs=2)
+    # Full batch [t0, t1] tokenized before t2 is pulled; the short trailing
+    # batch [t2] is tokenized in its own final call.
+    assert events == ["yield:t0", "yield:t1", "tok:t0|t1", "yield:t2", "tok:t2"]
 
 
 def test_v5_27_chunk_tokens_below_seq_len_raises(tiny_tokenizer):
     # V5.27 interface: chunk_tokens < seq_len must raise ValueError.
     with pytest.raises(ValueError):
         pack_corpus(["t0 t1"], tiny_tokenizer(), seq_len=4, chunk_tokens=3)
+
+
+@pytest.mark.parametrize("bad_batch_docs", [0, -1])
+def test_v5_27_batch_docs_below_one_raises(tiny_tokenizer, bad_batch_docs):
+    # V5.27 interface: batch_docs < 1 must raise ValueError.
+    with pytest.raises(ValueError):
+        pack_corpus(["t0 t1"], tiny_tokenizer(), seq_len=2, batch_docs=bad_batch_docs)

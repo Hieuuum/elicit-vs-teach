@@ -193,3 +193,4 @@ decides whether v2-ext or v2 is the floor-1 candidate.
 | `register_run: ... already running` | A live launch with this run_id exists (double-launch guard). Check `pgrep -f train.py` before retrying. |
 | First eval slightly *above* 1.1140 | Normal: fresh AdamW moments. Worry only if it's still above after 2–3 evals. |
 | `$GEODE_STORE` empty in a shell command | New shell/tmux window — re-export it. Scripts themselves no longer need it (they default to `<repo>/geode-store`). |
+| Cache/artifacts land somewhere unexpected | A *stale* export wins over the script default — `echo $GEODE_STORE` and re-export `/workspace/elicit-vs-teach/geode-store` in every tmux window. |

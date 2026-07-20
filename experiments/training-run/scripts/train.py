@@ -187,6 +187,10 @@ def main() -> int:
     )
     parser.add_argument("--confirm-cost", action="store_true")
     args = parser.parse_args()
+    if args.packed_cache is not None:
+        # torch.save does not create parent dirs; discovering that only at
+        # the cache write threw away a finished 40-min pack (2026-07-20).
+        args.packed_cache.parent.mkdir(parents=True, exist_ok=True)
 
     phase(1, "config + tokenizer")
     cfg = load_config(args.config, args.override)

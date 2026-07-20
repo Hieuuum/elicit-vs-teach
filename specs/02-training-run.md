@@ -261,17 +261,21 @@ def split_documents(lines: Iterable[str], delimiter: str = "<|endoftext|>") -> I
     # delimiter raises ValueError (silent corpus corruption otherwise).
     # Lazy: multi-GB files stream.
 def pack_corpus(texts: Iterable[str], tokenizer, seq_len: int,
-                *, chunk_tokens: int = 1 << 20) -> torch.LongTensor
+                *, chunk_tokens: int = 1 << 20,
+                batch_docs: int = 1024) -> torch.LongTensor
     # Tokenize each document (no special tokens added), append exactly one
     # eos_token_id after every document, concatenate in input order, slice
     # the stream into consecutive rows of length seq_len, drop the short
-    # tail. Streaming: documents are consumed one at a time; completed rows
-    # move to tensor storage whenever the token buffer reaches chunk_tokens
-    # (the buffer never exceeds chunk_tokens + one document), so full-corpus
-    # packing costs the output tensor's memory, not a full-stream Python
-    # list. chunk_tokens never changes the result. Raises ValueError if
-    # tokenizer.eos_token_id is None, seq_len < 2, or chunk_tokens <
-    # seq_len. Deterministic: a pure function of (texts, tokenizer, seq_len).
+    # tail. Streaming: documents are consumed batch_docs at a time and
+    # tokenized as one batch (the fast tokenizer parallelizes encode_batch
+    # across CPU cores); completed rows move to tensor storage whenever the
+    # token buffer reaches chunk_tokens (the buffer never exceeds
+    # chunk_tokens + one batch of documents), so full-corpus packing costs
+    # the output tensor's memory, not a full-stream Python list. Neither
+    # chunk_tokens nor batch_docs changes the result. Raises ValueError if
+    # tokenizer.eos_token_id is None, seq_len < 2, chunk_tokens < seq_len,
+    # or batch_docs < 1. Deterministic: a pure function of
+    # (texts, tokenizer, seq_len).
 def train_val_split(seqs: torch.LongTensor, val_fraction: float, seed: int
                     ) -> tuple[torch.LongTensor, torch.LongTensor]
     # Seeded permutation, then split. n_val = round(val_fraction * n)
@@ -468,9 +472,11 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   between delimiter-only lines, in order, empties dropped, delimiter
   never emitted; a mid-line delimiter raises; consumption is lazy.
 - V5.27 packing streams: the packed tensor is identical for every valid
-  `chunk_tokens` and equals a tokenize-all-then-slice reference; documents
-  are pulled and tokenized one at a time (the iterable is never drained
-  first); `chunk_tokens < seq_len` raises.
+  `chunk_tokens` × `batch_docs` combination and equals a
+  tokenize-all-then-slice reference; consumption is incremental — at most
+  `batch_docs` documents are pulled before tokenization runs (the
+  iterable is never drained first); `chunk_tokens < seq_len` or
+  `batch_docs < 1` raises.
 - V5.28 SFT loss reference: `evaluate_sft_nll_nats` and the step-1
   training loss equal a hand-computed mean CE over exactly the label-span
   positions on a tiny fixture model; the all-positions mean differs
