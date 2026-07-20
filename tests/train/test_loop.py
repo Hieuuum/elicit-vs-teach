@@ -15,10 +15,11 @@ paragraph):
   update; eval at every step where ``step % eval_every == 0`` plus the final
   step; a ConvergenceTracker True return -> stop_reason "converged", reaching
   max_steps -> "max_steps"; train_log.jsonl records
-  {step, train_loss_nats, lr, grad_norm}, eval_log.jsonl records
-  {step, val_loss_nats}; final model saved to out_dir/model via
-  save_pretrained plus out_dir/training_meta.json; byte-identical logs for an
-  identical seed + inputs on CPU (V5.21-V5.25).
+  {step, train_loss_nats, lr, grad_norm, time_unix}, eval_log.jsonl records
+  {step, val_loss_nats, time_unix}; final model saved to out_dir/model via
+  save_pretrained plus out_dir/training_meta.json; identical logs (modulo
+  the time_unix field) for an identical seed + inputs on CPU (V5.21-V5.25,
+  V5.37).
 
 CPU-only, tiny in-process models, fp32 (bf16 is untested config plumbing per
 the spec). Reference NLLs are computed with a direct F.cross_entropy pass that
@@ -30,6 +31,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import time
 from pathlib import Path
 
 import pytest
@@ -75,6 +77,12 @@ def _train(model, train_seqs, val_seqs, out_dir, **overrides):
 
 def _read_jsonl(path) -> list[dict]:
     return [json.loads(line) for line in Path(path).read_text().splitlines()]
+
+
+def _drop_time(records: list[dict]) -> list[dict]:
+    # V5.22/V5.32 compare logs "after deleting the time_unix field from every
+    # record" — wall-clock is the one deliberately nondeterministic field.
+    return [{k: v for k, v in r.items() if k != "time_unix"} for r in records]
 
 
 # --------------------------------------------------------------------------
@@ -173,11 +181,12 @@ def test_train_converges_and_stops_on_tiny_corpus(tiny_llama, tmp_path):
 
 
 # --------------------------------------------------------------------------
-# V5.22 — byte-identical logs for identical seed + inputs
+# V5.22 — identical logs (modulo time_unix) for identical seed + inputs
 # --------------------------------------------------------------------------
 def test_same_seed_identical_logs(tiny_llama, tmp_path):
-    # V5.22: identical seed + inputs on CPU (fixed threads) -> byte-identical
-    # train_log.jsonl and eval_log.jsonl across two independent runs.
+    # V5.22: identical seed + inputs on CPU (fixed threads) -> identical
+    # train_log.jsonl and eval_log.jsonl across two independent runs, after
+    # deleting the time_unix field from every record.
     prev_threads = torch.get_num_threads()
     torch.set_num_threads(1)  # "fixed threads" per the property
     try:
@@ -194,7 +203,7 @@ def test_same_seed_identical_logs(tiny_llama, tmp_path):
             tiny_llama(seed=0), train_seqs, val_seqs, dir_b, seed=123, max_steps=15, eval_every=5
         )
         for name in ("train_log.jsonl", "eval_log.jsonl"):
-            assert (dir_a / name).read_bytes() == (dir_b / name).read_bytes()
+            assert _drop_time(_read_jsonl(dir_a / name)) == _drop_time(_read_jsonl(dir_b / name))
     finally:
         torch.set_num_threads(prev_threads)
 
@@ -204,9 +213,9 @@ def test_same_seed_identical_logs(tiny_llama, tmp_path):
 # --------------------------------------------------------------------------
 def test_log_schema_and_eval_step_set(tiny_llama, tmp_path):
     # V5.23: each train record carries exactly {step, train_loss_nats, lr,
-    # grad_norm} with finite values and constant lr; each eval record carries
-    # exactly {step, val_loss_nats}; eval steps are the multiples of
-    # eval_every plus the final step.
+    # grad_norm, time_unix} with finite values and constant lr; each eval
+    # record carries exactly {step, val_loss_nats, time_unix}; eval steps are
+    # the multiples of eval_every plus the final step.
     train_seqs = _toy_seqs(12, 8, seed=1)  # 12 // 4 == 3 steps/epoch
     val_seqs = _toy_seqs(4, 8, seed=2)
     lr = 1e-3
@@ -227,7 +236,7 @@ def test_log_schema_and_eval_step_set(tiny_llama, tmp_path):
     # (0 % eval_every == 0) before any update, which the spec nowhere asks for.
     assert [r["step"] for r in train_recs] == list(range(1, 13))
     for r in train_recs:
-        assert set(r) == {"step", "train_loss_nats", "lr", "grad_norm"}
+        assert set(r) == {"step", "train_loss_nats", "lr", "grad_norm", "time_unix"}
         assert math.isfinite(r["train_loss_nats"]) and r["train_loss_nats"] >= 0.0
         # grad_norm is spec'd as the PRE-clip global norm; only schema-level
         # presence/finiteness is testable without pinning implementation detail.
@@ -235,7 +244,7 @@ def test_log_schema_and_eval_step_set(tiny_llama, tmp_path):
         assert r["lr"] == lr  # constant LR
     eval_recs = _read_jsonl(tmp_path / "eval_log.jsonl")
     for r in eval_recs:
-        assert set(r) == {"step", "val_loss_nats"}
+        assert set(r) == {"step", "val_loss_nats", "time_unix"}
         assert math.isfinite(r["val_loss_nats"]) and r["val_loss_nats"] >= 0.0
     # Multiples of 5 within 1..12 are {5, 10}; the final step 12 is added.
     assert [r["step"] for r in eval_recs] == [5, 10, 12]
@@ -505,6 +514,25 @@ def test_v5_36_schedule_guards_raise(tiny_llama, tmp_path, overrides):
     with pytest.raises(ValueError):
         _train(tiny_llama(seed=0), train_seqs, val_seqs, out, batch_size=4, **overrides)
     assert not out.exists()
+
+
+# --------------------------------------------------------------------------
+# V5.37 — wall-clock timestamps in every log record
+# --------------------------------------------------------------------------
+def test_v5_37_time_unix_present_nondecreasing(tiny_llama, tmp_path):
+    # V5.37: every train and eval record carries time_unix; within each log
+    # file the values are nondecreasing and lie between wall-clock readings
+    # taken immediately before and after the run.
+    train_seqs = _toy_seqs(12, 8, seed=1)
+    val_seqs = _toy_seqs(4, 8, seed=2)
+    t_before = time.time()
+    _train(tiny_llama(seed=0), train_seqs, val_seqs, tmp_path, eval_every=3, max_steps=7)
+    t_after = time.time()
+    for name in ("train_log.jsonl", "eval_log.jsonl"):
+        times = [r["time_unix"] for r in _read_jsonl(tmp_path / name)]
+        assert times  # both logs are non-empty at this cadence
+        assert all(t_before <= t <= t_after for t in times)
+        assert all(a <= b for a, b in zip(times, times[1:]))
 
 
 @pytest.mark.parametrize("bad_micro", [0, -1, 3, 16])

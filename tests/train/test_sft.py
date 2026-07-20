@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import random
+import time
 from pathlib import Path
 
 import pytest
@@ -238,12 +239,13 @@ def test_v5_31_invalid_label_span_raises(tiny_llama, tmp_path, span):
 
 
 # --------------------------------------------------------------------------
-# V5.32 — determinism: byte-identical logs for identical seed + inputs
+# V5.32 — determinism: identical logs (modulo time_unix) for identical seed
 # --------------------------------------------------------------------------
 def test_v5_32_same_seed_identical_logs(tiny_llama, tmp_path):
-    # V5.32: identical seed + inputs on CPU (fixed threads) -> byte-identical
+    # V5.32: identical seed + inputs on CPU (fixed threads) -> identical
     # train_log.jsonl and eval_log.jsonl across two independent train_sft
-    # runs (identical loss sequence included).
+    # runs (identical loss sequence included), after deleting the time_unix
+    # field from every record.
     prev_threads = torch.get_num_threads()
     torch.set_num_threads(1)
     try:
@@ -275,9 +277,37 @@ def test_v5_32_same_seed_identical_logs(tiny_llama, tmp_path):
             eval_every=5,
         )
         for name in ("train_log.jsonl", "eval_log.jsonl"):
-            assert (dir_a / name).read_bytes() == (dir_b / name).read_bytes()
+            recs_a = [
+                {k: v for k, v in r.items() if k != "time_unix"}
+                for r in _read_jsonl(dir_a / name)
+            ]
+            recs_b = [
+                {k: v for k, v in r.items() if k != "time_unix"}
+                for r in _read_jsonl(dir_b / name)
+            ]
+            assert recs_a == recs_b
     finally:
         torch.set_num_threads(prev_threads)
+
+
+# --------------------------------------------------------------------------
+# V5.37 — wall-clock timestamps in every log record (SFT mode)
+# --------------------------------------------------------------------------
+def test_v5_37_time_unix_present_nondecreasing_sft(tiny_llama, tmp_path):
+    # V5.37: train_sft's train and eval records carry time_unix; within each
+    # log file the values are nondecreasing and lie between wall-clock
+    # readings taken immediately before and after the run.
+    rng = random.Random(11)
+    train_examples = [_example(rng, 3, 2) for _ in range(8)]
+    val_examples = [_example(rng, 3, 2) for _ in range(4)]
+    t_before = time.time()
+    _train(tiny_llama(seed=0), train_examples, val_examples, tmp_path, eval_every=3, max_steps=7)
+    t_after = time.time()
+    for name in ("train_log.jsonl", "eval_log.jsonl"):
+        times = [r["time_unix"] for r in _read_jsonl(tmp_path / name)]
+        assert times  # both logs are non-empty at this cadence
+        assert all(t_before <= t <= t_after for t in times)
+        assert all(a <= b for a, b in zip(times, times[1:]))
 
 
 # --------------------------------------------------------------------------

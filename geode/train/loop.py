@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Literal
@@ -209,6 +210,7 @@ def train_full(
                 "train_loss_nats": train_loss_nats,
                 "lr": step_lr,
                 "grad_norm": grad_norm.item(),
+                "time_unix": time.time(),
             }
             train_f.write(json.dumps(train_record) + "\n")
             train_f.flush()
@@ -219,7 +221,12 @@ def train_full(
                 val_loss_nats = evaluate_nll_nats(
                     model, val_seqs, batch_size=micro_batch_size, device=device
                 )
-                eval_f.write(json.dumps({"step": step, "val_loss_nats": val_loss_nats}) + "\n")
+                eval_record = {
+                    "step": step,
+                    "val_loss_nats": val_loss_nats,
+                    "time_unix": time.time(),
+                }
+                eval_f.write(json.dumps(eval_record) + "\n")
                 eval_f.flush()
                 if tracker.update(val_loss_nats) and lr_schedule == "constant":
                     stop_reason = "converged"

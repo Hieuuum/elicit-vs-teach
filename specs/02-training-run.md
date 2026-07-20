@@ -368,10 +368,13 @@ def train_full(model, train_seqs: torch.LongTensor,
   any stop condition (added 2026-07-16 from CONFORMANCE-REVIEWER finding:
   silent infinite busy-loop, unreachable by timing-safe tests).
 - Logs, written under `out_dir`: `train_log.jsonl` with
-  `{"step", "train_loss_nats", "lr", "grad_norm"}` per step (`grad_norm`
-  is the pre-clip global norm; `lr` is the per-step scheduled value —
-  constant `lr` in constant mode); `eval_log.jsonl` with
-  `{"step", "val_loss_nats"}` per eval.
+  `{"step", "train_loss_nats", "lr", "grad_norm", "time_unix"}` per step
+  (`grad_norm` is the pre-clip global norm; `lr` is the per-step scheduled
+  value — constant `lr` in constant mode); `eval_log.jsonl` with
+  `{"step", "val_loss_nats", "time_unix"}` per eval. `time_unix` is the
+  wall-clock `time.time()` at record write (added 2026-07-19 after the
+  run-1 v2 launch: throughput questions were unanswerable from
+  timestamp-free logs).
 - Checkpoint: final model saved to `out_dir/model/` via `save_pretrained`,
   plus `out_dir/training_meta.json` recording `stop_reason`, `final_step`,
   `best_val_nats`, and a `config` object echoing exactly the call
@@ -382,7 +385,9 @@ def train_full(model, train_seqs: torch.LongTensor,
   (Echo keys pinned 2026-07-16 after TEST-AUDITOR flagged the phrase as
   untestable; the echo itself stays untested — asserting it would overfit
   — but CONFORMANCE-REVIEWER checks it by inspection.)
-- Determinism: identical seed + inputs on CPU ⇒ byte-identical log files.
+- Determinism: identical seed + inputs on CPU ⇒ identical log files after
+  deleting the `time_unix` field from every record (wall-clock is the one
+  deliberately nondeterministic field).
 - `precision="bf16"` wraps forward/loss in autocast; tests exercise fp32
   only (CPU) and treat bf16 as config plumbing.
 
@@ -446,12 +451,14 @@ def train_sft(model, train_examples: Sequence[SpanExample],
 - V5.21 on a trivially overfittable tiny corpus, training terminates via
   `stop_reason="converged"` before a generous `max_steps`, and final
   train loss < initial train loss.
-- V5.22 same seed ⇒ byte-identical `train_log.jsonl` and
-  `eval_log.jsonl` across two runs (CPU, fixed threads).
+- V5.22 same seed ⇒ identical `train_log.jsonl` and `eval_log.jsonl`
+  across two runs (CPU, fixed threads) after deleting the `time_unix`
+  field from every record.
 - V5.23 log schema: every train record carries exactly
-  {step, train_loss_nats, lr, grad_norm} with finite values and constant
-  lr; every eval record carries {step, val_loss_nats}; eval steps are
-  exactly the multiples of `eval_every` plus the final step.
+  {step, train_loss_nats, lr, grad_norm, time_unix} with finite values
+  and constant lr; every eval record carries
+  {step, val_loss_nats, time_unix}; eval steps are exactly the multiples
+  of `eval_every` plus the final step.
 - V5.24 checkpoint roundtrip: reloading `out_dir/model/` reproduces the
   saved model's `evaluate_nll_nats` on the val set exactly;
   `training_meta.json` fields match the returned `TrainResult`.
@@ -480,8 +487,9 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   extending past its sequence raises `ValueError` before any training or
   disk write.
 - V5.32 SFT determinism: identical seed + inputs on CPU (fixed threads) ⇒
-  byte-identical `train_log.jsonl` and `eval_log.jsonl` across two
-  `train_sft` runs.
+  identical `train_log.jsonl` and `eval_log.jsonl` across two
+  `train_sft` runs after deleting the `time_unix` field from every
+  record.
 - V5.33 SFT convergence: on a memorizable question→answer task,
   `train_sft` stops with `stop_reason="converged"` before a generous
   `max_steps`, with final train loss below initial.
@@ -503,6 +511,10 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   `training_meta.json`; cosine with `max_steps=None`, `min_lr` missing
   or outside `[0, lr]`, an unknown schedule name, or `min_lr` supplied
   with a constant schedule raises `ValueError` before any disk write.
+- V5.37 log timestamps: every train and eval record (both `train_full`
+  and `train_sft`) carries `time_unix`; within each log file the values
+  are nondecreasing and lie between wall-clock readings taken
+  immediately before and after the run.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
