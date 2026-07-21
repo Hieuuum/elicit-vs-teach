@@ -229,7 +229,7 @@ def train_full(
                 }
                 eval_f.write(json.dumps(eval_record) + "\n")
                 eval_f.flush()
-                if tracker.update(val_loss_nats) and lr_schedule == "constant":
+                if tracker.update(val_loss_nats, step=step) and lr_schedule == "constant":
                     stop_reason = "converged"
                 elif is_capped_final:
                     stop_reason = "max_steps"
@@ -264,7 +264,11 @@ def train_full(
             "betas": betas,
             "seed": seed,
             "precision": precision,
-            "stopping": {"eps_nats": stopping.eps_nats, "k": stopping.k},
+            "stopping": {
+                "eps_nats": stopping.eps_nats,
+                "k": stopping.k,
+                "min_steps": stopping.min_steps,
+            },
         },
     }
     (out_dir / "training_meta.json").write_text(json.dumps(meta, indent=2))

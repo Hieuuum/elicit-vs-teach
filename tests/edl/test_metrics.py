@@ -107,7 +107,7 @@ def _manifest_fields(run_id: str, n_unique: int, *, extra: dict | None = None) -
             "precision": "fp32",
             "eval_every": None,
             "max_steps": None,
-            "stopping": {"eps_nats": None, "k": None},
+            "stopping": {"eps_nats": None, "k": None, "min_steps": None},
             "epochs_total": 1,
             "seed": 0,
         },

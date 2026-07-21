@@ -572,6 +572,37 @@ Small decisions (delegated):
   so the V0.6 launcher would NOT have refused the unconverged v3 — the
   pin itself is what enforces "floor 1 = the run that converged".
 
+## 2026-07-21 — runs end on convergence; stopping grace `min_steps` (owner)
+
+- **Policy: training runs end when the convergence rule fires, not on a
+  step budget.** `max_steps` is retained as an ETA/estimate bound only —
+  set it generously (~10 epochs) so the confirm gate quotes an honest
+  worst case; hitting it means "the rule never fired", a bug signal.
+  This supersedes the previous entry's 20k ceiling (and the v3 30k
+  ceiling rationale): v3's `stop_reason=max_steps` at a budget ceiling
+  is exactly the outcome this policy exists to prevent.
+- **Stopping grace (core change, V5.42):** `StoppingRule` gains
+  `min_steps` (default 0) — evals at `step < min_steps` update
+  `min_val_nats` only: they cannot trip the plateau rule, consume
+  patience, or plant a (transient) `best_nats`. Rationale: warm starts
+  reset AdamW moments, and the val transient needs time to stabilize
+  before convergence is judged; a transient-low first eval would
+  otherwise freeze `best_nats` and make honest post-transient descent
+  read as stale. Wired through both trainers, both launchers
+  (`train.stopping.min_steps`, default 0), `training_meta.json`, and
+  the manifest schema (spec 00 §2); property tests in
+  `test_stopping.py`. This **replaces the previous entry's "converged
+  in the first ~3 evals = transient" caveat** — the tracker now simply
+  cannot fire before `min_steps + k*eval_every`.
+- **v3-ext config:** `max_steps` 81,000 (~10 epochs, worst case ~7 h /
+  ~$2.8 — owner accepts; expected convergence unchanged at ~8–12k),
+  `stopping.min_steps` 5000 (moments re-estimate in ~3k steps at β2
+  0.999; 5k adds margin; earliest possible stop step 8000). eps/k
+  untouched — same convergence definition as v3/v2-ext.
+- **Manifests:** v2, v2-ext, v3 backfilled locally with
+  `stopping.min_steps: 0` (schema requires the key); the pending HF
+  manifest re-push now covers v3 as well as v2/v2-ext.
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
@@ -580,5 +611,6 @@ at the runs 2–6 pilots. Run-1 items: launch `evt-run1-base-v3-ext`
 closes run 1. Run-2 items: blocked on v3-ext complete
 (parent already re-pinned), then LR sweep on the next box, owner pins
 `train.lr`, and the canonical `evt-run2-armA-algo` launches. Also
-pending: re-push backfilled v2/v2-ext manifests to the HF relay.
+pending: re-push backfilled v2/v2-ext manifests to the HF relay (v3's
+manifest re-push rides along with the Phase 4 v3/v3-ext push).
 Dataset items: none.

@@ -106,15 +106,20 @@ and a min val figure (compare to v2-ext's 1.1066 nats — informational
 only, nothing gates on it). `max_steps` instead ⇒ did not converge:
 keep the box, paste the eval log to Claude.
 
-## Phase 3b — extension to convergence (~1–2 h, ≤ ~$0.7)
+## Phase 3b — extension to convergence (expected ~1–3 h; ETA bound ~7 h / ~$2.8)
 
 **This happened (2026-07-21):** v3 hit the 30k ceiling still descending
 (min val 1.1020, ~2.5–3.0 mnat/1k in the tail — the rule fires below
 ~1.7). The recipe is on-protocol; only the budget was too small.
 `evt-run1-base-v3-ext` continues it: warm start from the v3 checkpoint,
 **identical recipe** (everything inherits from `run1_pretrain.yaml`),
-20k-step ceiling. On the box, `git pull` first (the overlay + re-pins
-landed after launch day), then:
+and it **runs until the convergence rule fires** — `max_steps` 81,000
+(~10 epochs) is only the ETA/estimate bound, and the confirm gate
+quotes that worst case, not the expected spend. A 5,000-step stopping
+grace (`stopping.min_steps`) keeps the warm-start transient (AdamW
+moments don't carry over) from tripping or distorting the plateau rule;
+the earliest possible stop is step 8,000. On the box, `git pull` first
+(the overlay + re-pins landed after launch day), then:
 
 ```bash
 python train.py --config ../configs/run1_pretrain.yaml \
@@ -126,11 +131,9 @@ python train.py --config ../configs/run1_pretrain.yaml \
 ```
 
 ✅ `stop_reason=converged` **and** `min_val_nats` below v3's 1.1020.
-AdamW moments don't carry over, so the first evals may show a
-transient; "converged" within the first ~3 evals at a val **above**
-1.1020 is that transient plateauing, not convergence — keep the box,
-talk to Claude. Floor 1 = this run's checkpoint (run-2 parent is
-already pinned to it).
+`max_steps` here would mean the rule never fired in 10 epochs — a bug
+signal: keep the box, talk to Claude. Floor 1 = this run's checkpoint
+(run-2 parent is already pinned to it).
 
 ## Phase 4 — push to the HF relay (~10 min)
 

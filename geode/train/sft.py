@@ -241,7 +241,7 @@ def train_sft(
                 }
                 eval_f.write(json.dumps(eval_record) + "\n")
                 eval_f.flush()
-                if tracker.update(val_loss_nats):
+                if tracker.update(val_loss_nats, step=step):
                     stop_reason = "converged"
                 elif is_capped_final:
                     stop_reason = "max_steps"
@@ -273,7 +273,11 @@ def train_sft(
             "betas": betas,
             "seed": seed,
             "precision": precision,
-            "stopping": {"eps_nats": stopping.eps_nats, "k": stopping.k},
+            "stopping": {
+                "eps_nats": stopping.eps_nats,
+                "k": stopping.k,
+                "min_steps": stopping.min_steps,
+            },
             "task_format": asdict(task_format),
         },
     }

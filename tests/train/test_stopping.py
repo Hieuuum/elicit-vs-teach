@@ -114,6 +114,58 @@ def test_v5_41_nan_does_not_corrupt_min():
     assert t.min_nats == 1.0
 
 
+def test_v5_42_min_steps_grace_never_counts():
+    # V5.42: evals at step < min_steps can never stop training, consume
+    # patience, or set best_nats — only min_nats tracks them.
+    t = ConvergenceTracker(StoppingRule(eps_nats=0.1, k=2, min_steps=5000))
+    # A k-long (and longer) plateau entirely inside the grace: no stop.
+    for step in (1000, 2000, 3000, 4000):
+        assert t.update(1.0, step=step) is False
+    assert t.stale_evals == 0  # patience untouched
+    assert t.best_nats == float("inf")  # best untouched
+    assert t.min_nats == 1.0  # true min still tracks
+    # First counted eval (step >= min_steps) sets best; the plateau then
+    # needs a fresh k non-improving evals measured from here.
+    assert t.update(1.0, step=5000) is False  # best <- 1.0
+    assert t.best_nats == 1.0
+    assert t.update(1.0, step=6000) is False  # stale 1
+    assert t.update(1.0, step=7000) is True  # stale 2 == k -> stop
+
+
+def test_v5_42_grace_does_not_plant_transient_best():
+    # V5.42 motivation: a warm-start transient LOW value during grace must
+    # not become the best that post-grace evals are measured against.
+    t = ConvergenceTracker(StoppingRule(eps_nats=0.1, k=2, min_steps=3000))
+    assert t.update(0.5, step=1000) is False  # transient, grace: ignored
+    assert t.best_nats == float("inf")
+    assert t.min_nats == 0.5  # but the true min keeps it
+    # Post-grace evals at 0.9 would be "non-improving" vs a planted 0.5
+    # best; against the untouched tracker they set best and train on.
+    assert t.update(0.9, step=3000) is False
+    assert t.best_nats == 0.9
+    assert t.stale_evals == 0
+
+
+def test_v5_42_min_steps_zero_reproduces_pre_grace_behavior():
+    # V5.42: min_steps=0 (the default) with or without a step argument
+    # behaves exactly like the pre-grace tracker.
+    t_default = ConvergenceTracker(StoppingRule(eps_nats=0.1, k=2))
+    t_explicit = ConvergenceTracker(StoppingRule(eps_nats=0.1, k=2, min_steps=0))
+    for tracker in (t_default, t_explicit):
+        assert tracker.update(1.0) is False  # no step passed: fine
+        assert tracker.update(1.0, step=0) is False  # step 0 counts
+        assert tracker.update(1.0, step=1) is True  # stale 2 == k
+
+
+def test_v5_42_min_steps_without_step_raises():
+    # V5.42: min_steps > 0 needs the step to apply the grace — omitting it
+    # raises instead of silently counting a grace-period eval.
+    t = ConvergenceTracker(StoppingRule(eps_nats=0.1, k=2, min_steps=1000))
+    with pytest.raises(ValueError):
+        t.update(1.0)
+    assert t.update(1.0, step=1000) is False  # tracker still usable
+
+
 def test_stopping_latches_true_after_stop():
     # V5.20 / §6.1: the k-th non-improving eval returns True "and keeps
     # returning True". Ruling: the latch is unconditional — True even when a

@@ -47,8 +47,11 @@ eval_every 1000). Hit the 30k-step cost ceiling still descending
 (`stop_reason=max_steps`, min val 1.1020, ~2.5–3.0 mnat/1k in the tail;
 samples clean, no repetition loops) → **`evt-run1-base-v3-ext` (queued
 2026-07-21): warm start from the v3 checkpoint, IDENTICAL recipe
-(`configs/run1_extend.yaml`), 20k-step ceiling — floor 1 is this run's
-convergence point, and children init from its checkpoint.** Compare
+(`configs/run1_extend.yaml`), runs to convergence — `max_steps` 81k is
+a 10-epoch ETA bound, not a stop (owner policy 2026-07-21), with a
+5k-step stopping grace (V5.42) absorbing the warm-start transient —
+floor 1 is this run's convergence point, and children init from its
+checkpoint.** Compare
 runs via `min_val_nats` — manifest `best_val_nats` is ε-gated by the
 stopping rule and reads stale.
 

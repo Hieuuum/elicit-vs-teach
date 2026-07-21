@@ -287,13 +287,19 @@ def train_val_split(seqs: torch.LongTensor, val_fraction: float, seed: int
 class StoppingRule:
     eps_nats: float   # minimum improvement that counts
     k: int            # consecutive non-improving evals that trigger a stop
+    min_steps: int = 0  # grace: evals before this step never count
 class ConvergenceTracker:
     def __init__(self, rule: StoppingRule): ...
-    def update(self, val_loss_nats: float) -> bool
+    def update(self, val_loss_nats: float, step: int | None = None) -> bool
     # An eval improves iff (best_so_far - val_loss_nats) > eps_nats
     # (strict; equality does NOT improve). Improvement updates best and
     # resets the stale counter; the k-th consecutive non-improving eval
     # returns True (and keeps returning True). NaN input raises ValueError.
+    # Grace (2026-07-21): an eval at step < min_steps updates min_nats
+    # ONLY — best stays frozen, the stale counter does not move, the
+    # tracker cannot stop; the first counted eval is the first at
+    # step >= min_steps (so the earliest possible stop is the k-th eval
+    # after that). min_steps > 0 with no step passed raises ValueError.
     best_nats: float          # +inf before first update; eps-gated (freezes
                               # while improvements stay <= eps_nats)
     min_nats: float           # +inf before first update; exact min over
@@ -367,7 +373,8 @@ def train_full(model, train_seqs: torch.LongTensor,
   `evaluate_nll_nats` at `micro_batch_size` rows (value-safe by V5.19).
 - Eval: `evaluate_nll_nats(val_seqs)` at every step where
   `step % eval_every == 0`, and additionally at the final step. Every eval
-  updates one `ConvergenceTracker`; a True return stops training with
+  updates one `ConvergenceTracker` (with the step, so `min_steps` grace
+  applies); a True return stops training with
   `stop_reason="converged"`. Reaching `max_steps` stops with
   `stop_reason="max_steps"`. `max_steps=None` means no cap. If both
   conditions fire on the same final-step eval, `converged` wins (the run
@@ -553,6 +560,16 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   `training_meta.json` propagate it (motivation: run-1 v2/v2-ext, where
   the eps-gated `best_val_nats` overstated the loss actually reached —
   1.1140-recorded vs 1.1125-true on v2, 1.1110 vs 1.1066 on v2-ext).
+- V5.42 stopping grace (2026-07-21): with `min_steps > 0`, evals at
+  `step < min_steps` can never stop training, consume patience, or set
+  `best_nats` — a k-long plateau entirely below `min_steps` does not
+  fire, and the same value sequence re-fed at steps >= `min_steps` stops
+  at exactly the k-th counted eval measured from there. `min_nats` still
+  tracks every value including grace-period evals. `min_steps=0` (the
+  default) reproduces the pre-grace behavior exactly; `min_steps > 0`
+  with no step passed to `update` raises ValueError (motivation: run-1
+  v3-ext — `--init-from` resets AdamW moments and the val transient must
+  not trip or distort the plateau rule).
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

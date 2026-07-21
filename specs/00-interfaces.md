@@ -60,7 +60,8 @@ Required fields. Unknown extra fields are permitted and preserved.
     "precision": "fp32 | bf16",
     "eval_every": "int|null",
     "max_steps": "int|null",
-    "stopping": {"eps_nats": "float|null", "k": "int|null"},
+    "stopping": {"eps_nats": "float|null", "k": "int|null",
+                  "min_steps": "int|null"},
     "epochs_total": "int",
     "seed": "int"
   },

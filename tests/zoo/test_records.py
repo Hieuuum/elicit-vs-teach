@@ -80,7 +80,7 @@ def _valid_manifest(run_id: str, n_unique_examples: int) -> dict:
             "precision": "fp32",
             "eval_every": None,
             "max_steps": None,
-            "stopping": {"eps_nats": None, "k": None},
+            "stopping": {"eps_nats": None, "k": None, "min_steps": None},
             "epochs_total": 3,
             "seed": 0,
         },

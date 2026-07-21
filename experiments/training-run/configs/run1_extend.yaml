@@ -6,16 +6,18 @@
 # only when descent drops below ~eps/k per eval (~1.7 mnat/1k), so the
 # ceiling arrived before convergence; the recipe itself is on-protocol.
 # This overlay warm-starts from the v3 checkpoint via --init-from (params
-# only — AdamW moments do NOT carry over; expect a small transient in the
-# first evals, absorbed by best-from-inf tracking) and continues under
-# the IDENTICAL recipe — everything (constant lr 1e-3, eval_every 1000,
-# stopping eps 0.005 / k 3) inherits from run1_pretrain.yaml — so the
-# combined v3 + v3-ext trajectory is the paper's run with a bigger
-# budget, not a new recipe.
+# only — AdamW moments do NOT carry over) and continues under the
+# IDENTICAL recipe — constant lr 1e-3, eval_every 1000, stopping eps
+# 0.005 / k 3 all inherit from run1_pretrain.yaml — so the combined
+# v3 + v3-ext trajectory is the paper's run with a bigger budget, not a
+# new recipe.
+#
+# Owner policy (2026-07-21): training runs END ON CONVERGENCE, not on a
+# step budget. max_steps here is an ETA/estimate bound (~10 epochs), not
+# a stop we expect to reach; stop_reason=max_steps means "convergence
+# rule never fired in 10 epochs" — a bug signal, investigate.
 #
 # Sanity check on completion: min_val_nats must land BELOW v3's 1.1020.
-# "Converged" within the first ~3 evals at a val above that is the
-# warm-start transient plateauing, not convergence — investigate.
 #
 # Launch (on the box, from experiments/training-run/scripts):
 #   python train.py --config ../configs/run1_pretrain.yaml \
@@ -28,13 +30,23 @@ experiment:
   parent_run_id: evt-run1-base-v3
 
 train:
-  max_steps: 20000      # cost CEILING (~$0.7), not a target. Descent rate
-                        # decayed ~4.5 -> ~2.6 mnat/1k over v3's last 10k
-                        # steps; reaching the ~1.7 mnat/1k firing threshold
-                        # extrapolates to ~8-12k more steps, so 20k is ~2x
-                        # headroom. stop_reason=max_steps here means "budget
-                        # exhausted before convergence" — investigate again.
+  max_steps: 81000      # ~10 epochs (8,123 steps/epoch @ batch 128) — ETA
+                        # bound for the cost estimate, NOT a budget stop
+                        # (owner 2026-07-21). Worst case ~7 h / ~$2.8 on a
+                        # 4090; expected convergence ~8-12k steps at the
+                        # observed rate decay (v3 tail ~4.5 -> ~2.6 mnat/1k
+                        # over 10k steps; rule fires < ~1.7).
+  stopping:
+    min_steps: 5000     # grace (V5.42): --init-from resets AdamW moments,
+                        # so the first evals ride a warm-start transient.
+                        # Evals before step 5000 update min_val_nats only —
+                        # they can't trip the plateau rule or plant a
+                        # transient best. Moments re-estimate in ~3k steps
+                        # (beta2 0.999); 5k adds margin. Earliest possible
+                        # stop = step 8000 (first counted eval + k*1000).
+    # eps_nats / k inherit from run1_pretrain.yaml — same convergence
+    # definition as v3 and v2-ext.
 
 cost:
-  assumed_epochs_for_estimate: 3   # confirm gate quotes >= the 20k-step
-                                   # ceiling (2.5 epochs @ batch 128)
+  assumed_epochs_for_estimate: 10  # confirm gate quotes the full 81k-step
+                                   # ETA bound; real stop = convergence

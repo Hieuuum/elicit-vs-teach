@@ -77,6 +77,7 @@ _SCHEMA: _SchemaNode = {
         "stopping": {
             "eps_nats": ("float", True),
             "k": ("int", True),
+            "min_steps": ("int", True),
         },
         "epochs_total": ("int", False),
         "seed": ("int", False),
