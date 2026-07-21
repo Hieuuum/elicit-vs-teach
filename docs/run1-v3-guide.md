@@ -34,8 +34,10 @@ nvidia-smi && python --version && free -g | head -2   # sanity
 git clone -b cut-to-core https://github.com/Hieuuum/elicit-vs-teach.git
 cd elicit-vs-teach
 pip install -e ".[dev]"
-export GEODE_STORE=$HOME/geode-store    # re-export in every new tmux window
-mkdir -p $GEODE_STORE
+export GEODE_STORE=$PWD/geode-store   # inside the repo clone — matches the
+                                      # scripts' default, so a window with a
+                                      # missing export still hits the same
+                                      # store. Re-export in every tmux window.
 python -m pytest -q; echo "suite exit: $?"   # expect 0 after ~2 min
 cd experiments/training-run/scripts
 ```
