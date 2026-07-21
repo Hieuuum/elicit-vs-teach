@@ -20,15 +20,16 @@ import argparse
 import datetime
 import json
 import os
+import random
 import sys
 from pathlib import Path
 from typing import Any
 
 import torch
 
-from geode.arith import order_hash, tokenize_with_spans
+from geode.arith import format_valid, greedy_completions, order_hash, tokenize_with_spans
 from geode.edl.masking import TaskFormat, masking_config_hash
-from geode.train import StoppingRule, split_indices, train_sft
+from geode.train import BehavioralStoppingRule, StoppingRule, split_indices, train_sft
 from geode.zoo import register_run, require_parent_ready, tokenizer_hash
 from train import REPO_ROOT, git_commit, load_config, phase
 
@@ -106,11 +107,21 @@ def manifest_fields(
             "precision": precision,
             "eval_every": t["eval_every"],
             "max_steps": t["max_steps"],
-            "stopping": {
-                "eps_nats": t["stopping"]["eps_nats"],
-                "k": t["stopping"]["k"],
-                "min_steps": t["stopping"].get("min_steps", 0),
-            },
+            "stopping": (
+                {
+                    "metric": "format_validity",
+                    "threshold": t["stopping"]["threshold"],
+                    "k": t["stopping"]["k"],
+                    "n_prompts": t["stopping"]["n_prompts"],
+                    "prompt_seed": t["stopping"]["prompt_seed"],
+                }
+                if t["stopping"].get("metric") == "format_validity"
+                else {
+                    "eps_nats": t["stopping"]["eps_nats"],
+                    "k": t["stopping"]["k"],
+                    "min_steps": t["stopping"].get("min_steps", 0),
+                }
+            ),
             "epochs_total": t["epochs_total_planned"],
             "seed": t["seed"],
         },
@@ -145,6 +156,13 @@ def main() -> int:
 
     phase(1, "config + tokenizer")
     cfg = load_config(args.config, args.override)
+    if cfg["train"].get("lr") is None:
+        print(
+            "[evt] train.lr is null — pin it from the installer LR sweep (or pass a sweep "
+            "--override) before a canonical launch; a placeholder-lr run is a redo "
+            "(run-2 incident, 2026-07-21). Exiting."
+        )
+        return 1
 
     from transformers import AutoTokenizer, LlamaForCausalLM
 
@@ -226,6 +244,33 @@ def main() -> int:
     out_dir = store / "runs" / cfg["run_id"] / "sft"
     print(f"[evt] store={store}", flush=True)
 
+    s = t["stopping"]
+    if s.get("metric") == "format_validity":
+        # Behavioral stop (spec 02 §6, runs 3-4): greedy decode on held-out
+        # token-prefix prompts, stop at the k-th consecutive eval >= threshold.
+        picks = random.Random(s["prompt_seed"]).sample(range(len(val_examples)), s["n_prompts"])
+        prompt_ids = [val_examples[i].input_ids[: val_examples[i].label_span[0]] for i in picks]
+
+        def behavioral_eval() -> float:
+            completions = greedy_completions(
+                model, tokenizer, prompt_ids, device=args.device, batch_size=t["batch_size"]
+            )
+            return sum(format_valid("Answer:" + c) for c in completions) / len(completions)
+
+        stopping = BehavioralStoppingRule(threshold=s["threshold"], k=s["k"])
+        print(
+            f"[evt] behavioral stop: format_validity >= {s['threshold']} on "
+            f"{s['n_prompts']} held-out prompts, k={s['k']}, every {t['eval_every']} steps",
+            flush=True,
+        )
+    else:
+        behavioral_eval = None
+        stopping = StoppingRule(
+            eps_nats=s["eps_nats"],
+            k=s["k"],
+            min_steps=s.get("min_steps", 0),
+        )
+
     result = train_sft(
         model,
         train_examples,
@@ -233,11 +278,8 @@ def main() -> int:
         task_format,
         lr=t["lr"],
         batch_size=t["batch_size"],
-        stopping=StoppingRule(
-            eps_nats=t["stopping"]["eps_nats"],
-            k=t["stopping"]["k"],
-            min_steps=t["stopping"].get("min_steps", 0),
-        ),
+        stopping=stopping,
+        behavioral_eval=behavioral_eval,
         eval_every=t["eval_every"],
         max_steps=t["max_steps"],
         grad_clip=cfg["training"]["grad_clip"],

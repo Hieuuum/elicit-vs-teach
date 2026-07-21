@@ -31,46 +31,13 @@ from pathlib import Path
 
 import torch
 
-from geode.arith import exact_match, tokenize_with_spans
+from geode.arith import exact_match, greedy_completions, tokenize_with_spans
 from geode.train import split_indices
 from geode.zoo import load_run
 from train import REPO_ROOT, load_config
 from train_sft import load_frozen_parquet
 
 G1_THRESHOLD = 0.95
-
-
-@torch.no_grad()
-def greedy_completions(
-    model,
-    tokenizer,
-    prompt_ids: list[list[int]],
-    *,
-    device: str,
-    batch_size: int,
-    max_new_tokens: int = 12,
-) -> list[str]:
-    """First generated line per token-prefix prompt (greedy, left-padded, EOS-stopped)."""
-    model.eval()
-    tokenizer.padding_side = "left"
-    out: list[str] = []
-    for start in range(0, len(prompt_ids), batch_size):
-        enc = tokenizer.pad(
-            {"input_ids": prompt_ids[start : start + batch_size]},
-            padding=True,
-            return_tensors="pt",
-        ).to(device)
-        generated = model.generate(
-            **enc,
-            do_sample=False,
-            max_new_tokens=max_new_tokens,
-            pad_token_id=tokenizer.pad_token_id,
-            eos_token_id=tokenizer.eos_token_id,
-        )
-        new_tokens = generated[:, enc["input_ids"].shape[1] :]
-        for row in tokenizer.batch_decode(new_tokens, skip_special_tokens=True):
-            out.append(row.split("\n")[0])
-    return out
 
 
 def run_g1(args: argparse.Namespace) -> int:

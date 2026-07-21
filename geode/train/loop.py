@@ -42,7 +42,7 @@ class TrainResult:
     final_step: int
     best_val_nats: float
     min_val_nats: float
-    stop_reason: Literal["converged", "max_steps"]
+    stop_reason: Literal["converged", "max_steps", "behavior"]
     checkpoint_dir: Path
 
 

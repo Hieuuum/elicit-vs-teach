@@ -8,6 +8,7 @@ elicit-vs-teach comparison, so they are tested core:
 - ``formats`` — tokenizer-agnostic rendering + answer char spans.
 - ``labels``  — the random-label rule for the format-installer runs.
 - ``evals``   — answer parser, exact-match, format-validity, few-shot prompts.
+- ``decode``  — greedy token-prefix completions (gates + in-loop G4 eval).
 - ``spans``   — char-span→token-span conversion for the frozen SFT files.
 - ``stratify``— capacity-aware, capacity-capped water-fill allocation over cells.
 - ``validate``— probe-leakage / stratification / uniqueness checks + the
@@ -16,6 +17,7 @@ elicit-vs-teach comparison, so they are tested core:
 
 from __future__ import annotations
 
+from geode.arith.decode import greedy_completions
 from geode.arith.evals import exact_match, few_shot_prompt, format_valid, parse_answer
 from geode.arith.formats import OPS, digits, render, true_answer
 from geode.arith.labels import random_label
@@ -34,6 +36,7 @@ __all__ = [
     "exact_match",
     "few_shot_prompt",
     "format_valid",
+    "greedy_completions",
     "order_hash",
     "parse_answer",
     "probe_leakage",

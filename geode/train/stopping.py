@@ -1,4 +1,4 @@
-"""Validation-loss convergence stopping rule (specs/02 §6.1).
+"""Stopping rules (specs/02 §6.1): loss convergence + behavioral (runs 3-4).
 
 An eval "improves" iff ``(best_so_far - val_loss_nats) > eps_nats`` (strict;
 an improvement of exactly ``eps_nats`` does not count). Improvement updates
@@ -73,4 +73,50 @@ class ConvergenceTracker:
             self.stale_evals += 1
             if self.stale_evals >= self._rule.k:
                 self._stopped = True
+        return self._stopped
+
+
+@dataclass(frozen=True)
+class BehavioralStoppingRule:
+    """Behavior-matched stopping rule for the format installers (specs/02 §6).
+
+    Training stops at the ``k``-th *consecutive* in-loop behavioral eval whose
+    metric (format-validity rate for runs 3-4) is ``>= threshold`` — the
+    threshold is inclusive: "scoring >=99%" means a rate of exactly 0.99
+    counts as a hit. A sub-threshold eval resets the consecutive count.
+    """
+
+    threshold: float  # metric value that counts as a hit (inclusive)
+    k: int  # consecutive hits that trigger the stop
+
+
+class BehaviorTracker:
+    """Tracks consecutive above-threshold behavioral evals (latched, V5.44).
+
+    Mirrors ``ConvergenceTracker``'s latching: once stopped, every later
+    ``update`` returns ``True`` regardless of its value. ``best_rate`` is the
+    exact running maximum over every value passed to ``update`` (-inf before
+    the first), recorded for the manifest/meta the same way ``min_nats`` is.
+    """
+
+    def __init__(self, rule: BehavioralStoppingRule) -> None:
+        self._rule = rule
+        self.best_rate: float = float("-inf")
+        self.hits: int = 0
+        self._stopped = False
+
+    def update(self, rate: float) -> bool:
+        """Record one behavioral eval; return whether training should stop."""
+        if math.isnan(rate):
+            raise ValueError("BehaviorTracker.update: rate is NaN")
+        if rate > self.best_rate:
+            self.best_rate = rate
+        if self._stopped:
+            return True
+        if rate >= self._rule.threshold:
+            self.hits += 1
+            if self.hits >= self._rule.k:
+                self._stopped = True
+        else:
+            self.hits = 0
         return self._stopped

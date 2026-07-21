@@ -348,13 +348,26 @@ class ConvergenceTracker:
                               # a stale first-eval "best")
     stale_evals: int
 
+@dataclass(frozen=True)
+class BehavioralStoppingRule:  # runs 3-4 format installers (§6, 2026-07-21)
+    threshold: float  # metric value that counts as a hit — INCLUSIVE (>=)
+    k: int            # consecutive hits that trigger the stop
+class BehaviorTracker:
+    def __init__(self, rule: BehavioralStoppingRule): ...
+    def update(self, rate: float) -> bool
+    # The k-th CONSECUTIVE eval with rate >= threshold returns True; a
+    # sub-threshold eval resets the count. Latched like ConvergenceTracker
+    # (True forever after the stop). NaN raises ValueError. best_rate is
+    # the exact running max over every update (-inf before the first),
+    # the behavioral analogue of min_nats.
+
 # geode/train/loop.py
 @dataclass(frozen=True)
 class TrainResult:
     final_step: int
     best_val_nats: float
     min_val_nats: float
-    stop_reason: Literal["converged", "max_steps"]
+    stop_reason: Literal["converged", "max_steps", "behavior"]
     checkpoint_dir: Path
 def evaluate_nll_nats(model, seqs: torch.LongTensor, *, batch_size: int,
                       device: str) -> float
@@ -458,9 +471,11 @@ def evaluate_sft_nll_nats(model, examples: Sequence[SpanExample],
                           device: str) -> float
 def train_sft(model, train_examples: Sequence[SpanExample],
               val_examples: Sequence[SpanExample], task_format: TaskFormat,
-              *, lr, batch_size, stopping, eval_every, max_steps,
+              *, lr, batch_size,
+              stopping,  # StoppingRule | BehavioralStoppingRule
+              eval_every, max_steps,
               grad_clip, weight_decay, betas, device, seed, out_dir,
-              precision="fp32") -> TrainResult
+              precision="fp32", behavioral_eval=None) -> TrainResult
 ```
 
 - Examples are span-carrying (`input_ids` + half-open `label_span`, spec 00
@@ -489,6 +504,22 @@ def train_sft(model, train_examples: Sequence[SpanExample],
 - `masking_config_hash` recording (spec 00 §5) stays with the launch
   script (§6.2 pattern): the module has no tokenizer hash and never
   touches zoo.
+- **Behavioral stopping mode** (2026-07-21, runs 3–4, §6): passing a
+  `BehavioralStoppingRule` as `stopping` — with the paired
+  `behavioral_eval: Callable[[], float]` closure, both-or-neither
+  (upfront `ValueError` otherwise, before any disk write) — switches the
+  stop decision to the in-loop behavioral metric. Every eval still
+  computes and logs `val_loss_nats` (§6: "val loss is still logged for
+  the record"), then calls `behavioral_eval()` and logs its value as
+  `format_valid_rate` in the same eval record; the run stops at the k-th
+  consecutive rate `>= threshold` with `stop_reason="behavior"`, or at
+  the ceiling with `"max_steps"`. The loss plateau rule is deliberately
+  never consulted in this mode. The module stays tokenizer-free: the
+  closure owns the decode (the launch script builds it from
+  `geode.arith.greedy_completions` + `format_valid`); the trainer
+  restores `model.train()` after each call. `best_val_nats` and
+  `min_val_nats` both report the exact running min (no eps gate is in
+  play); the meta's `stopping` echo is `{threshold, k}`.
 
 **Validation properties (tests derive from these):**
 
@@ -622,6 +653,31 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   sequence end and an EOS-bearing tokenizer; raises otherwise.
   `append_eos=False` (default) is byte-identical to the pre-change
   output.
+- V5.44 behavioral rule (2026-07-21, §6): `BehaviorTracker` stops at
+  exactly the k-th consecutive eval with rate `>= threshold` (inclusive
+  — "scoring ≥99%" counts 0.99 itself), a sub-threshold eval resets the
+  consecutive count, the stop latches forever, NaN raises without
+  corrupting state, and `best_rate` is the exact running max over every
+  update (-inf before the first).
+- V5.45 behavioral trainer wiring (2026-07-21, §6): with a
+  `BehavioralStoppingRule`, `train_sft` calls `behavioral_eval` at every
+  eval, logs its value as `format_valid_rate` alongside the still-logged
+  `val_loss_nats`, stops at the k-th consecutive above-threshold eval
+  with `stop_reason="behavior"` (`final_step` = that eval's step), exits
+  sub-threshold runs only at the ceiling with `"max_steps"`, reports the
+  exact running-min val loss as both `best_val_nats` and `min_val_nats`,
+  echoes `{threshold, k}` as the meta's `stopping`, and raises upfront
+  (before any disk write) on an unpaired rule/callback. Silent failure
+  here breaks the matched-arms design — the pre-registered rule is the
+  treatment-mediator argument's foundation.
+- V5.46 greedy decode (`geode.arith.decode.greedy_completions`, promoted
+  from `gates.py` 2026-07-21 — now backs the G1/G2 gates AND the
+  installers' in-loop eval): completions over ragged token-prefix
+  prompts are identical one-at-a-time vs. one maximal left-padded batch
+  (the property a wrong pad id, missing attention mask, or right-side
+  padding silently breaks), greedy decode is deterministic across calls,
+  and generation stops at the tokenizer's EOS with the EOS excluded from
+  the decoded completion.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
@@ -653,7 +709,18 @@ config's `parent_required_gates` (spec 00 V0.6), records
 `masking_config_hash` + `data_order_hash` in the manifest's experiment
 block, and calls `geode.train.train_sft` behind the same
 `--confirm-cost` gate. Gate verdicts land in `experiment.gates` via
-`scripts/gates.py` (§8).
+`scripts/gates.py` (§8). Behavioral runs (3–4, 2026-07-21): a
+`train.stopping` block with `metric: format_validity` selects the
+behavioral mode — the launcher seeds `random.Random(prompt_seed)`,
+samples `n_prompts` val examples, takes their token-prefix prompts
+(`input_ids[:label_span.start]`, the G1 protocol), and builds the
+`behavioral_eval` closure from `geode.arith.greedy_completions` +
+`format_valid("Answer:" + completion)`; the manifest's
+`training.stopping` records `{metric, threshold, k, n_prompts,
+prompt_seed}` (spec 00 §2). The launcher also refuses `train.lr: null`
+upfront (the canonical run-3 config ships null until the installer
+sweep pins the winner — a placeholder-lr launch is a silent redo, the
+run-2 2026-07-21 incident class).
 
 **Runs 5–6 (LoRA target):** use `train_prequential` as-is — pre-update
 losses, gradstats (per-module grad norms already covered), full-model

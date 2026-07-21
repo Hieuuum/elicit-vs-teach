@@ -61,7 +61,9 @@ Required fields. Unknown extra fields are permitted and preserved.
     "eval_every": "int|null",
     "max_steps": "int|null",
     "stopping": {"eps_nats": "float|null", "k": "int|null",
-                  "min_steps": "int|null"},
+                  "min_steps": "int|null"}
+                | {"metric": "format_validity", "threshold": "float",
+                   "k": "int", "n_prompts": "int", "prompt_seed": "int"},
     "epochs_total": "int",
     "seed": "int"
   },
@@ -89,7 +91,9 @@ defaulting to `batch_size`). Fields are `|null` only where a training
 mode has no such concept (SGD has no `betas`; the prequential EDL loop
 has no held-out eval, step cap, or plateau stopping). Run-1 manifests
 written before this change were backfilled from their
-`training_meta.json`.
+`training_meta.json`. `stopping` is a union (2026-07-21): loss-stopped
+runs record the ε/k rule; the behavior-stopped format installers (runs
+3–4, spec 02 §6) record the in-loop format-validity rule instead.
 
 ## 3. Prequential log (`prequential.jsonl`)
 

@@ -21,7 +21,12 @@ from __future__ import annotations
 
 import pytest
 
-from geode.train.stopping import ConvergenceTracker, StoppingRule
+from geode.train.stopping import (
+    BehavioralStoppingRule,
+    BehaviorTracker,
+    ConvergenceTracker,
+    StoppingRule,
+)
 
 
 @pytest.mark.parametrize("k", [1, 2, 3, 5])
@@ -181,3 +186,49 @@ def test_stopping_latches_true_after_stop():
     # tracker must still report stopped.
     assert t.update(0.2) is True
     assert t.update(0.2) is True  # and keeps returning True after that
+
+
+# --- V5.44: behavioral stopping rule (runs 3-4, specs/02 §6) ---------------
+
+
+@pytest.mark.parametrize("k", [1, 2, 3])
+def test_v5_44_behavior_stops_on_kth_consecutive_hit(k):
+    # V5.44: the k-th consecutive eval >= threshold stops -- not before,
+    # exactly on the k-th. The threshold is INCLUSIVE (">= 99%").
+    t = BehaviorTracker(BehavioralStoppingRule(threshold=0.99, k=k))
+    assert t.update(0.5) is False  # miss: not counted
+    for _ in range(k - 1):
+        assert t.update(0.99) is False  # inclusive hit, still short of k
+    assert t.update(0.99) is True  # k-th consecutive hit -> stop
+
+
+def test_v5_44_miss_resets_consecutive_count():
+    # V5.44: a sub-threshold eval resets the run of hits; "consecutive"
+    # means consecutive.
+    t = BehaviorTracker(BehavioralStoppingRule(threshold=0.99, k=3))
+    assert t.update(1.0) is False  # hit 1
+    assert t.update(1.0) is False  # hit 2
+    assert t.update(0.98) is False  # miss: reset (0.98 < 0.99, exclusive miss)
+    assert t.hits == 0
+    assert t.update(1.0) is False  # hit 1 again
+    assert t.update(1.0) is False  # hit 2
+    assert t.update(1.0) is True  # hit 3 -> stop
+
+
+def test_v5_44_latches_and_tracks_best_rate():
+    # V5.44: latched after stop (mirrors ConvergenceTracker); best_rate is
+    # the exact running max over EVERY update, -inf before the first.
+    t = BehaviorTracker(BehavioralStoppingRule(threshold=0.99, k=1))
+    assert t.best_rate == float("-inf")
+    assert t.update(0.25) is False
+    assert t.best_rate == 0.25
+    assert t.update(1.0) is True  # k=1: first hit stops
+    assert t.update(0.0) is True  # latched despite a miss-value
+    assert t.best_rate == 1.0  # max unaffected by the post-stop miss
+
+
+def test_v5_44_nan_raises():
+    t = BehaviorTracker(BehavioralStoppingRule(threshold=0.99, k=2))
+    with pytest.raises(ValueError):
+        t.update(float("nan"))
+    assert t.update(1.0) is False  # tracker still usable

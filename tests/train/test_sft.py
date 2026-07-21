@@ -32,7 +32,7 @@ from geode.train.sft import (
     evaluate_sft_nll_nats,
     train_sft,
 )
-from geode.train.stopping import StoppingRule
+from geode.train.stopping import BehavioralStoppingRule, StoppingRule
 from tests.conftest import BOS_ID, TaskExample
 
 # Fixture vocab layout (tests/conftest.py): ids 0..3 are specials, 4..127 are
@@ -346,3 +346,98 @@ def test_v5_33_sft_converges_on_memorizable_answers(tiny_llama, tmp_path):
     assert result.min_val_nats == min(r["val_loss_nats"] for r in eval_recs)
     meta = json.loads((tmp_path / "training_meta.json").read_text())
     assert meta["min_val_nats"] == result.min_val_nats
+
+
+# --------------------------------------------------------------------------
+# V5.45 — behavioral stopping mode (runs 3-4, specs/02 §6)
+# --------------------------------------------------------------------------
+def _scripted_eval(rates):
+    """Callback returning ``rates`` in order, recording what it returned."""
+    calls: list[float] = []
+
+    def cb() -> float:
+        r = rates[len(calls)]
+        calls.append(r)
+        return r
+
+    cb.calls = calls
+    return cb
+
+
+def test_v5_45_behavioral_stop_at_kth_consecutive(tiny_llama, copy_token_task, tmp_path):
+    # V5.45: the run stops exactly at the eval completing the k-th
+    # CONSECUTIVE rate >= threshold (a mid-run miss resets), with
+    # stop_reason "behavior". Every eval logs BOTH val_loss_nats (the
+    # "for the record" loss) and format_valid_rate; best/min report the
+    # exact running min (no eps gate in this mode) and the meta echoes the
+    # behavioral rule.
+    model = tiny_llama(seed=1)
+    examples = copy_token_task(seed=0, n=20)
+    cb = _scripted_eval([0.0, 1.0, 1.0, 0.5, 1.0, 1.0, 1.0])
+    result = _train(
+        model,
+        examples[:16],
+        examples[16:],
+        tmp_path,
+        stopping=BehavioralStoppingRule(threshold=0.99, k=3),
+        behavioral_eval=cb,
+        eval_every=5,
+        max_steps=100,
+    )
+    assert result.stop_reason == "behavior"
+    assert result.final_step == 35  # the 7th eval ends the 3-hit run
+    assert len(cb.calls) == 7
+    evals = _read_jsonl(tmp_path / "eval_log.jsonl")
+    assert [e["format_valid_rate"] for e in evals] == cb.calls
+    assert all("val_loss_nats" in e for e in evals)
+    assert result.min_val_nats == min(e["val_loss_nats"] for e in evals)
+    assert result.best_val_nats == result.min_val_nats
+    meta = json.loads((tmp_path / "training_meta.json").read_text())
+    assert meta["config"]["stopping"] == {"threshold": 0.99, "k": 3}
+
+
+def test_v5_45_ceiling_exit_when_format_never_installs(tiny_llama, copy_token_task, tmp_path):
+    # V5.45: sub-threshold rates never stop the run — the loss tracker is
+    # deliberately not consulted in behavioral mode — so the run exits at
+    # the ceiling with stop_reason "max_steps" ("format never installed").
+    model = tiny_llama(seed=2)
+    examples = copy_token_task(seed=1, n=20)
+    cb = _scripted_eval([0.0] * 50)
+    result = _train(
+        model,
+        examples[:16],
+        examples[16:],
+        tmp_path,
+        stopping=BehavioralStoppingRule(threshold=0.99, k=3),
+        behavioral_eval=cb,
+        eval_every=5,
+        max_steps=40,
+    )
+    assert result.stop_reason == "max_steps"
+    assert result.final_step == 40
+    assert len(cb.calls) == 8  # evals at 5,10,...,40
+
+
+def test_v5_45_rule_and_callback_must_pair(tiny_llama, copy_token_task, tmp_path):
+    # V5.45: a BehavioralStoppingRule without its callback (or the callback
+    # with a loss rule) raises upfront, before any disk write.
+    model = tiny_llama(seed=3)
+    examples = copy_token_task(seed=2, n=8)
+    with pytest.raises(ValueError):
+        _train(
+            model,
+            examples[:4],
+            examples[4:],
+            tmp_path / "a",
+            stopping=BehavioralStoppingRule(threshold=0.99, k=1),
+        )
+    with pytest.raises(ValueError):
+        _train(
+            model,
+            examples[:4],
+            examples[4:],
+            tmp_path / "b",
+            behavioral_eval=lambda: 1.0,
+        )
+    assert not (tmp_path / "a").exists()
+    assert not (tmp_path / "b").exists()

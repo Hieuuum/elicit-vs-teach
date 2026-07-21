@@ -1,0 +1,10 @@
+# Run-3 installer LR sweep arm: a full behavioral run (stops itself at the
+# in-loop G4 rule or the 2-epoch ceiling; worst case ~$0.03/arm). Grid
+# mirrors the run-2 re-sweep bracketing the spec's ~1e-4 full-FT starting
+# point. Winner criterion: installs the format (stop_reason=behavior) with
+# arithmetic intact (gates.py g2 >= 0.95); owner pins run3_inst.yaml
+# train.lr from the winner.
+# Launch: train_sft.py --config configs/run3_inst.yaml --override this file.
+run_id: evt-run3-sweep-lr1e-4
+train:
+  lr: 1.0e-4

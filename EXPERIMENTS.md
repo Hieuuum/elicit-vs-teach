@@ -122,9 +122,12 @@ Built so far: `geode.edl`, `geode.train` (full FT + SFT), `geode.zoo`,
    relaunch, G1 (`docs/run2-guide.md`; ≤ ~$0.35). Hard stop if no sweep
    arm reaches 0.95 accuracy.
 2. **Runs 3–4** — behavior-matched stopping (OPEN(1) closed
-   2026-07-21, spec 02 §6): in-loop format-validity eval in the SFT
-   trainer (new, property-tested) + installer LR sweep; configs +
-   `gates.py` g2–g5; both runs are `train_sft.py` launches with the
+   2026-07-21, spec 02 §6). Tooling landed 2026-07-21: in-loop
+   format-validity eval in the SFT trainer (V5.44–V5.46, decode helper
+   promoted to `geode.arith.decode`), `run3_inst.yaml` (lr null until
+   pinned) + 4 sweep overlays. Remaining: installer LR sweep on the
+   box, owner pins `train.lr`, canonical run 3, `gates.py` g2–g5,
+   run-4 config; both runs are `train_sft.py` launches with the
    op-notation task format.
 3. **`geode.probe`** + `scripts/extract.py` (V5.8–V5.12): snapshot
    schedule, offline probe pass (activations + activation-gradients at

@@ -789,3 +789,32 @@ G1 bar (entry above); in-loop format-validity eval tooling lands with
 the run-3 task. The backfilled v2/v2-ext/v3 manifests were
 re-pushed to the HF relay from the laptop 2026-07-21 — closed.
 Dataset items: none.
+
+## 2026-07-21 — run-3 tooling landed: in-loop G4 stop, decode promotion, sweep configs
+
+- **Behavioral stop implemented per the ratified rule (entry above):**
+  `BehavioralStoppingRule`/`BehaviorTracker` (V5.44) and `train_sft`'s
+  behavioral mode (V5.45 — val loss still logged every eval;
+  `stop_reason="behavior"`; loss plateau never consulted; unpaired
+  rule/callback raises upfront). `greedy_completions` promoted
+  `gates.py` → `geode.arith.decode` (V5.46) — the same decode now backs
+  G1/G2 and the installers' in-loop eval, per the promotion rule.
+  Specs 00 (manifest `training.stopping` union) + 02 (§6.1/§6.2,
+  V5.44–46) edited this commit.
+- **Launcher refuses `train.lr: null`** — `run3_inst.yaml` ships lr null
+  until the sweep pins the winner, so a canonical launch before the pin
+  fails fast instead of training a placeholder (the run-2 pre-pull
+  launch incident class).
+- **Run-3 configs:** parent `evt-run2-armA-algo` with
+  `parent_required_gates: [G1]`; task `arith_op_mult`; `D_inst`
+  order_hash pinned from the frozen report; ceiling 15,546 steps
+  (2 epochs, drop-last); stopping frozen `{format_validity ≥ 0.99, k=3,
+  512 prompts, prompt_seed 316, eval_every 250}`; data/batch seed 316 —
+  run 4 must copy seed/val_fraction verbatim for the identical-stream
+  guarantee.
+- **Installer sweep grid (implementer default, owner ratifies by
+  launching):** mirrors the run-2 re-sweep — 3e-5 / 1e-4 / 3e-4 / 1e-3,
+  full behavioral arms (each stops itself; worst case ~$0.03/arm).
+  Winner criterion: installs the format (`stop_reason=behavior`) with
+  arithmetic intact (g2 ≥ 0.95 once `gates.py g2` lands); owner pins
+  `run3_inst.yaml` `train.lr`.
