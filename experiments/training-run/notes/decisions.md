@@ -541,12 +541,43 @@ Small decisions (delegated):
   `hf_id:file`. v2 + v2-ext manifests **backfilled** from their
   `training_meta.json` and re-validated (HF relay re-push pending).
 
+## 2026-07-21 — v3 hit the ceiling still descending; extension v3-ext (owner)
+
+- **v3 outcome:** `stop_reason=max_steps` at 30,000 (2:35:21 on the
+  4090), eps-gated best 1.1042, **min val 1.1020 nats** — already below
+  v2-ext's 1.1066. The eval trajectory is monotone through all 30
+  evals, still descending ~2.5–3.0 mnat/1k at the end; the eps/k rule
+  fires below ~1.7 mnat/1k (eps/k per eval), so the budget ceiling
+  arrived before convergence. Recipe on-protocol, budget too small.
+- **Samples (ungated inspection, seed 316 / temp 0.8 / n 20):** zero
+  repetition loops (v1's failure mode gone), grammar and dialogue
+  near-perfect, ~17–18/20 coherent under the old G0 rubric; residual
+  failures are single-phrase semantic slips and two mid-plot logic
+  breaks. Archived at `.../evt-run1-base-v3/pretrain/model/floor1_samples.txt`.
+- **Decision: continue, don't ship.** `evt-run1-base-v3-ext`
+  (`configs/run1_extend.yaml` repointed): warm start from the v3
+  checkpoint (`--init-from`, params only), **identical recipe** — every
+  hyperparameter inherits from `run1_pretrain.yaml`, so v3 + v3-ext is
+  the paper's run with a bigger budget, not a new recipe (contrast
+  v2-ext, which changed the LR). Ceiling 20,000 (~$0.7): the firing
+  threshold extrapolates to ~8–12k more steps at the observed rate
+  decay.
+- **Warm-start caveat:** AdamW moments reset at constant 1e-3; a
+  transient in the first evals is expected and absorbed by best-from-inf
+  tracking. Completion sanity check: `min_val_nats` < 1.1020 required;
+  "converged" within the first ~3 evals above that = the transient
+  plateauing, not convergence — investigate.
+- **Run-2 parent re-pinned** to `evt-run1-base-v3-ext`. Trap recorded:
+  v3's manifest reads `status: complete` (clean exit at the ceiling),
+  so the V0.6 launcher would NOT have refused the unconverged v3 — the
+  pin itself is what enforces "floor 1 = the run that converged".
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
-at the runs 2–6 pilots. Run-1 items: launch `evt-run1-base-v3`
-(constant-LR paper-protocol retrain, entries above); no gate follows —
-convergence itself closes run 1. Run-2 items: blocked on v3 complete
+at the runs 2–6 pilots. Run-1 items: launch `evt-run1-base-v3-ext`
+(v3 continuation, entry above); no gate follows — convergence itself
+closes run 1. Run-2 items: blocked on v3-ext complete
 (parent already re-pinned), then LR sweep on the next box, owner pins
 `train.lr`, and the canonical `evt-run2-armA-algo` launches. Also
 pending: re-push backfilled v2/v2-ext manifests to the HF relay.

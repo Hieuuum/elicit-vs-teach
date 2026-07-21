@@ -2,9 +2,13 @@
 # Full FT from the run-1 floor-1 checkpoint via scripts/train_sft.py.
 #
 # BEFORE LAUNCH (owner):
-#   1. evt-run1-base-v3 (constant-LR paper-protocol retrain, 2026-07-20;
-#      replaces v2-ext as floor 1) must be complete — the launcher refuses
-#      until its manifest says status: complete (V0.6).
+#   1. evt-run1-base-v3-ext (2026-07-21: v3 hit its 30k ceiling still
+#      descending — stop_reason=max_steps, min val 1.1020 — so floor 1 is
+#      the extension's convergence point) must be complete — the launcher
+#      refuses until its manifest says status: complete (V0.6). NOTE: v3
+#      itself is status: complete despite not converging (it exited
+#      cleanly at the ceiling), so pinning v3 here would NOT be caught by
+#      the launcher — the pin must stay on the run that converged.
 #   2. Pin train.lr from the run-2 LR sweep (decisions.md 2026-07-20:
 #      full-length sweep overlays in configs/pilot/run2_sweep_lr*.yaml,
 #      then this canonical run re-launches the winner's exact config).
@@ -13,7 +17,7 @@ experiment:
   name: training-run
   arm: A
   role: pre_teach
-  parent_run_id: evt-run1-base-v3  # floor 1 (constant-LR retrain, 2026-07-20)
+  parent_run_id: evt-run1-base-v3-ext  # floor 1 (v3 continuation, 2026-07-21)
   parent_required_gates: []  # G0 removed 2026-07-20 (spec 02 §8); launcher
                              # still requires parent status: complete (V0.6)
 

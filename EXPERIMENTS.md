@@ -23,7 +23,7 @@ spec 02 §13).
 
 | # | run_id | Role | Init | Method | Data | Status |
 |---|---|---|---|---|---|---|
-| 1 | `evt-run1-base-v3` | pretrain (floor 1) | random | full FT | TinyStories-v2 | **NEXT — retrain queued** (constant-LR paper protocol, 2026-07-20) |
+| 1 | `evt-run1-base-v3-ext` | pretrain (floor 1) | v3 @ 30k | full FT | TinyStories-v2 | **NEXT — extension queued** (v3 hit its 30k ceiling still descending; same recipe to convergence, 2026-07-21) |
 | 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | blocked on run 1, then LR sweep → canonical; `docs/run2-guide.md` |
 | 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), count OPEN(1) | todo |
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` slice + count as run 3 | todo |
@@ -40,13 +40,17 @@ named in the config's `parent_required_gates` are recorded.
 `mhieuuu/geode-store`): `evt-run1-base` (constant LR 1e-3, min val
 1.1464) → `evt-run1-base-v2` (cosine 1e-3→1e-4, fixed 17k horizon, min
 val 1.1125) → `evt-run1-base-v2-ext` (warm start, constant 1e-4,
-converged at step 4k, min val 1.1066) → **`evt-run1-base-v3` (queued
-2026-07-20): from-scratch retrain under the paper's exact recipe —
+converged at step 4k, min val 1.1066) → `evt-run1-base-v3` (completed
+2026-07-21): from-scratch retrain under the paper's exact recipe —
 constant LR 1e-3, stop on validation-loss convergence (ε 0.005 / k 3 /
-eval_every 1000), 30k-step cost ceiling. v2's cosine schedule was
-off-protocol; v3 replaces v2-ext as floor 1 and children init from its
-checkpoint.** Compare runs via `min_val_nats` — manifest
-`best_val_nats` is ε-gated by the stopping rule and reads stale.
+eval_every 1000). Hit the 30k-step cost ceiling still descending
+(`stop_reason=max_steps`, min val 1.1020, ~2.5–3.0 mnat/1k in the tail;
+samples clean, no repetition loops) → **`evt-run1-base-v3-ext` (queued
+2026-07-21): warm start from the v3 checkpoint, IDENTICAL recipe
+(`configs/run1_extend.yaml`), 20k-step ceiling — floor 1 is this run's
+convergence point, and children init from its checkpoint.** Compare
+runs via `min_val_nats` — manifest `best_val_nats` is ε-gated by the
+stopping rule and reads stale.
 
 The model: custom ~38.7M-param Llama-style arch (hidden 512, 8 layers,
 MHA, tied embeddings) with a frozen 10K byte-level BPE tokenizer
