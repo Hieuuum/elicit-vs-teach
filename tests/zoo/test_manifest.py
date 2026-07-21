@@ -391,6 +391,67 @@ def test_valid_enum_values_accepted(tmp_path: Path, field: str, value: str) -> N
 
 
 # ---------------------------------------------------------------------------
+# V0.7 — training.stopping union (2026-07-21): "metric" present selects the
+# behavioral schema; neither branch demands the other's fields
+# ---------------------------------------------------------------------------
+
+
+def make_behavioral_stopping() -> dict:
+    """The exact stopping shape train_sft.py records for the format installers."""
+    return {
+        "metric": "format_validity",
+        "threshold": 0.99,
+        "k": 3,
+        "n_prompts": 512,
+        "prompt_seed": 316,
+    }
+
+
+def test_behavioral_stopping_validates_without_loss_fields(tmp_path: Path) -> None:
+    """V0.7: the behavioral branch must not be asked for eps_nats/min_steps.
+
+    Regression: the run-3 sweep launch (2026-07-21) died at register_run with
+    "missing required field 'training.stopping.eps_nats'" because the
+    validator predated the union.
+    """
+    fields = make_manifest()
+    fields["training"]["stopping"] = make_behavioral_stopping()
+    _load_and_validate(tmp_path, fields)  # must not raise
+
+
+@pytest.mark.parametrize("field", ["metric", "threshold", "k", "n_prompts", "prompt_seed"])
+def test_behavioral_stopping_fields_required_and_non_null(tmp_path: Path, field: str) -> None:
+    """V0.7 + OQ-3 on the behavioral branch: every field required, none nullable.
+
+    (Deleting "metric" flips the union to the loss branch, so the named
+    missing field is eps_nats there — still a rejection naming the path.)
+    """
+    fields = make_manifest()
+    fields["training"]["stopping"] = make_behavioral_stopping()
+    _delete_field(fields, f"training.stopping.{field}")
+    with pytest.raises(ManifestError) as excinfo:
+        _load_and_validate(tmp_path, fields)
+    assert "training.stopping." in str(excinfo.value)
+
+    fields = make_manifest()
+    fields["training"]["stopping"] = make_behavioral_stopping()
+    _set_field(fields, f"training.stopping.{field}", None)
+    with pytest.raises(ManifestError) as excinfo:
+        _load_and_validate(tmp_path, fields)
+    assert f"training.stopping.{field}" in str(excinfo.value)
+
+
+def test_behavioral_stopping_unknown_metric_rejected(tmp_path: Path) -> None:
+    """V0.7: "metric" is a closed enum — only "format_validity" exists."""
+    fields = make_manifest()
+    fields["training"]["stopping"] = make_behavioral_stopping()
+    fields["training"]["stopping"]["metric"] = "accuracy"
+    with pytest.raises(ManifestError) as excinfo:
+        _load_and_validate(tmp_path, fields)
+    assert "training.stopping.metric" in str(excinfo.value)
+
+
+# ---------------------------------------------------------------------------
 # V0.2 — round-trip preserves the manifest exactly, unknown fields included
 # ---------------------------------------------------------------------------
 

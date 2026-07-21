@@ -212,3 +212,7 @@ not a contract.
   `status` is not `"complete"`, any recorded `experiment.gates` entry lacks
   `pass: true`, or a caller-required gate has no recorded verdict. Gate
   records are objects with at least a boolean `pass` field.
+- **V0.7** `training.stopping` union (2026-07-21): an object with `metric`
+  present validates against the behavioral field set only; one without it
+  validates against the loss ε/k field set only. Neither branch demands the
+  other's fields.
