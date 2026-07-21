@@ -3,14 +3,12 @@
 # v3 hit its 30k-step cost ceiling with stop_reason=max_steps (min val
 # 1.1020 nats) while still descending at ~2.5-3.0 millinats per 1k steps
 # — monotone through all 30 evals, no flattening. The eps/k rule fires
-# only when descent drops below ~eps/k per eval (~1.7 mnat/1k), so the
-# ceiling arrived before convergence; the recipe itself is on-protocol.
-# This overlay warm-starts from the v3 checkpoint via --init-from (params
-# only — AdamW moments do NOT carry over) and continues under the
-# IDENTICAL recipe — constant lr 1e-3, eval_every 1000, stopping eps
-# 0.005 / k 3 all inherit from run1_pretrain.yaml — so the combined
-# v3 + v3-ext trajectory is the paper's run with a bigger budget, not a
-# new recipe.
+# only when descent drops below eps/k per eval, so the ceiling arrived
+# before convergence; the recipe itself is on-protocol. This overlay
+# warm-starts from the v3 checkpoint via --init-from (params only —
+# AdamW moments do NOT carry over) and continues under the identical
+# optimizer recipe (constant lr 1e-3, eval_every 1000 inherit from
+# run1_pretrain.yaml) with a TIGHTENED convergence rule (below).
 #
 # Owner policy (2026-07-21): training runs END ON CONVERGENCE, not on a
 # step budget. max_steps here is an ETA/estimate bound (~10 epochs), not
@@ -19,7 +17,9 @@
 #
 # Sanity check on completion: min_val_nats must land BELOW v3's 1.1020.
 #
-# Launch (on the box, from experiments/training-run/scripts):
+# Launch (on the box, from experiments/training-run/scripts; pull the
+# v3 checkpoint from the HF relay first if the store is empty):
+#   python hf_checkpoint.py pull --run-id evt-run1-base-v3
 #   python train.py --config ../configs/run1_pretrain.yaml \
 #     --override ../configs/run1_extend.yaml \
 #     --packed-cache $HOME/packed_full.pt \
@@ -33,19 +33,29 @@ train:
   max_steps: 81000      # ~10 epochs (8,123 steps/epoch @ batch 128) — ETA
                         # bound for the cost estimate, NOT a budget stop
                         # (owner 2026-07-21). Worst case ~7 h / ~$2.8 on a
-                        # 4090; expected convergence ~8-12k steps at the
-                        # observed rate decay (v3 tail ~4.5 -> ~2.6 mnat/1k
-                        # over 10k steps; rule fires < ~1.7).
+                        # 4090; the 0.4 mnat/1k firing threshold below
+                        # extrapolates to ~20-35k ext steps (~$0.7-1.1) at
+                        # v3's observed rate decay (~4.5 -> ~2.6 mnat/1k
+                        # over its last 10k steps).
   stopping:
+    eps_nats: 0.002     # owner 2026-07-21 (supersedes "eps/k untouched"
+    k: 5                # earlier same day): tightened from the inherited
+                        # 0.005/3. Fires when 5 consecutive evals each fail
+                        # to beat the gated best by >2 mnat — abandons
+                        # descent slower than eps/k = 0.4 mnat/1k steps
+                        # (~$0.075/mnat at ~$0.03 per 1k steps), vs 1.7
+                        # under the run-1 default. Safe vs noise: the val
+                        # set is fixed, and v3's curve was monotone through
+                        # all 30 evals (noise << 2 mnat). Simulated on v3's
+                        # log: max stale run 1/5 (vs 2/3 old) — both rules
+                        # agree v3 wasn't converged.
     min_steps: 5000     # grace (V5.42): --init-from resets AdamW moments,
                         # so the first evals ride a warm-start transient.
                         # Evals before step 5000 update min_val_nats only —
                         # they can't trip the plateau rule or plant a
                         # transient best. Moments re-estimate in ~3k steps
                         # (beta2 0.999); 5k adds margin. Earliest possible
-                        # stop = step 8000 (first counted eval + k*1000).
-    # eps_nats / k inherit from run1_pretrain.yaml — same convergence
-    # definition as v3 and v2-ext.
+                        # stop = step 10000 (first counted eval + k*1000).
 
 cost:
   assumed_epochs_for_estimate: 10  # confirm gate quotes the full 81k-step

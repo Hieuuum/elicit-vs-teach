@@ -112,14 +112,27 @@ keep the box, paste the eval log to Claude.
 (min val 1.1020, ~2.5–3.0 mnat/1k in the tail — the rule fires below
 ~1.7). The recipe is on-protocol; only the budget was too small.
 `evt-run1-base-v3-ext` continues it: warm start from the v3 checkpoint,
-**identical recipe** (everything inherits from `run1_pretrain.yaml`),
-and it **runs until the convergence rule fires** — `max_steps` 81,000
-(~10 epochs) is only the ETA/estimate bound, and the confirm gate
-quotes that worst case, not the expected spend. A 5,000-step stopping
-grace (`stopping.min_steps`) keeps the warm-start transient (AdamW
-moments don't carry over) from tripping or distorting the plateau rule;
-the earliest possible stop is step 8,000. On the box, `git pull` first
-(the overlay + re-pins landed after launch day), then:
+identical optimizer recipe (lr/eval cadence inherit from
+`run1_pretrain.yaml`) with a **tightened convergence rule** (owner
+2026-07-21): ε 2 mnat / k 5 — stop only when five consecutive evals
+each fail to beat the best by >2 mnat, i.e. abandon descent slower
+than 0.4 mnat/1k steps (the run-1 default 0.005/3 quits at 1.7). It
+**runs until that rule fires** — `max_steps` 81,000 (~10 epochs) is
+only the ETA/estimate bound, and the confirm gate quotes that worst
+case (~$2.8), not the expected spend (~$0.7–1.1). A 5,000-step
+stopping grace (`stopping.min_steps`) keeps the warm-start transient
+(AdamW moments don't carry over) from tripping or distorting the
+plateau rule; the earliest possible stop is step 10,000.
+
+On a **fresh box**, run Phase 0 + Phase 2 first, then pull the v3
+checkpoint from the relay (the `--init-from` path below needs it):
+
+```bash
+python hf_checkpoint.py pull --run-id evt-run1-base-v3
+```
+
+On the original box, just `git pull` (the overlay + re-pins landed
+after launch day). Then:
 
 ```bash
 python train.py --config ../configs/run1_pretrain.yaml \
@@ -137,10 +150,11 @@ signal: keep the box, talk to Claude. Floor 1 = this run's checkpoint
 
 ## Phase 4 — push to the HF relay (~10 min)
 
-Already logged in from Phase 2:
+Already logged in from Phase 2 (v3 itself is already on the relay —
+don't re-push it from the box, its `min_steps`-backfilled manifest
+lives on the laptop):
 
 ```bash
-python hf_checkpoint.py push --run-id evt-run1-base-v3
 python hf_checkpoint.py push --run-id evt-run1-base-v3-ext
 ```
 

@@ -595,10 +595,21 @@ Small decisions (delegated):
   in the first ~3 evals = transient" caveat** — the tracker now simply
   cannot fire before `min_steps + k*eval_every`.
 - **v3-ext config:** `max_steps` 81,000 (~10 epochs, worst case ~7 h /
-  ~$2.8 — owner accepts; expected convergence unchanged at ~8–12k),
-  `stopping.min_steps` 5000 (moments re-estimate in ~3k steps at β2
-  0.999; 5k adds margin; earliest possible stop step 8000). eps/k
-  untouched — same convergence definition as v3/v2-ext.
+  ~$2.8 — owner accepts), `stopping.min_steps` 5000 (moments
+  re-estimate in ~3k steps at β2 0.999; 5k adds margin).
+- **Convergence rule tightened for v3-ext (owner, same day — supersedes
+  the "eps/k untouched" clause above): ε 2 mnat / k 5.** Fires when 5
+  consecutive evals each fail to beat the gated best by >2 mnat ⇒
+  abandons steady descent slower than ε/k = 0.4 mnat/1k steps (the
+  0.005/3 default quits at 1.7 — v3 showed that leaves cheap millinats
+  on the table at ~$0.03 per 1k steps). Noise-safe: fixed val set, v3's
+  curve monotone through all 30 evals ⇒ noise ≪ 2 mnat. Simulated on
+  v3's eval log: max stale run 1/5 (old rule 2/3) — both rules agree v3
+  had not converged. Comparability across the run-1 family is by
+  `min_val_nats`, which the stopping rule does not gate; the rule only
+  decides when to stop buying. Expected fire ~20–35k ext steps
+  (~$0.7–1.1) at v3's observed rate decay; earliest possible stop =
+  step 10,000 (grace + k·eval_every).
 - **Manifests:** v2, v2-ext, v3 backfilled locally with
   `stopping.min_steps: 0` (schema requires the key); the pending HF
   manifest re-push now covers v3 as well as v2/v2-ext.
@@ -611,6 +622,7 @@ at the runs 2–6 pilots. Run-1 items: launch `evt-run1-base-v3-ext`
 closes run 1. Run-2 items: blocked on v3-ext complete
 (parent already re-pinned), then LR sweep on the next box, owner pins
 `train.lr`, and the canonical `evt-run2-armA-algo` launches. Also
-pending: re-push backfilled v2/v2-ext manifests to the HF relay (v3's
-manifest re-push rides along with the Phase 4 v3/v3-ext push).
+pending: re-push backfilled v2/v2-ext/v3 manifests to the HF relay
+**from the laptop** (the backfilled copies live only there; a box push
+of v3 would upload the pre-backfill manifest it pulled).
 Dataset items: none.
