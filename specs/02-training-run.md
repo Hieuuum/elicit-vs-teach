@@ -44,7 +44,7 @@ capacity thresholds) are void — the pilot re-establishes them (§11).
 | # | run_id (proposed)      | Role            | Init      | Method  | Data |
 |---|------------------------|-----------------|-----------|---------|------|
 | 1 | `evt-run1-base`        | pretrain        | random    | full FT | TinyStories-v2 (~2.6M stories), custom small arch (2026-07-18) |
-| 2 | `evt-run2-armA-algo`   | pre-teach       | run 1     | full FT | NL add/sub, correct labels, 1M unique, 1 epoch |
+| 2 | `evt-run2-armA-algo`   | pre-teach       | run 1     | full FT | NL add/sub, correct labels, 1M unique, to convergence |
 | 3 | `evt-run3-armA-inst`   | format install  | run 2     | full FT | operator-notation mult, random labels, OPEN(1) count |
 | 4 | `evt-run4-armB-inst`   | format install  | run 1     | full FT | identical dataset + count as run 3 |
 | 5 | `evt-run5-armA-target` | target          | run 3     | LoRA    | operator-notation add/sub, OPEN(2) count |
@@ -232,9 +232,22 @@ the 2026-07-18 downscale):
   ~24 MB/adapter bf16.
 - Loss on label tokens only, identical masking train/test (masking hash
   guard from spec 00 §5 applies as usual).
-- Stopping (runs 1–4): validation-loss convergence with ε=0.005 nats,
-  k=3 (OPEN(3) closed 2026-07-19 from the run-1 LR sweep — §12; runs 2–4
-  inherit, revisit only if their val curves misbehave).
+- Stopping (runs 1–4): validation-loss convergence with **ε=0.002 nats,
+  k=5, min_steps=5000 grace (V5.42), eval_every 1000** — one canonical
+  rule for every training run (owner 2026-07-21; supersedes the 0.005/3
+  close of OPEN(3) after v3 hit its ceiling still descending at
+  2.5–3.0 mnat/1k — 0.005/3 abandons descent below 1.7, the new rule
+  holds on until 0.4). Runs already executed keep the rule their
+  manifest records. Every run trains until the rule fires; `max_steps`
+  is a generous cost ceiling (~10 epochs), never a planned stop —
+  `stop_reason="max_steps"` means "did not converge": investigate,
+  don't ship. This matches the paper: it also trains to convergence,
+  and its "1 epoch" figure (formerly echoed in the §1 row-2 cell and
+  misread as a training cap) is **information accounting** — bits per
+  example are counted on first exposure (first epoch) only, so
+  multi-epoch training changes no measured quantity. Target runs 5–6
+  are the EDL measurement itself — their training schedule is part of
+  the metric and stays with OPEN(2)/OPEN(4).
 
 **Runs 1–4 (full FT):** need a small full-FT trainer with validation-loss
 stopping; snapshots = final checkpoint only (plus the base). **Decided

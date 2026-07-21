@@ -111,8 +111,11 @@ train:
                                     # curve was monotone through all 30 evals.
     eps_nats: 0.002
     k: 5
-    min_steps: 0                    # no grace from scratch; warm starts set
-                                    # this (run1_extend.yaml, V5.42)
+    min_steps: 5000                 # one canonical rule for every training
+                                    # run (owner 2026-07-21, spec 02 §6);
+                                    # inert from scratch — descent through
+                                    # step 5k is far steeper than eps (V5.42
+                                    # grace still tracks min_nats)
   precision: bf16
   seed: 316
   epochs_total_planned: 4           # manifest metadata: 30000-step ceiling

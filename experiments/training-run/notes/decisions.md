@@ -633,15 +633,47 @@ Small decisions (delegated):
   at v3's ~3.2 steps/s; file reads are free). Exits when the manifest
   leaves `running`; `--once` for a snapshot.
 
+## 2026-07-21 — one canonical convergence rule for ALL training runs (owner)
+
+- **Owner directive: from now on every training run uses ε 2 mnat /
+  k 5 / min_steps 5000 / eval_every 1000, and trains until the rule
+  fires.** Spec 02 §6 stopping bullet rewritten in the same commit
+  (supersedes the 0.005/3 close of OPEN(3)); `run1_pretrain.yaml`
+  `min_steps` 0 → 5000 (inert from scratch — descent through step 5k is
+  far steeper than ε — but makes the rule literally identical
+  everywhere); `run2_algo.yaml`: `eval_every` 500 → 1000, stopping
+  0.005/3 → canonical, `max_steps` 7,773 → 77,730 (10-epoch ceiling),
+  `assumed_epochs_for_estimate` 1 → 10 so the confirm gate quotes the
+  ceiling. Sweep overlays inherit (they only set run_id + lr). Earliest
+  possible run-2 stop: step 10,000 ≈ 1.3 epochs.
+- **Run 2's "1 epoch" was a misreading (owner clarification,
+  2026-07-21):** the paper *also* trains to convergence; its "1 epoch"
+  is **information accounting** — bits per example are counted on first
+  exposure (first epoch) only — not a training-duration cap. So
+  convergence stopping *restores* the paper protocol rather than
+  departing from it. Recorded in spec 02 §6; §1 row 2 now reads "to
+  convergence". Multi-epoch training changes no measured quantity.
+- **Ceiling retained (deliberately, as a pure backstop):** the plateau
+  rule can pathologically never fire (an unstable LR whose val
+  oscillations keep clearing ε, or an indefinitely slow descent above
+  0.4 mnat/1k), and an uncapped unattended run turns that failure mode
+  into an open-ended bill discovered by invoice. The `--confirm-cost`
+  gate also needs a bounded worst case to quote — with `max_steps:
+  null` (which both trainers do support) the estimate is a guess, not a
+  bound, violating the budget rule's spirit. Ceilings stay ~10 epochs;
+  `stop_reason` distinguishes backstop from convergence.
+- **Scope: runs 1–4.** Target runs 5–6 are the EDL measurement itself —
+  their training schedule is part of the metric and closes with
+  OPEN(2)/OPEN(4), not this policy.
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
-at the runs 2–6 pilots. Run-1 items: launch `evt-run1-base-v3-ext`
-(v3 continuation, entry above); no gate follows — convergence itself
-closes run 1. Run-2 items: blocked on v3-ext complete
-(parent already re-pinned), then LR sweep on the next box, owner pins
-`train.lr`, and the canonical `evt-run2-armA-algo` launches. Also
-pending: re-push backfilled v2/v2-ext/v3 manifests to the HF relay
-**from the laptop** (the backfilled copies live only there; a box push
-of v3 would upload the pre-backfill manifest it pulled).
-Dataset items: none.
+at the runs 2–6 pilots. Run-1 items: `evt-run1-base-v3-ext` RUNNING on
+the box (launched 2026-07-21); no gate follows — convergence itself
+closes run 1. Run-2 items: blocked on v3-ext complete (parent pinned;
+guide re-pointed at v3-ext, fb7fca0; canonical rule + 10-epoch ceiling
+landed, entry above), then LR sweep on the next box, owner pins
+`train.lr`, and the canonical `evt-run2-armA-algo` launches. The
+backfilled v2/v2-ext/v3 manifests were re-pushed to the HF relay from
+the laptop 2026-07-21 — closed. Dataset items: none.

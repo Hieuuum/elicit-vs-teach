@@ -18,12 +18,19 @@ warm-starting from v3 by mistake would NOT be caught by the launcher.
 Run 2 is *much* lighter than run 1: no TinyStories download, no corpus
 packing. The data is the frozen `D_algo.parquet` (1M NL add/sub rows,
 public HF repo), tokenization is ~1–2 min, and one epoch is 7,773 steps
-of 33-token rows through the 38.7M model.
+of 33-token rows through the 38.7M model. Every run **trains to
+convergence** under the canonical rule (ε 2 mnat / k 5 / grace 5,000 /
+eval_every 1000 — owner 2026-07-21, spec 02 §6): earliest possible stop
+is step 10,000 (~1.3 epochs), and `max_steps` 77,730 (10 epochs) is a
+pure cost ceiling, never a planned stop. (The paper also trains to
+convergence — its "1 epoch" is information accounting, bits counted on
+first exposure only, not a training cap.)
 
-Cost picture: 4 sweep arms ≈ $0.25 total + canonical ≈ $0.06 + G1 evals
-≈ pennies. **Total ≤ ~$0.35 GPU**; wall clock well under 2 h including
-setup. The tmux survival kit and ntfy phone-ping setup from
-`docs/run1-guide.md` apply unchanged.
+Cost picture: expected ≈ $0.5–1 for the sweep + ≈ $0.15–0.3 canonical +
+G1 evals ≈ pennies; the confirm gate quotes the 10-epoch **ceiling**
+(~$0.6/run, ~$3 if every run rode it — not the expectation). Wall clock
+expected ~1.5–3 h including setup. The tmux survival kit and ntfy
+phone-ping setup from `docs/run1-guide.md` apply unchanged.
 
 ---
 
@@ -108,11 +115,11 @@ tokens/example` → `loading init checkpoint` → `parent
 
 ---
 
-## Phase 3 — the sweep: 4 full-length arms (~30–60 min, ≈ $0.25)
+## Phase 3 — the sweep: 4 full-length arms (expected ~1–2 h, ≈ $0.5–1)
 
-Each arm is a *complete* candidate run — 1 epoch, ε/k stopping live —
-not a short pilot (decisions.md 2026-07-20: short-horizon extrapolation
-is what misled run 1). Sequential is fine at these sizes:
+Each arm is a *complete* candidate run — to convergence, ε/k stopping
+live — not a short pilot (decisions.md 2026-07-20: short-horizon
+extrapolation is what misled run 1). Sequential is fine at these sizes:
 
 ```bash
 for lr in 3e-5 1e-4 3e-4 1e-3; do
@@ -126,12 +133,14 @@ done ; curl -d "run-2 sweep done (exit $?)" ntfy.sh/<your-topic>
 Watch from a second tmux window (re-export `GEODE_STORE` there):
 
 ```bash
-tail -f $GEODE_STORE/runs/evt-run2-sweep-lr1e-4/sft/eval_log.jsonl
+python monitor.py --run-id evt-run2-sweep-lr1e-4   # or tail eval_log.jsonl
 ```
 
-One line per 500 steps. Each arm ends on its own (`converged` or
-`max_steps` at 7,773 — either is fine for a sweep arm) and writes
-`min_val_nats` into its manifest.
+One eval line per 1,000 steps (grace until 5,000, then `patience n/5`).
+Each arm should end `stop_reason=converged` and write `min_val_nats`
+into its manifest; an arm that rides the 77,730-step ceiling did not
+converge — that usually just rules its LR out, but flag it in the
+outcome report rather than shipping it.
 
 ✅ Done when: four manifests under `$GEODE_STORE/runs/evt-run2-sweep-*/`
 say `"status": "complete"`.
@@ -167,7 +176,7 @@ parents; exit 1 on a FAIL arm is expected, the loop continues).
 
 ---
 
-## Phase 5 — pin the LR, launch canonical (~10–20 min, ≈ $0.06)
+## Phase 5 — pin the LR, launch canonical (expected ~20–40 min, ≈ $0.15–0.3)
 
 Pin from the **laptop** so the manifest's `git_commit` stays honest
 (a dirty on-box edit would be invisible in provenance):
