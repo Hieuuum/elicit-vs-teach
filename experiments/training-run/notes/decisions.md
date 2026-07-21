@@ -666,14 +666,54 @@ Small decisions (delegated):
   their training schedule is part of the metric and closes with
   OPEN(2)/OPEN(4), not this policy.
 
+## 2026-07-21 — installers stop on behavior, not loss (owner); run-2 ceiling 15 epochs at pin
+
+- **Runs 3–4 stopping ratified (owner): behavior-matched.** Each arm
+  stops at the 3rd consecutive in-loop format-validity eval ≥99% (the
+  G4 metric: greedy decode, 512 held-out operator-notation prompts,
+  eval every 250 steps); both arms stream the identical frozen
+  `D_inst` in the identical order, so the earlier stop's exposure is a
+  strict prefix of the other's. Per-arm step counts are emergent,
+  recorded per-manifest — **closes OPEN(1)**; the count-finding pilot
+  disappears (an installer LR sweep remains). Why not the canonical
+  ε/k rule: random labels floor the val loss near ln 10 per answer
+  digit, and the rule's slow tail would spend steps absorbing the one
+  learnable signal left (digit-count leak, accepted 2026-07-19) — the
+  anti-goal. Why not matched counts: pins both arms to the slower
+  learner (Arm B) and concentrates post-saturation surplus on Arm A,
+  whose arithmetic G2 must certify intact. Identical pre-registered
+  rule ⇒ any duration difference is a mediator of run 2's presence,
+  not a confound; parameters frozen before either installer launches.
+  Ceiling ~2 epochs (repeat epochs over random labels invite
+  memorization); ceiling exit = format never installed. Tooling:
+  in-loop format-validity eval in the SFT trainer — new, lands with
+  the run-3 task, property-tested (silent failure breaks the
+  matched-arms design). Spec 02 §1/§6/§8/§11/§12 edited this commit.
+  (Paper cross-check dropped, owner 2026-07-21: Donoway et al. code is
+  not public and not expected soon — the design stands on its own
+  pre-registration.)
+- **Run-2 canonical ceiling 15 epochs (owner):** applied at the
+  Phase-5 LR pin, NOT mid-sweep — `max_steps` 77,730 → 116,595 and
+  `epochs_total_planned`/`assumed_epochs_for_estimate` 10 → 15 in the
+  same laptop commit that pins `train.lr` (worst-case quote ~$0.6 →
+  ~$0.9; still a pure ceiling — the ε/k rule is what stops the run).
+  Sweep arms keep 77,730: ceilings don't bind at convergence, and a
+  mid-sweep on-box edit would dirty provenance. Guide Phase 5 records
+  the instruction.
+- **v3-ext converged (owner confirmed 2026-07-21):**
+  `stop_reason=converged` in its manifest — run 1 is closed; floor 1 =
+  the v3-ext checkpoint; run-2 LR sweep launched on the same box.
+
 ## Open at the moment
 
-OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
-at the runs 2–6 pilots. Run-1 items: `evt-run1-base-v3-ext` RUNNING on
-the box (launched 2026-07-21); no gate follows — convergence itself
-closes run 1. Run-2 items: blocked on v3-ext complete (parent pinned;
-guide re-pointed at v3-ext, fb7fca0; canonical rule + 10-epoch ceiling
-landed, entry above), then LR sweep on the next box, owner pins
-`train.lr`, and the canonical `evt-run2-armA-algo` launches. The
-backfilled v2/v2-ext/v3 manifests were re-pushed to the HF relay from
-the laptop 2026-07-21 — closed. Dataset items: none.
+OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — close at the runs
+5–6 pilots (OPEN(1) closed 2026-07-21, entry above). Run-1 items:
+CLOSED — `evt-run1-base-v3-ext` converged (owner confirmed
+2026-07-21). Run-2 items: LR sweep RUNNING on the box; then owner pins
+`train.lr` + the 15-epoch ceiling from the laptop (entry above), and
+the canonical `evt-run2-armA-algo` launches. Runs-3/4 items: G2 δ
+threshold needs a plain owner decision (a base-init pilot can't
+measure Arm-A degradation); in-loop format-validity eval tooling lands
+with the run-3 task. The backfilled v2/v2-ext/v3 manifests were
+re-pushed to the HF relay from the laptop 2026-07-21 — closed.
+Dataset items: none.

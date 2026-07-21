@@ -23,10 +23,10 @@ spec 02 §13).
 
 | # | run_id | Role | Init | Method | Data | Status |
 |---|---|---|---|---|---|---|
-| 1 | `evt-run1-base-v3-ext` | pretrain (floor 1) | v3 @ 30k | full FT | TinyStories-v2 | **NEXT — extension queued** (v3 hit its 30k ceiling still descending; same recipe to convergence, 2026-07-21) |
-| 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | blocked on run 1, then LR sweep → canonical; `docs/run2-guide.md` |
-| 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), count OPEN(1) | todo |
-| 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` slice + count as run 3 | todo |
+| 1 | `evt-run1-base-v3-ext` | pretrain (floor 1) | v3 @ 30k | full FT | TinyStories-v2 | **DONE — converged** (owner confirmed 2026-07-21); floor 1 |
+| 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | **LR sweep RUNNING** (2026-07-21) → owner pins lr + 15-epoch ceiling → canonical; `docs/run2-guide.md` |
+| 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), to behavioral stop (spec 02 §6) | todo |
+| 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | todo |
 | 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` (op-notation add/sub), count OPEN(2) | todo |
 | 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | todo |
 
@@ -89,7 +89,7 @@ ungated inspection tool.
 | G1 | run 2 | Arm A ≥95% on NL add/sub — 1,024 seeded val examples, greedy, `exact_match` (`gates.py g1`) | pending run 2 |
 | G2 | run 3 | Arm A still near ceiling (installer didn't corrupt; δ at pilot) | todo |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | todo |
-| G4 | runs 3–4 | op-notation format validity ~≥99%, both arms | todo |
+| G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | todo |
 | G5 | runs 3–4 | zero/16-shot op add/sub (expect A ~2%/12%, B 0%/0%) | todo |
 | G6 | data gen | V5.1/V5.2 integrity on the real sets | partial — generation-time evidence in `report.json`; formal re-run when `gates.py` grows the subcommand |
 | G7 | before run 6 | `data_order_hash`(run 5) == (run 6) | enforced at launch |
@@ -121,7 +121,9 @@ Built so far: `geode.edl`, `geode.train` (full FT + SFT), `geode.zoo`,
 1. **Run 2** — 4-LR full-length sweep, owner pins `train.lr`, canonical
    relaunch, G1 (`docs/run2-guide.md`; ≤ ~$0.35). Hard stop if no sweep
    arm reaches 0.95 accuracy.
-2. **Runs 3–4** — pilot pins the installer count (OPEN(1)); configs +
+2. **Runs 3–4** — behavior-matched stopping (OPEN(1) closed
+   2026-07-21, spec 02 §6): in-loop format-validity eval in the SFT
+   trainer (new, property-tested) + installer LR sweep; configs +
    `gates.py` g2–g5; both runs are `train_sft.py` launches with the
    op-notation task format.
 3. **`geode.probe`** + `scripts/extract.py` (V5.8–V5.12): snapshot

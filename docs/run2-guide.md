@@ -183,7 +183,11 @@ Pin from the **laptop** so the manifest's `git_commit` stays honest
 
 ```bash
 # laptop: edit configs/run2_algo.yaml -> train.lr: <winner>, drop the
-# PLACEHOLDER comment; commit + push.
+# PLACEHOLDER comment. In the SAME commit raise the ceiling to 15
+# epochs (owner 2026-07-21): max_steps: 116595,
+# epochs_total_planned: 15, cost.assumed_epochs_for_estimate: 15
+# (quote becomes ~$0.9 — still a pure ceiling; the eps/k rule stops
+# the run). Commit + push.
 # box:
 git -C /workspace/elicit-vs-teach pull
 ```

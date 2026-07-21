@@ -45,8 +45,8 @@ capacity thresholds) are void — the pilot re-establishes them (§11).
 |---|------------------------|-----------------|-----------|---------|------|
 | 1 | `evt-run1-base`        | pretrain        | random    | full FT | TinyStories-v2 (~2.6M stories), custom small arch (2026-07-18) |
 | 2 | `evt-run2-armA-algo`   | pre-teach       | run 1     | full FT | NL add/sub, correct labels, 1M unique, to convergence |
-| 3 | `evt-run3-armA-inst`   | format install  | run 2     | full FT | operator-notation mult, random labels, OPEN(1) count |
-| 4 | `evt-run4-armB-inst`   | format install  | run 1     | full FT | identical dataset + count as run 3 |
+| 3 | `evt-run3-armA-inst`   | format install  | run 2     | full FT | operator-notation mult, random labels, to behavioral stop (§6) |
+| 4 | `evt-run4-armB-inst`   | format install  | run 1     | full FT | identical dataset + order as run 3, same behavioral stop (§6) |
 | 5 | `evt-run5-armA-target` | target          | run 3     | LoRA    | operator-notation add/sub, OPEN(2) count |
 | 6 | `evt-run6-armB-target` | target          | run 4     | LoRA    | identical data + identical order as run 5 |
 
@@ -232,22 +232,49 @@ the 2026-07-18 downscale):
   ~24 MB/adapter bf16.
 - Loss on label tokens only, identical masking train/test (masking hash
   guard from spec 00 §5 applies as usual).
-- Stopping (runs 1–4): validation-loss convergence with **ε=0.002 nats,
+- Stopping (runs 1–2): validation-loss convergence with **ε=0.002 nats,
   k=5, min_steps=5000 grace (V5.42), eval_every 1000** — one canonical
-  rule for every training run (owner 2026-07-21; supersedes the 0.005/3
-  close of OPEN(3) after v3 hit its ceiling still descending at
+  rule for the loss-stopped runs (owner 2026-07-21; supersedes the
+  0.005/3 close of OPEN(3) after v3 hit its ceiling still descending at
   2.5–3.0 mnat/1k — 0.005/3 abandons descent below 1.7, the new rule
   holds on until 0.4). Runs already executed keep the rule their
   manifest records. Every run trains until the rule fires; `max_steps`
-  is a generous cost ceiling (~10 epochs), never a planned stop —
+  is a generous cost ceiling (~10–15 epochs; run 2's raised to 15 at
+  the LR pin, owner 2026-07-21), never a planned stop —
   `stop_reason="max_steps"` means "did not converge": investigate,
   don't ship. This matches the paper: it also trains to convergence,
   and its "1 epoch" figure (formerly echoed in the §1 row-2 cell and
   misread as a training cap) is **information accounting** — bits per
   example are counted on first exposure (first epoch) only, so
-  multi-epoch training changes no measured quantity. Target runs 5–6
-  are the EDL measurement itself — their training schedule is part of
-  the metric and stays with OPEN(2)/OPEN(4).
+  multi-epoch training changes no measured quantity.
+- Stopping (runs 3–4, format installers — owner 2026-07-21):
+  **behavior-matched, not loss-based.** Each arm stops at the k-th
+  consecutive in-loop format-validity eval scoring ≥99% — the G4 metric
+  (greedy decode on 512 held-out operator-notation prompts, output
+  parses as a number in the answer slot) — with **k=3, eval every 250
+  steps**. Both arms consume the identical frozen `D_inst` in the
+  identical order, so the earlier-stopping arm's exposure is a strict
+  prefix of the other's; per-arm step counts are **emergent, not
+  matched**, recorded in each manifest (closes OPEN(1)). Rationale: the
+  installer's goal is a behavior (the answer scaffold), not a loss
+  minimum — random labels floor the val loss near ln 10 per answer
+  digit, and the ε/k rule's slow tail would spend steps absorbing the
+  one learnable signal left (the digit-count leak, accepted won't-fix
+  2026-07-19), the anti-goal. Matching step counts instead would pin
+  both arms to the slower learner (Arm B, format-naive init) and
+  concentrate maximal post-saturation surplus on Arm A — the arm whose
+  arithmetic G2 must certify intact. An identical pre-registered rule
+  makes any duration difference a *mediator* of run 2's presence (the
+  treatment), not a confound. Val loss is still logged every eval for
+  the record. `max_steps` stays a pure ceiling at ~2 epochs (repeat
+  epochs over random labels invite label memorization); a ceiling exit
+  means the format never installed — investigate, don't ship. Rule
+  parameters are frozen before either installer launches; the in-loop
+  format-validity eval is new trainer tooling (§6.1), lands with the
+  run-3 task, and is property-tested (its silent failure would break
+  the matched-arms design). Target runs 5–6 are the EDL measurement
+  itself — their training schedule is part of the metric and stays
+  with OPEN(2)/OPEN(4).
 
 **Runs 1–4 (full FT):** need a small full-FT trainer with validation-loss
 stopping; snapshots = final checkpoint only (plus the base). **Decided
@@ -708,7 +735,7 @@ v2-ext pass) stay recorded in decisions.md and the v2-ext manifest.
 | G1 | run 2 | Arm A near ceiling on NL add/sub, threshold ≥95%. Protocol (owner 2026-07-20, `scripts/gates.py g1`): 1,024 examples seeded-sampled (seed 316) from D_algo's held-out val split — re-derived via `split_indices` (V5.39), so never trained on — greedy decoding, first generated line, `exact_match`; verdict + accuracy recorded in `experiment.gates.G1` |
 | G2 | run 3 | Arm A still near ceiling on NL add/sub (installer didn't corrupt; δ frozen at pilot) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak; ≤ chance + margin) |
-| G4 | runs 3, 4 | Format validity on operator-notation prompts (both arms; ~≥99%) |
+| G4 | runs 3, 4 | Format validity on operator-notation prompts (both arms; ~≥99%). The same metric is the installers' in-loop stopping signal (§6) |
 | G5 | runs 3, 4 | Zero/16-shot operator add/sub. Expectation: A ~2%/12%, B 0%/0% — the only remaining independent regime evidence |
 | G6 | data gen | V5.1/V5.2 integrity checks run against the *real* generated sets; hashes recorded |
 | G7 | before run 6 | `data_order_hash`(run 5) == `data_order_hash`(run 6), enforced at launch |
@@ -738,8 +765,9 @@ End-to-end de-risk at toy scale: ~10K target examples, 20 snapshots, 64
 probe examples, through training → extraction → upload (pilot repo) → one
 real gradient-alignment plot. Then parameter pilots close open items:
 
-- OPEN(1): installer convergence sweep on random-label mult ⇒ example
-  count (identical for both arms).
+- OPEN(1): **closed 2026-07-21** — see §12; installer stopping is
+  behavioral (§6), so there is no count-finding pilot. What remains
+  before runs 3–4 launch is an LR sweep only.
 - OPEN(2): train Arm B to convergence at 10K/50K/200K/500K ⇒ smallest n
   where B lands within a few points of A. (Paper's teaching peak for this
   task ≈300K; 10K likely far too small — Fig 1(b)'s "60K" is a cartoon,
@@ -756,7 +784,7 @@ markers in this spec are replaced with pinned values in the same PR.
 
 | ID | Item | Closed by |
 |----|------|-----------|
-| OPEN(1) | Format-installer example count | pilot (installer convergence) |
+| OPEN(1) | Format-installer example count | **closed 2026-07-21** (owner): runs 3–4 stop on behavior, not a pinned count — identical pre-registered rule (§6: G4 metric ≥99% on 512 held-out prompts, k=3 consecutive evals, eval_every 250), identical data order; per-arm step counts are emergent, recorded in each manifest |
 | OPEN(2) | Target dataset size | pilot (B convergence sweep) |
 | OPEN(3) | Stopping-rule ε, k | **closed 2026-07-19** (run-1 LR sweep): ε=0.005 nats, k=3 at eval_every=500. Sweep val curves at the pinned LR are monotone at 100-step spacing (eval noise ≪ 0.005 with 5225 val seqs) and end-of-sweep improvement is ~0.06 nats/500 steps (12× ε), so ε separates signal from noise with wide margin. Runs 2–4 inherit; revisit only if their (arithmetic-val) curves misbehave |
 | OPEN(4) | Batch → step count → snapshot schedule params | after OPEN(2) |
