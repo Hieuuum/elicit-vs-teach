@@ -23,7 +23,7 @@ spec 02 §13).
 
 | # | run_id | Role | Init | Method | Data | Status |
 |---|---|---|---|---|---|---|
-| 1 | `evt-run1-base-v3-ext` | pretrain (floor 1) | v3 @ 30k | full FT | TinyStories-v2 | **DONE — converged** (owner confirmed 2026-07-21); floor 1 |
+| 1 | `evt-run1-base-v3-ext` | pretrain (floor 1) | v3 @ 30k | full FT | TinyStories-v2 | **DONE — converged**, `min_val_nats` 1.0718 (owner confirmed 2026-07-21); floor 1 |
 | 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | **LR sweep RUNNING** (2026-07-21) → owner pins lr + 15-epoch ceiling → canonical; `docs/run2-guide.md` |
 | 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), to behavioral stop (spec 02 §6) | todo |
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | todo |
@@ -87,7 +87,7 @@ ungated inspection tool.
 | Gate | After | Check | Status |
 |---|---|---|---|
 | G1 | run 2 | Arm A ≥95% on NL add/sub — 1,024 seeded val examples, greedy, `exact_match` (`gates.py g1`) | pending run 2 |
-| G2 | run 3 | Arm A still near ceiling (installer didn't corrupt; δ at pilot) | todo |
+| G2 | run 3 | Arm A still ≥95% on NL add/sub post-install — same bar as G1, no separate δ (owner 2026-07-21); drop from G1 reported | todo |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | todo |
 | G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | todo |
 | G5 | runs 3–4 | zero/16-shot op add/sub (expect A ~2%/12%, B 0%/0%) | todo |

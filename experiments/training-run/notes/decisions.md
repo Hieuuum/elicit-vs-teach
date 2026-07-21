@@ -700,9 +700,19 @@ Small decisions (delegated):
   Sweep arms keep 77,730: ceilings don't bind at convergence, and a
   mid-sweep on-box edit would dirty provenance. Guide Phase 5 records
   the instruction.
+- **G2 pinned (owner 2026-07-21): same bar as G1, no separate δ.**
+  Post-install Arm A must still score ≥0.95 exact match under the G1
+  protocol. δ was "frozen at pilot" but is not pilot-measurable — a
+  base-init pilot has no arithmetic to lose — so it is a tolerance
+  choice, and the chosen tolerance is the one already committed: 0.95
+  = "capability present", which is exactly what the elicitation claim
+  needs at target time. The actual drop from the G1 score is reported
+  in the write-up either way. Spec 02 §8 edited this commit.
 - **v3-ext converged (owner confirmed 2026-07-21):**
-  `stop_reason=converged` in its manifest — run 1 is closed; floor 1 =
-  the v3-ext checkpoint; run-2 LR sweep launched on the same box.
+  `stop_reason=converged`, `min_val_nats` **1.0718** (1.071794 — v3's
+  30k-ceiling min was 1.1020, so the extension bought another ~30
+  mnat) — run 1 is closed; floor 1 = the v3-ext checkpoint; run-2 LR
+  sweep launched on the same box.
 
 ## Open at the moment
 
@@ -711,9 +721,8 @@ OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — close at the runs
 CLOSED — `evt-run1-base-v3-ext` converged (owner confirmed
 2026-07-21). Run-2 items: LR sweep RUNNING on the box; then owner pins
 `train.lr` + the 15-epoch ceiling from the laptop (entry above), and
-the canonical `evt-run2-armA-algo` launches. Runs-3/4 items: G2 δ
-threshold needs a plain owner decision (a base-init pilot can't
-measure Arm-A degradation); in-loop format-validity eval tooling lands
-with the run-3 task. The backfilled v2/v2-ext/v3 manifests were
+the canonical `evt-run2-armA-algo` launches. Runs-3/4 items: G2 pinned to the
+G1 bar (entry above); in-loop format-validity eval tooling lands with
+the run-3 task. The backfilled v2/v2-ext/v3 manifests were
 re-pushed to the HF relay from the laptop 2026-07-21 — closed.
 Dataset items: none.

@@ -733,7 +733,7 @@ v2-ext pass) stay recorded in decisions.md and the v2-ext manifest.
 | Gate | After | Check |
 |------|-------|-------|
 | G1 | run 2 | Arm A near ceiling on NL add/sub, threshold ≥95%. Protocol (owner 2026-07-20, `scripts/gates.py g1`): 1,024 examples seeded-sampled (seed 316) from D_algo's held-out val split — re-derived via `split_indices` (V5.39), so never trained on — greedy decoding, first generated line, `exact_match`; verdict + accuracy recorded in `experiment.gates.G1` |
-| G2 | run 3 | Arm A still near ceiling on NL add/sub (installer didn't corrupt; δ frozen at pilot) |
+| G2 | run 3 | Arm A still ≥95% exact match on NL add/sub after the installer — same protocol and bar as G1, no separate δ (owner 2026-07-21: δ is a tolerance choice, not pilot-measurable — a base-init pilot has no arithmetic to lose; 0.95 is already the committed definition of "capability present", which is what the elicitation claim needs at target time; the actual drop from G1 is reported in the write-up) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak; ≤ chance + margin) |
 | G4 | runs 3, 4 | Format validity on operator-notation prompts (both arms; ~≥99%). The same metric is the installers' in-loop stopping signal (§6) |
 | G5 | runs 3, 4 | Zero/16-shot operator add/sub. Expectation: A ~2%/12%, B 0%/0% — the only remaining independent regime evidence |
