@@ -54,19 +54,31 @@ python train.py --config ../configs/run1_pretrain.yaml \
 `$GEODE_STORE/runs/evt-pilot-run1-base/manifest.json` shows
 `"lr_schedule": "constant"` under `training`.
 
-## Phase 2 — warm the pack cache (~10–40 min CPU, no GPU cost)
+## Phase 2 — pull the packed cache from HF (~2–5 min, no GPU cost)
 
-Run **without** `--confirm-cost`; it packs all 2.7M stories, writes the
-cache, prints the estimate, and exits. **"refusing to train" + exit 1
-at the end is intended.**
+The full pack cache is on the relay (uploaded 2026-07-20), so the box
+skips the 10–40 min CPU packing step. The repo is private — log in once
+with a **write** token (the same login covers the Phase 4 push):
+
+```bash
+hf auth login
+hf download mhieuuu/geode-store packed_full.pt --local-dir $HOME
+```
+
+✅ `ls -lh $HOME/packed_full.pt` ≈ 1.0 GB (sha256 `ff487615…`; the hub
+client verifies it on download).
+
+**Fallback** — if the download fails, or Phase 3 rejects the cache with
+the `--packed-cache mismatch` ValueError (config drifted since it was
+packed): delete the file and repack locally (~10–40 min CPU). Run
+**without** `--confirm-cost`; "refusing to train" + exit 1 at the end
+is intended:
 
 ```bash
 python train.py --config ../configs/run1_pretrain.yaml --device cuda \
     --packed-cache $HOME/packed_full.pt ; \
     curl -d "v3 pack done (exit $?)" ntfy.sh/<your-topic>
 ```
-
-✅ `wrote packed cache`, `ls -lh $HOME/packed_full.pt` ≈ 1.1 GB.
 
 ## Phase 3 — production launch (~2–3.5 h, ≤ ~$1.1)
 
@@ -94,8 +106,9 @@ keep the box, paste the eval log to Claude.
 
 ## Phase 4 — push to the HF relay (~10 min)
 
+Already logged in from Phase 2:
+
 ```bash
-hf auth login    # write token
 python hf_checkpoint.py push --run-id evt-run1-base-v3
 ```
 
@@ -130,7 +143,7 @@ pulled v3 manifest says `status: complete`. No gate verdict in between.
 | Symptom | Meaning / fix |
 |---|---|
 | "refusing to train" without `--confirm-cost` | Intended — budget guard |
-| `--packed-cache mismatch` ValueError | Config drifted since packing — delete `$HOME/packed_full.pt`, redo Phase 2 |
+| `--packed-cache mismatch` ValueError | The HF cache was packed under a different config — delete `$HOME/packed_full.pt`, repack locally (Phase 2 fallback) |
 | `register_run: ... already running` | Double-launch guard — `pgrep -f train.py` before retrying; if the run is dead, edit the stale manifest's `status` |
 | stale `GEODE_STORE` in a new shell | Re-export; scripts default to `<repo>/geode-store` if unset — keep it explicit on the box |
 | `stop_reason=max_steps` at 30,000 | Not converged under ε 0.005/3,000 steps — do NOT ship as floor 1; investigate with Claude |
