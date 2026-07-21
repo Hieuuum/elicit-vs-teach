@@ -9,9 +9,10 @@
 #      itself is status: complete despite not converging (it exited
 #      cleanly at the ceiling), so pinning v3 here would NOT be caught by
 #      the launcher — the pin must stay on the run that converged.
-#   2. Pin train.lr from the run-2 LR sweep (decisions.md 2026-07-20:
-#      full-length sweep overlays in configs/pilot/run2_sweep_lr*.yaml,
-#      then this canonical run re-launches the winner's exact config).
+#   2. DONE 2026-07-21: train.lr pinned to 3e-4, the re-run sweep winner
+#      (G1 0.9961; overlays in configs/pilot/run2_sweep_lr*.yaml;
+#      decisions.md 2026-07-21). This canonical run re-launches the
+#      winner's exact config with the 15-epoch ceiling.
 run_id: evt-run2-armA-algo
 experiment:
   name: training-run
@@ -43,14 +44,14 @@ data:
   seed: 316
 
 train:
-  lr: 1.0e-4                   # PLACEHOLDER (paper-audit SFT starting point,
-                               # decisions.md 2026-07-19) — pin from the sweep
-                               # before launching this canonical run
+  lr: 3.0e-4                   # PINNED from the 2026-07-21 re-run sweep
+                               # (post-V5.43): G1 0.9961, best of 4 arms
+                               # (decisions.md 2026-07-21)
   batch_size: 128              # spec 02 §6 fixed table; 128×33 tokens fits a
                                # 24 GB 4090 without grad accumulation
   eval_every: 1000             # canonical cadence (owner 2026-07-21); ~7–8
                                # evals/epoch, 5,000 val examples
-  max_steps: 77730             # cost CEILING = 10 epochs of 7,773 steps
+  max_steps: 116595            # cost CEILING = 15 epochs of 7,773 steps
                                # ((1M − 5,000 val) // 128 drop-last; recompute
                                # if val_fraction ever changes) — never a
                                # planned stop. The old 7,773 cap misread the
@@ -69,8 +70,8 @@ train:
                                # ~1.3 epochs
   precision: bf16
   seed: 316
-  epochs_total_planned: 10     # ceiling metadata; convergence expected earlier
+  epochs_total_planned: 15     # ceiling metadata; convergence expected earlier
 
 cost:
-  assumed_epochs_for_estimate: 10  # quote the ceiling (worst case), not the
+  assumed_epochs_for_estimate: 15  # quote the ceiling (worst case), not the
                                    # expected stop

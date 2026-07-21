@@ -752,14 +752,39 @@ Small decisions (delegated):
   first-sweep numbers preserved above), relaunch the same overlays,
   then Phase 4 gates → Phase 5 pin per the guide.
 
+## 2026-07-21 — run-2 re-sweep (post-V5.43): all arms PASS G1; winner lr 3e-4, pinned
+
+- **The fix was the whole story.** Re-run of the same four overlays at
+  commit 84d57c2 (EOS in label span + token-prefix gate prompts): every
+  arm converged and passed G1 on the same 1,024-example seeded val
+  sample that read 0.0000 pre-fix.
+  | lr | G1 | by op (+ / −) |
+  |---|---|---|
+  | 3e-5 | 0.9795 | 0.9920 / 0.9674 |
+  | 1e-4 | 0.9863 | 0.9980 / 0.9750 |
+  | **3e-4** | **0.9961** | 0.9960 / 0.9962 |
+  | 1e-3 | 0.9844 | 0.9980 / 0.9712 |
+- **Winner = 3e-4** by the 2026-07-20 rule (highest accuracy; no
+  tiebreak needed). Only arm where subtraction matched addition —
+  everywhere else the negative-answer op lags, consistent with signs
+  being the hard part. Re-run `min_val_nats` values live in the sweep
+  manifests (relayed at Phase 6); note they include the EOS position,
+  so they are NOT comparable to the pre-fix sweep-#1 numbers above —
+  within-sweep comparison only.
+- **Phase-5 pin (owner, laptop, this commit):** `run2_algo.yaml` →
+  `train.lr: 3e-4`, ceiling raised to 15 epochs (`max_steps: 116595`,
+  `epochs_total_planned: 15`, `cost.assumed_epochs_for_estimate: 15`).
+  Box pulls, relaunches canonical `evt-run2-armA-algo`, official G1,
+  then Phase-6 relay push of all five evt-run2 runs.
+
 ## Open at the moment
 
 OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — close at the runs
 5–6 pilots (OPEN(1) closed 2026-07-21, entry above). Run-1 items:
 CLOSED — `evt-run1-base-v3-ext` converged (owner confirmed
-2026-07-21). Run-2 items: LR sweep RUNNING on the box; then owner pins
-`train.lr` + the 15-epoch ceiling from the laptop (entry above), and
-the canonical `evt-run2-armA-algo` launches. Runs-3/4 items: G2 pinned to the
+2026-07-21). Run-2 items: re-sweep COMPLETE, all four arms PASS G1, winner lr 3e-4
+pinned with the 15-epoch ceiling (entry above); canonical
+`evt-run2-armA-algo` launch + official G1 + Phase-6 relay push remain. Runs-3/4 items: G2 pinned to the
 G1 bar (entry above); in-loop format-validity eval tooling lands with
 the run-3 task. The backfilled v2/v2-ext/v3 manifests were
 re-pushed to the HF relay from the laptop 2026-07-21 — closed.
