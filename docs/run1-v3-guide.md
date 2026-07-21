@@ -18,7 +18,7 @@ everything below inside `tmux new -s train`.
 | Grad clipping | 1.0 (global norm) |
 | Precision | bfloat16 |
 | Batch | 128 (grad-accum 4×32) |
-| Stopping | val-loss convergence: ε 0.005 nats / k 3 / eval_every 1000 — stop when val improves < 0.005 nats over 3,000 steps |
+| Stopping | val-loss convergence, eval_every 1000 — v3 ran under ε 0.005 / k 3 (its manifest records that); tightened 2026-07-21 (owner) to **ε 0.002 / k 5** in the config, canonical for v3-ext and all later run-1-family launches |
 | Step ceiling | 30,000 (**cost ceiling ~$1, not a target** — `stop_reason=max_steps` means "did not converge": stop and investigate, don't ship) |
 
 Expected: convergence somewhere past v1's 17k steps (v1 stopped under a
@@ -142,6 +142,19 @@ python train.py --config ../configs/run1_pretrain.yaml \
     --confirm-cost ; \
     curl -d "run1 v3-ext finished (exit $?)" ntfy.sh/<your-topic>
 ```
+
+Monitor from a second tmux window (re-export `GEODE_STORE` there):
+
+```bash
+python monitor.py --run-id evt-run1-base-v3-ext
+```
+
+One status line every 30 s (step, train loss, steps/s, ceiling ETA); a
+fuller line whenever an eval lands (val, Δ in mnat, min, gated best,
+`patience n/5`, grace). The rule state comes from replaying the eval log
+through the trainer's own `ConvergenceTracker`, configured from the
+manifest — what it prints is what the run will do. Exits by itself when
+the run finalizes.
 
 ✅ `stop_reason=converged` **and** `min_val_nats` below v3's 1.1020.
 `max_steps` here would mean the rule never fired in 10 epochs — a bug

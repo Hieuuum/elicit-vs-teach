@@ -613,6 +613,25 @@ Small decisions (delegated):
 - **Manifests:** v2, v2-ext, v3 backfilled locally with
   `stopping.min_steps: 0` (schema requires the key); the pending HF
   manifest re-push now covers v3 as well as v2/v2-ext.
+- **ε 2 mnat / k 5 promoted to the canonical run-1 config (owner,
+  2026-07-21 — "make it the rule for the old v3 run too"):**
+  `run1_pretrain.yaml` now carries `eps_nats 0.002 / k 5 / min_steps 0`,
+  so every future run-1-family launch inherits it (v3-ext pins the same
+  values in its overlay). The **v3 manifest is deliberately NOT
+  rewritten**: a manifest records the recipe the run actually executed
+  — v3's tracker ran under 0.005/3, and its `best_val_nats` 1.1042 is
+  the ε=0.005-gated best; stamping ε=0.002 over it would make those
+  two fields lie about each other. v3's standing under the new rule is
+  an assessment, not a manifest field: replayed on its eval log, max
+  stale run 1/5 ⇒ **not converged** (recorded in the entry above).
+- **`scripts/monitor.py` added (2026-07-21):** one-stop live view of a
+  run — tails `train_log.jsonl` (step, loss, steps/s, ceiling ETA) and
+  replays `eval_log.jsonl` through the trainer's own
+  `ConvergenceTracker` configured from the manifest, so the printed
+  `patience n/k` / grace / gated-best state is exactly the trainer's.
+  Default refresh 30 s (train lines land every step, evals every ~5 min
+  at v3's ~3.2 steps/s; file reads are free). Exits when the manifest
+  leaves `running`; `--once` for a snapshot.
 
 ## Open at the moment
 

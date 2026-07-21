@@ -94,16 +94,25 @@ train:
                                     # 0.005/3000-step rule needs headroom.
                                     # stop_reason=max_steps here means "did
                                     # not converge" — investigate, don't ship
-  stopping:                         # ACTIVE under constant LR (v3): stop at
-                                    # the k-th consecutive eval that improves
-                                    # on the running best by <= eps_nats,
-                                    # i.e. < 0.005 nats over 3000 steps —
-                                    # the exact rule that converged v2-ext
-                                    # (min val 1.1066 nats). Eval noise is
-                                    # well under eps (sweep, 2026-07-19:
-                                    # 5225 val seqs).
-    eps_nats: 0.005
-    k: 3
+  stopping:                         # ACTIVE under constant LR: stop at the
+                                    # k-th consecutive eval that fails to beat
+                                    # the eps-gated best by > eps_nats.
+                                    # TIGHTENED 2026-07-21 (owner) from the
+                                    # 0.005/3 that v3 actually ran under (its
+                                    # manifest records that rule): 0.005/3
+                                    # abandons descent below eps/k = 1.7
+                                    # mnat/1k steps, and v3 hit the 30k
+                                    # ceiling still descending at 2.5-3.0;
+                                    # 0.002/5 holds on until 0.4 mnat/1k.
+                                    # Canonical for all run-1-family launches
+                                    # (v3-ext pins the same values in its
+                                    # overlay). Eval noise is well under eps
+                                    # even at 2 mnat: 5225 val seqs, and v3's
+                                    # curve was monotone through all 30 evals.
+    eps_nats: 0.002
+    k: 5
+    min_steps: 0                    # no grace from scratch; warm starts set
+                                    # this (run1_extend.yaml, V5.42)
   precision: bf16
   seed: 316
   epochs_total_planned: 4           # manifest metadata: 30000-step ceiling
