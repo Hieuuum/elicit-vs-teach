@@ -53,7 +53,14 @@ Required fields. Unknown extra fields are permitted and preserved.
               "target_modules": ["str"], "dropout": "float|null",
               "sparse_param_count": "int|null"},
     "optimizer": {"name": "str", "lr": "float", "batch_size": "int",
-                   "weight_decay": "float"},
+                   "micro_batch_size": "int|null", "betas": "[float]|null",
+                   "weight_decay": "float", "grad_clip": "float|null"},
+    "lr_schedule": "constant | cosine",
+    "min_lr": "float|null",
+    "precision": "fp32 | bf16",
+    "eval_every": "int|null",
+    "max_steps": "int|null",
+    "stopping": {"eps_nats": "float|null", "k": "int|null"},
     "epochs_total": "int",
     "seed": "int"
   },
@@ -70,6 +77,18 @@ analysis code can group runs without re-deriving it. `snapshot_steps` is
 declared up front — the checkpoint schedule is designed before training
 (rerunning training to recover a missing checkpoint is the expensive
 failure mode).
+
+The full training recipe (`lr_schedule` through `stopping`, plus the
+optimizer extras; added 2026-07-20) is required so the manifest alone
+answers "how exactly was this trained" — before this, telling a cosine
+run from a constant-LR run meant digging through
+`pretrain/training_meta.json`. Record **resolved** values (e.g. the
+precision actually used after any CPU fallback, `micro_batch_size` after
+defaulting to `batch_size`). Fields are `|null` only where a training
+mode has no such concept (SGD has no `betas`; the prequential EDL loop
+has no held-out eval, step cap, or plateau stopping). Run-1 manifests
+written before this change were backfilled from their
+`training_meta.json`.
 
 ## 3. Prequential log (`prequential.jsonl`)
 

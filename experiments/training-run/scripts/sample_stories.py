@@ -1,11 +1,10 @@
-"""Gate G0 sampler — generate seeded stories from a run-1 checkpoint.
+"""Qualitative story sampler — generate seeded stories from a run-1 checkpoint.
 
-Gate G0 (spec 02 §8, decided 2026-07-18): the pretrained base passes if
->= 16/20 seeded samples read as coherent stories under the written rubric
-(grammatical sentences, narrative continuity, no repetition loops). This
-script produces the 20 samples and archives them next to the checkpoint;
-the val loss is already in eval_log.jsonl. Judgment is the owner's; the
-archived file is what makes it auditable.
+Formerly the gate-G0 sampler; G0 was removed from the protocol 2026-07-20
+(spec 02 §8: run 1 ships at the paper recipe's validation-loss convergence,
+ungated on sample quality). Kept as an inspection tool: it generates n
+seeded samples and archives them next to the checkpoint so any qualitative
+claim about a base model stays auditable.
 
 Generation starts from a single EOS token — in packed pretraining every
 story begins right after an EOS, so this samples the model's uncondi-
@@ -58,10 +57,10 @@ def main() -> int:
         )
 
     header = (
-        f"# Gate G0 samples — checkpoint={args.checkpoint} seed={args.seed} "
+        f"# Story samples — checkpoint={args.checkpoint} seed={args.seed} "
         f"temperature={args.temperature} n={args.n}\n"
-        "# Rubric: pass = >=16/20 coherent (grammatical sentences, narrative\n"
-        "# continuity, no repetition loops). Owner judges; this file is the record.\n"
+        "# Qualitative inspection only (gate G0 removed 2026-07-20, spec 02 §8);\n"
+        "# this file is the auditable record of what the checkpoint writes.\n"
     )
     blocks = [header]
     for i, row in enumerate(out):

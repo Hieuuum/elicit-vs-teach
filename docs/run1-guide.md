@@ -277,32 +277,20 @@ Val loss should fall steadily then flatten. Losses are in **nats**
 
 ---
 
-## Phase 6 — Gate G0: story coherence (~15 min, your judgment)
+## Phase 6 — (retired) story samples, optional
 
-Goal: the pre-registered check that floor 1 actually exists — a model
-that genuinely writes TinyStories English — before anything is built on
-it (spec 02 §8).
-
-**6.1 — generate the 20 samples:**
+Gate G0 was **removed 2026-07-20** (spec 02 §8): the run trains with the
+paper's exact recipe and its convergence point is floor 1 — no coherence
+verdict gates anything. If you want a qualitative look at what the
+checkpoint writes, the sampler still works and archives its output next
+to the model:
 
 ```bash
 python sample_stories.py \
-    --checkpoint $GEODE_STORE/runs/evt-run1-base/pretrain/model --device cuda
+    --checkpoint $GEODE_STORE/runs/<run_id>/pretrain/model --device cuda
 ```
 
-Samples are printed and archived to `.../model/floor1_samples.txt`.
-
-**6.2 — judge them.** Read all 20. A sample is *coherent* if it has
-grammatical sentences, narrative continuity, and no repetition loops.
-**Pass = at least 16 of 20.**
-
-**6.3 — tell Claude the verdict and rough count** — it goes in
-`decisions.md` + the run manifest.
-
-If it **fails**: stop. Don't launch runs 2–4. Diagnose with Claude first
-(usual suspects: needs more epochs, or the pinned LR).
-
-✅ Done when: verdict reported and recorded.
+✅ Done when: skipped, or samples archived for the record.
 
 ---
 
@@ -371,6 +359,6 @@ box does. Stopped-but-not-destroyed instances still bill for storage.
 
 ## After run 1
 
-With G0 passed and OPEN(11)/OPEN(3) pinned, runs 2–4 (the SFT arms —
-label-masked loss already lives in `geode.train`) are next; their launch
-gets its own checklist.
+With the pretrain converged and OPEN(11)/OPEN(3) pinned, runs 2–4 (the
+SFT arms — label-masked loss already lives in `geode.train`) are next;
+see `docs/run2-guide.md`.

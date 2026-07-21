@@ -57,7 +57,14 @@ def load_frozen_parquet(cfg: dict):
 
 
 def manifest_fields(
-    cfg: dict, n_params: int, n_rows: int, est_usd: float, init_from: Path, mask_hash: str
+    cfg: dict,
+    n_params: int,
+    n_rows: int,
+    est_usd: float,
+    init_from: Path,
+    mask_hash: str,
+    *,
+    precision: str,
 ) -> dict[str, Any]:
     t = cfg["train"]
     return {
@@ -89,8 +96,17 @@ def manifest_fields(
                 "name": cfg["optimizer"]["name"],
                 "lr": t["lr"],
                 "batch_size": t["batch_size"],
+                "micro_batch_size": t["batch_size"],  # geode.train.sft: no grad accumulation
+                "betas": list(cfg["optimizer"]["betas"]),
                 "weight_decay": cfg["optimizer"]["weight_decay"],
+                "grad_clip": cfg["training"]["grad_clip"],
             },
+            "lr_schedule": "constant",  # structural: geode.train.sft has no scheduler
+            "min_lr": None,
+            "precision": precision,
+            "eval_every": t["eval_every"],
+            "max_steps": t["max_steps"],
+            "stopping": {"eps_nats": t["stopping"]["eps_nats"], "k": t["stopping"]["k"]},
             "epochs_total": t["epochs_total_planned"],
             "seed": t["seed"],
         },
@@ -167,7 +183,7 @@ def main() -> int:
     if not parent:
         print(
             "[evt] experiment.parent_run_id is null — pin it to the floor-1 run id "
-            "(G0 verdict first; see configs/run2_algo.yaml). Exiting."
+            "(see configs/run2_algo.yaml). Exiting."
         )
         return 1
     require_parent_ready(
@@ -197,8 +213,11 @@ def main() -> int:
     phase(5, "train — progress lands in eval_log.jsonl; stopping is automatic")
     task_format = TaskFormat(name=cfg["task"]["name"], format_version=cfg["task"]["format_version"])
     mask_hash = masking_config_hash(task_format, tokenizer_hash(tokenizer))
+    precision = t.get("precision", "bf16") if args.device != "cpu" else "fp32"
     manifest = register_run(
-        manifest_fields(cfg, n_params, n_rows, est_usd, args.init_from, mask_hash)
+        manifest_fields(
+            cfg, n_params, n_rows, est_usd, args.init_from, mask_hash, precision=precision
+        )
     )
     out_dir = store / "runs" / cfg["run_id"] / "sft"
     print(f"[evt] store={store}", flush=True)
@@ -219,7 +238,7 @@ def main() -> int:
         device=args.device,
         seed=t["seed"],
         out_dir=out_dir,
-        precision=t.get("precision", "bf16") if args.device != "cpu" else "fp32",
+        precision=precision,
     )
 
     phase(6, "finalize — manifest + checkpoint")

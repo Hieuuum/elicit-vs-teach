@@ -23,8 +23,8 @@ spec 02 §13).
 
 | # | run_id | Role | Init | Method | Data | Status |
 |---|---|---|---|---|---|---|
-| 1 | `evt-run1-base-v2-ext` | pretrain (floor 1) | random | full FT | TinyStories-v2 | **DONE** — G0 pass; min val 1.1066 nats |
-| 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | **NEXT** — LR sweep → canonical; `docs/run2-guide.md` |
+| 1 | `evt-run1-base-v3` | pretrain (floor 1) | random | full FT | TinyStories-v2 | **NEXT — retrain queued** (constant-LR paper protocol, 2026-07-20) |
+| 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | blocked on run 1, then LR sweep → canonical; `docs/run2-guide.md` |
 | 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), count OPEN(1) | todo |
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` slice + count as run 3 | todo |
 | 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` (op-notation add/sub), count OPEN(2) | todo |
@@ -37,13 +37,16 @@ complete, every recorded parent gate has `pass: true`, and the gates
 named in the config's `parent_required_gates` are recorded.
 
 **Run-1 lineage** (all under `runs/` in the store + HF relay
-`mhieuuu/geode-store`): `evt-run1-base` (constant LR 1e-3 — G0 FAIL,
-LR noise floor) → `evt-run1-base-v2` (cosine 1e-3→1e-4, fixed 17k
-horizon, min val 1.1125) → `evt-run1-base-v2-ext` (warm start, constant
-1e-4, **converged** at step 4k, min val 1.1066, **G0 pass 2026-07-20**).
-Children init from the v2-ext checkpoint. Compare runs via
-`min_val_nats` — manifest `best_val_nats` is ε-gated by the stopping
-rule and reads stale.
+`mhieuuu/geode-store`): `evt-run1-base` (constant LR 1e-3, min val
+1.1464) → `evt-run1-base-v2` (cosine 1e-3→1e-4, fixed 17k horizon, min
+val 1.1125) → `evt-run1-base-v2-ext` (warm start, constant 1e-4,
+converged at step 4k, min val 1.1066) → **`evt-run1-base-v3` (queued
+2026-07-20): from-scratch retrain under the paper's exact recipe —
+constant LR 1e-3, stop on validation-loss convergence (ε 0.005 / k 3 /
+eval_every 1000), 30k-step cost ceiling. v2's cosine schedule was
+off-protocol; v3 replaces v2-ext as floor 1 and children init from its
+checkpoint.** Compare runs via `min_val_nats` — manifest
+`best_val_nats` is ε-gated by the stopping rule and reads stale.
 
 The model: custom ~38.7M-param Llama-style arch (hidden 512, 8 layers,
 MHA, tied embeddings) with a frozen 10K byte-level BPE tokenizer
@@ -68,9 +71,13 @@ Recorded in each run's manifest under `experiment.gates` by
 `scripts/gates.py`; enforced at child launch (§2). Full definitions:
 spec 02 §8.
 
+G0 (run-1 story coherence) was **removed 2026-07-20** (owner, spec 02
+§8): run 1 trains with the paper's exact recipe and its convergence
+point is floor 1 unconditionally; `sample_stories.py` stays as an
+ungated inspection tool.
+
 | Gate | After | Check | Status |
 |---|---|---|---|
-| G0 | run 1 | 20 seeded samples, ≥16/20 coherent (owner rubric) | **PASS** 2026-07-20 on v2-ext |
 | G1 | run 2 | Arm A ≥95% on NL add/sub — 1,024 seeded val examples, greedy, `exact_match` (`gates.py g1`) | pending run 2 |
 | G2 | run 3 | Arm A still near ceiling (installer didn't corrupt; δ at pilot) | todo |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | todo |

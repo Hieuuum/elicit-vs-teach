@@ -489,10 +489,65 @@ Small decisions (delegated):
   (`configs/pilot/run2_sweep_lr*.yaml`, ~$0.25) → pin `train.lr` from
   the winner → launch canonical `evt-run2-armA-algo` (~$0.06).
 
+## 2026-07-20 — run 1 RE-OPENED: v3 constant-LR retrain (owner decision)
+
+- **Why:** the paper's fixed hyperparameter table (AdamW β 0.9/0.999,
+  wd 0.01, clip 1.0, bf16, **constant LR**, stopping = validation-loss
+  convergence) must hold for the training run. v2's cosine schedule —
+  the 2026-07-19 G0 fix — is off-protocol, so the base pretrains again
+  from scratch under constant LR as **`evt-run1-base-v3`**
+  (`configs/run1_pretrain.yaml`; v2/v2-ext artifacts survive).
+- **Convergence rule pinned:** ε 0.005 nats / k 3 / eval_every 1000 —
+  stop at the 3rd consecutive eval that beats the running best by ≤ ε,
+  i.e. converge when val improves < 0.005 nats over 3000 steps. This is
+  the exact rule that converged v2-ext to the G0-passing floor
+  (1.1066 nats); eval noise ≪ ε (sweep, 5225 val seqs).
+- **Cost ceiling:** `max_steps` 30000 (~$1; confirm gate quotes 4
+  epochs). v1 converged at 17k under the looser 0.005/1500-step rule;
+  the 2× stricter window needs headroom. `stop_reason=max_steps` on
+  this run means "did not converge" — investigate, don't ship.
+- **Risk pre-stated:** v1 (constant 1e-3, looser rule) plateaued at
+  1.1464 nats and FAILED G0. v3 will train past 17k and land lower,
+  but floor 1 and the G0 verdict are **re-opened** and re-judged on
+  the v3 checkpoint. `lr` 1e-3 keeps the 2026-07-19 sweep pin.
+- **Downstream:** after v3 + G0, re-pin `parent_run_id` in
+  `configs/run2_algo.yaml` (currently `evt-run1-base-v2-ext`).
+
+## 2026-07-20 — G0 REMOVED; manifests now record the full recipe (owner)
+
+- **Gate G0 removed from the protocol** (spec 02 §8, EXPERIMENTS.md §4,
+  `run2_algo.yaml` `parent_required_gates: []`). Rationale: run 1 must
+  train with the paper's exact recipe, and whatever it converges to IS
+  floor 1 — gating on sample quality licensed off-protocol fixes (the
+  v2 cosine retrain was exactly that). This **voids the "risk" and
+  "downstream G0 re-judging" clauses of the previous entry**: v3 ships
+  as floor 1 unconditionally at validation-loss convergence.
+  `sample_stories.py` survives as an ungated qualitative tool; the v1
+  fail / v2-ext pass verdicts stay recorded here and in the v2-ext
+  manifest as history. Generic gate machinery (`require_parent_ready`,
+  V0.6) is untouched — G1–G7 still use it.
+- **Run-2 parent re-pinned now**: `parent_run_id: evt-run1-base-v3` —
+  the launcher refuses until v3's manifest is `status: complete`, which
+  is the correct gating with G0 gone.
+- **Manifest schema extension (spec 00 §2, same day):** `training` now
+  records the full recipe — optimizer betas/grad_clip/micro_batch_size,
+  `lr_schedule`, `min_lr`, `precision`, `eval_every`, `max_steps`,
+  `stopping` — as required fields (nullable only where a mode lacks the
+  concept), resolved values not config defaults. Trigger: telling v2's
+  cosine from constant required digging through `training_meta.json`.
+  Both launchers emit the block; run-1 extras now also carry
+  `model_config`, `tokenizer` (path + sha256), and `data_config`
+  (file, seq_len, val_fraction, split sizes); `dataset.name` is
+  `hf_id:file`. v2 + v2-ext manifests **backfilled** from their
+  `training_meta.json` and re-validated (HF relay re-push pending).
+
 ## Open at the moment
 
 OPEN(1), OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — all close
-at the runs 2–6 pilots. Run-1 items: **none — run 1 closed 2026-07-20**
-(G0 pass on `evt-run1-base-v2-ext`, entry above). Run-2 items: LR sweep
-on the next box, then owner pins `train.lr` and the canonical
-`evt-run2-armA-algo` launches. Dataset items: none.
+at the runs 2–6 pilots. Run-1 items: launch `evt-run1-base-v3`
+(constant-LR paper-protocol retrain, entries above); no gate follows —
+convergence itself closes run 1. Run-2 items: blocked on v3 complete
+(parent already re-pinned), then LR sweep on the next box, owner pins
+`train.lr`, and the canonical `evt-run2-armA-algo` launches. Also
+pending: re-push backfilled v2/v2-ext manifests to the HF relay.
+Dataset items: none.

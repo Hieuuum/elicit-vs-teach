@@ -64,7 +64,19 @@ _SCHEMA: _SchemaNode = {
             "name": ("str", False),
             "lr": ("float", False),
             "batch_size": ("int", False),
+            "micro_batch_size": ("int", True),
+            "betas": ("list[float]", True),
             "weight_decay": ("float", False),
+            "grad_clip": ("float", True),
+        },
+        "lr_schedule": (("constant", "cosine"), False),
+        "min_lr": ("float", True),
+        "precision": (("fp32", "bf16"), False),
+        "eval_every": ("int", True),
+        "max_steps": ("int", True),
+        "stopping": {
+            "eps_nats": ("float", True),
+            "k": ("int", True),
         },
         "epochs_total": ("int", False),
         "seed": ("int", False),
@@ -87,6 +99,10 @@ _TYPE_CHECKS = {
     "list[str]": lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
     "list[int]": lambda v: (
         isinstance(v, list) and all(isinstance(x, int) and not isinstance(x, bool) for x in v)
+    ),
+    "list[float]": lambda v: (
+        isinstance(v, list)
+        and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v)
     ),
 }
 

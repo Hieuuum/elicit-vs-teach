@@ -10,7 +10,16 @@
 # same 17k-step horizon. New run_id so the failed run's artifacts survive
 # for the comparison — the pre-committed fallback is "better checkpoint
 # becomes floor 1" (decisions.md 2026-07-19).
-run_id: evt-run1-base-v2
+#
+# 2026-07-20 retrain (v3): back to constant LR from scratch — the paper's
+# fixed hyperparameter table (AdamW 0.9/0.999, wd 0.01, clip 1.0, bf16,
+# CONSTANT LR, stop on validation-loss convergence) must hold for the
+# training run, so the v2 cosine schedule is off-protocol. Gate G0 removed
+# the same day (spec 02 §8): whatever this recipe converges to IS floor 1.
+# Stopping rule = the rule that converged v2-ext to 1.1066 nats (eps 0.005,
+# k 3, eval_every 1000: converge when val improves < 0.005 nats over 3000
+# steps). New run_id again; v2/v2-ext artifacts survive for comparison.
+run_id: evt-run1-base-v3
 experiment:
   name: training-run
   arm: shared
@@ -68,31 +77,43 @@ train:
                                     # 24 GB 4090 (fp32 logits at vocab 10K
                                     # alone are ~2.6 GB); effective batch
                                     # unchanged
-  lr_schedule: cosine               # 2026-07-19 G0 fix: decay 1e-3 -> 1e-4
-                                    # over the full horizon. No warmup: the
-                                    # sweep showed 1e-3 stable from step 0
-                                    # (grad norms tame), so warmup is dead
-                                    # weight at this scale
-  min_lr: 1.0e-4                    # lr/10, textbook cosine floor
-  eval_every: 500                   # pinned 2026-07-19: ~3% eval overhead
-                                    # (5225 val seqs @ micro 32)
-  max_steps: 17000                  # cosine horizon = exactly what the
-                                    # constant-LR run took (~2.1 epochs),
-                                    # keeping cost (~$0.55) and the
-                                    # constant-vs-decay comparison matched
-  stopping:                         # INERT under lr_schedule: cosine (spec
-                                    # 02 §6.1: decay shrinks late deltas
-                                    # below eps by design); retained for
-                                    # best_val_nats tracking in meta
+  lr_schedule: constant             # v3 (2026-07-20): paper protocol is
+                                    # constant LR; the v2 cosine G0 fix is
+                                    # off-protocol. No warmup: the sweep
+                                    # showed 1e-3 stable from step 0
+  min_lr: null                      # only meaningful with cosine
+                                    # (train_full raises otherwise)
+  eval_every: 1000                  # v3: matches the v2-ext convergence
+                                    # window (was 500 under cosine, where
+                                    # the plateau rule was inert anyway);
+                                    # halves eval overhead to ~1.5%
+  max_steps: 30000                  # cost CEILING (~$1), not a target —
+                                    # the plateau rule should fire first.
+                                    # v1 converged at 17k under the looser
+                                    # 0.005/1500-step rule; the stricter
+                                    # 0.005/3000-step rule needs headroom.
+                                    # stop_reason=max_steps here means "did
+                                    # not converge" — investigate, don't ship
+  stopping:                         # ACTIVE under constant LR (v3): stop at
+                                    # the k-th consecutive eval that improves
+                                    # on the running best by <= eps_nats,
+                                    # i.e. < 0.005 nats over 3000 steps —
+                                    # the exact rule that converged v2-ext
+                                    # (min val 1.1066 nats). Eval noise is
+                                    # well under eps (sweep, 2026-07-19:
+                                    # 5225 val seqs).
     eps_nats: 0.005
     k: 3
   precision: bf16
   seed: 316
-  epochs_total_planned: 2           # manifest metadata: 17000 steps @ batch
-                                    # 128 ~= 2.1 epochs of 1.034M train seqs
+  epochs_total_planned: 4           # manifest metadata: 30000-step ceiling
+                                    # @ batch 128 ~= 3.7 epochs of 1.034M
+                                    # train seqs; plateau expected earlier
 
 cost:
   # printed estimate = 6 * n_params * tokens_seen_per_step * steps guess;
   # script recomputes from actual packed corpus size before asking for
   # --confirm-cost.
-  assumed_epochs_for_estimate: 2
+  assumed_epochs_for_estimate: 4    # v3: quote the 30000-step ceiling, not
+                                    # the expected plateau — the confirm
+                                    # gate should show worst-case spend

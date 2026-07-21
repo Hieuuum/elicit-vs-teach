@@ -49,8 +49,17 @@ def make_manifest(run_id: str = "run-0001") -> dict:
                 "name": "adamw",
                 "lr": 1e-4,
                 "batch_size": 8,
+                "micro_batch_size": 4,
+                "betas": [0.9, 0.999],
                 "weight_decay": 0.01,
+                "grad_clip": 1.0,
             },
+            "lr_schedule": "constant",
+            "min_lr": None,
+            "precision": "bf16",
+            "eval_every": 100,
+            "max_steps": None,
+            "stopping": {"eps_nats": 0.005, "k": 3},
             "epochs_total": 3,
             "seed": 0,
         },
@@ -91,7 +100,18 @@ REQUIRED_FIELDS = (
     "training.optimizer.name",
     "training.optimizer.lr",
     "training.optimizer.batch_size",
+    "training.optimizer.micro_batch_size",
+    "training.optimizer.betas",
     "training.optimizer.weight_decay",
+    "training.optimizer.grad_clip",
+    "training.lr_schedule",
+    "training.min_lr",
+    "training.precision",
+    "training.eval_every",
+    "training.max_steps",
+    "training.stopping",
+    "training.stopping.eps_nats",
+    "training.stopping.k",
     "training.epochs_total",
     "training.seed",
     "trainable_param_count",
@@ -109,6 +129,14 @@ NULLABLE_FIELDS = (
     "training.lora.alpha",
     "training.lora.dropout",
     "training.lora.sparse_param_count",
+    "training.optimizer.micro_batch_size",
+    "training.optimizer.betas",
+    "training.optimizer.grad_clip",
+    "training.min_lr",
+    "training.eval_every",
+    "training.max_steps",
+    "training.stopping.eps_nats",
+    "training.stopping.k",
     "cost.gpu_type",
     "cost.est_usd",
     "cost.actual_usd",
@@ -221,10 +249,10 @@ def test_null_allowed_only_where_schema_says(tmp_path: Path, field: str, null_ok
 # OQ-3 — primitive type checks, error names the dotted path
 # ---------------------------------------------------------------------------
 
-# Closed-enum fields (regime, training.method, status) are exercised by the
-# enum tests below — a wrong-typed value there is just another invalid enum
-# value — so they are excluded from the wrong-type map.
-ENUM_FIELDS = ("regime", "training.method", "status")
+# Closed-enum fields are exercised by the enum tests below — a wrong-typed
+# value there is just another invalid enum value — so they are excluded from
+# the wrong-type map.
+ENUM_FIELDS = ("regime", "training.method", "training.lr_schedule", "training.precision", "status")
 
 # Every remaining spec 00 §2 field (containers included) mapped to one or
 # more wrong-typed values. Numeric fields get strings and string fields get
@@ -257,7 +285,16 @@ WRONG_TYPE_VALUES: dict[str, tuple[object, ...]] = {
     "training.optimizer.name": (1,),
     "training.optimizer.lr": ("1e-4",),
     "training.optimizer.batch_size": ("8",),
+    "training.optimizer.micro_batch_size": ("4",),
+    "training.optimizer.betas": (0.9, [0.9, "0.999"]),
     "training.optimizer.weight_decay": ("0.01",),
+    "training.optimizer.grad_clip": ("1.0",),
+    "training.min_lr": ("1e-5",),
+    "training.eval_every": ("100",),
+    "training.max_steps": ("17000",),
+    "training.stopping": (0.005,),
+    "training.stopping.eps_nats": ("0.005",),
+    "training.stopping.k": ("3",),
     "training.epochs_total": ("3",),
     "training.seed": ("0",),
     "trainable_param_count": ("4096",),
@@ -315,6 +352,8 @@ def test_bool_rejected_for_int_typed_field(tmp_path: Path, field: str, bad_value
 INVALID_ENUM_CASES = (
     ("regime", "finetune"),
     ("training.method", "qlora"),
+    ("training.lr_schedule", "linear"),
+    ("training.precision", "fp16"),
     ("status", "done"),
 )
 
@@ -323,6 +362,8 @@ VALID_ENUM_CASES = (
     ("regime", "unknown"),
     ("training.method", "sparse_lora"),
     ("training.method", "full_ft"),
+    ("training.lr_schedule", "cosine"),
+    ("training.precision", "fp32"),
     ("status", "planned"),
     ("status", "running"),
     ("status", "failed"),

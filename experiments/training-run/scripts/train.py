@@ -121,9 +121,25 @@ def git_commit() -> str:
 
 
 def manifest_fields(
-    cfg: dict, n_params: int, n_docs: int, est_usd: float, init_from: Path | None
+    cfg: dict,
+    n_params: int,
+    n_docs: int,
+    est_usd: float,
+    init_from: Path | None,
+    *,
+    tokenizer: Any,
+    precision: str,
+    n_train_seqs: int,
+    n_val_seqs: int,
 ) -> dict[str, Any]:
+    # The manifest alone must answer "how exactly was this trained" —
+    # spec 00 §2 (2026-07-20): record RESOLVED values, not config defaults
+    # (the v2 cosine-vs-constant question required digging through
+    # training_meta.json).
+    from geode.zoo import tokenizer_hash
+
     t = cfg["train"]
+    d = cfg["data"]
     return {
         "schema_version": 1,
         "run_id": cfg["run_id"],
@@ -133,9 +149,9 @@ def manifest_fields(
         "base_model": {"hf_id": "random-init/llama-arch-d512-L8", "revision": "none"},
         "task": {"name": "tinystories_pretrain", "format_version": "v1"},
         "dataset": {
-            "name": cfg["data"]["hf_id"],
+            "name": f"{d['hf_id']}:{d['file']}",
             "n_unique_examples": n_docs,
-            "seed": cfg["data"]["seed"],
+            "seed": d["seed"],
         },
         "training": {
             "method": "full_ft",
@@ -150,8 +166,17 @@ def manifest_fields(
                 "name": cfg["optimizer"]["name"],
                 "lr": t["lr"],
                 "batch_size": t["batch_size"],
+                "micro_batch_size": t.get("micro_batch_size") or t["batch_size"],
+                "betas": list(cfg["optimizer"]["betas"]),
                 "weight_decay": cfg["optimizer"]["weight_decay"],
+                "grad_clip": cfg["training"]["grad_clip"],
             },
+            "lr_schedule": t.get("lr_schedule", "constant"),
+            "min_lr": t.get("min_lr"),
+            "precision": precision,
+            "eval_every": t["eval_every"],
+            "max_steps": t["max_steps"],
+            "stopping": {"eps_nats": t["stopping"]["eps_nats"], "k": t["stopping"]["k"]},
             "epochs_total": t["epochs_total_planned"],
             "seed": t["seed"],
         },
@@ -162,7 +187,22 @@ def manifest_fields(
         # Extra fields below ride as preserved unknowns (spec 00 V0.2) until
         # the experiment-block validation task lands (spec 02 §4).
         "experiment": cfg["experiment"]
-        | {"gates": {}}
+        | {
+            "gates": {},
+            "model_config": dict(cfg["model"]) | {"vocab_size": len(tokenizer)},
+            "tokenizer": {
+                "path": str(cfg["tokenizer"]["path"]),
+                "sha256": tokenizer_hash(tokenizer),
+            },
+            "data_config": {
+                "file": d["file"],
+                "seq_len": d["seq_len"],
+                "val_fraction": d["val_fraction"],
+                "max_documents": d.get("max_documents"),
+                "n_train_seqs": n_train_seqs,
+                "n_val_seqs": n_val_seqs,
+            },
+        }
         | ({"init_from": str(init_from)} if init_from is not None else {}),
     }
 
@@ -288,11 +328,24 @@ def main() -> int:
     # var internally and both must agree on one root.
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
-    manifest = register_run(manifest_fields(cfg, n_params, n_docs, est_usd, args.init_from))
+    t = cfg["train"]
+    precision = t.get("precision", "bf16") if args.device != "cpu" else "fp32"
+    manifest = register_run(
+        manifest_fields(
+            cfg,
+            n_params,
+            n_docs,
+            est_usd,
+            args.init_from,
+            tokenizer=tokenizer,
+            precision=precision,
+            n_train_seqs=len(train_seqs),
+            n_val_seqs=len(val_seqs),
+        )
+    )
     out_dir = store / "runs" / cfg["run_id"] / "pretrain"
     print(f"[evt] store={store}", flush=True)
 
-    t = cfg["train"]
     result = train_full(
         model.to(args.device),
         train_seqs,
@@ -311,7 +364,7 @@ def main() -> int:
         device=args.device,
         seed=t["seed"],
         out_dir=out_dir,
-        precision=t.get("precision", "bf16") if args.device != "cpu" else "fp32",
+        precision=precision,
     )
 
     phase(6, "finalize — manifest + checkpoint")

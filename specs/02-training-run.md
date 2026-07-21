@@ -664,9 +664,17 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
 Recorded per run in `experiment.gates` (§4); a child run refuses to start
 while a parent gate fails. Thresholds frozen at pilot where marked.
 
+**G0 removed 2026-07-20 (owner).** The run-1 coherence gate (20 seeded
+samples, ≥16/20 coherent) is no longer part of the protocol: run 1 must
+train with the paper's exact recipe (constant LR, stop on validation-loss
+convergence), and whatever that recipe converges to *is* floor 1 —
+gating it on sample quality would license off-protocol fixes (the v2
+cosine retrain was exactly that). `scripts/sample_stories.py` remains as
+an ungated qualitative inspection tool. Historical verdicts (v1 fail,
+v2-ext pass) stay recorded in decisions.md and the v2-ext manifest.
+
 | Gate | After | Check |
 |------|-------|-------|
-| G0 | run 1 | Base generates coherent stories (criterion decided 2026-07-18, pre-training): 20 seeded samples via `scripts/sample_stories.py`, pass = ≥16/20 coherent under the written rubric — grammatical sentences, narrative continuity, no repetition loops. Samples archived next to the checkpoint (`floor1_samples.txt`); val loss recorded in `eval_log.jsonl`. Owner judges; the archive makes it auditable |
 | G1 | run 2 | Arm A near ceiling on NL add/sub, threshold ≥95%. Protocol (owner 2026-07-20, `scripts/gates.py g1`): 1,024 examples seeded-sampled (seed 316) from D_algo's held-out val split — re-derived via `split_indices` (V5.39), so never trained on — greedy decoding, first generated line, `exact_match`; verdict + accuracy recorded in `experiment.gates.G1` |
 | G2 | run 3 | Arm A still near ceiling on NL add/sub (installer didn't corrupt; δ frozen at pilot) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak; ≤ chance + margin) |
