@@ -714,6 +714,44 @@ Small decisions (delegated):
   mnat) — run 1 is closed; floor 1 = the v3-ext checkpoint; run-2 LR
   sweep launched on the same box.
 
+## 2026-07-21 — run-2 sweep G1 0.0000 on all arms: broken gauge, not missing capability; EOS fix
+
+- **Sweep trained fine, gate read zero.** All four arms converged
+  (min_val_nats: 3e-5 0.0106 @45k, 1e-4 0.0040 @23k, 3e-4 0.0107 @16k,
+  1e-3 0.0048 @20k — masked answer-token CE, i.e. ~99.6% per-token
+  teacher-forced), yet G1 scored 0.0000/1024 on every arm, both ops.
+  Diagnostic decodes (lr1e-4 checkpoint): every completion begins with
+  the **correct answer digits**, then runs on — repeated digits
+  ("13318888") or pretrain-corpus fragments ("6771hood the whole
+  holiday") — so the first-line parse returns a longer integer or None.
+  Two causes, both confirmed:
+  1. **No trained stop signal.** `full_text` ends at the last answer
+     char and the SFT loss is masked to the answer span, so no
+     post-answer position was ever supervised; full FT let the
+     warm-start's EOS-after-answer behavior (pretrain packs one EOS
+     per document, §6.1) drift away.
+  2. **Prompt boundary mismatch.** gates.py re-tokenized the
+     char-sliced prompt, which ends in a standalone `" "` token (id
+     222) the model never saw — training merges that space into the
+     first answer token (`" 9…"` / `" -"`). Positives survived it; the
+     sampled negative dropped its sign (true -6406 → "6406…"), so a
+     stop-signal fix alone would still fail ~half of subtraction.
+- **Fix (owner 2026-07-21, spec 02 edited same commit):** (a) V5.43 —
+  `tokenize_with_spans(append_eos=True)` in the SFT path: one EOS per
+  example, label span extended to cover it; (b) gates.py prompts =
+  token-level prefixes of the training tokenization
+  (`input_ids[:label_span.start]`), greedy EOS-stopped decode, scored
+  `exact_match("Answer:" + completion)`, `max_new_tokens` 8 → 12. G4's
+  in-loop eval (runs 3–4) inherits the same decode protocol — the flaw
+  was caught before that tooling was built. `masking_config_hash` is
+  unchanged (it hashes task format + tokenizer, not code); the manifest
+  `git_commit` separates pre-/post-fix runs, and every run 2–4 artifact
+  that matters will carry the post-fix commit.
+- **Sweep re-run required** (~$0.65, same box): delete the stale
+  `evt-run2-sweep-*` dirs on the box (never pushed to the relay;
+  first-sweep numbers preserved above), relaunch the same overlays,
+  then Phase 4 gates → Phase 5 pin per the guide.
+
 ## Open at the moment
 
 OPEN(2), OPEN(4), OPEN(10): see spec 02 §12 table — close at the runs

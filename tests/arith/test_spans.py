@@ -103,3 +103,48 @@ def test_v5_38_frozen_tokenizer_spans_decode_to_answer(frozen_tokenizer):
 def test_v5_38_length_mismatch_raises(frozen_tokenizer):
     with pytest.raises(ValueError, match="char_spans"):
         tokenize_with_spans(["a"], [(0, 1), (0, 1)], frozen_tokenizer)
+
+
+# --- append_eos (V5.43) ---------------------------------------------------
+
+
+def test_v5_43_eos_appended_and_label_covered(frozen_tokenizer):
+    cases = _grid()
+    rendered = [render(a, b, op, ans, fmt) for a, b, op, ans, fmt in cases]
+    texts = [full for full, _ in rendered]
+    char_spans = [span for _, span in rendered]
+    plain = tokenize_with_spans(texts, char_spans, frozen_tokenizer)
+    with_eos = tokenize_with_spans(texts, char_spans, frozen_tokenizer, append_eos=True)
+    eos_id = frozen_tokenizer.eos_token_id
+    for p, e in zip(plain, with_eos):
+        # Exactly one EOS appended; everything before it byte-identical.
+        assert e.input_ids == list(p.input_ids) + [eos_id]
+        # The label span covers the EOS and still ends at the sequence end.
+        assert e.label_span == (p.label_span[0], p.label_span[1] + 1)
+        assert e.label_span[1] == len(e.input_ids)
+        assert e.input_ids[e.label_span[1] - 1] == eos_id
+
+
+def test_v5_43_default_is_unchanged(frozen_tokenizer):
+    full, span = render(47, 3, "+", 50, "nl")
+    (plain,) = tokenize_with_spans([full], [span], frozen_tokenizer)
+    assert plain.input_ids[-1] != frozen_tokenizer.eos_token_id
+    assert plain.label_span[1] == len(plain.input_ids)
+
+
+def test_v5_43_missing_eos_token_raises():
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(str(FROZEN_TOKENIZER))
+    tok.eos_token = None
+    full, span = render(1, 2, "+", 3, "operator")
+    with pytest.raises(ValueError, match="eos_token_id is None"):
+        tokenize_with_spans([full], [span], tok, append_eos=True)
+
+
+def test_v5_43_span_not_at_sequence_end_raises(frozen_tokenizer):
+    # Label span over "12" but the text continues afterwards: an appended EOS
+    # would not directly terminate the answer.
+    text = "ab 12 c"
+    with pytest.raises(ValueError, match="sequence end"):
+        tokenize_with_spans([text], [(3, 5)], frozen_tokenizer, append_eos=True)

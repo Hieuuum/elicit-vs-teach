@@ -1,11 +1,18 @@
 """Verification gates (spec 02 §8) — record verdicts into run manifests.
 
 Currently implements **G1** (after run 2): Arm A near ceiling on NL add/sub.
-Protocol (owner decision 2026-07-20, spec 02 §8): 1,024 examples seeded-sampled
-from D_algo's held-out val split — re-derived with the same
+Protocol (owner 2026-07-20, revised 2026-07-21, spec 02 §8): 1,024 examples
+seeded-sampled from D_algo's held-out val split — re-derived with the same
 ``geode.train.split_indices`` call the launcher used, so the gate provably
-never scores trained questions — greedy decoding, ``geode.arith.exact_match``,
-pass at ≥ 0.95. Later gates (G2-G5) slot in as further subcommands.
+never scores trained questions. Prompts are **token-level prefixes of the
+training tokenization** (``input_ids[:label_span.start]`` via
+``tokenize_with_spans``): re-tokenizing the char-sliced prompt string ends in
+a standalone space token the model never saw in training (the byte-level BPE
+merges that space into the first answer token) and makes the merged `` -``
+sign token unreachable — measured sign-drop on negative answers, 2026-07-21.
+Greedy decoding stops at the trained EOS (V5.43); ``geode.arith.exact_match``
+on ``"Answer:" + completion``; pass at ≥ 0.95. Later gates (G2-G5) slot in as
+further subcommands.
 
 CPU-only friendly and no ``--confirm-cost``: evaluation, not training.
 
@@ -24,7 +31,7 @@ from pathlib import Path
 
 import torch
 
-from geode.arith import exact_match
+from geode.arith import exact_match, tokenize_with_spans
 from geode.train import split_indices
 from geode.zoo import load_run
 from train import REPO_ROOT, load_config
@@ -35,24 +42,30 @@ G1_THRESHOLD = 0.95
 
 @torch.no_grad()
 def greedy_completions(
-    model, tokenizer, prompts: list[str], *, device: str, batch_size: int, max_new_tokens: int = 8
+    model,
+    tokenizer,
+    prompt_ids: list[list[int]],
+    *,
+    device: str,
+    batch_size: int,
+    max_new_tokens: int = 12,
 ) -> list[str]:
-    """First generated line for each prompt (greedy, left-padded batches)."""
+    """First generated line per token-prefix prompt (greedy, left-padded, EOS-stopped)."""
     model.eval()
     tokenizer.padding_side = "left"
     out: list[str] = []
-    for start in range(0, len(prompts), batch_size):
-        enc = tokenizer(
-            prompts[start : start + batch_size],
-            return_tensors="pt",
+    for start in range(0, len(prompt_ids), batch_size):
+        enc = tokenizer.pad(
+            {"input_ids": prompt_ids[start : start + batch_size]},
             padding=True,
-            add_special_tokens=False,
+            return_tensors="pt",
         ).to(device)
         generated = model.generate(
             **enc,
             do_sample=False,
             max_new_tokens=max_new_tokens,
             pad_token_id=tokenizer.pad_token_id,
+            eos_token_id=tokenizer.eos_token_id,
         )
         new_tokens = generated[:, enc["input_ids"].shape[1] :]
         for row in tokenizer.batch_decode(new_tokens, skip_special_tokens=True):
@@ -78,17 +91,25 @@ def run_g1(args: argparse.Namespace) -> int:
     _, val_idx = split_indices(len(df), cfg["data"]["val_fraction"], cfg["data"]["seed"])
     sampled = random.Random(args.sample_seed).sample(val_idx, args.n)
     rows = df.iloc[sampled]
-    # Prompt = everything before the answer chars (ends "Answer: "), the G5
-    # few_shot_prompt empty-slot convention. exact_match parses the final
-    # Answer: slot of prompt + first generated line via the tested parser.
-    prompts = [t[:cs] for t, cs in zip(rows["full_text"], rows["answer_char_start"].astype(int))]
+    # Prompt = token-level prefix of the training tokenization (everything
+    # before the label span), so the decode context is exactly a training
+    # context — see module docstring for why char-sliced prompts are not.
+    texts = rows["full_text"].tolist()
+    char_spans = list(
+        zip(rows["answer_char_start"].astype(int), rows["answer_char_end"].astype(int))
+    )
+    examples = tokenize_with_spans(texts, char_spans, tokenizer)
+    prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
     answers = rows["true_answer"].astype(int).tolist()
     ops = rows["op"].tolist()
 
     completions = greedy_completions(
-        model, tokenizer, prompts, device=args.device, batch_size=args.batch_size
+        model, tokenizer, prompt_ids, device=args.device, batch_size=args.batch_size
     )
-    hits = [exact_match(p + c, a) for p, c, a in zip(prompts, completions, answers)]
+    # The completion starts inside the answer slot (its leading space rides on
+    # the first answer token), so "Answer:" + completion re-enters the tested
+    # parser with the marker it expects.
+    hits = [exact_match("Answer:" + c, a) for c, a in zip(completions, answers)]
     accuracy = sum(hits) / len(hits)
     by_op = {
         op: sum(h for h, o in zip(hits, ops) if o == op) / max(1, ops.count(op))
@@ -108,7 +129,10 @@ def run_g1(args: argparse.Namespace) -> int:
         "threshold": args.threshold,
         "sample_seed": args.sample_seed,
         "checkpoint": str(checkpoint),
-        "protocol": "greedy first-line, seeded sample of D_algo val split, exact_match",
+        "protocol": (
+            "token-prefix prompts, greedy EOS-stopped first-line, "
+            "seeded sample of D_algo val split, exact_match"
+        ),
     }
     manifest.save(store / "runs" / args.run / "manifest.json")
     print(f"[evt] G1 verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")

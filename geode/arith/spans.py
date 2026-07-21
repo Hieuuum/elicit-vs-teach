@@ -79,18 +79,45 @@ def tokenize_with_spans(
     texts: Sequence[str],
     char_spans: Sequence[tuple[int, int]],
     tokenizer: Any,
+    *,
+    append_eos: bool = False,
 ) -> list[SftExample]:
     """Batch-tokenize ``texts`` and convert each answer char span (V5.38).
 
     Requires a fast (Rust-backed) tokenizer for ``return_offsets_mapping``;
     ``add_special_tokens=False`` so no auto-prepended template shifts spans.
+
+    With ``append_eos=True`` (V5.43), exactly one ``tokenizer.eos_token_id``
+    is appended per example and the label span extends to cover it: stopping
+    after the answer is part of the taught behavior. An answer-span-only mask
+    supervises no post-answer position, so greedy decode runs past correct
+    answers (2026-07-21 run-2 G1 incident); the pretrain corpus packs one EOS
+    per document, so the warm start already knows the convention. Requires
+    each label span to end at the sequence end (true for the frozen
+    ``full_text``s, which end at the last answer char) — an EOS anywhere else
+    would not terminate the answer it labels.
     """
     if len(texts) != len(char_spans):
         raise ValueError(f"got {len(texts)} texts but {len(char_spans)} char_spans")
+    eos_id = None
+    if append_eos:
+        eos_id = tokenizer.eos_token_id
+        if eos_id is None:
+            raise ValueError("append_eos=True but tokenizer.eos_token_id is None")
     enc = tokenizer(list(texts), add_special_tokens=False, return_offsets_mapping=True)
     if "offset_mapping" not in enc:
         raise ValueError("tokenizer returned no offset_mapping (a fast tokenizer is required)")
-    return [
-        SftExample(input_ids=ids, label_span=token_label_span(offs, span, text))
-        for ids, offs, span, text in zip(enc["input_ids"], enc["offset_mapping"], char_spans, texts)
-    ]
+    examples: list[SftExample] = []
+    for ids, offs, span, text in zip(enc["input_ids"], enc["offset_mapping"], char_spans, texts):
+        start, end = token_label_span(offs, span, text)
+        if eos_id is not None:
+            if end != len(ids):
+                raise ValueError(
+                    f"append_eos=True requires the label span to end at the sequence end, "
+                    f"but it ends at token {end} of {len(ids)}: the EOS must directly "
+                    "terminate the answer it labels"
+                )
+            ids = list(ids) + [eos_id]
+            end += 1
+        examples.append(SftExample(input_ids=ids, label_span=(start, end)))
+    return examples

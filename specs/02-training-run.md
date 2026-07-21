@@ -610,6 +610,18 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   with no step passed to `update` raises ValueError (motivation: run-1
   v3-ext — `--init-from` resets AdamW moments and the val transient must
   not trip or distort the plateau rule).
+- V5.43 EOS termination (2026-07-21): `tokenize_with_spans(...,
+  append_eos=True)` appends exactly one `tokenizer.eos_token_id` per
+  example and extends the label span to cover it, so "stop after the
+  answer" is trained behavior. An answer-span-only mask supervises no
+  post-answer position, and the run-2 sweep's greedy decodes ran past
+  correct answers into drifted junk — G1 read 0.0000 on all four
+  converged arms (diagnosed 2026-07-21, decisions.md). Matches the
+  pretrain convention of one EOS per document (§6.1), so the warm start
+  already knows the token. Requires the label span to end at the
+  sequence end and an EOS-bearing tokenizer; raises otherwise.
+  `append_eos=False` (default) is byte-identical to the pre-change
+  output.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
@@ -633,8 +645,9 @@ from the run-1 LR sweep (§12 OPEN(11)/OPEN(3)).
 shape — parses run YAML (`run2_algo.yaml` + `configs/pilot/run2_*`
 overlays), downloads the frozen parquet from
 `mhieuuu/elicit-vs-teach-arith` and refuses on `order_hash` mismatch
-against the config-pinned value (V5.40), converts char→token spans via
-`geode.arith.spans` (V5.38), splits with `split_indices` (V5.39),
+against the config-pinned value (V5.40), converts char→token spans and
+appends a label-covered EOS via `geode.arith.spans` (V5.38, V5.43),
+splits with `split_indices` (V5.39),
 enforces the parent DAG rule via `require_parent_ready` with the
 config's `parent_required_gates` (spec 00 V0.6), records
 `masking_config_hash` + `data_order_hash` in the manifest's experiment
@@ -732,10 +745,10 @@ v2-ext pass) stay recorded in decisions.md and the v2-ext manifest.
 
 | Gate | After | Check |
 |------|-------|-------|
-| G1 | run 2 | Arm A near ceiling on NL add/sub, threshold ≥95%. Protocol (owner 2026-07-20, `scripts/gates.py g1`): 1,024 examples seeded-sampled (seed 316) from D_algo's held-out val split — re-derived via `split_indices` (V5.39), so never trained on — greedy decoding, first generated line, `exact_match`; verdict + accuracy recorded in `experiment.gates.G1` |
+| G1 | run 2 | Arm A near ceiling on NL add/sub, threshold ≥95%. Protocol (owner 2026-07-20, revised 2026-07-21 after the sweep G1=0 incident, `scripts/gates.py g1`): 1,024 examples seeded-sampled (seed 316) from D_algo's held-out val split — re-derived via `split_indices` (V5.39), so never trained on. Prompts are token-level prefixes of the training tokenization (`input_ids[:label_span.start]`, V5.38) — re-tokenizing the char-sliced prompt yields a standalone trailing-space token never seen in training and makes the merged ` -` sign token unreachable (measured sign-drop on negatives). Greedy decode stopped at the trained EOS (V5.43), first line, `exact_match` on `"Answer:" + completion`; verdict + accuracy recorded in `experiment.gates.G1` |
 | G2 | run 3 | Arm A still ≥95% exact match on NL add/sub after the installer — same protocol and bar as G1, no separate δ (owner 2026-07-21: δ is a tolerance choice, not pilot-measurable — a base-init pilot has no arithmetic to lose; 0.95 is already the committed definition of "capability present", which is what the elicitation claim needs at target time; the actual drop from G1 is reported in the write-up) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak; ≤ chance + margin) |
-| G4 | runs 3, 4 | Format validity on operator-notation prompts (both arms; ~≥99%). The same metric is the installers' in-loop stopping signal (§6) |
+| G4 | runs 3, 4 | Format validity on operator-notation prompts (both arms; ~≥99%). The same metric is the installers' in-loop stopping signal (§6). Same decode protocol as G1: token-prefix prompts, greedy, EOS-stopped (the 2026-07-21 fix predates this tooling) |
 | G5 | runs 3, 4 | Zero/16-shot operator add/sub. Expectation: A ~2%/12%, B 0%/0% — the only remaining independent regime evidence |
 | G6 | data gen | V5.1/V5.2 integrity checks run against the *real* generated sets; hashes recorded |
 | G7 | before run 6 | `data_order_hash`(run 5) == `data_order_hash`(run 6), enforced at launch |

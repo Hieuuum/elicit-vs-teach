@@ -117,6 +117,13 @@ tokens/example` → `loading init checkpoint` → `parent
 
 ## Phase 3 — the sweep: 4 full-length arms (expected ~1–2 h, ≈ $0.5–1)
 
+> **2026-07-21 re-run:** the first sweep converged but scored G1 0.0000
+> on every arm — an eval artifact, fixed by V5.43 (EOS in the label
+> span) + token-prefix gate prompts (decisions.md). Before relaunching:
+> `git -C /workspace/elicit-vs-teach pull` and
+> `rm -rf $GEODE_STORE/runs/evt-run2-sweep-lr*` (stale arms were never
+> pushed to the relay).
+
 Each arm is a *complete* candidate run — to convergence, ε/k stopping
 live — not a short pilot (decisions.md 2026-07-20: short-horizon
 extrapolation is what misled run 1). Sequential is fine at these sizes:

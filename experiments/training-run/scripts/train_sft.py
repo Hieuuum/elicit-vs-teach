@@ -159,9 +159,9 @@ def main() -> int:
     texts = df["full_text"].tolist()
     char_spans = list(zip(df["answer_char_start"].astype(int), df["answer_char_end"].astype(int)))
     print(f"[evt] {cfg['data']['file']}: {n_rows} rows, order_hash verified", flush=True)
-    examples = tokenize_with_spans(texts, char_spans, tokenizer)
+    examples = tokenize_with_spans(texts, char_spans, tokenizer, append_eos=True)
     max_len = max(len(ex.input_ids) for ex in examples)
-    print(f"[evt] tokenized: max {max_len} tokens/example (expected ≈33)", flush=True)
+    print(f"[evt] tokenized: max {max_len} tokens/example (expected ≈34 incl. EOS)", flush=True)
     d = cfg["data"]
     train_idx, val_idx = split_indices(n_rows, d["val_fraction"], d["seed"])
     train_examples = [examples[i] for i in train_idx]
