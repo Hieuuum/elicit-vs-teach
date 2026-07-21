@@ -45,8 +45,8 @@ converged at step 4k, min val 1.1066) → `evt-run1-base-v3` (completed
 constant LR 1e-3, stop on validation-loss convergence (ε 0.005 / k 3 /
 eval_every 1000). Hit the 30k-step cost ceiling still descending
 (`stop_reason=max_steps`, min val 1.1020, ~2.5–3.0 mnat/1k in the tail;
-samples clean, no repetition loops) → **`evt-run1-base-v3-ext` (queued
-2026-07-21): warm start from the v3 checkpoint, identical optimizer
+samples clean, no repetition loops) → **`evt-run1-base-v3-ext` (launched
+2026-07-21, running): warm start from the v3 checkpoint, identical optimizer
 recipe, tightened convergence rule ε 2 mnat / k 5 (abandons descent
 slower than 0.4 mnat/1k vs 1.7 under 0.005/3; owner 2026-07-21), runs
 to convergence — `max_steps` 81k is a 10-epoch ETA bound, not a stop,

@@ -6,11 +6,14 @@ and the G1 gate. Decision record: `notes/decisions.md` 2026-07-20 (run-2
 tooling + v3 retrain + "G0 removed" entries). Configs:
 `configs/run2_algo.yaml` + `configs/pilot/run2_sweep_lr*.yaml`.
 
-Parent is pinned: **`evt-run1-base-v3`** (floor 1, the 2026-07-20
-constant-LR paper-protocol retrain; gate G0 was removed the same day).
-The launcher checks the parent manifest says `status: complete` via
-`require_parent_ready` — no manual verification needed, but v3 must
-have finished training and been pushed to the HF relay first.
+Parent is pinned: **`evt-run1-base-v3-ext`** (floor 1 = the extension's
+convergence point; v3 itself hit its 30k ceiling still descending,
+2026-07-21). The launcher checks the parent manifest says
+`status: complete` via `require_parent_ready` — no manual verification
+needed, but v3-ext must have finished and been pushed to the HF relay
+first. **Every `--init-from` below points at the v3-ext checkpoint** —
+plain v3 also reads `status: complete` (clean exit at the ceiling), so
+warm-starting from v3 by mistake would NOT be caught by the launcher.
 
 Run 2 is *much* lighter than run 1: no TinyStories download, no corpus
 packing. The data is the frozen `D_algo.parquet` (1M NL add/sub rows,
@@ -38,9 +41,12 @@ python --version           # ≥ 3.11 — if lower, stop
 tmux new -s train
 git clone -b cut-to-core https://github.com/Hieuuum/elicit-vs-teach.git
 cd elicit-vs-teach
-git log --oneline -5       # must include the run-2 guide commit
-                           # (DOCS: run-2 guide ...) or later — older
-                           # clones have parent_run_id: null and refuse
+grep -m1 parent_run_id experiments/training-run/configs/run2_algo.yaml
+                           # must print evt-run1-base-v3-ext — an older
+                           # clone pins plain v3 and would warm-start
+                           # from the unconverged checkpoint WITHOUT the
+                           # launcher refusing (a stale checkout is what
+                           # mislaunched v3-ext as v2-ext, 2026-07-21)
 pip install -e ".[dev]"
 export GEODE_STORE=$PWD/geode-store   # scripts default here anyway; the
                                       # export is for hand-typed commands
@@ -64,14 +70,14 @@ cd experiments/training-run/scripts
 
 ```bash
 hf auth login
-python hf_checkpoint.py pull --run-id evt-run1-base-v3
+python hf_checkpoint.py pull --run-id evt-run1-base-v3-ext
 ```
 
 The pull sha256-verifies `model.safetensors` and brings the manifest —
 whose `status: complete` is what the launcher checks.
 
 ```bash
-ls $GEODE_STORE/runs/evt-run1-base-v3/pretrain/model/
+ls $GEODE_STORE/runs/evt-run1-base-v3-ext/pretrain/model/
 # expect: config.json  generation_config.json  model.safetensors
 ```
 
@@ -90,12 +96,12 @@ mistake dies here for free.
 ```bash
 python train_sft.py --config ../configs/run2_algo.yaml \
     --override ../configs/pilot/run2_sweep_lr3e-5.yaml \
-    --init-from $GEODE_STORE/runs/evt-run1-base-v3/pretrain/model
+    --init-from $GEODE_STORE/runs/evt-run1-base-v3-ext/pretrain/model
 ```
 
 Expect, in order: `order_hash verified` → `tokenized: max ≈33
 tokens/example` → `loading init checkpoint` → `parent
-'evt-run1-base-v3' complete, gates pass` → the cost estimate →
+'evt-run1-base-v3-ext' complete, gates pass` → the cost estimate →
 `refusing to train (budget rule)`.
 
 ✅ Done when: you saw the refusal line (exit 1 is correct here).
@@ -112,7 +118,7 @@ is what misled run 1). Sequential is fine at these sizes:
 for lr in 3e-5 1e-4 3e-4 1e-3; do
   python train_sft.py --config ../configs/run2_algo.yaml \
       --override ../configs/pilot/run2_sweep_lr${lr}.yaml \
-      --init-from $GEODE_STORE/runs/evt-run1-base-v3/pretrain/model \
+      --init-from $GEODE_STORE/runs/evt-run1-base-v3-ext/pretrain/model \
       --confirm-cost || break
 done ; curl -d "run-2 sweep done (exit $?)" ntfy.sh/<your-topic>
 ```
@@ -178,7 +184,7 @@ the official G1 verdict on it:
 
 ```bash
 python train_sft.py --config ../configs/run2_algo.yaml \
-    --init-from $GEODE_STORE/runs/evt-run1-base-v3/pretrain/model \
+    --init-from $GEODE_STORE/runs/evt-run1-base-v3-ext/pretrain/model \
     --confirm-cost \
     ; curl -d "evt-run2-armA-algo finished (exit $?)" ntfy.sh/<your-topic>
 
@@ -231,9 +237,9 @@ unblocks run 3 (Arm A format install).
 |---|---|
 | `parent run ... has no manifest in the store` | Phase 1 pull missing or `GEODE_STORE` stale — `echo $GEODE_STORE`, re-export, re-pull. |
 | `parent_run_id is null — pin it` | Clone predates the run-1 closure commit — `git pull`. |
-| `parent run ... status ...` (not complete) | v3 hasn't finished (or an old manifest copy) — wait for the run-1 v3 retrain, re-pull evt-run1-base-v3. |
+| `parent run ... status ...` (not complete) | v3-ext hasn't finished (or an old manifest copy) — wait for the run-1 extension, re-pull evt-run1-base-v3-ext. |
 | `order_hash mismatch` | Downloaded parquet ≠ frozen 2026-07-19 file. Do NOT work around — the dataset is the experiment. Stop and investigate. |
-| `--init-from arch mismatch` | Wrong path — must be `.../evt-run1-base-v3/pretrain/model`. |
+| `--init-from arch mismatch` | Wrong path — must be `.../evt-run1-base-v3-ext/pretrain/model`. |
 | `register_run: ... already running` | Double-launch guard: check `pgrep -f train_sft` before retrying. |
 | g1 accuracy exactly 0.0 on a trained arm | Wrong `--run`/checkpoint pairing (e.g. the smoke run) — g1 defaults to `runs/<run>/sft/model`. |
 | HF push 401/403 | Token is read-only — re-login with a write token. |
