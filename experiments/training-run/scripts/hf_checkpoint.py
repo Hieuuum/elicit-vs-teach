@@ -9,9 +9,9 @@ archive that future boxes can pull without the laptop.
 
 Usage:
     # laptop (must be logged in — check with `hf auth whoami`):
-    python hf_checkpoint.py push
+    python hf_checkpoint.py push --run-id <run-id>
     # box (repo is private by default => `hf auth login` with a read token):
-    python hf_checkpoint.py pull
+    python hf_checkpoint.py pull --run-id <run-id>
 
 The hub repo (default mhieuuu/geode-store, private) mirrors the local
 store layout — runs/<run-id>/... — so every run lands as its own folder
@@ -31,7 +31,26 @@ from pathlib import Path
 from huggingface_hub import HfApi, snapshot_download
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-CKPT_REL = Path("pretrain") / "model" / "model.safetensors"
+
+
+def find_checkpoint(run_dir: Path) -> Path:
+    """The run's single ``<phase>/model/model.safetensors`` checkpoint.
+
+    Runs store their final checkpoint under a phase dir named for how it was
+    trained — ``pretrain/`` (run 1) or ``sft/`` (runs 2-4) — so the phase is
+    auto-detected rather than hardcoded (2026-07-21: the ``pretrain/``
+    hardcode broke every evt-run2 push). Exactly one match is required;
+    zero or several is a wrong-dir/corrupt-store signal, not a guess to make.
+    (Snapshots live at ``snapshots/step_k/model.safetensors`` — no ``model/``
+    component — so they never match.)
+    """
+    hits = sorted(run_dir.glob("*/model/model.safetensors"))
+    if len(hits) != 1:
+        raise SystemExit(
+            f"[hf] expected exactly one */model/model.safetensors under {run_dir}, "
+            f"found {len(hits)}: {[str(h) for h in hits]} — wrong --store/--run-id?"
+        )
+    return hits[0]
 
 
 def sha256_of(path: Path) -> str:
@@ -44,9 +63,7 @@ def sha256_of(path: Path) -> str:
 
 def push(store: Path, run_id: str, repo_id: str, public: bool) -> int:
     src = store / "runs" / run_id
-    ckpt = src / CKPT_REL
-    if not ckpt.is_file():
-        raise SystemExit(f"[hf] no checkpoint at {ckpt} — wrong --store/--run-id?")
+    ckpt = find_checkpoint(src)
     print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
     api = HfApi()
     api.create_repo(repo_id, private=not public, exist_ok=True)
@@ -62,13 +79,11 @@ def push(store: Path, run_id: str, repo_id: str, public: bool) -> int:
 
 
 def pull(store: Path, run_id: str, repo_id: str) -> int:
-    repo_path = f"runs/{run_id}/{CKPT_REL.as_posix()}"
     # The repo mirrors the store layout, so unpacking at the store root
     # puts runs/<run-id>/... exactly where train.py expects it.
     snapshot_download(repo_id=repo_id, local_dir=store, allow_patterns=[f"runs/{run_id}/*"])
-    ckpt = store / "runs" / run_id / CKPT_REL
-    if not ckpt.is_file():
-        raise SystemExit(f"[hf] pull finished but {ckpt} is missing — wrong --repo-id/--run-id?")
+    ckpt = find_checkpoint(store / "runs" / run_id)
+    repo_path = f"runs/{run_id}/{ckpt.relative_to(store / 'runs' / run_id).as_posix()}"
     local = sha256_of(ckpt)
     info = HfApi().get_paths_info(repo_id, [repo_path])
     remote = info[0].lfs.sha256 if info and info[0].lfs else None
@@ -88,7 +103,9 @@ def pull(store: Path, run_id: str, repo_id: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("cmd", choices=("push", "pull"))
-    parser.add_argument("--run-id", default="evt-run1-base-v2")
+    # Required, no default: a forgotten --run-id must not silently push a run
+    # whose relay manifest was backfilled elsewhere (run-1 v1/v2/v2-ext/v3).
+    parser.add_argument("--run-id", required=True)
     parser.add_argument("--repo-id", default="mhieuuu/geode-store")
     parser.add_argument(
         "--store",

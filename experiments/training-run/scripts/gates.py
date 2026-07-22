@@ -11,14 +11,24 @@ a standalone space token the model never saw in training (the byte-level BPE
 merges that space into the first answer token) and makes the merged `` -``
 sign token unreachable — measured sign-drop on negative answers, 2026-07-21.
 Greedy decoding stops at the trained EOS (V5.43); ``geode.arith.exact_match``
-on ``"Answer:" + completion``; pass at ≥ 0.95. Later gates (G2-G5) slot in as
-further subcommands.
+on ``"Answer:" + completion``; pass at ≥ 0.95.
+
+**G2** (after run 3) is the identical eval and bar re-run against an installer
+checkpoint — spec 02 §8: same protocol as G1, no separate δ, and the shared
+``--sample-seed`` means it scores the same 1,024 questions G1 did. **G4**
+(runs 3-4) re-scores the installers' in-loop stopping metric (spec 02 §6):
+format validity on the same seeded 512-prompt sample of the installer
+config's val split, ``geode.arith.format_valid`` on ``"Answer:" +
+completion``, pass at the config's threshold. Later gates (G3, G5) slot in
+as further subcommands.
 
 CPU-only friendly and no ``--confirm-cost``: evaluation, not training.
 
 Usage:
     python gates.py g1 --run evt-run2-armA-algo --config configs/run2_algo.yaml \
         [--checkpoint <dir>] [--device cuda] [--n 1024] [--sample-seed 316]
+    python gates.py g2 --run evt-run3-sweep-lr3e-4 --config configs/run2_algo.yaml
+    python gates.py g4 --run evt-run3-sweep-lr3e-4 --config configs/run3_inst.yaml
 """
 
 from __future__ import annotations
@@ -27,20 +37,23 @@ import argparse
 import os
 import random
 import sys
+from functools import partial
 from pathlib import Path
 
 import torch
 
-from geode.arith import exact_match, greedy_completions, tokenize_with_spans
+from geode.arith import exact_match, format_valid, greedy_completions, tokenize_with_spans
 from geode.train import split_indices
 from geode.zoo import load_run
 from train import REPO_ROOT, load_config
 from train_sft import load_frozen_parquet
 
-G1_THRESHOLD = 0.95
+# G1 and G2 share the bar: 0.95 is the committed definition of "capability
+# present", no separate installer δ (owner 2026-07-21, spec 02 §8).
+EXACT_MATCH_THRESHOLD = 0.95
 
 
-def run_g1(args: argparse.Namespace) -> int:
+def run_exact_match_gate(args: argparse.Namespace, gate: str) -> int:
     cfg = load_config(args.config, None)
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
@@ -51,7 +64,7 @@ def run_g1(args: argparse.Namespace) -> int:
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
     checkpoint = args.checkpoint or store / "runs" / args.run / "sft" / "model"
-    print(f"[evt] G1: loading checkpoint {checkpoint} ...", flush=True)
+    print(f"[evt] {gate}: loading checkpoint {checkpoint} ...", flush=True)
     model = LlamaForCausalLM.from_pretrained(checkpoint).to(args.device)
 
     df = load_frozen_parquet(cfg)
@@ -84,11 +97,11 @@ def run_g1(args: argparse.Namespace) -> int:
     }
     passed = accuracy >= args.threshold
     print(
-        f"[evt] G1 accuracy {accuracy:.4f} on n={args.n} (by op: {by_op}) -> "
+        f"[evt] {gate} accuracy {accuracy:.4f} on n={args.n} (by op: {by_op}) -> "
         f"{'PASS' if passed else 'FAIL'} (threshold {args.threshold})"
     )
 
-    manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G1"] = {
+    manifest.data.setdefault("experiment", {}).setdefault("gates", {})[gate] = {
         "pass": passed,
         "accuracy": accuracy,
         "accuracy_by_op": by_op,
@@ -102,25 +115,102 @@ def run_g1(args: argparse.Namespace) -> int:
         ),
     }
     manifest.save(store / "runs" / args.run / "manifest.json")
-    print(f"[evt] G1 verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")
+    print(f"[evt] {gate} verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")
+    return 0 if passed else 1
+
+
+def run_g4(args: argparse.Namespace) -> int:
+    cfg = load_config(args.config, None)
+    os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
+    store = Path(os.environ["GEODE_STORE"])
+    manifest = load_run(args.run, store=store)
+
+    from transformers import AutoTokenizer, LlamaForCausalLM
+
+    local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
+    tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
+    checkpoint = args.checkpoint or store / "runs" / args.run / "sft" / "model"
+    print(f"[evt] G4: loading checkpoint {checkpoint} ...", flush=True)
+    model = LlamaForCausalLM.from_pretrained(checkpoint).to(args.device)
+
+    s = cfg["train"]["stopping"]
+    if s.get("metric") != "format_validity":
+        raise SystemExit(
+            "[evt] G4 needs an installer config with a behavioral stopping block "
+            "(e.g. run3_inst.yaml) — it re-scores the in-loop metric"
+        )
+    df = load_frozen_parquet(cfg)
+    _, val_idx = split_indices(len(df), cfg["data"]["val_fraction"], cfg["data"]["seed"])
+    # Identical prompt set to the in-loop stopping eval (train_sft.py): the
+    # seeded sample is over val-split *positions*, so re-deriving it here and
+    # indexing into val_idx selects the same questions the trainer scored.
+    picks = random.Random(s["prompt_seed"]).sample(range(len(val_idx)), s["n_prompts"])
+    rows = df.iloc[[val_idx[i] for i in picks]]
+    texts = rows["full_text"].tolist()
+    char_spans = list(
+        zip(rows["answer_char_start"].astype(int), rows["answer_char_end"].astype(int))
+    )
+    examples = tokenize_with_spans(texts, char_spans, tokenizer, append_eos=True)
+    prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
+
+    completions = greedy_completions(
+        model, tokenizer, prompt_ids, device=args.device, batch_size=args.batch_size
+    )
+    rate = sum(format_valid("Answer:" + c) for c in completions) / len(completions)
+    passed = rate >= s["threshold"]
+    print(
+        f"[evt] G4 format_validity {rate:.4f} on n={s['n_prompts']} -> "
+        f"{'PASS' if passed else 'FAIL'} (threshold {s['threshold']})"
+    )
+
+    manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G4"] = {
+        "pass": passed,
+        "format_validity": rate,
+        "n": s["n_prompts"],
+        "threshold": s["threshold"],
+        "prompt_seed": s["prompt_seed"],
+        "checkpoint": str(checkpoint),
+        "protocol": (
+            "token-prefix prompts, greedy EOS-stopped, in-loop stopping sample "
+            "(seeded over val-split positions), format_valid"
+        ),
+    }
+    manifest.save(store / "runs" / args.run / "manifest.json")
+    print(f"[evt] G4 verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")
     return 0 if passed else 1
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="gate", required=True)
+
+    def common_args(p: argparse.ArgumentParser) -> None:
+        p.add_argument("--run", required=True, help="run_id whose manifest records the verdict")
+        p.add_argument(
+            "--config",
+            type=Path,
+            required=True,
+            help="eval-data YAML: the D_algo run YAML for g1/g2, the installer YAML for g4",
+        )
+        p.add_argument(
+            "--checkpoint", type=Path, default=None, help="default: store/runs/<run>/sft/model"
+        )
+        p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+        p.add_argument("--batch-size", type=int, default=128)
+
     g1 = sub.add_parser("g1", help="Arm A near ceiling on NL add/sub (after run 2)")
-    g1.add_argument("--run", required=True, help="run_id whose manifest records the verdict")
-    g1.add_argument("--config", type=Path, required=True, help="the run's YAML (data + split)")
-    g1.add_argument(
-        "--checkpoint", type=Path, default=None, help="default: store/runs/<run>/sft/model"
-    )
-    g1.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    g1.add_argument("--n", type=int, default=1024)
-    g1.add_argument("--sample-seed", type=int, default=316)
-    g1.add_argument("--batch-size", type=int, default=128)
-    g1.add_argument("--threshold", type=float, default=G1_THRESHOLD)
-    g1.set_defaults(func=run_g1)
+    g2 = sub.add_parser("g2", help="arithmetic intact after the installer (run 3) — G1 protocol")
+    for gate, p in (("G1", g1), ("G2", g2)):
+        common_args(p)
+        p.add_argument("--n", type=int, default=1024)
+        p.add_argument("--sample-seed", type=int, default=316)
+        p.add_argument("--threshold", type=float, default=EXACT_MATCH_THRESHOLD)
+        p.set_defaults(func=partial(run_exact_match_gate, gate=gate))
+
+    g4 = sub.add_parser("g4", help="format validity, in-loop metric re-scored (runs 3-4)")
+    common_args(g4)
+    g4.set_defaults(func=run_g4)
+
     args = parser.parse_args()
     return args.func(args)
 
