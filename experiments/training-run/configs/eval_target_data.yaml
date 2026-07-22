@@ -1,0 +1,14 @@
+# Eval-only data pin for gates.py g5 (spec 02 §8 G5): zero/16-shot operator
+# add/sub on D_target. No training run consumes this config — the runs-5/6
+# target configs will carry their own pin, cross-checked at launch by G7.
+# order_hash pinned from data/full/report.json (frozen 2026-07-19,
+# datasets.D_target); load_frozen_parquet recomputes over the downloaded
+# file and refuses on mismatch.
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-4
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target.parquet       # 1M op-notation add/sub, correct labels, seed 20260717
+  order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
