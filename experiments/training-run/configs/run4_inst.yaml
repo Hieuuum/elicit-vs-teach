@@ -7,9 +7,8 @@
 # BEFORE LAUNCH (owner):
 #   1. evt-run1-base-v3-ext must be complete (launcher enforces, V0.6);
 #      run 1 has no required gates (G0 removed).
-#   2. train.lr is null until pinned — pin the SAME lr as the run-3
-#      canonical (matched installer recipe: arms may differ only in the
-#      parent); the launcher refuses a null-lr launch.
+#   2. train.lr pinned 3e-6 (2026-07-21) = the run-3 winner pin (matched
+#      installer recipe: arms may differ only in the parent).
 #   3. Data block below must stay verbatim-identical to run3_inst.yaml
 #      (spec 02 §6: identical dataset + order as run 3; the G7 analog for
 #      the installer pair).
@@ -41,7 +40,7 @@ data:                          # VERBATIM copy of run3_inst.yaml (spec 02 §6)
                                # order: identical D_inst stream (spec 02 §6)
 
 train:
-  lr: null                     # PIN to the run-3 canonical lr (matched recipe)
+  lr: 3.0e-6                   # = run-3 winner pin (matched installer recipe)
   batch_size: 128
   eval_every: 250              # behavioral cadence (spec 02 §6, OPEN(1) close)
   max_steps: 15546             # pure ceiling = 2 epochs of 7,773 steps
