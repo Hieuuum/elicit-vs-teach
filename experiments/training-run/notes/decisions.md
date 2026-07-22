@@ -1003,3 +1003,44 @@ Dataset items: none.
   replay unchanged); pilot_loss_compare.ipynb plots all rows, train and
   val panels now log-log. Spec 02 §6 records the protocol (same
   commit).
+
+## OPEN(2) closed — target n = 500K (owner 2026-07-22)
+
+- **Verdict:** `data.n_examples: 500000` pinned in run5/run6_target.yaml
+  (identical, G7). Criterion (spec 02 §11): smallest grid n where B
+  lands within a few points of A — under the final fixed-slice protocol
+  (D_target_eval, G5 zero-shot on the fixed 1024 questions + shared
+  test loss over the 97,952-row reporting block):
+
+  | run | zero-shot | test loss (nats) |
+  |---|---|---|
+  | B @ 10K  | 0.7725 | 0.3374 |
+  | B @ 50K  | 0.9414 | 0.0428 |
+  | B @ 200K | 0.8740 | 0.1109 |
+  | B @ 500K | **0.9805** | **0.0140** |
+  | A-ref @ 50K | 0.9941 | 0.0059 |
+  | run-3 parent (A-inst) | 0.0117 | 2.3004 |
+  | run-4 parent (B-inst) | 0.0000 | 3.7482 |
+
+  Only 500K puts B within a few points of A (1.4 vs 5.3 at 50K). These
+  fixed-slice numbers supersede both earlier G5 draws (contaminated
+  full-file 2026-07-21, reserved-tail 2026-07-22); ordering was stable
+  across all three protocols.
+- **n200K dip is a stopping-rule artifact, not a data-size property:**
+  worse than 50K on every protocol and metric; its ε/k rule fired at
+  step 5500 (~3.5 epochs) — slower per-step improvement at larger n
+  tripped the plateau detector mid-descent, leaving the model
+  under-converged (min_val 0.103 bits vs 50K's 0.0505). Accepted for
+  the grid; the production point (500K) escaped it with a genuine stop.
+- **Ceiling raised with the pin:** max_steps 15626 → 23442 (6 epochs of
+  500K at batch 128). The B@500K pilot stopped at 15,500 — 126 steps
+  under the old 2-epochs-of-1M ceiling; seed wobble could have turned a
+  converged production run into stop_reason=max_steps.
+- **Loss evidence (first same-data comparison):** A@50K reaches ~7×
+  lower loss than B@50K on identical examples (0.0059 vs 0.0428); B
+  needs 10× the data to get within 2.4×. The elicit-vs-teach contrast
+  the design needs is present at this scale. Parents both near-zero
+  behaviorally with A's parent 1.45 nats/token below B's — the
+  NL-notation head start, latent as required.
+- 16-shot ≈ 0 on all seven runs (known collapse — see the G5 protocol
+  entries); zero-shot + loss carry the evidence.

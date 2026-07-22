@@ -27,7 +27,7 @@ spec 02 §13).
 | 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | **DONE — converged** (2026-07-21, lr 3e-4, step 19k, `min_val_nats` 0.0037); G1 0.9961 PASS |
 | 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), to behavioral stop (spec 02 §6) | **DONE** (2026-07-22, lr 3e-6, behavioral stop @ 750); G2/G4/G5 recorded |
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | **DONE** (2026-07-22, behavioral stop @ 750); G3/G4/G5 recorded |
-| 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` (op-notation add/sub), count OPEN(2) | configs landed (lr null until the target sweep pins); OPEN(2) pilot running 2026-07-22 |
+| 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` 500K prefix (op-notation add/sub; OPEN(2) closed 2026-07-22) | ready to launch — lr 1e-3 + n 500K pinned; awaits OPEN(4)/OPEN(10) |
 | 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | same — G7 order guard at launch |
 
 DAG: `1 → 2 → 3 → 5` (Arm A, elicit) and `1 → 4 → 6` (Arm B, teach).
@@ -90,7 +90,7 @@ ungated inspection tool.
 | G2 | run 3 | Arm A still ≥95% on NL add/sub post-install — same bar as G1, no separate δ (owner 2026-07-21); drop from G1 reported | **PASS 0.9531** (drop 0.043 from G1; installer-LR length-prior finding → decisions.md 2026-07-22) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | **PASS 0.0000** |
 | G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | **PASS 1.0 both arms** |
-| G5 | runs 3–4 | zero/16-shot op add/sub (expect A ~2%/12%, B 0%/0%) | recorded (evidence-only): A 0.0068/0.0, B 0/0 — paper's 1B expectation void at 38.7M |
+| G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. 16-shot ≈ 0 everywhere (collapse — invalidated as a metric; decisions.md) |
 | G6 | data gen | V5.1/V5.2 integrity on the real sets | partial — generation-time evidence in `report.json`; formal re-run when `gates.py` grows the subcommand |
 | G7 | before run 6 | `data_order_hash`(run 5) == (run 6) | enforced at launch |
 
@@ -122,14 +122,11 @@ drivers, `export_hf.py`, `gates.py` g6.
 
 1. ~~Run 2~~ / ~~Runs 3–4~~ — **DONE 2026-07-22** (§2 table; outcomes
    + gate values in decisions.md 2026-07-22).
-2. **OPEN(2) pilot, phase 1 (running 2026-07-22):** target-LR
-   mini-sweep, Arm B @ the 50K `D_target` prefix, one decade around
-   3e-4 (`configs/pilot/target_sweep_lr*.yaml`); winner (lowest
-   `min_val_nats` among converged) pins `train.lr` in BOTH
-   run5/run6_target.yaml. Phase 2: the OPEN(2) grid — B @
-   10K/50K/200K/500K + A-ref @ 50K (`configs/pilot/open2_*.yaml`) —
-   closes OPEN(2), then OPEN(4); OPEN(10) is an owner call before
-   run 5.
+2. ~~OPEN(2) pilot~~ — **DONE 2026-07-22**: phase 1 (target-LR
+   mini-sweep) pinned lr 1e-3; phase 2 (the B grid @ 10K/50K/200K/500K
+   + A-ref @ 50K, re-scored under the fixed shared eval protocol)
+   closed **OPEN(2) = 500K** (§4 G5 row; decisions.md). Next: OPEN(4);
+   OPEN(10) is an owner call before run 5.
 3. **`geode.probe` extraction + `scripts/extract.py`** (V5.9–V5.13:
    offline probe pass — activations + activation-gradients at 9
    residual points, matched-load guards, alignment metric) — in

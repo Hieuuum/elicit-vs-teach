@@ -21,11 +21,11 @@
 #   3. Precision: the prequential harness computes fp32 (no autocast) on
 #      any device — EDL numerics stay precision-uniform; the manifest
 #      records the resolved fp32.
-#   4. Training data size is OPEN(2) — the configs/pilot/open2_* overlays
-#      run the B-convergence sweep; pin the chosen n here (and in run6) in
-#      the same PR that closes OPEN(2). The full 1M is trainable: eval
-#      questions live in the disjoint eval_file (owner 2026-07-22), not a
-#      reserved tail of the training file.
+#   4. data.n_examples 500000 pinned 2026-07-22 — OPEN(2) closed by the
+#      B-convergence grid under the fixed shared eval protocol: 500K is
+#      the smallest grid n where B lands within a few points of A
+#      (B@500K 0.9805 / 0.0140 nats vs A@50K 0.9941 / 0.0059;
+#      decisions.md). SAME pin as run 6 (G7).
 run_id: evt-run5-armA-target
 experiment:
   name: training-run
@@ -52,10 +52,9 @@ data:
   # recomputes over the FULL downloaded file and refuses on mismatch —
   # before any prefix is taken.
   order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
-  n_examples: null             # OPEN(2) pins this; pilots take a PREFIX of the
-                               # frozen order (deterministic, comparable arms).
-                               # Full 1M trainable; null is refused at launch —
-                               # pin explicitly
+  n_examples: 500000           # OPEN(2) closed 2026-07-22 (header note 4;
+                               # decisions.md): the 500K PREFIX of the frozen
+                               # order — deterministic, identical across arms
   # Fixed shared eval set (owner 2026-07-22): question-disjoint from
   # D_target ∪ D_algo ∪ probe by construction (make_data --eval-set,
   # data/full/report.json). First 2048 rows = ε/k stopping block; the rest
@@ -76,9 +75,12 @@ train:
                                # note 2); same pin as run 6
   batch_size: 128
   eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
-  max_steps: 15626             # pure cost ceiling = 2 epochs of the full 1M
-                               # file at batch 128 (2 × ceil(1e6/128) = 15626);
-                               # the ε/k rule is the planned stop —
+  max_steps: 23442             # pure cost ceiling = 6 epochs of the 500K
+                               # prefix at batch 128 (6 × ceil(5e5/128) =
+                               # 23442) — the B@500K pilot's ε/k stop at
+                               # 15,500 sat 126 steps under the old 2-epochs-
+                               # of-1M ceiling, too tight for seed wobble.
+                               # The ε/k rule is the planned stop —
                                # stop_reason=max_steps means "did not
                                # converge": investigate, don't ship
   stopping:                    # loss branch of the V0.7 union (no `metric`):

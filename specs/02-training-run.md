@@ -47,7 +47,7 @@ capacity thresholds) are void — the pilot re-establishes them (§11).
 | 2 | `evt-run2-armA-algo`   | pre-teach       | run 1     | full FT | NL add/sub, correct labels, 1M unique, to convergence |
 | 3 | `evt-run3-armA-inst`   | format install  | run 2     | full FT | operator-notation mult, random labels, to behavioral stop (§6) |
 | 4 | `evt-run4-armB-inst`   | format install  | run 1     | full FT | identical dataset + order as run 3, same behavioral stop (§6) |
-| 5 | `evt-run5-armA-target` | target          | run 3     | LoRA    | operator-notation add/sub, OPEN(2) count |
+| 5 | `evt-run5-armA-target` | target          | run 3     | LoRA    | operator-notation add/sub, 500K prefix (OPEN(2) closed 2026-07-22) |
 | 6 | `evt-run6-armB-target` | target          | run 4     | LoRA    | identical data + identical order as run 5 |
 
 DAG: `1 → 2 → 3 → 5` (Arm A) and `1 → 4 → 6` (Arm B). Arms differ **only**
@@ -249,9 +249,9 @@ the 2026-07-18 downscale):
   (starting points ~3e-4 pretrain, ~1e-4 full-FT pre-teach, ~3e-4 LoRA;
   brief sweep; executed runs record theirs in their manifests). LoRA
   target LR pinned 1e-3 for runs 5–6 (sweep 2026-07-22 — grid extended
-  upward to bracket the monotone first decade; decisions.md). Batch 128
-  placeholder — step count and snapshot schedule follow from
-  OPEN(2)+OPEN(4).
+  upward to bracket the monotone first decade; decisions.md). Batch 128;
+  n=500K pinned (OPEN(2) closed 2026-07-22, §12) — snapshot schedule
+  parameters follow from OPEN(4).
 - LoRA (runs 5–6 only): r=128; Q,K,V,O,G,U,D all layers; α=32; scaling
   α/2r; dropout 0; A Kaiming 1/√d_in, B zero. 12.1M params,
   ~24 MB/adapter bf16.
@@ -299,8 +299,8 @@ the 2026-07-18 downscale):
   run-3 task, and is property-tested (its silent failure would break
   the matched-arms design). Target runs 5–6 are the EDL measurement
   itself — their training schedule is part of the metric; the ε/k rule
-  is ratified below (2026-07-22), dataset size and snapshot schedule
-  stay with OPEN(2)/OPEN(4).
+  is ratified below (2026-07-22); n=500K pinned (OPEN(2) closed
+  2026-07-22, §12), snapshot schedule stays with OPEN(4).
 - Stopping (runs 5–6, target runs — owner 2026-07-22): the canonical
   loss rule at short-run cadence — **ε=0.002 nats, k=5, eval_every 500,
   min_steps 0**. The canonical min_steps=5000 grace and eval_every 1000
@@ -949,10 +949,9 @@ real gradient-alignment plot. Then parameter pilots close open items:
 - OPEN(1): **closed 2026-07-21** — see §12; installer stopping is
   behavioral (§6), so there is no count-finding pilot. What remains
   before runs 3–4 launch is an LR sweep only.
-- OPEN(2): train Arm B to convergence at 10K/50K/200K/500K ⇒ smallest n
-  where B lands within a few points of A. (Paper's teaching peak for this
-  task ≈300K; 10K likely far too small — Fig 1(b)'s "60K" is a cartoon,
-  not a measurement.)
+- OPEN(2): **closed 2026-07-22** — see §12; the B-convergence grid ran
+  at 10K/50K/200K/500K under the fixed shared eval protocol (§5) and
+  500K is the smallest grid n where B lands within a few points of A.
 - OPEN(3): **closed 2026-07-19** — see §12.
 - OPEN(4): batch → step count → snapshot-schedule parameters (needs
   OPEN(2)).
@@ -966,7 +965,7 @@ markers in this spec are replaced with pinned values in the same PR.
 | ID | Item | Closed by |
 |----|------|-----------|
 | OPEN(1) | Format-installer example count | **closed 2026-07-21** (owner): runs 3–4 stop on behavior, not a pinned count — identical pre-registered rule (§6: G4 metric ≥99% on 512 held-out prompts, k=3 consecutive evals, eval_every 250), identical data order; per-arm step counts are emergent, recorded in each manifest |
-| OPEN(2) | Target dataset size | pilot (B convergence sweep) |
+| OPEN(2) | Target dataset size | **closed 2026-07-22** (owner, B-convergence grid on the fixed shared eval file): **n=500K** — smallest grid n where B lands within a few points of A (G5 zero-shot / shared 98K-row test loss: B@500K 0.9805 / 0.0140 nats vs A@50K 0.9941 / 0.0059; B@50K 0.9414 / 0.0428, 5.3 points short). The n200K dip (0.8740 / 0.1109) is a stopping-rule artifact — ε/k fired at step 5500 (~3.5 epochs) mid-descent — not a property of the data size. Ceiling raised to max_steps=23442 (6 epochs of 500K): the B@500K pilot's ε/k stop at 15,500 sat 126 steps under the old 2-epochs-of-1M ceiling |
 | OPEN(3) | Stopping-rule ε, k | **closed 2026-07-19** (run-1 LR sweep): ε=0.005 nats, k=3 at eval_every=500. Sweep val curves at the pinned LR are monotone at 100-step spacing (eval noise ≪ 0.005 with 5225 val seqs) and end-of-sweep improvement is ~0.06 nats/500 steps (12× ε), so ε separates signal from noise with wide margin. Runs 2–4 inherit; revisit only if their (arithmetic-val) curves misbehave |
 | OPEN(4) | Batch → step count → snapshot schedule params | after OPEN(2) |
 | OPEN(5) | Padded max seq_len | **closed 2026-07-18**: per-example max 33 tokens over all four frozen full-scale files (longest: 4-digit NL sum, 5-digit answer); G5 16-shot worst case 593 tokens ⇒ model `max_position_embeddings: 1024` (free with RoPE), packing stays at `data.seq_len` 512 |

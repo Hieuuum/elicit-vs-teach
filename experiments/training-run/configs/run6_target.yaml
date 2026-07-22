@@ -42,9 +42,9 @@ data:                          # VERBATIM copy of run5_target.yaml (G7)
   hf_id: mhieuuu/elicit-vs-teach-arith
   file: D_target.parquet       # 1M op-notation add/sub, correct labels, seed 20260717
   order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
-  n_examples: null             # OPEN(2) pins this; must match run 5 (G7).
-                               # Full 1M trainable; null is refused at launch —
-                               # pin explicitly
+  n_examples: 500000           # OPEN(2) closed 2026-07-22 (run5 header note
+                               # 4; decisions.md): the 500K PREFIX of the
+                               # frozen order — must match run 5 (G7)
   # Fixed shared eval set (owner 2026-07-22) — see run5_target.yaml.
   # First 2048 rows = ε/k stopping block; the rest = reporting block.
   eval_file: D_target_eval.parquet
@@ -63,9 +63,12 @@ train:
                                # note 3); same pin as run 5
   batch_size: 128
   eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
-  max_steps: 15626             # pure cost ceiling = 2 epochs of the full 1M
-                               # file at batch 128 (2 × ceil(1e6/128) = 15626);
-                               # the ε/k rule is the planned stop —
+  max_steps: 23442             # pure cost ceiling = 6 epochs of the 500K
+                               # prefix at batch 128 (6 × ceil(5e5/128) =
+                               # 23442) — the B@500K pilot's ε/k stop at
+                               # 15,500 sat 126 steps under the old 2-epochs-
+                               # of-1M ceiling, too tight for seed wobble.
+                               # The ε/k rule is the planned stop —
                                # stop_reason=max_steps means "did not
                                # converge": investigate, don't ship
   stopping:                    # loss branch of the V0.7 union (no `metric`):
