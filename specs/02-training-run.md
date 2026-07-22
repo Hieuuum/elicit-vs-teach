@@ -678,6 +678,31 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   padding silently breaks), greedy decode is deterministic across calls,
   and generation stops at the tokenizer's EOS with the EOS excluded from
   the decoded completion.
+- V5.47 LoRA identity + scaling (2026-07-21, §6): `geode.train.lora.apply_lora`
+  wraps every target linear as `base(x) + (α/2r)·B(A(x))` — the 2r is the
+  pin, deliberately not PEFT's α/r — and with B zero-initialised the wrapped
+  model's logits are bit-identical to the base model's (θ_0 is the
+  pretrained state, specs/01 §1).
+- V5.48 adapter-only training (2026-07-21, §6): after `apply_lora`,
+  `requires_grad` is False on every base parameter and True exactly on the
+  A/B factors; optimizer steps leave every base tensor bit-identical while
+  both A and B move (B on step 1; A only once B ≠ 0 — ∂L/∂A is exactly zero
+  at B = 0).
+- V5.49 count + coverage (2026-07-21, §6): trainable parameters equal
+  Σ rank·(d_in+d_out) over wrapped linears — the formula behind the 12.1M
+  figure at the real arch — every listed target module on every layer is
+  wrapped (`lm_head` is not), and `apply_lora` refuses non-zero dropout and
+  any target name matching no `nn.Linear` (a typo would silently train a
+  smaller adapter).
+- V5.50 seeded A init (2026-07-21, §6): drawn from a dedicated CPU generator
+  seeded by the explicit `seed`, in module registration order, then copied to
+  the model's device/dtype — same seed ⇒ bit-identical A factors on any
+  device, different seed ⇒ all differ; B is always zero.
+- V5.51 self-contained round-trip (2026-07-21, §6; spec 00 §1): the wrapped
+  model's `state_dict()` carries base + adapter tensors together
+  (`<name>.base/.A/.B.weight`); fresh base model (any weights) →
+  `reapply_lora` (same rank/α/targets) → strict `load_state_dict` reproduces
+  outputs bit-exactly — no separate base checkpoint, no merge.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
