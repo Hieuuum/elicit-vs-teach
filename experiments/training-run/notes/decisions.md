@@ -874,3 +874,50 @@ Dataset items: none.
   around 3e-4; winner = lowest `min_val_nats` among
   `stop_reason=converged`; the pin lands in BOTH run5 and run6 (one
   shared LR; arms differ only in the parent).
+
+## 2026-07-22 — target LR pinned 1e-3; runs-5/6 stopping ratified (OPEN(2) phase 1 closed)
+
+- **Sweep results** (Arm B @ 50K frozen prefix, batch 128, rule 5 mnat/k 3
+  as shipped in the configs):
+
+  | lr   | stop            | step  | min_val_nats |
+  |------|-----------------|-------|--------------|
+  | 3e-5 | max_steps       | 15626 | 0.7833       |
+  | 1e-4 | converged*      | 15626 | 0.2024       |
+  | 3e-4 | converged       | 11500 | 0.1071       |
+  | 1e-3 | **converged**   | 8000  | **0.0350**   |
+  | 3e-3 | converged       | 5000  | 0.0863       |
+  | 1e-2 | converged       | 4000  | 1.8876       |
+
+  *ε/k fired on the same eval the ceiling hit; launcher tie-break records
+  `converged`.
+- **Grid extension**: the original decade 3e-5..1e-3 came back monotone
+  (higher LR strictly better) with the winner at the grid edge —
+  unbracketed, the run-3-sweep situation in the other direction. Extended
+  upward with 3e-3 + 1e-2 in one pass; the winner is now interior
+  (3e-4 0.107 > 1e-3 0.035 < 3e-3 0.086; 1e-2 "converged" onto a garbage
+  plateau ≈1.9 — unstable, closes the bracket). LoRA (α/2r = 0.125
+  scaling) wanting a hotter LR than the run-2 full-FT 3e-4 anchor is
+  expected in hindsight.
+- **Pin**: `train.lr: 1.0e-3` in BOTH run5_target.yaml and
+  run6_target.yaml (one shared LR; arms differ only in the parent), per
+  the pre-registered winner rule. Sweep arms are disposable — never
+  pushed to the relay; results live here + in the box manifests.
+- **Stopping ratified (owner)**: runs 5–6 (and the OPEN(2) grid) run the
+  canonical loss rule at short-run cadence — **ε=2 mnat, k=5,
+  eval_every 500, min_steps 0**. The configs had inherited the
+  superseded OPEN(3) 5 mnat/k 3 uncited-decision (owner caught it
+  2026-07-22); canonical cadence (min_steps 5000, eval_every 1000) is
+  mis-scaled at ~390-step epochs, so only ε/k transfer. Part of the EDL
+  metric (sets θ_T → L_test); ratified BEFORE the grid so pilot n-choice
+  and production share the rule. Spec 02 §6 gained the bullet in the
+  same commit. LR ranking above unaffected (winner margin ~3×).
+- **Naming**: sweep ids `evt-sweep-target-lr*` broke the
+  `evt-runN-sweep-*` precedent (chosen because the pin serves both runs
+  5 and 6); kept mid-sweep for internal consistency. Future sweeps use
+  `evt-runN-sweep-*` (owner preference, 2026-07-22).
+- **Next**: OPEN(2) grid (open2_n{10k,50k,200k,500k} + open2_a_ref) under
+  the pinned LR + ratified rule; verdict = smallest n where B lands
+  within a few accuracy points of A (endpoint eval, spec 02 §11), then
+  OPEN(4) schedule params. Probe extraction (V5.9–V5.13) validates on
+  the grid's snapshots before the box is destroyed.
