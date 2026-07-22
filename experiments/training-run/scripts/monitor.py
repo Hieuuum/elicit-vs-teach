@@ -1,7 +1,8 @@
 """Live monitor for a training run — train + eval logs in one view.
 
 Reads the run's ``{train_log,eval_log}.jsonl`` every ``--interval``
-seconds (default 30) and prints one compact status line per tick, plus a
+seconds (default 30; or ``--interval-min`` minutes, which takes
+precedence) and prints one compact status line per tick, plus a
 fuller line whenever a new eval lands. The logs live at the run root
 (flat layout, spec 00 §1) or inside a legacy phase dir (pretrain/sft,
 pre-migration runs); both are auto-detected.
@@ -99,6 +100,12 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--run-id", required=True)
     p.add_argument("--interval", type=float, default=30.0, help="seconds between refreshes")
+    p.add_argument(
+        "--interval-min",
+        type=float,
+        default=None,
+        help="minutes between refreshes (takes precedence over --interval)",
+    )
     p.add_argument("--once", action="store_true", help="print one snapshot and exit")
     p.add_argument(
         "--store",
@@ -107,6 +114,8 @@ def main() -> int:
         help="artifact store root (default: $GEODE_STORE, else <repo>/geode-store)",
     )
     args = p.parse_args()
+    if args.interval_min is not None:
+        args.interval = args.interval_min * 60.0
 
     run_dir = args.store / "runs" / args.run_id
     manifest_path = run_dir / "manifest.json"
