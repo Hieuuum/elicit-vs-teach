@@ -1,7 +1,7 @@
 # OPEN(2) pilot, Arm B @ n=500K — target-dataset-size sweep (spec 02 §11-§12).
 # Overlay over configs/run6_target.yaml; see open2_n10k.yaml for the full
 # header (usage, prefix rationale, lr-pin prerequisite).
-run_id: evt-pilot-open2-b-500k
+run_id: evt-run6-pilot-n500k
 experiment:
   match_data_order_with: null  # G7 binds the production pair, not the pilot grid
 data:

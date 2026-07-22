@@ -8,7 +8,7 @@
 # frozen-order prefix as open2_n50k.yaml), so "B within a few points of A"
 # is read off a like-for-like pair. Same lr-pin prerequisite and inherited
 # max_steps ceiling as the B overlays (see open2_n10k.yaml).
-run_id: evt-pilot-open2-a-ref
+run_id: evt-run5-pilot-n50k
 data:
   n_examples: 50000            # prefix of the frozen order, = open2_n50k.yaml
 train:

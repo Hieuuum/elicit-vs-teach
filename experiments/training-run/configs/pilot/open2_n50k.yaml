@@ -2,7 +2,7 @@
 # Overlay over configs/run6_target.yaml; see open2_n10k.yaml for the full
 # header (usage, prefix rationale, lr-pin prerequisite). This is the n that
 # open2_a_ref.yaml matches on the Arm A side.
-run_id: evt-pilot-open2-b-50k
+run_id: evt-run6-pilot-n50k
 experiment:
   match_data_order_with: null  # G7 binds the production pair, not the pilot grid
 data:

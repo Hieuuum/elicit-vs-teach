@@ -12,7 +12,7 @@
 # The base config's null train.lr must be pinned (LoRA LR mini-sweep) before
 # this grid runs; max_steps stays the inherited production ceiling (pure cost
 # ceiling — convergence is expected far earlier at pilot n).
-run_id: evt-pilot-open2-b-10k
+run_id: evt-run6-pilot-n10k
 experiment:
   match_data_order_with: null  # G7 binds the production pair, not the pilot grid
 data:

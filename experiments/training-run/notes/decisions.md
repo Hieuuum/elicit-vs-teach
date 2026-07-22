@@ -923,9 +923,15 @@ Dataset items: none.
   the grid's snapshots before the box is destroyed.
 - **Addendum (2026-07-22, later)**: owner reversed "sweeps are
   disposable" — sweep + grid artifacts get preserved on the relay before
-  the box dies. Sweep runs renamed on the box to the precedent form,
+  the box dies. Sweep AND pilot runs renamed on the box to run-scoped
+  precedent form (the mv rewrites `run_id` inside each manifest):
   `evt-sweep-target-lr*` → `evt-run6-sweep-lr*` (run-6 recipe: Arm B,
-  init run-4; the mv rewrites `run_id` inside each manifest), then
-  pushed to `mhieuuu/geode-store` along with the five `evt-pilot-open2-*`
-  runs and the run-3/run-4 installers. None of these are in the
+  init run-4), `evt-pilot-open2-b-{10k,50k,200k,500k}` →
+  `evt-run6-pilot-n{10k,50k,200k,500k}`, `evt-pilot-open2-a-ref` →
+  `evt-run5-pilot-n50k` (run-5 recipe: Arm A, init run-3; mirrored name
+  with its matched pair evt-run6-pilot-n50k). Overlay configs + the
+  comparison notebook carry the new ids in the same commit. All pushed
+  to `mhieuuu/geode-store` along with the run-3/run-4 installers; old-
+  name relay folders (if an earlier push landed them) deleted after the
+  new-name push is verified present. None of these are in the
   forbidden-from-box set (`evt-run1-base-v1/v2/v2-ext/v3` only).
