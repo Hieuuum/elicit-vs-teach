@@ -407,7 +407,7 @@ def main() -> int:
     }
     manifest.save(out_dir / "manifest.json")
     print(
-        f"[evt] done: {stop_reason} at step {state['final_step']}, "
+        f"[evt] {cfg['run_id']} done: {stop_reason} at step {state['final_step']}, "
         f"min val {tracker.min_nats:.4f} nats (eps-gated best {tracker.best_nats:.4f}); "
         f"snapshots taken {len(taken)}/{len(schedule)}. Checkpoint: {out_dir / 'model'}"
     )

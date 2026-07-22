@@ -20,6 +20,7 @@ from geode.zoo.manifest import (
     load_run,
     register_run,
 )
+from geode.zoo.model_io import load_model
 from geode.zoo.records import (
     GradStatRecord,
     PrequentialRecord,
@@ -52,6 +53,7 @@ __all__ = [
     "iter_runs",
     "load_activations",
     "load_matched_pair",
+    "load_model",
     "load_run",
     "prequential_records",
     "read_results",

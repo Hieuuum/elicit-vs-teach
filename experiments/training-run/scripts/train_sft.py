@@ -305,7 +305,7 @@ def main() -> int:
     }
     manifest.save(store / "runs" / cfg["run_id"] / "manifest.json")
     print(
-        f"[evt] done: {result.stop_reason} at step {result.final_step}, "
+        f"[evt] {cfg['run_id']} done: {result.stop_reason} at step {result.final_step}, "
         f"min val {result.min_val_nats:.4f} nats "
         f"(eps-gated best {result.best_val_nats:.4f}). Checkpoint: {result.checkpoint_dir}"
     )

@@ -61,7 +61,7 @@ from geode.arith import (
     tokenize_with_spans,
 )
 from geode.train import split_indices
-from geode.zoo import checkpoint_dir, load_run
+from geode.zoo import checkpoint_dir, load_model, load_run
 from train import REPO_ROOT, load_config
 from train_sft import load_frozen_parquet
 
@@ -82,13 +82,13 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = Fal
     store = Path(os.environ["GEODE_STORE"])
     manifest = load_run(args.run, store=store)
 
-    from transformers import AutoTokenizer, LlamaForCausalLM
+    from transformers import AutoTokenizer
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
     checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] {gate}: loading checkpoint {checkpoint} ...", flush=True)
-    model = LlamaForCausalLM.from_pretrained(checkpoint).to(args.device)
+    model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
 
     df = load_frozen_parquet(cfg)
     _, val_idx = split_indices(len(df), cfg["data"]["val_fraction"], cfg["data"]["seed"])
@@ -168,13 +168,13 @@ def run_g4(args: argparse.Namespace) -> int:
     store = Path(os.environ["GEODE_STORE"])
     manifest = load_run(args.run, store=store)
 
-    from transformers import AutoTokenizer, LlamaForCausalLM
+    from transformers import AutoTokenizer
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
     checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] G4: loading checkpoint {checkpoint} ...", flush=True)
-    model = LlamaForCausalLM.from_pretrained(checkpoint).to(args.device)
+    model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
 
     s = cfg["train"]["stopping"]
     if s.get("metric") != "format_validity":
@@ -229,13 +229,13 @@ def run_g5(args: argparse.Namespace) -> int:
     store = Path(os.environ["GEODE_STORE"])
     manifest = load_run(args.run, store=store)
 
-    from transformers import AutoTokenizer, LlamaForCausalLM
+    from transformers import AutoTokenizer
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
     checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] G5: loading checkpoint {checkpoint} ...", flush=True)
-    model = LlamaForCausalLM.from_pretrained(checkpoint).to(args.device)
+    model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
 
     df = load_frozen_parquet(cfg)
     # No run has trained on D_target at gate time (runs 5-6 are downstream),

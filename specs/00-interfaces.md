@@ -187,6 +187,10 @@ def iter_runs(regime: str | None = None, task: str | None = None,
               status: str = "complete") -> Iterator[RunManifest]
 def prequential_records(run_id: str) -> Iterator[PrequentialRecord]
 def test_loss(run_id: str) -> TestLoss
+def load_model(run_id: str, *, store=None, device="cpu",
+               checkpoint=None) -> nn.Module   # V0.9 — the ONLY way to
+               # load a run checkpoint for eval/analysis; dispatches on
+               # the manifest's training.method
 ```
 
 ## 9. Decisions (owner-approved 2026-07-11)
@@ -243,3 +247,13 @@ not a contract.
   across both patterns; zero or several raises an error naming the run
   dir — never a guess. Snapshot files (`snapshots/step_{k}/`, no `model/`
   component) are never candidates.
+- **V0.9** Method-faithful checkpoint loading (2026-07-22 G5 incident):
+  `geode.zoo.load_model(run_id)` loads the final checkpoint the way the
+  run's manifest says it was trained — `training.method: "full_ft"` via
+  plain `from_pretrained`; `"lora"` by rebuilding the `apply_lora` module
+  tree from `training.lora` and loading the wrapped state dict (bit-exact
+  with the model that was saved, V5.51). A wrapped state dict
+  (`*.base.weight`/`*.A.weight`/`*.B.weight` keys) under a `full_ft`
+  manifest — or a plain one under `"lora"` — is a loud refusal: plain
+  `from_pretrained` on a wrapped checkpoint does not error, it silently
+  random-initializes every wrapped projection.
