@@ -400,6 +400,14 @@ def _save_snapshot(model: torch.nn.Module, run_id: str, step: int, *, store: Pat
     save_model(model, str(snap_dir / "model.safetensors"))
 
 
+# Examples per forward in the final θ_T eval: bounds logits memory
+# (chunk × seq × vocab) — a 5,000-row val split in one fp32 forward is
+# multiple GB of logits alone. Label losses are padding-invariant under
+# right-padding + causal attention, so the chunked sum equals the
+# single-forward value.
+_TEST_EVAL_CHUNK = 512
+
+
 def _write_test_loss(
     model: torch.nn.Module,
     test_examples: Sequence,
@@ -412,15 +420,22 @@ def _write_test_loss(
     """Evaluate the held-out loss at the final model θ_T and write ``eval/test_loss.json``.
 
     Uses the shared ``label_mask``/``prequential_step`` path with the same
-    ``masking_config_hash`` as the training loop (specs/00 §5, V0.5 producer).
+    ``masking_config_hash`` as the training loop (specs/00 §5, V0.5 producer),
+    in chunks of ``_TEST_EVAL_CHUNK`` examples.
     """
-    mask = _checked_label_mask(test_examples, task_format)
-    step_loss = prequential_step(model, test_examples, mask)
+    loss_sum_nats = 0.0
+    label_token_count = 0
+    for start in range(0, len(test_examples), _TEST_EVAL_CHUNK):
+        chunk = test_examples[start : start + _TEST_EVAL_CHUNK]
+        mask = _checked_label_mask(chunk, task_format)
+        step_loss = prequential_step(model, chunk, mask)
+        loss_sum_nats += step_loss.loss_sum_nats
+        label_token_count += step_loss.label_token_count
     record = TestLoss(
         n_test_examples=len(test_examples),
-        label_token_count=step_loss.label_token_count,
-        loss_sum_nats=step_loss.loss_sum_nats,
-        loss_per_label_token_nats=step_loss.loss_sum_nats / step_loss.label_token_count,
+        label_token_count=label_token_count,
+        loss_sum_nats=loss_sum_nats,
+        loss_per_label_token_nats=loss_sum_nats / label_token_count,
         masking_config_hash=mask_hash,
     )
     path = test_loss_path(run_id, store=store)

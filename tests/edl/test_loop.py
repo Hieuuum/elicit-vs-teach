@@ -102,6 +102,7 @@ import torch
 from safetensors.torch import load_file, load_model
 
 from geode.edl import TaskFormat, label_mask
+from geode.edl import loop as edl_loop
 from geode.edl.loop import train_prequential
 from geode.edl.masking import masking_config_hash
 from geode.edl.metrics import edl_nats
@@ -794,6 +795,42 @@ def test_testloss_evaluated_at_final_state(geode_store, tiny_llama, copy_token_t
     # Positive control (calibrated, see docstring): θ_T's test loss is far from
     # θ₀'s, so the equality above cannot be satisfied by a θ₀ evaluation.
     assert abs(tl.loss_sum_nats - base_ref.loss_sum_nats) > 0.02
+
+
+def test_testloss_chunked_eval_matches_single_forward(
+    geode_store, tiny_llama, copy_token_task, monkeypatch
+):
+    """``_TEST_EVAL_CHUNK`` bounds the θ_T eval's logits memory; label losses
+    are padding-invariant (right-padding + causal attention), so the chunked
+    sum must equal a single-forward evaluation of the whole split.
+
+    Test split of 3 examples with lengths 4/3/5: chunk=2 pads the first chunk
+    to width 4 and the second to width 5 — both different from the single
+    forward's uniform width 5 — so a padding-sensitive eval cannot pass.
+    """
+    train = copy_token_task(seed=11, n=8)
+    test = _varied_span_test_split()
+    monkeypatch.setattr(edl_loop, "_TEST_EVAL_CHUNK", 2)
+    manifest = register_run(
+        _manifest_fields("run-chunked", n_unique=8, batch_size=2, lr=0.2, snapshot_steps=(4,))
+    )
+    train_prequential(
+        tiny_llama(seed=MODEL_SEED),
+        _dataset(train, test),
+        _task_format(),
+        manifest,
+        device="cpu",
+        seed=LOOP_SEED,
+    )
+
+    run_dir = geode_store / "runs" / "run-chunked"
+    mask = label_mask(test, _task_format())
+    ref = prequential_step(_model_at_step(tiny_llama, run_dir, 4), test, mask)
+
+    tl = test_loss("run-chunked")
+    assert tl.n_test_examples == 3
+    assert tl.label_token_count == ref.label_token_count == 6
+    assert tl.loss_sum_nats == pytest.approx(ref.loss_sum_nats, rel=1e-9, abs=1e-9)
 
 
 # ---------------------------------------------------------------------------
