@@ -818,3 +818,59 @@ Dataset items: none.
   Winner criterion: installs the format (`stop_reason=behavior`) with
   arithmetic intact (g2 ≥ 0.95 once `gates.py g2` lands); owner pins
   `run3_inst.yaml` `train.lr`.
+
+## 2026-07-22 — runs 2–4 closed: canonical outcomes + all gates recorded
+
+- **Run 2 canonical** (`evt-run2-armA-algo`, launched 2026-07-21, lr
+  3e-4 @ git 0bdd1ae): converged at step 19,000, `min_val_nats` 0.0037;
+  **G1 0.9961 PASS** (n=1024, by-op + 0.9960 / − 0.9962). Relay-pushed.
+- **Installer LR sweep finding (the length prior):** the original
+  3e-5..1e-3 grid ALL FAILED G2 with retention monotone in LR
+  (0.68 / 0.42 / 0.04 / 0.00 vs the 0.95 bar) while G4 hit 1.0
+  everywhere — the format installs at any LR; *arithmetic retention* is
+  the binding constraint. Failure mode was a length prior:
+  correct-answer-plus-extra-digits at low LR, garbage + sign loss +
+  unparseable at high LR. Extending the sweep down: 1e-5 0.7949 FAIL,
+  **3e-6 0.9531 PASS** (+ 0.9384 / − 0.9674) → 3e-6 pinned for both
+  installers.
+- **Run 3 canonical** (`evt-run3-armA-inst`, 2026-07-22, lr 3e-6): the
+  relaunch reproduced the sweep-winner arm bit-identically (same
+  lr/seed/data/box) — a free determinism check, not an anomaly.
+  `stop_reason=behavior` at step 750; **G2 0.9531 PASS, G4 1.0**, G5
+  recorded.
+- **Run 4** (`evt-run4-armB-inst`, 2026-07-22, identical `D_inst`
+  stream/seed): `stop_reason=behavior` at step 750 as well; **G3 0.0000
+  PASS** (inverted bar ≤ 0.02, by-op + 0.0 / − 0.0 — random labels
+  leaked no real arithmetic), **G4 1.0**, G5 0 / 0.
+- **G5 (evidence-only, no bar — always `pass: true` because
+  `require_parent_ready` refuses on any `pass: false`):** Arm A
+  zero-shot 0.0068, 16-shot exactly 0.0; Arm B 0 / 0. The paper's
+  ~2%/12% expectation (1B scale) is void here — few-shot prompting
+  yields no measurable op-notation arithmetic at 38.7M. Low-evidence
+  finding; the target runs measure the real elicit-vs-teach gap.
+- **`evt-run1-base-v1` is metrics-only history:** no local dir, no
+  relay entry anywhere — deliberate (min val 1.1464 recorded in
+  EXPERIMENTS.md §2), not a loss.
+
+## 2026-07-22 — runs-5/6 infrastructure landed; target-LR sweep launched (OPEN(2) phase 1)
+
+- **Harness on the pinned adapter:** `train_prequential` now builds
+  `geode.train.apply_lora` (α/(2r), seeded A, zero B — spec 01 V1.9);
+  peft retired from the dependency set. Optional per-update
+  `step_callback` (V1.10) carries the runs-5/6 ε/k stopping rule, which
+  lives in the launcher, not the library. Final θ_T test-loss eval
+  chunked at 512 examples (bounds logits memory at the production
+  5,000-row val split).
+- **`train_target.py` launcher:** full-file order-hash verify BEFORE
+  the `n_examples` prefix; parent gates + G7 `(data_order_hash,
+  n_examples)` equality vs `match_data_order_with`; cost estimate +
+  `--confirm-cost` refusal before `register_run`; snapshot schedule
+  written to the manifest pre-training; `stop_reason` "converged" wins
+  the ceiling tie-break; flat run layout.
+- **`lr: null` in run5/run6_target.yaml is deliberate** — the launcher
+  refuses to run them until the target-LR sweep pins the winner (the
+  run-2 placeholder-lr incident class). Sweep = Arm B @ the 50K frozen
+  prefix (teaching is the arm the shared LR must serve), one decade
+  around 3e-4; winner = lowest `min_val_nats` among
+  `stop_reason=converged`; the pin lands in BOTH run5 and run6 (one
+  shared LR; arms differ only in the parent).

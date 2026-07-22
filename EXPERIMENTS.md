@@ -1,6 +1,6 @@
 # EXPERIMENTS.md — live experiment plan
 
-Status: **executing** (updated 2026-07-20). This is the current state
+Status: **executing** (updated 2026-07-22). This is the current state
 and remaining work of the elicit-vs-teach training-run experiment.
 `specs/02-training-run.md` is the detailed design source;
 `experiments/training-run/notes/decisions.md` is the running decision
@@ -24,11 +24,11 @@ spec 02 §13).
 | # | run_id | Role | Init | Method | Data | Status |
 |---|---|---|---|---|---|---|
 | 1 | `evt-run1-base-v3-ext` | pretrain (floor 1) | v3 @ 30k | full FT | TinyStories-v2 | **DONE — converged**, `min_val_nats` 1.0718 (owner confirmed 2026-07-21); floor 1 |
-| 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | **LR sweep RUNNING** (2026-07-21) → owner pins lr + 15-epoch ceiling → canonical; `docs/run2-guide.md` |
-| 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), to behavioral stop (spec 02 §6) | todo |
-| 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | todo |
-| 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` (op-notation add/sub), count OPEN(2) | todo |
-| 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | todo |
+| 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | **DONE — converged** (2026-07-21, lr 3e-4, step 19k, `min_val_nats` 0.0037); G1 0.9961 PASS |
+| 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), to behavioral stop (spec 02 §6) | **DONE** (2026-07-22, lr 3e-6, behavioral stop @ 750); G2/G4/G5 recorded |
+| 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | **DONE** (2026-07-22, behavioral stop @ 750); G3/G4/G5 recorded |
+| 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` (op-notation add/sub), count OPEN(2) | configs landed (lr null until the target sweep pins); OPEN(2) pilot running 2026-07-22 |
+| 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | same — G7 order guard at launch |
 
 DAG: `1 → 2 → 3 → 5` (Arm A, elicit) and `1 → 4 → 6` (Arm B, teach).
 Every run registers in zoo before launch; `require_parent_ready`
@@ -86,11 +86,11 @@ ungated inspection tool.
 
 | Gate | After | Check | Status |
 |---|---|---|---|
-| G1 | run 2 | Arm A ≥95% on NL add/sub — 1,024 seeded val examples, greedy, `exact_match` (`gates.py g1`) | pending run 2 |
-| G2 | run 3 | Arm A still ≥95% on NL add/sub post-install — same bar as G1, no separate δ (owner 2026-07-21); drop from G1 reported | todo |
-| G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | todo |
-| G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | todo |
-| G5 | runs 3–4 | zero/16-shot op add/sub (expect A ~2%/12%, B 0%/0%) | todo |
+| G1 | run 2 | Arm A ≥95% on NL add/sub — 1,024 seeded val examples, greedy, `exact_match` (`gates.py g1`) | **PASS 0.9961** (2026-07-22) |
+| G2 | run 3 | Arm A still ≥95% on NL add/sub post-install — same bar as G1, no separate δ (owner 2026-07-21); drop from G1 reported | **PASS 0.9531** (drop 0.043 from G1; installer-LR length-prior finding → decisions.md 2026-07-22) |
+| G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | **PASS 0.0000** |
+| G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | **PASS 1.0 both arms** |
+| G5 | runs 3–4 | zero/16-shot op add/sub (expect A ~2%/12%, B 0%/0%) | recorded (evidence-only): A 0.0068/0.0, B 0/0 — paper's 1B expectation void at 38.7M |
 | G6 | data gen | V5.1/V5.2 integrity on the real sets | partial — generation-time evidence in `report.json`; formal re-run when `gates.py` grows the subcommand |
 | G7 | before run 6 | `data_order_hash`(run 5) == (run 6) | enforced at launch |
 
@@ -110,41 +110,45 @@ ungated inspection tool.
 - Decisions worth recording go in `notes/decisions.md` (experiment) or
   this file (structure/plan).
 
-Built so far: `geode.edl`, `geode.train` (full FT + SFT), `geode.zoo`,
-`geode.arith` — all with property tests (suite ≈ 310). Not yet built:
-`geode.probe` (schedule / extraction / metrics, V5.8–V5.16),
-`scripts/extract.py`, `analysis/` drivers, `export_hf.py`,
-`gates.py` g2–g7 subcommands.
+Built so far: `geode.edl` (incl. the pinned-adapter prequential loop,
+V1.9/V1.10), `geode.train` (full FT + SFT + `apply_lora`), `geode.zoo`,
+`geode.arith`, `geode.probe.schedule` — all with property tests (suite
+≈ 491); launchers `train_sft.py` + `train_target.py`, `gates.py` g1–g5.
+Not yet built: `geode.probe` extraction + metrics (V5.9–V5.16, extraction
++ V5.13 in progress 2026-07-22), `scripts/extract.py`, `analysis/`
+drivers, `export_hf.py`, `gates.py` g6.
 
 ## 6. Remaining work, in order
 
-1. **Run 2** — 4-LR full-length sweep, owner pins `train.lr`, canonical
-   relaunch, G1 (`docs/run2-guide.md`; ≤ ~$0.35). Hard stop if no sweep
-   arm reaches 0.95 accuracy.
-2. **Runs 3–4** — behavior-matched stopping (OPEN(1) closed
-   2026-07-21, spec 02 §6). Tooling landed 2026-07-21: in-loop
-   format-validity eval in the SFT trainer (V5.44–V5.46, decode helper
-   promoted to `geode.arith.decode`), `run3_inst.yaml` (lr null until
-   pinned) + 4 sweep overlays. Remaining: installer LR sweep on the
-   box, owner pins `train.lr`, canonical run 3, `gates.py` g2–g5,
-   run-4 config; both runs are `train_sft.py` launches with the
-   op-notation task format.
-3. **`geode.probe`** + `scripts/extract.py` (V5.8–V5.12): snapshot
-   schedule, offline probe pass (activations + activation-gradients at
-   9 residual points), matched-load guards.
-4. **Pilot** (spec 02 §11) at toy scale through train → extract →
-   upload → one real gradient-alignment plot; closes the remaining
-   OPEN items (target count, stopping ε/k, snapshot schedule).
-5. **Runs 5–6** — LoRA prequential with 1,024 full-model snapshots;
-   G7 order-hash guard at run-6 launch.
-6. **Analyses + publication** — metrics V5.13–V5.16, the four drivers
+1. ~~Run 2~~ / ~~Runs 3–4~~ — **DONE 2026-07-22** (§2 table; outcomes
+   + gate values in decisions.md 2026-07-22).
+2. **OPEN(2) pilot, phase 1 (running 2026-07-22):** target-LR
+   mini-sweep, Arm B @ the 50K `D_target` prefix, one decade around
+   3e-4 (`configs/pilot/target_sweep_lr*.yaml`); winner (lowest
+   `min_val_nats` among converged) pins `train.lr` in BOTH
+   run5/run6_target.yaml. Phase 2: the OPEN(2) grid — B @
+   10K/50K/200K/500K + A-ref @ 50K (`configs/pilot/open2_*.yaml`) —
+   closes OPEN(2), then OPEN(4); OPEN(10) is an owner call before
+   run 5.
+3. **`geode.probe` extraction + `scripts/extract.py`** (V5.9–V5.13:
+   offline probe pass — activations + activation-gradients at 9
+   residual points, matched-load guards, alignment metric) — in
+   progress 2026-07-22; validate on the pilot's snapshots before that
+   box is destroyed (train → extract → one real gradient-alignment
+   plot, spec 02 §11).
+4. **Runs 5–6** — LoRA prequential with 1,024 full-model snapshots;
+   G7 order-hash guard at run-6 launch. Box needs ≥400 GB disk
+   (fp32 snapshots, 148 MB × 1,024 × 2 arms ≈ 300 GB) unless the
+   owner opts for bf16 snapshots.
+5. **Analyses + publication** — metrics V5.14–V5.16, the four drivers
    (alignment, drift, adapters, matching), `export_hf.py` to the HF
    dataset repo (spec 02 §9–10).
 
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
-silently (`--confirm-cost` everywhere). Spent to date: ≈ $2 (run-1
-family + sweeps). Runs 2–4 are pennies at the 38.7M scale; the real
-spend is runs 5–6 extraction storage (~1 TB HF PRO, re-estimated at
-pilot) and GPU time for 2 × 1,024-snapshot LoRA runs.
+silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1
+family + runs 2–4 incl. sweeps — the 38.7M scale keeps whole run
+families under a dollar). The real spend is runs 5–6 extraction
+storage (~1 TB HF PRO, re-estimated at pilot) and GPU time for
+2 × 1,024-snapshot LoRA runs.
