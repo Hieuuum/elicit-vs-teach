@@ -61,7 +61,7 @@ from geode.arith import (
     tokenize_with_spans,
 )
 from geode.train import split_indices
-from geode.zoo import load_run
+from geode.zoo import checkpoint_dir, load_run
 from train import REPO_ROOT, load_config
 from train_sft import load_frozen_parquet
 
@@ -86,7 +86,7 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = Fal
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
-    checkpoint = args.checkpoint or store / "runs" / args.run / "sft" / "model"
+    checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] {gate}: loading checkpoint {checkpoint} ...", flush=True)
     model = LlamaForCausalLM.from_pretrained(checkpoint).to(args.device)
 
@@ -172,7 +172,7 @@ def run_g4(args: argparse.Namespace) -> int:
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
-    checkpoint = args.checkpoint or store / "runs" / args.run / "sft" / "model"
+    checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] G4: loading checkpoint {checkpoint} ...", flush=True)
     model = LlamaForCausalLM.from_pretrained(checkpoint).to(args.device)
 
@@ -233,7 +233,7 @@ def run_g5(args: argparse.Namespace) -> int:
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
-    checkpoint = args.checkpoint or store / "runs" / args.run / "sft" / "model"
+    checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] G5: loading checkpoint {checkpoint} ...", flush=True)
     model = LlamaForCausalLM.from_pretrained(checkpoint).to(args.device)
 
@@ -315,7 +315,11 @@ def main() -> int:
             ),
         )
         p.add_argument(
-            "--checkpoint", type=Path, default=None, help="default: store/runs/<run>/sft/model"
+            "--checkpoint",
+            type=Path,
+            default=None,
+            help="default: the run's checkpoint via geode.zoo.checkpoint_dir "
+            "(flat model/, or legacy <phase>/model)",
         )
         p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
         p.add_argument("--batch-size", type=int, default=128)

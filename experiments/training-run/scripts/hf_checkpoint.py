@@ -30,27 +30,25 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, snapshot_download
 
+from geode.zoo import checkpoint_dir
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def find_checkpoint(run_dir: Path) -> Path:
-    """The run's single ``<phase>/model/model.safetensors`` checkpoint.
+def find_checkpoint(store: Path, run_id: str) -> Path:
+    """The run's single final ``model.safetensors`` (flat OR legacy layout).
 
-    Runs store their final checkpoint under a phase dir named for how it was
-    trained — ``pretrain/`` (run 1) or ``sft/`` (runs 2-4) — so the phase is
-    auto-detected rather than hardcoded (2026-07-21: the ``pretrain/``
-    hardcode broke every evt-run2 push). Exactly one match is required;
-    zero or several is a wrong-dir/corrupt-store signal, not a guess to make.
-    (Snapshots live at ``snapshots/step_k/model.safetensors`` — no ``model/``
-    component — so they never match.)
+    Thin wrapper over ``geode.zoo.checkpoint_dir`` — the one resolver for
+    the flat ``runs/<id>/model/`` layout and the legacy phase-dir layout
+    (``pretrain/`` run 1, ``sft/`` runs 2-4), spec 00 §1 — converting its
+    refusals into clean CLI errors. Exactly one checkpoint must exist
+    across both patterns; zero or several is a wrong-dir/half-migrated
+    signal, not a guess to make.
     """
-    hits = sorted(run_dir.glob("*/model/model.safetensors"))
-    if len(hits) != 1:
-        raise SystemExit(
-            f"[hf] expected exactly one */model/model.safetensors under {run_dir}, "
-            f"found {len(hits)}: {[str(h) for h in hits]} — wrong --store/--run-id?"
-        )
-    return hits[0]
+    try:
+        return checkpoint_dir(run_id, store=store) / "model.safetensors"
+    except (FileNotFoundError, RuntimeError) as e:
+        raise SystemExit(f"[hf] {e} — wrong --store/--run-id?") from e
 
 
 def sha256_of(path: Path) -> str:
@@ -63,7 +61,7 @@ def sha256_of(path: Path) -> str:
 
 def push(store: Path, run_id: str, repo_id: str, public: bool) -> int:
     src = store / "runs" / run_id
-    ckpt = find_checkpoint(src)
+    ckpt = find_checkpoint(store, run_id)
     print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
     api = HfApi()
     api.create_repo(repo_id, private=not public, exist_ok=True)
@@ -82,7 +80,7 @@ def pull(store: Path, run_id: str, repo_id: str) -> int:
     # The repo mirrors the store layout, so unpacking at the store root
     # puts runs/<run-id>/... exactly where train.py expects it.
     snapshot_download(repo_id=repo_id, local_dir=store, allow_patterns=[f"runs/{run_id}/*"])
-    ckpt = find_checkpoint(store / "runs" / run_id)
+    ckpt = find_checkpoint(store, run_id)
     repo_path = f"runs/{run_id}/{ckpt.relative_to(store / 'runs' / run_id).as_posix()}"
     local = sha256_of(ckpt)
     info = HfApi().get_paths_info(repo_id, [repo_path])

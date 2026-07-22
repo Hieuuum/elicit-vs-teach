@@ -10,7 +10,7 @@ without --confirm-cost (CLAUDE.md budget rule). All learning logic lives in
 Usage (run 2):
     python train_sft.py --config configs/run2_algo.yaml \
         [--override configs/pilot/run2_sweep_lr1e-4.yaml] \
-        --init-from $GEODE_STORE/runs/<floor-1 run>/pretrain/model \
+        --init-from $GEODE_STORE/runs/<floor-1 run>/model \
         [--device cuda] [--confirm-cost]
 """
 
@@ -241,7 +241,11 @@ def main() -> int:
             cfg, n_params, n_rows, est_usd, args.init_from, mask_hash, precision=precision
         )
     )
-    out_dir = store / "runs" / cfg["run_id"] / "sft"
+    # Flat run layout (spec 00 §1, 2026-07-21): logs + training_meta.json at
+    # the run root, checkpoint at runs/<id>/model. Pre-migration runs keep an
+    # sft/ phase dir; readers accept both, migrate_store_layout.py converts
+    # explicitly.
+    out_dir = store / "runs" / cfg["run_id"]
     print(f"[evt] store={store}", flush=True)
 
     s = t["stopping"]

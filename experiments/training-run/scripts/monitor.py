@@ -1,9 +1,10 @@
 """Live monitor for a training run — train + eval logs in one view.
 
-Reads ``$GEODE_STORE/runs/<run-id>/<stage>/{train_log,eval_log}.jsonl``
-every ``--interval`` seconds (default 30) and prints one compact status
-line per tick, plus a fuller line whenever a new eval lands. Stage
-(pretrain/sft) is auto-detected.
+Reads the run's ``{train_log,eval_log}.jsonl`` every ``--interval``
+seconds (default 30) and prints one compact status line per tick, plus a
+fuller line whenever a new eval lands. The logs live at the run root
+(flat layout, spec 00 §1) or inside a legacy phase dir (pretrain/sft,
+pre-migration runs); both are auto-detected.
 
 The convergence-rule state shown (eps-gated best, patience, grace) is
 computed by replaying the eval log through the same ``ConvergenceTracker``
@@ -130,7 +131,10 @@ def main() -> int:
             rule = StoppingRule(s["eps_nats"], s["k"], s.get("min_steps") or 0)
         max_steps, eval_every = t.get("max_steps"), t.get("eval_every")
 
-        stage_dirs = [d for d in run_dir.iterdir() if (d / "train_log.jsonl").exists()]
+        # Flat layout (spec 00 §1): logs at the run root. Legacy runs —
+        # including a box mid-training on pre-migration code — keep them
+        # inside a pretrain/ or sft/ phase dir; watch both.
+        log_dirs = [d for d in (run_dir, *run_dir.iterdir()) if (d / "train_log.jsonl").exists()]
         if not header_done:
             desc = (
                 f"eps {rule.eps_nats * 1000:g} mnat / k {rule.k} / min_steps {rule.min_steps}"
@@ -143,16 +147,16 @@ def main() -> int:
                 flush=True,
             )
             header_done = True
-        if not stage_dirs:
+        if not log_dirs:
             print(f"[{stamp()}] waiting for first train step ...", flush=True)
             if args.once:
                 return 0
             time.sleep(args.interval)
             continue
-        stage = stage_dirs[0]
+        log_dir = log_dirs[0]
 
-        train = read_tail(stage / "train_log.jsonl")
-        evals = read_all(stage / "eval_log.jsonl")
+        train = read_tail(log_dir / "train_log.jsonl")
+        evals = read_all(log_dir / "eval_log.jsonl")
 
         # Replay the trainer's own tracker over the full eval history.
         states = []

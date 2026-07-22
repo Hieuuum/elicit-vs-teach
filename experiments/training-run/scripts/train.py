@@ -347,7 +347,11 @@ def main() -> int:
             n_val_seqs=len(val_seqs),
         )
     )
-    out_dir = store / "runs" / cfg["run_id"] / "pretrain"
+    # Flat run layout (spec 00 §1, 2026-07-21): logs + training_meta.json at
+    # the run root, checkpoint at runs/<id>/model. Pre-migration runs keep a
+    # pretrain/ phase dir; readers accept both, migrate_store_layout.py
+    # converts explicitly.
+    out_dir = store / "runs" / cfg["run_id"]
     print(f"[evt] store={store}", flush=True)
 
     result = train_full(

@@ -11,10 +11,15 @@ formats; nothing else in `geode` may depend on external repo internals.
 $GEODE_STORE/
   runs/{run_id}/
     manifest.json
-    snapshots/step_{k}/       # self-contained full-model snapshots:
+    model/                    # final save_pretrained checkpoint:
                               #   model.safetensors = the complete state_dict
                               #   (base + adapter tensors; 2026-07-18 decision —
                               #   adapter-only saving + base reassembly retired)
+    train_log.jsonl           # per-step trainer log (spec 02 §6.1 contract)
+    eval_log.jsonl            # periodic held-out evals (same contract)
+    training_meta.json        # trainer config echo + stop record
+    snapshots/step_{k}/       # self-contained full-model snapshots (runs 5-6):
+                              #   model.safetensors = the complete state_dict
     logs/
       prequential.jsonl       # per-batch first-epoch label losses (§3)
       gradstats.jsonl         # per-step gradient statistics (§4)
@@ -25,6 +30,16 @@ $GEODE_STORE/
   saes/{model_key}/{hook_name}/                                   # SAELens format
   results/                    # analysis outputs, parquet (§7)
 ```
+
+Flat run layout (2026-07-21): the final checkpoint lives at
+`runs/{run_id}/model/` and the trainer's files at the run root. Before
+this, runs nested everything under a phase dir named for how they were
+trained (`pretrain/` for run 1, `sft/` for runs 2-4), forcing every
+consumer to hardcode or guess the phase name. Legacy support: readers
+(`geode.zoo.checkpoint_dir`, monitor.py, hf_checkpoint.py) accept both
+layouts; a store converts only explicitly, via
+`experiments/training-run/scripts/migrate_store_layout.py`, after its
+runs finish — never implicitly, and never mid-training.
 
 `$GEODE_STORE` is an environment variable; no absolute paths in code.
 When it is unset, launch scripts (`experiments/`) default it to
@@ -216,3 +231,10 @@ not a contract.
   present validates against the behavioral field set only; one without it
   validates against the loss ε/k field set only. Neither branch demands the
   other's fields.
+- **V0.8** Checkpoint resolution (2026-07-21 flat-layout migration):
+  `geode.zoo.checkpoint_dir(run_id)` returns `runs/{run_id}/model` when it
+  contains `model.safetensors`, else the single legacy `{phase}/model`
+  (glob `*/model/model.safetensors`). Exactly one candidate must exist
+  across both patterns; zero or several raises an error naming the run
+  dir — never a guess. Snapshot files (`snapshots/step_{k}/`, no `model/`
+  component) are never candidates.
