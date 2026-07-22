@@ -94,18 +94,19 @@ shared ``prequential_step``/``label_mask``), never from the loop itself.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import pytest
 import torch
-from peft import LoraConfig, PeftModel, TaskType, get_peft_model
-from safetensors.torch import load_model
+from safetensors.torch import load_file, load_model
 
 from geode.edl import TaskFormat, label_mask
 from geode.edl.loop import train_prequential
 from geode.edl.masking import masking_config_hash
 from geode.edl.metrics import edl_nats
 from geode.edl.prequential import prequential_step
+from geode.train.lora import apply_lora
 from geode.zoo import (
     check_epoch1_coverage,
     check_masking_consistency,
@@ -213,25 +214,24 @@ def _batch_of(train: list[TaskExample], example_ids: list[int]) -> list[TaskExam
     return [train[i] for i in example_ids]
 
 
-def _model_at_step(tiny_llama, run_dir: Path, step: int) -> PeftModel:
+def _model_at_step(tiny_llama, run_dir: Path, step: int) -> torch.nn.Module:
     """L-5: rebuild the loop's model state θ_step from its saved snapshot.
 
     ``tiny_llama(seed=MODEL_SEED)`` rebuilds the module tree and the LoRA wrap
-    mirrors ``_manifest_fields``'s ``training.lora`` block (independent-path
-    rule: derived from the fixture, not from the loop); every tensor value then
-    comes from the snapshot file, so no separately stored base checkpoint is
-    involved.
+    mirrors ``_manifest_fields``'s ``training.lora`` block through the pinned
+    ``geode.train.apply_lora`` (independent-path rule: derived from the fixture
+    and specs/02 §6, not from the loop); every tensor value then comes from the
+    snapshot file via a strict load, so no separately stored base checkpoint is
+    involved — and a loop that saved a different module tree (e.g. PEFT's
+    ``lora_A``/``lora_B`` naming) fails the load. The throwaway ``seed=0`` init
+    is fully overwritten by the snapshot (V5.51).
     """
-    wrapped = get_peft_model(
+    wrapped = apply_lora(
         tiny_llama(seed=MODEL_SEED),
-        LoraConfig(
-            r=2,
-            lora_alpha=4.0,
-            target_modules=["q_proj", "v_proj"],
-            lora_dropout=0.0,
-            bias="none",
-            task_type=TaskType.CAUSAL_LM,
-        ),
+        rank=2,
+        alpha=4.0,
+        seed=0,
+        target_modules=("q_proj", "v_proj"),
     )
     load_model(wrapped, str(run_dir / "snapshots" / f"step_{step}" / "model.safetensors"))
     return wrapped
@@ -307,10 +307,11 @@ def test_postupdate_corruption_yields_lower_mdl(geode_store, tiny_llama, copy_to
     (so only declared snapshots are needed), the corrupted sum must be strictly
     below the recorded (pre-update) sum on this one-step-learnable copy task.
 
-    Calibration (scratch reference, tiny_llama seed 21, LoRA r=2 on
-    q_proj/v_proj, SGD lr=0.05): per-step descent ≈ 0.08–0.28 nats per batch,
+    Calibration (scratch reference, re-measured 2026-07-21 under the pinned
+    ``apply_lora`` adapter — α/(2r) scaling; tiny_llama seed 21, LoRA r=2 on
+    q_proj/v_proj, SGD lr=0.05): per-step descent ≈ 0.03–0.11 nats per batch,
     for both mean- and sum-reduction backward objectives — the 1e-3 margin
-    below is >2 orders of magnitude smaller, so the direction check is robust
+    below is >1 order of magnitude smaller, so the direction check is robust
     but float noise cannot pass it.
     """
     train = copy_token_task(seed=13, n=8)
@@ -757,11 +758,12 @@ def test_testloss_evaluated_at_final_state(geode_store, tiny_llama, copy_token_t
     differ materially, so a loop that evaluates the test loss at initialization
     (even one that also mis-writes the final snapshot as θ₀) cannot pass.
 
-    Margins (independent scratch reference in /tmp: peft LoRA r=2 on
+    Margins (independent scratch reference in /tmp, re-measured 2026-07-21
+    under the pinned ``apply_lora`` adapter — α/(2r) scaling; r=2 on
     q_proj/v_proj, alpha 4, SGD, this exact data/config, swept over mean/sum
-    backward reductions x 3 batch orders x 3 adapter-init seeds): at lr=0.2,
-    |L_test(θ₀) − L_test(θ₄)| ≥ 0.22 nats — the 0.02 anchor margin is >10x
-    below it; |L_test(θ₃) − L_test(θ₄)| ≥ 0.015 nats — >70x the equality
+    backward reductions x 3 adapter-init seeds): at lr=0.2,
+    |L_test(θ₀) − L_test(θ₄)| ≥ 0.10 nats — the 0.02 anchor margin is >5x
+    below it; |L_test(θ₃) − L_test(θ₄)| ≥ 0.03 nats — >150x the equality
     tolerance, so a θ_{T-1} (off-by-one) evaluation fails the equality check.
     """
     train = copy_token_task(seed=11, n=8)
@@ -835,3 +837,205 @@ def test_zero_lr_run_matches_pretrained_reference(geode_store, tiny_llama, copy_
     assert tl.label_token_count == tref.label_token_count == 6
     assert tl.loss_sum_nats == pytest.approx(tref.loss_sum_nats, rel=1e-5, abs=1e-6)
     assert tl.loss_per_label_token_nats == pytest.approx(tref.loss_sum_nats / 6, rel=1e-5, abs=1e-6)
+
+
+# ---------------------------------------------------------------------------
+# V1.9 — the loop's adapter is the pinned apply_lora (θ_0 identity for free)
+# ---------------------------------------------------------------------------
+
+
+def test_v1_9_pinned_adapter_theta0_identity(geode_store, tiny_llama, copy_token_task):
+    """V1.9: the adapter ``train_prequential`` builds is ``geode.train.apply_lora``'s
+    (specs/02 §6 pin: scaling α/(2r), seeded A init, B zero — the 2026-07-21
+    rewire replacing the internal PEFT path, whose α/r scaling conflicted).
+
+    Three independently violable pins, all read from the step_0 snapshot (the
+    loop's own artifact, saved before any update):
+
+    1. Module tree: tensors are named ``<name>.base/.A/.B.weight`` on the
+       adapted ``q_proj``/``v_proj`` modules — the ``apply_lora`` layout
+       (V5.51). PEFT's ``lora_A``/``lora_B`` naming fails this (and every
+       strict snapshot reload in ``_model_at_step``).
+    2. Seeded init: every ``.A.weight`` is bit-identical to ``apply_lora``'s
+       dedicated-generator init at the loop's explicit ``seed`` argument
+       (V5.50 at the loop surface), and every ``.B.weight`` is exactly zero.
+    3. θ_0 identity (specs/01 §1: θ_0 is the *pretrained* state): the reloaded
+       θ_0 computes **bit-identical** logits to the pristine unwrapped base
+       model — B = 0 makes the adapter branch exactly zero, so the equality is
+       exact, not approximate.
+    """
+    train = copy_token_task(seed=11, n=4)
+    test = copy_token_task(seed=12, n=4)
+    manifest = register_run(
+        _manifest_fields("run-pin", n_unique=4, batch_size=2, lr=0.05, snapshot_steps=(0,))
+    )
+    train_prequential(
+        tiny_llama(seed=MODEL_SEED),
+        _dataset(train, test),
+        _task_format(),
+        manifest,
+        device="cpu",
+        seed=LOOP_SEED,
+    )
+
+    run_dir = geode_store / "runs" / "run-pin"
+    snap = load_file(str(run_dir / "snapshots" / "step_0" / "model.safetensors"))
+    assert not any("lora_A" in k or "lora_B" in k for k in snap), (
+        "snapshot carries PEFT's module tree — the loop did not wrap via apply_lora"
+    )
+    a_keys = sorted(k for k in snap if k.endswith(".A.weight"))
+    b_keys = sorted(k for k in snap if k.endswith(".B.weight"))
+    base_keys = sorted(k for k in snap if k.endswith(".base.weight"))
+    assert a_keys and len(a_keys) == len(b_keys) == len(base_keys)
+    for key in a_keys + b_keys + base_keys:
+        parts = key.split(".")
+        assert "q_proj" in parts or "v_proj" in parts, f"{key!r} wraps a non-target module"
+
+    # Pin 2: the A factors are apply_lora's seeded init at the loop's seed;
+    # B is zero. The reference is built independently from the fixture + the
+    # manifest's training.lora block, never from the loop.
+    ref = apply_lora(
+        tiny_llama(seed=MODEL_SEED),
+        rank=2,
+        alpha=4.0,
+        seed=LOOP_SEED,
+        target_modules=("q_proj", "v_proj"),
+    ).state_dict()
+    for key in a_keys:
+        assert torch.equal(snap[key], ref[key]), f"{key!r} differs from the seeded init"
+    for key in b_keys:
+        assert torch.equal(snap[key], torch.zeros_like(snap[key])), f"{key!r} is not zero"
+
+    # Pin 3: θ_0 computes the base function exactly (bit-identical logits).
+    theta0 = _model_at_step(tiny_llama, run_dir, 0)
+    base = tiny_llama(seed=MODEL_SEED)
+    ids = torch.tensor([[BOS_ID, 5, 6, 7]])
+    with torch.no_grad():
+        assert torch.equal(theta0(input_ids=ids).logits, base(input_ids=ids).logits)
+
+
+# ---------------------------------------------------------------------------
+# V1.10 — step_callback: per-update scalars + early stop, artifacts intact
+# ---------------------------------------------------------------------------
+
+
+def _adamw_manifest_fields(
+    run_id: str,
+    *,
+    n_unique: int,
+    batch_size: int,
+    lr: float,
+    epochs_total: int,
+    snapshot_steps: tuple[int, ...] = (),
+) -> dict:
+    """The SGD fixture manifest with the runs-5/6 optimizer block (spec 02 §6):
+    AdamW betas + weight decay + grad clip — exercising the loop's non-SGD
+    path in the same test that pins the callback semantics."""
+    fields = _manifest_fields(
+        run_id,
+        n_unique=n_unique,
+        batch_size=batch_size,
+        lr=lr,
+        epochs_total=epochs_total,
+        snapshot_steps=snapshot_steps,
+    )
+    fields["training"]["optimizer"].update(
+        {"name": "adamw", "betas": [0.9, 0.999], "weight_decay": 0.01, "grad_clip": 1.0}
+    )
+    return fields
+
+
+def test_v1_10_step_callback_early_stop(geode_store, tiny_llama, copy_token_task):
+    """V1.10: ``step_callback`` fires once per completed update with the
+    per-step scalars, and returning True ends training there with every
+    artifact still written (test loss at the stopped θ_T).
+
+    6 examples / batch 2 / ``epochs_total=3`` -> 9 potential updates; the
+    callback stops after update 5 (mid-epoch 2), so a loop that ignores the
+    stop request runs 4 extra updates and fails the record counts below.
+    Snapshots declared at (2, 5): step_2 is taken pre-batch, step_5 is the
+    final state — reachable only through the post-loop save on the early-exit
+    path. The stored test loss must equal the shared-path evaluation of the
+    reloaded θ_5, pinning "L_test at the θ the run actually stopped at".
+    """
+    train = copy_token_task(seed=11, n=6)
+    test = copy_token_task(seed=12, n=4)
+    manifest = register_run(
+        _adamw_manifest_fields(
+            "run-cb", n_unique=6, batch_size=2, lr=0.05, epochs_total=3, snapshot_steps=(2, 5)
+        )
+    )
+    seen = []
+
+    def callback(info) -> bool:
+        seen.append(info)
+        return info.step >= 5
+
+    train_prequential(
+        tiny_llama(seed=MODEL_SEED),
+        _dataset(train, test),
+        _task_format(),
+        manifest,
+        device="cpu",
+        seed=LOOP_SEED,
+        step_callback=callback,
+    )
+
+    # Callback stream: one call per update, 1-based steps, epoch rollover at 4.
+    assert [i.step for i in seen] == [1, 2, 3, 4, 5]
+    assert [i.epoch for i in seen] == [1, 1, 1, 2, 2]
+    for info in seen:
+        assert info.lr == pytest.approx(0.05)
+        assert math.isfinite(info.train_loss_nats) and info.train_loss_nats > 0.0
+        assert 0.0 <= info.train_accuracy <= 1.0
+
+    # The run really stopped after update 5: records 0..4, epoch flags intact,
+    # and the complete epoch-1 stream still passes the coverage checker.
+    recs = _sorted_records("run-cb")
+    assert [r.step for r in recs] == [0, 1, 2, 3, 4]
+    assert [r.epoch for r in recs] == [1, 1, 1, 2, 2]
+    check_epoch1_coverage(prequential_records("run-cb"), 6)
+    grads = sorted(gradstat_records("run-cb"), key=lambda r: r.step)
+    assert [r.step for r in grads] == [0, 1, 2, 3, 4]
+
+    run_dir = geode_store / "runs" / "run-cb"
+    snap_root = run_dir / "snapshots"
+    assert sorted(p.name for p in snap_root.iterdir()) == ["step_2", "step_5"]
+
+    # L_test(θ_T) with T = the stopped step (specs/01 §1), via the shared path.
+    mask = label_mask(test, _task_format())
+    ref = prequential_step(_model_at_step(tiny_llama, run_dir, 5), test, mask)
+    tl = test_loss("run-cb")
+    assert tl.label_token_count == ref.label_token_count
+    assert tl.loss_sum_nats == pytest.approx(ref.loss_sum_nats, rel=1e-5, abs=1e-6)
+
+
+def test_v1_10_step_callback_mid_epoch1_stop_still_writes_artifacts(
+    geode_store, tiny_llama, copy_token_task
+):
+    """V1.10 (truncation corner): a stop inside epoch 1 still writes all four
+    artifacts, with the MDL stream truncated to the seen prefix — the runs-5/6
+    design, where the stopping rule is part of the EDL metric. The accumulator
+    flush must not require a complete epoch."""
+    train = copy_token_task(seed=11, n=6)
+    test = copy_token_task(seed=12, n=4)
+    manifest = register_run(
+        _adamw_manifest_fields("run-cb-trunc", n_unique=6, batch_size=2, lr=0.05, epochs_total=1)
+    )
+    train_prequential(
+        tiny_llama(seed=MODEL_SEED),
+        _dataset(train, test),
+        _task_format(),
+        manifest,
+        device="cpu",
+        seed=LOOP_SEED,
+        step_callback=lambda info: True,  # stop after the very first update
+    )
+
+    recs = _sorted_records("run-cb-trunc")
+    assert [r.step for r in recs] == [0]
+    assert recs[0].epoch == 1
+    run_dir = geode_store / "runs" / "run-cb-trunc"
+    assert (run_dir / "logs" / "prequential.jsonl").is_file()
+    assert (run_dir / "logs" / "gradstats.jsonl").is_file()
+    assert (run_dir / "eval" / "test_loss.json").is_file()
