@@ -1044,3 +1044,24 @@ Dataset items: none.
   NL-notation head start, latent as required.
 - 16-shot ≈ 0 on all seven runs (known collapse — see the G5 protocol
   entries); zero-shot + loss carry the evidence.
+
+## OPEN(4) + OPEN(10) closed — runs 5/6 launch-ready (owner 2026-07-22)
+
+- **OPEN(10): no optimizer-state snapshots** (owner). Snapshots stay
+  model-only — `_save_snapshot` already saves only the model
+  state_dict, so this is a decision record with zero code change.
+  AdamW moments would have added ~2× params (~400 MB per snapshot,
+  ~350 GB per B-like run) for an optimizer-trajectory analysis nothing
+  in the plan consumes; mid-run resume is unneeded at ≲30-min runs.
+- **OPEN(4): mechanical from the OPEN(2) pin.** Batch 128 (pinned),
+  step ceiling max_steps 23442, snapshot schedule =
+  `snapshot_steps(23442, n=1024, dense_until=30)` — the spec-02 §6
+  structure ratified 2026-07-18, now with concrete numbers: unit
+  stride through step 30 and beyond (geometric ratio ≈ 1.007),
+  stretching to ~57-step gaps at the tail, final slot 23442.
+- **Disk sizing (launch logistics):** snapshots are fp32 base+adapter,
+  50.8M params ≈ 203 MB each. Expected materialization: ~880 snapshots
+  (~180 GB) for a B-like stop near 15.5K steps, ~630 (~128 GB) for an
+  A-like stop near 3.5K — both runs together want ~350 GB free on the
+  box before launch. Steps past the ε/k stop never materialize
+  (manifest `snapshots_taken` records the emergent truncation).

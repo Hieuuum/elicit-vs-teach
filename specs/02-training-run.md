@@ -250,8 +250,8 @@ the 2026-07-18 downscale):
   brief sweep; executed runs record theirs in their manifests). LoRA
   target LR pinned 1e-3 for runs 5–6 (sweep 2026-07-22 — grid extended
   upward to bracket the monotone first decade; decisions.md). Batch 128;
-  n=500K pinned (OPEN(2) closed 2026-07-22, §12) — snapshot schedule
-  parameters follow from OPEN(4).
+  n=500K pinned (OPEN(2) closed 2026-07-22, §12); snapshot schedule
+  pinned over max_steps 23442 (OPEN(4) closed 2026-07-22, §12).
 - LoRA (runs 5–6 only): r=128; Q,K,V,O,G,U,D all layers; α=32; scaling
   α/2r; dropout 0; A Kaiming 1/√d_in, B zero. 12.1M params,
   ~24 MB/adapter bf16.
@@ -300,7 +300,7 @@ the 2026-07-18 downscale):
   the matched-arms design). Target runs 5–6 are the EDL measurement
   itself — their training schedule is part of the metric; the ε/k rule
   is ratified below (2026-07-22); n=500K pinned (OPEN(2) closed
-  2026-07-22, §12), snapshot schedule stays with OPEN(4).
+  2026-07-22, §12), snapshot schedule pinned (OPEN(4) closed same day).
 - Stopping (runs 5–6, target runs — owner 2026-07-22): the canonical
   loss rule at short-run cadence — **ε=0.002 nats, k=5, eval_every 500,
   min_steps 0**. The canonical min_steps=5000 grace and eval_every 1000
@@ -953,8 +953,9 @@ real gradient-alignment plot. Then parameter pilots close open items:
   at 10K/50K/200K/500K under the fixed shared eval protocol (§5) and
   500K is the smallest grid n where B lands within a few points of A.
 - OPEN(3): **closed 2026-07-19** — see §12.
-- OPEN(4): batch → step count → snapshot-schedule parameters (needs
-  OPEN(2)).
+- OPEN(4): **closed 2026-07-22** — see §12; resolved mechanically by
+  the OPEN(2) pin (batch 128 → max_steps 23442 → the §6 schedule over
+  it).
 - OPEN(5): **closed 2026-07-18** — see §12.
 
 Pilot outcomes are logged in `notes/decisions.md`, then the `OPEN(n)`
@@ -967,13 +968,13 @@ markers in this spec are replaced with pinned values in the same PR.
 | OPEN(1) | Format-installer example count | **closed 2026-07-21** (owner): runs 3–4 stop on behavior, not a pinned count — identical pre-registered rule (§6: G4 metric ≥99% on 512 held-out prompts, k=3 consecutive evals, eval_every 250), identical data order; per-arm step counts are emergent, recorded in each manifest |
 | OPEN(2) | Target dataset size | **closed 2026-07-22** (owner, B-convergence grid on the fixed shared eval file): **n=500K** — smallest grid n where B lands within a few points of A (G5 zero-shot / shared 98K-row test loss: B@500K 0.9805 / 0.0140 nats vs A@50K 0.9941 / 0.0059; B@50K 0.9414 / 0.0428, 5.3 points short). The n200K dip (0.8740 / 0.1109) is a stopping-rule artifact — ε/k fired at step 5500 (~3.5 epochs) mid-descent — not a property of the data size. Ceiling raised to max_steps=23442 (6 epochs of 500K): the B@500K pilot's ε/k stop at 15,500 sat 126 steps under the old 2-epochs-of-1M ceiling |
 | OPEN(3) | Stopping-rule ε, k | **closed 2026-07-19** (run-1 LR sweep): ε=0.005 nats, k=3 at eval_every=500. Sweep val curves at the pinned LR are monotone at 100-step spacing (eval noise ≪ 0.005 with 5225 val seqs) and end-of-sweep improvement is ~0.06 nats/500 steps (12× ε), so ε separates signal from noise with wide margin. Runs 2–4 inherit; revisit only if their (arithmetic-val) curves misbehave |
-| OPEN(4) | Batch → step count → snapshot schedule params | after OPEN(2) |
+| OPEN(4) | Batch → step count → snapshot schedule params | **closed 2026-07-22** (mechanical from OPEN(2)): batch 128, max_steps 23442, schedule = `snapshot_steps(23442, n=1024, dense_until=30)` — unit stride through the dense prefix and beyond (geometric ratio ≈ 1.007), stretching to ~57-step gaps at the tail. Snapshots are fp32 base+adapter (~203 MB each, 50.8M params); expected materialization ~880 for a B-like stop (~15.5K steps, ~180 GB) / ~630 for an A-like stop (~3.5K, ~128 GB) — steps past the stop never materialize |
 | OPEN(5) | Padded max seq_len | **closed 2026-07-18**: per-example max 33 tokens over all four frozen full-scale files (longest: 4-digit NL sum, 5-digit answer); G5 16-shot worst case 593 tokens ⇒ model `max_position_embeddings: 1024` (free with RoPE), packing stays at `data.seq_len` 512 |
 | OPEN(6) | Random-label sampling distribution (installer) | decision before pilot; default digit-count-matched uniform |
 | OPEN(7) | Subtraction negatives allowed | decision before pilot; default allowed |
 | OPEN(8) | Run 1: pretrain from scratch vs external TinyStories checkpoint | **closed 2026-07-18**: from scratch — the custom arch + tokenizer match no external checkpoint, and the run is single-GPU small |
 | OPEN(9) | Exact template string (both formats) | **decided 2026-07-17**: two-line `Question: <body>` / `Answer: <answer>` scaffold; padded length still OPEN(5) |
-| OPEN(10) | Keep optimizer-state snapshots (sizes TBD at 2026-07-18 scale) | decision before production run 5 |
+| OPEN(10) | Keep optimizer-state snapshots (sizes TBD at 2026-07-18 scale) | **closed 2026-07-22** (owner): **no** — snapshots stay model-only (`_save_snapshot` already saves only the model state_dict; zero code change). AdamW moments would have added ~2× params (~400 MB/snapshot) for an analysis (optimizer-trajectory) nothing in the plan consumes; mid-run resume is not needed at ≲30-min run lengths |
 | OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) | tokenizer **frozen 2026-07-18** at `experiments/training-run/tokenizer/`: 10K byte-level BPE on TinyStories-v2, digits 0–9 single-token forced, `Question:`/`Answer:` plain BPE (owner decision), EOS `<|endoftext|>` + PAD `<|pad|>`, provenance in `meta.json`. Dataset id verified 2026-07-18 (v2 = txt file in `roneneldan/TinyStories`; no v2 repo exists) and seq_len pinned at 512 (story p90 = 265 > 256; 1.6% of stories exceed 512). Remainder **closed 2026-07-19** by the 4-point LR sweep (docs/run1-guide.md phase 3; 2000 steps each, production batch 128 via grad-accum 4×32, full data): **LR=1e-3** — best val 1.4389 nats vs 1.4552 @ 3e-4 with a consistent lead from step ~600, monotone descent, grad-norm max 6.4 / last 0.19; 3e-3 unstable (grad spike 109, val plateau ~3.15, self-stopped at 1700); 1e-4 far behind (1.7241). Constant LR, no schedule/warmup (structural — no scheduler exists). Batch 128, val_fraction 0.005, eval_every 500 as swept; epochs uncapped, ended by the stopping rule (ε/k → OPEN(3)). **Amended 2026-07-19 (gate G0 FAIL):** the constant-LR run plateaued at its gradient-noise floor (1.146 nats) with ~5/20 coherent samples; §6.1 gained a cosine schedule and the run-1 retrain uses cosine 1e-3→1e-4 over `max_steps=17000` (decisions.md). Constant LR remains the default elsewhere |
 
 ## 13. Limitations / notes

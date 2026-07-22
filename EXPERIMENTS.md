@@ -27,7 +27,7 @@ spec 02 §13).
 | 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | **DONE — converged** (2026-07-21, lr 3e-4, step 19k, `min_val_nats` 0.0037); G1 0.9961 PASS |
 | 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), to behavioral stop (spec 02 §6) | **DONE** (2026-07-22, lr 3e-6, behavioral stop @ 750); G2/G4/G5 recorded |
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | **DONE** (2026-07-22, behavioral stop @ 750); G3/G4/G5 recorded |
-| 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` 500K prefix (op-notation add/sub; OPEN(2) closed 2026-07-22) | ready to launch — lr 1e-3 + n 500K pinned; awaits OPEN(4)/OPEN(10) |
+| 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` 500K prefix (op-notation add/sub; OPEN(2) closed 2026-07-22) | **launch-ready** — lr 1e-3 + n 500K pinned; OPEN(4)/(10) closed 2026-07-22 |
 | 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | same — G7 order guard at launch |
 
 DAG: `1 → 2 → 3 → 5` (Arm A, elicit) and `1 → 4 → 6` (Arm B, teach).
@@ -125,8 +125,10 @@ drivers, `export_hf.py`, `gates.py` g6.
 2. ~~OPEN(2) pilot~~ — **DONE 2026-07-22**: phase 1 (target-LR
    mini-sweep) pinned lr 1e-3; phase 2 (the B grid @ 10K/50K/200K/500K
    + A-ref @ 50K, re-scored under the fixed shared eval protocol)
-   closed **OPEN(2) = 500K** (§4 G5 row; decisions.md). Next: OPEN(4);
-   OPEN(10) is an owner call before run 5.
+   closed **OPEN(2) = 500K** (§4 G5 row; decisions.md). OPEN(4) closed
+   same day (mechanical: schedule over max_steps 23442) and OPEN(10)
+   closed **no** (owner) — runs 5/6 are launch-ready; box needs
+   ~350 GB free for snapshots (decisions.md sizing).
 3. **`geode.probe` extraction + `scripts/extract.py`** (V5.9–V5.13:
    offline probe pass — activations + activation-gradients at 9
    residual points, matched-load guards, alignment metric) — in
