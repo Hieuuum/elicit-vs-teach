@@ -35,7 +35,8 @@ TinyStories-v2 with digits 0–9 forced as single tokens (plus `+`, `-`,
 arithmetic easier to learn and removes Llama's 3-digit chunking.
 ~25–34M non-embedding params; ~77 MB full checkpoint (bf16).
 Consequences threaded through this spec: 9 residual points (§7), LoRA
-r=128 (§6), self-contained full-model snapshots (spec 00 §1), and all
+r=128 (§6), adapter-only snapshots + a once-per-run base file (spec 00
+§1, 2026-07-22), and all
 1B-derived numbers (paper Table-3 LRs, the ~300K teaching peak,
 capacity thresholds) are void — the pilot re-establishes them (§11).
 
@@ -805,17 +806,20 @@ log-spaced early (every step through ~30, then stretching), uniform later
 — produced by `geode.probe.schedule` and written into the manifest before
 launch.
 
-**Optimizer state:** ~10 checkpoints, optional — OPEN(10).
+**Optimizer state:** never saved — OPEN(10) closed **no** (owner
+2026-07-22, §12).
 
 ## 7. `geode.probe` — schedule, extraction, analysis metrics
 
 **Snapshot scheduler.** `snapshot_steps(total_steps, n=1024, dense_until≈30)`
 → strictly increasing, includes first and final step, dense unit-stride
-prefix, log-then-uniform tail. Exact parameters OPEN(4). Scheme implemented
+prefix, log-then-uniform tail. Exact parameters pinned by OPEN(4)'s close
+(2026-07-22, §12): the defaults over max_steps 23442. Scheme implemented
 2026-07-21 (`geode/probe/schedule.py`, V5.55–V5.61; V5.8 is the umbrella).
 
 **Extraction pass** (offline, separate rental). For each snapshot: load
-the self-contained snapshot (spec 00 §1 — no separate base checkpoint);
+θ_k via `geode.edl.load_snapshot` (spec 00 §1 — once-per-run base file +
+the step's adapter tensors; legacy full snapshots still strict-load);
 run the probe set forward + backward (loss on label
 tokens, **sum** reduction, through the shared M1 `label_mask`); capture
 activations and activation gradients at all 9 residual points (embedding
@@ -968,7 +972,7 @@ markers in this spec are replaced with pinned values in the same PR.
 | OPEN(1) | Format-installer example count | **closed 2026-07-21** (owner): runs 3–4 stop on behavior, not a pinned count — identical pre-registered rule (§6: G4 metric ≥99% on 512 held-out prompts, k=3 consecutive evals, eval_every 250), identical data order; per-arm step counts are emergent, recorded in each manifest |
 | OPEN(2) | Target dataset size | **closed 2026-07-22** (owner, B-convergence grid on the fixed shared eval file): **n=500K** — smallest grid n where B lands within a few points of A (G5 zero-shot / shared 98K-row test loss: B@500K 0.9805 / 0.0140 nats vs A@50K 0.9941 / 0.0059; B@50K 0.9414 / 0.0428, 5.3 points short). The n200K dip (0.8740 / 0.1109) is a stopping-rule artifact — ε/k fired at step 5500 (~3.5 epochs) mid-descent — not a property of the data size. Ceiling raised to max_steps=23442 (6 epochs of 500K): the B@500K pilot's ε/k stop at 15,500 sat 126 steps under the old 2-epochs-of-1M ceiling |
 | OPEN(3) | Stopping-rule ε, k | **closed 2026-07-19** (run-1 LR sweep): ε=0.005 nats, k=3 at eval_every=500. Sweep val curves at the pinned LR are monotone at 100-step spacing (eval noise ≪ 0.005 with 5225 val seqs) and end-of-sweep improvement is ~0.06 nats/500 steps (12× ε), so ε separates signal from noise with wide margin. Runs 2–4 inherit; revisit only if their (arithmetic-val) curves misbehave |
-| OPEN(4) | Batch → step count → snapshot schedule params | **closed 2026-07-22** (mechanical from OPEN(2)): batch 128, max_steps 23442, schedule = `snapshot_steps(23442, n=1024, dense_until=30)` — unit stride through the dense prefix and beyond (geometric ratio ≈ 1.007), stretching to ~57-step gaps at the tail. Snapshots are fp32 base+adapter (~203 MB each, 50.8M params); expected materialization ~880 for a B-like stop (~15.5K steps, ~180 GB) / ~630 for an A-like stop (~3.5K, ~128 GB) — steps past the stop never materialize |
+| OPEN(4) | Batch → step count → snapshot schedule params | **closed 2026-07-22** (mechanical from OPEN(2)): batch 128, max_steps 23442, schedule = `snapshot_steps(23442, n=1024, dense_until=30)` — unit stride through the dense prefix and beyond (geometric ratio ≈ 1.007), stretching to ~57-step gaps at the tail. Snapshots are adapter-only fp32 (~48 MB each, 12.1M params; the frozen base ~155 MB written once per run — format 2026-07-22, spec 00 §1/V1.11); expected materialization ~880 for a B-like stop (~15.5K steps, ~43 GB) / ~630 for an A-like stop (~3.5K, ~31 GB) — steps past the stop never materialize |
 | OPEN(5) | Padded max seq_len | **closed 2026-07-18**: per-example max 33 tokens over all four frozen full-scale files (longest: 4-digit NL sum, 5-digit answer); G5 16-shot worst case 593 tokens ⇒ model `max_position_embeddings: 1024` (free with RoPE), packing stays at `data.seq_len` 512 |
 | OPEN(6) | Random-label sampling distribution (installer) | decision before pilot; default digit-count-matched uniform |
 | OPEN(7) | Subtraction negatives allowed | decision before pilot; default allowed |

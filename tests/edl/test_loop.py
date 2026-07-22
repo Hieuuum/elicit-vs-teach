@@ -45,16 +45,19 @@ EDL-2's D-* decisions):
   fixtures, where an epoch-2 record continues the epoch-1 numbering); epochs
   are 1-based; one record per optimizer batch (spec 00 §3), so a full epoch
   over n examples at batch size b yields ceil(n/b) records.
-- L-5 (revised 2026-07-18, arch-downscale decision): ``snapshots/step_{k}/``
-  holds the complete model state — base + adapter tensors in one
-  ``model.safetensors`` — after exactly k optimizer updates, equivalently the
-  pre-update state for batch k. Loadable by rebuilding the module tree (base
-  arch + LoRA wrap mirroring the manifest's ``training.lora``) and
-  ``safetensors.torch.load_model``; no separately stored base checkpoint is
-  needed. This is the convention that makes the snapshot at step k reproduce
-  the loss recorded at step k, and ``step_0`` the initialization. Per spec 01
-  §1 (θ₀ = the pretrained parameters), the freshly wrapped model at step 0
-  must compute the same function as the unwrapped pretrained model.
+- L-5 (revised 2026-07-22, adapter-only format — superseding the 2026-07-18
+  self-contained revision): ``snapshots/step_{k}/adapter.safetensors`` holds
+  exactly the trainable (A/B) tensors after k optimizer updates, equivalently
+  the pre-update state for batch k; the frozen base + buffers are written once
+  per run to ``snapshots/base/model.safetensors``. Loadable by rebuilding the
+  module tree (base arch + LoRA wrap mirroring the manifest's
+  ``training.lora``) and ``geode.edl.load_snapshot``, which reassembles θ_k
+  bit-exactly (restoring tied aliases from their storage twin) and still
+  strict-loads legacy full ``model.safetensors`` snapshots. This is the
+  convention that makes the snapshot at step k reproduce the loss recorded at
+  step k, and ``step_0`` the initialization. Per spec 01 §1 (θ₀ = the
+  pretrained parameters), the freshly wrapped model at step 0 must compute the
+  same function as the unwrapped pretrained model.
 - L-6: gradstats are logged at steps where ``step % gradstats_stride == 0``;
   ``topk_grad_subspace_overlap`` is always null (OQ-14).
 - L-7: optimizer built from ``manifest.training.optimizer``; these tests
@@ -99,11 +102,11 @@ from pathlib import Path
 
 import pytest
 import torch
-from safetensors.torch import load_file, load_model
+from safetensors.torch import load_file, save_model
 
 from geode.edl import TaskFormat, label_mask
 from geode.edl import loop as edl_loop
-from geode.edl.loop import train_prequential
+from geode.edl.loop import load_snapshot, train_prequential
 from geode.edl.masking import masking_config_hash
 from geode.edl.metrics import edl_nats
 from geode.edl.prequential import prequential_step
@@ -221,11 +224,14 @@ def _model_at_step(tiny_llama, run_dir: Path, step: int) -> torch.nn.Module:
     ``tiny_llama(seed=MODEL_SEED)`` rebuilds the module tree and the LoRA wrap
     mirrors ``_manifest_fields``'s ``training.lora`` block through the pinned
     ``geode.train.apply_lora`` (independent-path rule: derived from the fixture
-    and specs/02 §6, not from the loop); every tensor value then comes from the
-    snapshot file via a strict load, so no separately stored base checkpoint is
-    involved — and a loop that saved a different module tree (e.g. PEFT's
-    ``lora_A``/``lora_B`` naming) fails the load. The throwaway ``seed=0`` init
-    is fully overwritten by the snapshot (V5.51).
+    and specs/02 §6, not from the loop); ``load_snapshot`` then overwrites
+    every tensor from the once-per-run base file + the step's adapter file
+    (adapter-only format, L-5 2026-07-22) with a strict load — a loop that
+    saved a different module tree (e.g. PEFT's ``lora_A``/``lora_B`` naming)
+    fails it. The throwaway ``seed=0`` init is fully overwritten (V5.51).
+    Independence is preserved by V1.3's cross-check: the reloaded θ_s must
+    reproduce losses the loop recorded from the *live* model, so a save/load
+    pair that is consistently wrong still fails.
     """
     wrapped = apply_lora(
         tiny_llama(seed=MODEL_SEED),
@@ -234,8 +240,7 @@ def _model_at_step(tiny_llama, run_dir: Path, step: int) -> torch.nn.Module:
         seed=0,
         target_modules=("q_proj", "v_proj"),
     )
-    load_model(wrapped, str(run_dir / "snapshots" / f"step_{step}" / "model.safetensors"))
-    return wrapped
+    return load_snapshot(wrapped, run_dir.name, step, store=run_dir.parents[1])
 
 
 def _sorted_records(run_id: str):
@@ -543,8 +548,9 @@ def test_snapshots_written_at_declared_steps(geode_store, tiny_llama, copy_token
 
     snap_root = geode_store / "runs" / "run-snap" / "snapshots"
     assert snap_root.is_dir()
-    assert sorted(p.name for p in snap_root.iterdir()) == ["step_0", "step_2", "step_3"]
-    for name in ("step_0", "step_2", "step_3"):
+    # base/ is the once-per-run frozen complement (L-5 2026-07-22 format).
+    assert sorted(p.name for p in snap_root.iterdir()) == ["base", "step_0", "step_2", "step_3"]
+    for name in ("base", "step_0", "step_2", "step_3"):
         files = [p for p in (snap_root / name).rglob("*") if p.is_file()]
         assert files, f"snapshot {name} is empty — nothing to reload"
 
@@ -916,13 +922,14 @@ def test_v1_9_pinned_adapter_theta0_identity(geode_store, tiny_llama, copy_token
     )
 
     run_dir = geode_store / "runs" / "run-pin"
-    snap = load_file(str(run_dir / "snapshots" / "step_0" / "model.safetensors"))
+    snap = load_file(str(run_dir / "snapshots" / "step_0" / "adapter.safetensors"))
+    base_state = load_file(str(run_dir / "snapshots" / "base" / "model.safetensors"))
     assert not any("lora_A" in k or "lora_B" in k for k in snap), (
         "snapshot carries PEFT's module tree — the loop did not wrap via apply_lora"
     )
     a_keys = sorted(k for k in snap if k.endswith(".A.weight"))
     b_keys = sorted(k for k in snap if k.endswith(".B.weight"))
-    base_keys = sorted(k for k in snap if k.endswith(".base.weight"))
+    base_keys = sorted(k for k in base_state if k.endswith(".base.weight"))
     assert a_keys and len(a_keys) == len(b_keys) == len(base_keys)
     for key in a_keys + b_keys + base_keys:
         parts = key.split(".")
@@ -949,6 +956,124 @@ def test_v1_9_pinned_adapter_theta0_identity(geode_store, tiny_llama, copy_token
     ids = torch.tensor([[BOS_ID, 5, 6, 7]])
     with torch.no_grad():
         assert torch.equal(theta0(input_ids=ids).logits, base(input_ids=ids).logits)
+
+
+# ---------------------------------------------------------------------------
+# V1.11 — adapter-only snapshots: exact contents, tied round-trip, legacy load
+# ---------------------------------------------------------------------------
+
+
+def test_v1_11_snapshot_holds_exactly_the_trainable_tensors(
+    geode_store, tiny_llama, copy_token_task
+):
+    """V1.11(a): a step file is the trainable set — nothing more, nothing less.
+
+    The reference trainable-name set comes from an independently wrapped model
+    (fixture + the manifest's ``training.lora`` block, never the loop). The
+    base file must hold the full frozen complement — together the two files
+    cover the untied fixture's state dict exactly, so nothing is silently
+    dropped (the expensive failure mode: an unreloadable snapshot on a paid
+    GPU box).
+    """
+    train = copy_token_task(seed=11, n=4)
+    test = copy_token_task(seed=12, n=4)
+    manifest = register_run(
+        _manifest_fields("run-fmt", n_unique=4, batch_size=2, lr=0.05, snapshot_steps=(0, 2))
+    )
+    train_prequential(
+        tiny_llama(seed=MODEL_SEED),
+        _dataset(train, test),
+        _task_format(),
+        manifest,
+        device="cpu",
+        seed=LOOP_SEED,
+    )
+
+    ref = apply_lora(
+        tiny_llama(seed=MODEL_SEED),
+        rank=2,
+        alpha=4.0,
+        seed=0,
+        target_modules=("q_proj", "v_proj"),
+    )
+    trainable = {n for n, p in ref.named_parameters() if p.requires_grad}
+    snap_root = geode_store / "runs" / "run-fmt" / "snapshots"
+    base_state = load_file(str(snap_root / "base" / "model.safetensors"))
+    for step in (0, 2):
+        adapter = load_file(str(snap_root / f"step_{step}" / "adapter.safetensors"))
+        assert set(adapter) == trainable
+        assert not (snap_root / f"step_{step}" / "model.safetensors").exists()
+    assert set(base_state).isdisjoint(trainable)
+    assert set(base_state) | trainable == set(ref.state_dict())  # untied: exact cover
+
+
+def test_v1_11_tied_embeddings_roundtrip_bit_exact(geode_store, tiny_llama, copy_token_task):
+    """V1.11(b): tied embeddings survive the base-file dedup round-trip.
+
+    The production models tie ``lm_head`` to ``embed_tokens`` (train.py
+    default); safetensors refuses shared tensors, so the base save keeps one
+    twin and ``load_snapshot`` restores the alias. Assert the base file holds
+    the pair at most once and the reloaded final state θ_T is bit-identical
+    to the live trained model, tensor by tensor.
+    """
+    train = copy_token_task(seed=11, n=4)
+    test = copy_token_task(seed=12, n=4)
+    # n=4 / batch 2 / 1 epoch -> T = 2; snapshot the final state (A-1).
+    manifest = register_run(
+        _manifest_fields("run-tied", n_unique=4, batch_size=2, lr=0.05, snapshot_steps=(2,))
+    )
+    live = tiny_llama(seed=MODEL_SEED, tie_word_embeddings=True)
+    train_prequential(  # apply_lora wraps ``live`` in place -> it IS θ_T after
+        live, _dataset(train, test), _task_format(), manifest, device="cpu", seed=LOOP_SEED
+    )
+
+    base_state = load_file(
+        str(geode_store / "runs" / "run-tied" / "snapshots" / "base" / "model.safetensors")
+    )
+    tied_pair = {"model.embed_tokens.weight", "lm_head.weight"}
+    assert len(tied_pair & set(base_state)) == 1, "tied twins must be stored exactly once"
+
+    reloaded = apply_lora(
+        tiny_llama(seed=MODEL_SEED, tie_word_embeddings=True),
+        rank=2,
+        alpha=4.0,
+        seed=0,
+        target_modules=("q_proj", "v_proj"),
+    )
+    load_snapshot(reloaded, "run-tied", 2, store=geode_store)
+    live_state = live.state_dict()
+    for name, tensor in reloaded.state_dict().items():
+        assert torch.equal(tensor, live_state[name]), f"{name!r} not bit-identical"
+
+
+def test_v1_11_legacy_full_snapshot_loads(geode_store, tiny_llama):
+    """V1.11(c): a pre-2026-07-22 self-contained snapshot still loads.
+
+    The pilot runs' snapshots on the box are full ``model.safetensors``
+    files; ``load_snapshot`` must strict-load them with no base file present.
+    """
+    source = apply_lora(
+        tiny_llama(seed=MODEL_SEED),
+        rank=2,
+        alpha=4.0,
+        seed=7,
+        target_modules=("q_proj", "v_proj"),
+    )
+    snap_dir = geode_store / "runs" / "run-legacy" / "snapshots" / "step_3"
+    snap_dir.mkdir(parents=True)
+    save_model(source, str(snap_dir / "model.safetensors"))
+
+    reloaded = apply_lora(
+        tiny_llama(seed=MODEL_SEED),
+        rank=2,
+        alpha=4.0,
+        seed=0,
+        target_modules=("q_proj", "v_proj"),
+    )
+    load_snapshot(reloaded, "run-legacy", 3, store=geode_store)
+    src_state = source.state_dict()
+    for name, tensor in reloaded.state_dict().items():
+        assert torch.equal(tensor, src_state[name]), f"{name!r} not bit-identical"
 
 
 # ---------------------------------------------------------------------------
@@ -1037,7 +1162,7 @@ def test_v1_10_step_callback_early_stop(geode_store, tiny_llama, copy_token_task
 
     run_dir = geode_store / "runs" / "run-cb"
     snap_root = run_dir / "snapshots"
-    assert sorted(p.name for p in snap_root.iterdir()) == ["step_2", "step_5"]
+    assert sorted(p.name for p in snap_root.iterdir()) == ["base", "step_2", "step_5"]
 
     # L_test(θ_T) with T = the stopped step (specs/01 §1), via the shared path.
     mask = label_mask(test, _task_format())

@@ -1,6 +1,6 @@
 """Prequential MDL / EDL harness (specs/01)."""
 
-from geode.edl.loop import train_prequential
+from geode.edl.loop import load_snapshot, train_prequential
 from geode.edl.masking import TaskFormat, label_mask, masking_config_hash
 from geode.edl.metrics import (
     edl_nats,
@@ -26,6 +26,7 @@ __all__ = [
     "nats_to_bits",
     "pgr",
     "prequential_step",
+    "load_snapshot",
     "train_prequential",
     "training_curve",
 ]

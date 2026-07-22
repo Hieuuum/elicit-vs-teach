@@ -1065,3 +1065,27 @@ Dataset items: none.
   A-like stop near 3.5K — both runs together want ~350 GB free on the
   box before launch. Steps past the ε/k stop never materialize
   (manifest `snapshots_taken` records the emergent truncation).
+
+## Adapter-only snapshots (owner 2026-07-22, supersedes the 2026-07-18 self-contained format)
+
+- **Decision:** `snapshots/step_{k}/adapter.safetensors` holds exactly
+  the trainable (A/B) tensors; the frozen base + buffers are written
+  once per run to `snapshots/base/model.safetensors` (before any step
+  file, so a partially written run is always reassemblable). Reassembly
+  via the new `geode.edl.load_snapshot` — bit-exact (V1.11), restores
+  tied `lm_head`↔`embed_tokens` aliases, and still strict-loads legacy
+  full snapshots (the pilots' on-box artifacts stay usable).
+- **Why:** the 2026-07-18 self-contained decision was priced at
+  ~77 MB/snapshot and predates the 1024-step schedule. Real numbers:
+  fp32 base+adapter is ~203 MB, and the base is FROZEN during LoRA
+  training — a B-like run would store ~880 byte-identical copies of the
+  same 155 MB. Adapter-only: ~48 MB/step ⇒ ~43 GB (B-like stop) +
+  ~31 GB (A-like) ≈ **~75 GB for both runs instead of ~350 GB**, with
+  proportionally less write IO mid-run and faster extraction (base
+  loads once, adapters swap per step).
+- **Consumers (same commit):** loop `_save_base`/`_save_snapshot`/
+  `load_snapshot` (+ V1.11(a–c) property tests, tied-embedding
+  round-trip included — production models tie via train.py default);
+  extract.py discovers/loads either format; train_target finalize
+  counts `adapter.safetensors`. The FINAL `model/` checkpoint stays
+  self-contained (zoo.load_model V0.9 unchanged).

@@ -453,7 +453,7 @@ def main() -> int:
     taken = sorted(
         int(p.name.removeprefix("step_"))
         for p in (out_dir / "snapshots").glob("step_*")
-        if (p / "model.safetensors").is_file()
+        if (p / "adapter.safetensors").is_file()
     )
     stop_reason = state["stop_reason"] or "max_steps"
     manifest.data["status"] = "complete"

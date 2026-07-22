@@ -97,8 +97,9 @@ script, spec 02 §6).
 - **V1.8 — Units.** Reported bits = nats / ln 2 (checked to tolerance);
   no public reporting function returns unlabeled units.
 - **V1.9 — Pinned adapter wiring.** The adapter `train_prequential` builds
-  is `geode.train.apply_lora`'s: snapshot tensors are named
-  `<module>.base/.A/.B.weight` on the target modules, every A factor is
+  is `geode.train.apply_lora`'s: adapter tensors are named
+  `<module>.A/.B.weight` (and the frozen `<module>.base.weight` twins live
+  in the once-per-run base file) on the target modules, every A factor is
   bit-identical to the seeded init at the loop's explicit `seed`, B is
   zero — and θ₀ therefore computes the pretrained function bit-exactly
   (asserted on logits, not approximately).
@@ -108,6 +109,15 @@ script, spec 02 §6).
   `eval/test_loss.json` evaluated at the stopped θ_T; a stop inside epoch 1
   truncates the MDL stream to the seen prefix; a None callback reproduces
   the prior behavior exactly.
+- **V1.11 — Adapter-only snapshots** (2026-07-22, supersedes the
+  2026-07-18 self-contained format). (a) `snapshots/step_{k}/
+  adapter.safetensors` holds exactly the trainable tensors — no more, no
+  less — and `snapshots/base/model.safetensors` (written once, before any
+  step file) holds the frozen complement; together they cover the full
+  state dict. (b) Reassembly via `geode.edl.load_snapshot` is bit-exact
+  tensor-by-tensor, including under tied embeddings (the base save stores
+  a shared-storage pair once; load restores the alias from its twin).
+  (c) Legacy full `model.safetensors` snapshots still strict-load.
 
 ## 5. Non-goals
 

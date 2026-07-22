@@ -13,13 +13,19 @@ $GEODE_STORE/
     manifest.json
     model/                    # final save_pretrained checkpoint:
                               #   model.safetensors = the complete state_dict
-                              #   (base + adapter tensors; 2026-07-18 decision —
-                              #   adapter-only saving + base reassembly retired)
+                              #   (base + adapter tensors — the FINAL checkpoint
+                              #   stays self-contained; zoo.load_model V0.9)
     train_log.jsonl           # per-step trainer log (spec 02 §6.1 contract)
     eval_log.jsonl            # periodic held-out evals (same contract)
     training_meta.json        # trainer config echo + stop record
-    snapshots/step_{k}/       # self-contained full-model snapshots (runs 5-6):
-                              #   model.safetensors = the complete state_dict
+    snapshots/                # runs 5-6 (adapter-only format 2026-07-22,
+                              # supersedes the 2026-07-18 self-contained one):
+      base/model.safetensors  #   frozen base + buffers, written once per run
+                              #   (tied aliases stored once, restored on load)
+      step_{k}/               #   adapter.safetensors = exactly the trainable
+                              #   (A/B) tensors at θ_k; reassemble via
+                              #   geode.edl.load_snapshot (bit-exact, V1.11;
+                              #   legacy full model.safetensors still loads)
     probe/step_{k}/           # offline probe dumps (spec 02 §7):
                               #   acts.safetensors + grads.safetensors (bf16,
                               #   n_layers+1 named residual tensors each),

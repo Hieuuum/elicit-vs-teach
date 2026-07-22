@@ -39,8 +39,9 @@ def checkpoint_dir(run_id: str, *, store: Path | None = None) -> Path:
     wrong store or run_id, more than one means a half-migrated or corrupt
     run dir. Both are refusals naming the run dir — silently loading the
     wrong checkpoint is the failure this resolver exists to prevent.
-    Snapshots (``snapshots/step_{k}/model.safetensors``, no ``model/`` path
-    component) never match either pattern.
+    Snapshots (``snapshots/step_{k}/`` — adapter-only since 2026-07-22, and
+    even legacy full files lack a ``model/`` path component) never match
+    either pattern.
     """
     rd = run_dir(run_id, store=store)
     flat = rd / "model" / "model.safetensors"

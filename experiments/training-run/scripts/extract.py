@@ -8,7 +8,9 @@ frozen probe parquet and records its ``probe_set_hash`` (``geode.arith
 ``manifest.snapshot_steps`` ∩ the snapshots on disk (scheduled steps past the
 actual stop never materialized — spec 02 §6), rebuilds the model at each
 snapshot (base module tree from the run's final-checkpoint config + the pinned
-``geode.train.apply_lora`` wrap for LoRA runs, plain state for full-FT), runs
+``geode.train.apply_lora`` wrap for LoRA runs, plain state for full-FT; state
+loaded via ``geode.edl.load_snapshot`` — once-per-run base + per-step adapter,
+with legacy full snapshots still supported), runs
 the probe pass (``geode.probe.extract_probe`` — all learning-free math lives
 there), and writes one dump per snapshot to ``runs/{run_id}/probe/step_{k}``
 via ``geode.probe.save_probe_dump``. Existing dumps are skipped unless
@@ -30,9 +32,9 @@ import sys
 from pathlib import Path
 
 import torch
-from safetensors.torch import load_model
 
 from geode.arith import order_hash, tokenize_with_spans
+from geode.edl import load_snapshot
 from geode.edl.masking import TaskFormat
 from geode.probe import ProbeMeta, extract_probe, probe_dump_dir, save_probe_dump
 from geode.train import apply_lora
@@ -99,7 +101,8 @@ def main() -> int:
     on_disk = {
         int(p.name.removeprefix("step_"))
         for p in snap_root.glob("step_*")
-        if (p / "model.safetensors").is_file()
+        # adapter-only format (2026-07-22) or legacy full snapshot — both load
+        if (p / "adapter.safetensors").is_file() or (p / "model.safetensors").is_file()
     }
     steps = sorted(declared & on_disk)
     if not steps:
@@ -160,7 +163,7 @@ def main() -> int:
         if (out / "meta.json").is_file() and not args.overwrite:
             n_skipped += 1
             continue
-        load_model(model, str(snap_root / f"step_{k}" / "model.safetensors"))
+        load_snapshot(model, args.run_id, k, store=store)
         capture = extract_probe(model, examples, task_format, device=args.device)
         meta = ProbeMeta(
             run_id=args.run_id,

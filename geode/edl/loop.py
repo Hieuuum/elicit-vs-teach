@@ -33,12 +33,16 @@ EDL-3 tests):
   (L-7 leaves this unpinned; sum would descend too). The value written to
   ``prequential.jsonl`` is always the shared ``prequential_step`` sum, never
   this training scalar.
-- **Snapshot semantics** (L-5/A-1/A-2): ``snapshots/step_{k}`` holds the
-  complete model state (base + adapter tensors, one safetensors file) after
-  exactly ``k`` optimizer updates — the same θ_k under which batch ``k``'s
-  pre-update loss is recorded — and ``k`` may equal the total update count
-  ``T`` (the final state θ_T, taken after the last update). A declared ``k``
-  outside ``0..T`` is unreachable and rejected up front (spec 00 §2).
+- **Snapshot semantics** (L-5/A-1/A-2, format revised 2026-07-22):
+  ``snapshots/step_{k}/adapter.safetensors`` holds exactly the trainable
+  (adapter) tensors after ``k`` optimizer updates — the same θ_k under which
+  batch ``k``'s pre-update loss is recorded; the frozen base + buffers are
+  written once per run to ``snapshots/base/model.safetensors``.
+  ``load_snapshot`` reassembles θ_k bit-exactly (and still strict-loads
+  legacy pre-2026-07-22 full ``model.safetensors`` snapshots). ``k`` may
+  equal the total update count ``T`` (the final state θ_T, taken after the
+  last update). A declared ``k`` outside ``0..T`` is unreachable and
+  rejected up front (spec 00 §2).
 - **``per_module_grad_norm``** is keyed by ``module_name`` (spec 00 §4, A-3):
   each trainable parameter's grad is attributed to its owning module and a
   module's entry is the sqrt of its parameters' summed squared grad norms, so
@@ -71,7 +75,7 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 import torch
-from safetensors.torch import save_model
+from safetensors.torch import load_file, load_model, save_file
 
 from geode.edl.masking import TaskFormat, label_mask, masking_config_hash
 from geode.edl.prequential import PrequentialAccumulator, prequential_step
@@ -191,6 +195,13 @@ def train_prequential(
     optimizer = _build_optimizer(wrapped, optimizer_cfg)
     grad_clip = optimizer_cfg.get("grad_clip")
 
+    # Adapter-only snapshots (2026-07-22): the frozen base + buffers are
+    # written once, before any step file, so a partially written run is
+    # always reassemblable.
+    trainable_names = {n for n, p in wrapped.named_parameters() if p.requires_grad}
+    if snapshot_steps:
+        _save_base(wrapped, run_id, trainable_names, store=store)
+
     # Epoch-1 records — the MDL-bearing stream — flow through the accumulator
     # and are written from it (below), so its M2 guard (rejects epoch != 1)
     # structurally protects the artifact. Later-epoch records are logged and
@@ -206,7 +217,7 @@ def train_prequential(
             batch = [train_examples[i] for i in example_ids]
 
             if updates_done in snapshot_steps:
-                _save_snapshot(wrapped, run_id, updates_done, store=store)
+                _save_snapshot(wrapped, run_id, updates_done, trainable_names, store=store)
 
             mask = _checked_label_mask(batch, task_format)
 
@@ -252,7 +263,7 @@ def train_prequential(
 
     # A-1: the final state θ_T is only reachable after the last update.
     if updates_done in snapshot_steps:
-        _save_snapshot(wrapped, run_id, updates_done, store=store)
+        _save_snapshot(wrapped, run_id, updates_done, trainable_names, store=store)
 
     # Write the mandatory epoch-1 stream from the accumulator (M2-protected),
     # then append any flagged later-epoch records to the same log (spec 00 §3).
@@ -384,20 +395,89 @@ def _append_records(path: Path, records: Sequence[PrequentialRecord]) -> None:
             f.write(_serialize_record(record))
 
 
-def _save_snapshot(model: torch.nn.Module, run_id: str, step: int, *, store: Path | None) -> None:
-    """Save the complete ``model.state_dict()`` for θ_step (specs/00 §1).
+def _save_base(
+    model: torch.nn.Module, run_id: str, trainable: set[str], *, store: Path | None
+) -> None:
+    """Save the frozen complement of the adapter once per run (specs/00 §1).
 
-    One self-contained ``snapshots/step_{step}/model.safetensors`` holding base
-    + adapter tensors together (2026-07-18 arch decision: at ~30M params a full
-    snapshot is ~77 MB, so adapter-only saving + base-checkpoint reassembly is
-    retired). Saving the *unmerged* state keeps the reload bit-exact (L-5) —
-    merging would perturb weights by float rounding — and keeps the LoRA
-    factors readable for the adapter-diff analysis. ``save_model`` handles
-    tied-weight aliases.
+    ``snapshots/base/model.safetensors`` holds every non-trainable state-dict
+    tensor (frozen base params + buffers). Tied aliases (e.g. ``lm_head.weight``
+    ↔ ``embed_tokens.weight``) share storage and are stored once — safetensors
+    refuses shared tensors — and ``load_snapshot`` restores the dropped twin,
+    the same convention as ``zoo.load_model``.
     """
+    state = model.state_dict()
+    seen: set[int] = set()
+    base: dict[str, torch.Tensor] = {}
+    for name, tensor in state.items():
+        if name in trainable:
+            continue
+        ptr = tensor.data_ptr()
+        if ptr in seen:
+            continue  # tied alias — restored from its twin on load
+        seen.add(ptr)
+        base[name] = tensor
+    base_dir = run_dir(run_id, store=store) / "snapshots" / "base"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    save_file(base, str(base_dir / "model.safetensors"))
+
+
+def _save_snapshot(
+    model: torch.nn.Module, run_id: str, step: int, trainable: set[str], *, store: Path | None
+) -> None:
+    """Save θ_step's adapter — the trainable tensors only (specs/00 §1).
+
+    ``snapshots/step_{step}/adapter.safetensors`` holds exactly the trainable
+    (A/B) tensors, unmerged — reload stays bit-exact (L-5; merging would
+    perturb weights by float rounding) and the LoRA factors stay readable for
+    the adapter-diff analysis. The frozen base lives once per run in
+    ``snapshots/base/`` (``_save_base``): the 2026-07-18 self-contained
+    decision was priced at ~77 MB/snapshot, but fp32 base+adapter at the
+    runs-5/6 scale is ~203 MB × a 1024-step schedule — duplicating frozen
+    tensors ~880× per run (owner 2026-07-22, decisions.md).
+    """
+    state = model.state_dict()
     snap_dir = run_dir(run_id, store=store) / "snapshots" / f"step_{step}"
     snap_dir.mkdir(parents=True, exist_ok=True)
-    save_model(model, str(snap_dir / "model.safetensors"))
+    save_file({k: state[k] for k in sorted(trainable)}, str(snap_dir / "adapter.safetensors"))
+
+
+def load_snapshot(
+    model: torch.nn.Module, run_id: str, step: int, *, store: Path | None = None
+) -> torch.nn.Module:
+    """Rebuild θ_step in ``model`` from its saved snapshot, bit-exactly (L-5).
+
+    ``model`` must be the module tree the loop trained (base arch +
+    ``apply_lora`` wrap mirroring the manifest); every tensor value is then
+    overwritten. New-format snapshots load ``snapshots/base/model.safetensors``
+    (once-per-run frozen state) plus the step's ``adapter.safetensors``; tied
+    aliases dropped by the base save are restored from the twin they share
+    storage with before a strict load. Legacy full snapshots
+    (``model.safetensors``, pre-2026-07-22) strict-load directly. Returns
+    ``model``.
+    """
+    snap_dir = run_dir(run_id, store=store) / "snapshots" / f"step_{step}"
+    legacy = snap_dir / "model.safetensors"
+    if legacy.is_file():
+        load_model(model, str(legacy))
+        return model
+    base_file = run_dir(run_id, store=store) / "snapshots" / "base" / "model.safetensors"
+    state = load_file(str(base_file)) | load_file(str(snap_dir / "adapter.safetensors"))
+    expected = model.state_dict()
+    loaded_by_ptr = {expected[k].data_ptr(): k for k in expected if k in state}
+    for name, tensor in expected.items():
+        if name in state:
+            continue
+        twin = loaded_by_ptr.get(tensor.data_ptr())
+        if twin is None:
+            raise ValueError(
+                f"{run_id} snapshots/step_{step}: no saved state for {name!r} — it is in "
+                "neither the base file nor the adapter and shares storage with no loaded "
+                "tensor (not a tied alias); refusing a partial load"
+            )
+        state[name] = state[twin]
+    model.load_state_dict(state, strict=True)
+    return model
 
 
 # Examples per forward in the final θ_T eval: bounds logits memory

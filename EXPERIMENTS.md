@@ -127,8 +127,9 @@ drivers, `export_hf.py`, `gates.py` g6.
    + A-ref @ 50K, re-scored under the fixed shared eval protocol)
    closed **OPEN(2) = 500K** (§4 G5 row; decisions.md). OPEN(4) closed
    same day (mechanical: schedule over max_steps 23442) and OPEN(10)
-   closed **no** (owner) — runs 5/6 are launch-ready; box needs
-   ~350 GB free for snapshots (decisions.md sizing).
+   closed **no** (owner) — runs 5/6 are launch-ready; snapshots are
+   adapter-only (owner 2026-07-22, ~48 MB/step + one base file ⇒
+   ~75 GB both runs; decisions.md sizing).
 3. **`geode.probe` extraction + `scripts/extract.py`** (V5.9–V5.13:
    offline probe pass — activations + activation-gradients at 9
    residual points, matched-load guards, alignment metric) — in

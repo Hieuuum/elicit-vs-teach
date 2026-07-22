@@ -3,8 +3,8 @@
 # checkpoint via scripts/train_target.py through the prequential EDL
 # harness (geode.edl.train_prequential): this run IS the EDL measurement —
 # first-epoch label losses land in logs/prequential.jsonl, per-step grad
-# norms in logs/gradstats.jsonl, self-contained full-model snapshots at the
-# manifest's schedule (spec 00 §1). Adapter = the pinned geode.train
+# norms in logs/gradstats.jsonl, adapter-only snapshots (+ once-per-run
+# base file) at the manifest's schedule (spec 00 §1, 2026-07-22). Adapter = the pinned geode.train
 # apply_lora (r=128, α=32, scaling α/2r — NOT PEFT's α/r; A ±1/√d_in
 # seeded, B zero ⇒ θ_0 is exactly the parent function).
 #
