@@ -21,9 +21,11 @@
 #   3. Precision: the prequential harness computes fp32 (no autocast) on
 #      any device — EDL numerics stay precision-uniform; the manifest
 #      records the resolved fp32.
-#   4. Training data size (n_examples null = full 1M) is OPEN(2) — the
-#      configs/pilot/open2_* overlays run the B-convergence sweep; pin the
-#      chosen n here (and in run6) in the same PR that closes OPEN(2).
+#   4. Training data size is OPEN(2) — the configs/pilot/open2_* overlays
+#      run the B-convergence sweep; pin the chosen n here (and in run6) in
+#      the same PR that closes OPEN(2). The full 1M is trainable: eval
+#      questions live in the disjoint eval_file (owner 2026-07-22), not a
+#      reserved tail of the training file.
 run_id: evt-run5-armA-target
 experiment:
   name: training-run
@@ -52,11 +54,16 @@ data:
   order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
   n_examples: null             # OPEN(2) pins this; pilots take a PREFIX of the
                                # frozen order (deterministic, comparable arms).
-                               # Max 900000: rows beyond are the G5 eval
-                               # reserve — null/full file is refused at launch
-  val_fraction: 0.005          # held-out split; in-loop stopping evals + L_test
-  seed: 316                    # runs 5+6 must share seed/val_fraction/batch
-                               # order: identical D_target stream (G7)
+                               # Full 1M trainable; null is refused at launch —
+                               # pin explicitly
+  # Fixed shared eval set (owner 2026-07-22): question-disjoint from
+  # D_target ∪ D_algo ∪ probe by construction (make_data --eval-set,
+  # data/full/report.json). First 2048 rows = ε/k stopping block; the rest
+  # = reporting block (θ_T test loss + G5). Identical for every run and n.
+  eval_file: D_target_eval.parquet
+  eval_order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8
+  seed: 316                    # runs 5+6 must share seed/batch order:
+                               # identical D_target stream (G7)
 
 lora:                          # r/alpha restated from common.yaml for the record
   r: 128                       # spec 02 §6 pin (2026-07-18 arch decision)

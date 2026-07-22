@@ -22,13 +22,19 @@ the random-label installer must not have taught real add/sub. **G4**
 (runs 3-4) re-scores the installers' in-loop stopping metric (spec 02 §6):
 format validity on the same seeded 512-prompt sample of the installer
 config's val split, ``geode.arith.format_valid`` on ``"Answer:" +
-completion``, pass at the config's threshold. **G5** (runs 3-4) measures
-zero- and 16-shot exact match on operator add/sub (D_target, the runs-5/6
-target set) — recorded evidence, no pass bar: spec 02 §8 states expectations
-(A ~2%/12%, B 0%/0%), not thresholds. Few-shot prompts are composed as
-exemplars + the *complete* query (true answer filled in), then token-prefix
-sliced from a training-style tokenization of the composed text — never a
-re-tokenized char slice (same trailing-space incident as above).
+completion``, pass at the config's threshold. **G5** (runs 3-6) measures
+zero- and 16-shot exact match on operator add/sub — recorded evidence, no
+pass bar: spec 02 §8 states expectations (A ~2%/12%, B 0%/0%), not
+thresholds. Its data is the frozen shared eval file (``D_target_eval``,
+owner 2026-07-22): question-disjoint from D_target ∪ D_algo ∪ probe by
+construction, so nothing G5 scores was ever trained on, and the questions
+are FIXED slices of the file — the identical set for every run, no
+sampling. It also records the shared-set test loss (masked NLL over the
+eval file's reporting block), putting every run's loss on identical data.
+Few-shot prompts are composed as exemplars + the *complete* query (true
+answer filled in), then token-prefix sliced from a training-style
+tokenization of the composed text — never a re-tokenized char slice (same
+trailing-space incident as above).
 
 CPU-only friendly and no ``--confirm-cost``: evaluation, not training.
 
@@ -60,11 +66,12 @@ from geode.arith import (
     parse_answer,
     tokenize_with_spans,
 )
-from geode.train import split_indices
+from geode.edl.masking import TaskFormat
+from geode.train import evaluate_sft_nll_nats, split_indices
 from geode.zoo import checkpoint_dir, load_model, load_run
 from train import REPO_ROOT, load_config
 from train_sft import load_frozen_parquet
-from train_target import D_TARGET_EVAL_RESERVED_START
+from train_target import EVAL_STOP_ROWS
 
 # G1 and G2 share the bar: 0.95 is the committed definition of "capability
 # present", no separate installer δ (owner 2026-07-21, spec 02 §8).
@@ -238,29 +245,26 @@ def run_g5(args: argparse.Namespace) -> int:
     print(f"[evt] G5: loading checkpoint {checkpoint} ...", flush=True)
     model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
 
-    df = load_frozen_parquet(cfg)
-    # Eval questions must never have been trained on (owner 2026-07-22 —
-    # the original full-file draw overlapped the OPEN(2) pilots' training
-    # prefixes, 1.2%-50.6% of eval questions at n10k-n500k): the draw is
-    # restricted to the eval-reserved tail, which train_target refuses to
-    # train into. Question texts in the frozen file are globally unique
-    # (verified on the pinned order_hash), so index disjointness is
-    # question-level disjointness. First 16 picks are the exemplar shots,
-    # the rest the eval questions — disjoint by sample-without-replacement.
+    df = load_frozen_parquet(cfg)  # D_target_eval, order_hash verified
+    # The eval file is question-disjoint from D_target ∪ D_algo ∪ probe by
+    # construction (make_data --eval-set, verified at generation), so
+    # nothing here was ever trained on. Belt and suspenders: the one way a
+    # run could still have seen these questions is training on the eval
+    # file itself.
     exp = manifest.data.get("experiment", {})
     if exp.get("data_order_hash") == cfg["data"]["order_hash"]:
-        trained_n = exp.get("n_examples") or len(df)  # null = full file
-        if trained_n > D_TARGET_EVAL_RESERVED_START:
-            raise ValueError(
-                f"{args.run}: trained on a {trained_n}-row prefix of the G5 eval file, "
-                f"reaching into the eval reserve (rows >= {D_TARGET_EVAL_RESERVED_START}) "
-                "— no un-trained eval questions exist for this run"
-            )
-    picks = random.Random(args.sample_seed).sample(
-        range(D_TARGET_EVAL_RESERVED_START, len(df)), args.n + G5_N_SHOTS
-    )
-    shots = df.iloc[picks[:G5_N_SHOTS]]["full_text"].tolist()
-    rows = df.iloc[picks[G5_N_SHOTS:]]
+        raise ValueError(
+            f"{args.run}: trained on the G5 eval file itself — "
+            "no un-trained eval questions exist for this run"
+        )
+    # Fixed slices of the reporting block (spec 02 §8) — the identical shots
+    # and questions for every run, no sampling. Rows before EVAL_STOP_ROWS
+    # are the in-loop stopping block and stay out of reported numbers.
+    q_start = EVAL_STOP_ROWS + G5_N_SHOTS
+    if len(df) < q_start + args.n:
+        raise ValueError(f"--n {args.n}: eval file has {len(df)} rows, needs {q_start + args.n}")
+    shots = df.iloc[EVAL_STOP_ROWS:q_start]["full_text"].tolist()
+    rows = df.iloc[q_start : q_start + args.n]
     q_texts = rows["full_text"].tolist()
     q_spans = list(zip(rows["answer_char_start"].astype(int), rows["answer_char_end"].astype(int)))
     answers = rows["true_answer"].astype(int).tolist()
@@ -291,6 +295,28 @@ def run_g5(args: argparse.Namespace) -> int:
     sixteen = accuracy_with(shots)
     print(f"[evt] G5 {G5_N_SHOTS}-shot exact_match {sixteen:.4f} on n={args.n}")
 
+    # Shared-set test loss: masked NLL over the eval file's full reporting
+    # block, append_eos=True to match the training tokenization — the same
+    # number the runs-5/6 harness writes as θ_T test loss, so every run's
+    # loss lands on identical data. --skip-test-loss for CPU smoke runs.
+    test_loss, test_n = None, None
+    if not args.skip_test_loss:
+        rep = df.iloc[EVAL_STOP_ROWS:]
+        rep_spans = list(
+            zip(rep["answer_char_start"].astype(int), rep["answer_char_end"].astype(int))
+        )
+        rep_examples = tokenize_with_spans(
+            rep["full_text"].tolist(), rep_spans, tokenizer, append_eos=True
+        )
+        task_format = TaskFormat(
+            name=cfg["task"]["name"], format_version=cfg["task"]["format_version"]
+        )
+        test_loss = evaluate_sft_nll_nats(
+            model, rep_examples, task_format, batch_size=args.batch_size, device=args.device
+        )
+        test_n = len(rep_examples)
+        print(f"[evt] G5 shared-set test loss {test_loss:.4f} nats over n={test_n}")
+
     manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G5"] = {
         # Always true: G5 is recorded evidence with no pass bar (spec 02 §8
         # gives expectations, not thresholds), and require_parent_ready
@@ -299,17 +325,21 @@ def run_g5(args: argparse.Namespace) -> int:
         "pass": True,
         "zero_shot_accuracy": zero,
         "sixteen_shot_accuracy": sixteen,
+        "test_loss_nats": test_loss,
+        "test_loss_n": test_n,
         "n": args.n,
         "n_shots": G5_N_SHOTS,
-        "sample_seed": args.sample_seed,
-        "eval_reserved_start": D_TARGET_EVAL_RESERVED_START,
+        "eval_file": cfg["data"]["file"],
+        "eval_order_hash": cfg["data"]["order_hash"],
+        "eval_stop_rows": EVAL_STOP_ROWS,
         "checkpoint": str(checkpoint),
         "protocol": (
             "token-prefix prompts of few-shot composed texts (exemplars + "
             "complete query, blank-line separated), greedy EOS-stopped "
-            "first-line, seeded disjoint question/shot sample of the "
-            "eval-reserved D_target tail (never trained on), exact_match; "
-            "evidence only, no pass bar"
+            "first-line, fixed slices of the frozen D_target_eval reporting "
+            "block (question-disjoint from all training data by "
+            "construction), exact_match + shared-set masked NLL; evidence "
+            "only, no pass bar"
         ),
     }
     manifest.save(store / "runs" / args.run / "manifest.json")
@@ -367,11 +397,16 @@ def main() -> int:
     g4.set_defaults(func=run_g4)
 
     g5 = sub.add_parser(
-        "g5", help="zero/16-shot operator add/sub on D_target — recorded evidence (runs 3-4)"
+        "g5",
+        help="zero/16-shot + shared-set test loss on D_target_eval — recorded evidence (runs 3-6)",
     )
     common_args(g5)
     g5.add_argument("--n", type=int, default=1024)
-    g5.add_argument("--sample-seed", type=int, default=316)
+    g5.add_argument(
+        "--skip-test-loss",
+        action="store_true",
+        help="skip the reporting-block NLL (CPU smoke); accuracies still record",
+    )
     g5.set_defaults(func=run_g5)
 
     args = parser.parse_args()

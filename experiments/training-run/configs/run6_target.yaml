@@ -43,11 +43,14 @@ data:                          # VERBATIM copy of run5_target.yaml (G7)
   file: D_target.parquet       # 1M op-notation add/sub, correct labels, seed 20260717
   order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
   n_examples: null             # OPEN(2) pins this; must match run 5 (G7).
-                               # Max 900000: rows beyond are the G5 eval
-                               # reserve — null/full file is refused at launch
-  val_fraction: 0.005          # held-out split; in-loop stopping evals + L_test
-  seed: 316                    # runs 5+6 must share seed/val_fraction/batch
-                               # order: identical D_target stream (G7)
+                               # Full 1M trainable; null is refused at launch —
+                               # pin explicitly
+  # Fixed shared eval set (owner 2026-07-22) — see run5_target.yaml.
+  # First 2048 rows = ε/k stopping block; the rest = reporting block.
+  eval_file: D_target_eval.parquet
+  eval_order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8
+  seed: 316                    # runs 5+6 must share seed/batch order:
+                               # identical D_target stream (G7)
 
 lora:                          # r/alpha restated from common.yaml for the record
   r: 128                       # spec 02 §6 pin (2026-07-18 arch decision)

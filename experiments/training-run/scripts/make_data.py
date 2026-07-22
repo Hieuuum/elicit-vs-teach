@@ -6,14 +6,23 @@ seed at train time. ``geode.arith`` deliberately does not generate data; it
 supplies the rendering, the random-label rule, the evals, the capacity-aware
 allocation, and the validators this script calls on its own output.
 
-Three distinct training datasets + one probe set:
+Three distinct training datasets + one probe set + one eval set:
 
-| file      | runs   | op(s)   | format   | labels  |
-|-----------|--------|---------|----------|---------|
-| D_algo    | 2      | + -     | nl       | correct |
-| D_inst    | 3, 4   | *       | operator | random  |
-| D_target  | 5, 6   | + -     | operator | correct |
-| probe     | eval   | + -     | operator | correct |
+| file          | runs      | op(s)   | format   | labels  |
+|---------------|-----------|---------|----------|---------|
+| D_algo        | 2         | + -     | nl       | correct |
+| D_inst        | 3, 4      | *       | operator | random  |
+| D_target      | 5, 6      | + -     | operator | correct |
+| probe         | analysis  | + -     | operator | correct |
+| D_target_eval | eval only | + -     | operator | correct |
+
+``D_target_eval`` (``--eval-set``, owner 2026-07-22) is generated after the
+frozen training sets, question-disjoint from D_target ∪ D_algo ∪ probe, so
+every eval question is provably never-trained while the full 1M D_target
+stays trainable. Cells whose add/sub question space the frozen sets consumed
+whole (the six with x_digits + y_digits ≤ 4) have zero free questions and
+contribute nothing — the water-fill gives them 0 naturally; the report
+records the resulting cell counts.
 
 Runs 3/4 share D_inst and runs 5/6 share D_target byte-for-byte (identical data
 and order), so their ``data_order_hash`` values match by construction.
@@ -78,6 +87,14 @@ DATASETS = (
     DatasetSpec("D_inst", ("*",), "operator", "random"),
     DatasetSpec("D_target", ("+", "-"), "operator", "correct"),
 )
+
+# --eval-set: fixed shared eval set for the target runs (spec 02 §5/§8).
+# build_dataset's exclusion argument is just "blocked triples", so the eval
+# set rides the identical generation path with the union of the frozen
+# add/sub artifacts as the exclusion.
+EVAL_SPEC = DatasetSpec("D_target_eval", ("+", "-"), "operator", "correct")
+EVAL_SIZE = 100_000
+EVAL_EXCLUDES = ("D_target", "D_algo", "probe")
 
 Triple = tuple[int, str, int]
 
@@ -252,14 +269,16 @@ def validate(
 
     counts = cell_counts(cells)
     mismatch = [(c, counts.get(c, 0), plan[c]) for c in plan if counts.get(c, 0) != plan[c]]
-    if mismatch or len(counts) != len(plan):
+    if mismatch or set(counts) - set(plan):
         raise AssertionError(f"V5.3 FAIL: cell counts != allocation plan; diff {mismatch[:5]}")
 
     return {
         "n": len(records),
         "leakage": 0,
         "all_unique": True,
-        "cell_counts": {f"{x}x{y}": counts[(x, y)] for x, y in CELLS},
+        # .get: a zero-allocation cell (eval set: exhausted question space)
+        # legitimately has no rows.
+        "cell_counts": {f"{x}x{y}": counts.get((x, y), 0) for x, y in CELLS},
         "order_hash": order_hash(records),
     }
 
@@ -274,13 +293,77 @@ def _print_distribution(
     print(f"[evt]   total={sum(plan.values())}")
 
 
+def make_eval_set(args: argparse.Namespace) -> int:
+    """Generate D_target_eval against the frozen artifacts already in --out.
+
+    The exclusion union is built from the parquets ON DISK, each re-hashed
+    against the frozen report.json pin first — the disjointness claim is
+    only as good as "these files are the frozen artifacts". The eval set is
+    appended to report.json; the frozen entries are never touched.
+    """
+    report_path = args.out / "report.json"
+    report = json.loads(report_path.read_text())
+    pins = {name: report["datasets"][name]["order_hash"] for name in EVAL_EXCLUDES[:-1]}
+    pins["probe"] = report["probe"]["probe_set_hash"]
+
+    excluded: set[Triple] = set()
+    for name in EVAL_EXCLUDES:
+        df = pd.read_parquet(args.out / f"{name}.parquet")
+        got = order_hash(df.to_dict("records"))
+        if got != pins[name]:
+            raise AssertionError(
+                f"{name}.parquet order_hash {got} != frozen pin {pins[name]} — "
+                "not the frozen artifact; refusing to define disjointness against it"
+            )
+        excluded |= set(zip(df["a"].tolist(), df["op"].tolist(), df["b"].tolist()))
+    print(f"[evt] exclusion union: {len(excluded)} add/sub triples from {EVAL_EXCLUDES}")
+
+    by_cell_op = _probe_pairs_by_cell_op(excluded, EVAL_SPEC.ops)
+    caps = {
+        (dx, dy): capacity(
+            dx,
+            dy,
+            len(EVAL_SPEC.ops),
+            sum(len(by_cell_op.get((dx, dy, op), ())) for op in EVAL_SPEC.ops),
+        )
+        for dx, dy in CELLS
+    }
+    _print_distribution(EVAL_SPEC.name, plan_allocation(EVAL_SPEC, args.eval_n, excluded), caps)
+    if args.dry_run:
+        print("[evt] --dry-run: nothing written.")
+        return 0
+
+    records, plan = build_dataset(EVAL_SPEC, args.eval_n, excluded, args.seed)
+    rep = validate(records, excluded, plan)
+    pd.DataFrame(records).to_parquet(args.out / f"{EVAL_SPEC.name}.parquet", index=False)
+    rep["disjoint_from"] = pins
+    report["datasets"][EVAL_SPEC.name] = rep
+    report_path.write_text(json.dumps(report, indent=2))
+    print(
+        f"[evt]   wrote {EVAL_SPEC.name}.parquet  n={rep['n']}  "
+        f"order_hash={rep['order_hash'][:12]}…  unique+disjoint ✓"
+    )
+    print(f"[evt] report -> {report_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scale", choices=("pilot", "full"), default="pilot")
     parser.add_argument("--out", type=Path, required=True, help="output dir for parquet + sidecars")
     parser.add_argument("--seed", type=int, default=20260717)
     parser.add_argument("--dry-run", action="store_true", help="print the plan, write nothing")
+    parser.add_argument(
+        "--eval-set",
+        action="store_true",
+        help="generate D_target_eval against the frozen artifacts in --out "
+        "(requires their parquets + report.json; touches nothing else)",
+    )
+    parser.add_argument("--eval-n", type=int, default=EVAL_SIZE)
     args = parser.parse_args()
+
+    if args.eval_set:
+        return make_eval_set(args)
 
     n_total = SIZES[args.scale]
     print(f"[evt] scale={args.scale} n_total/dataset={n_total} probe={PROBE_SIZE} seed={args.seed}")

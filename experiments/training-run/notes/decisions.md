@@ -952,3 +952,32 @@ Dataset items: none.
   whose manifest records a D_target prefix past it (keyed on
   data_order_hash, so runs 3/4 still score). Reserved-protocol G5
   re-runs supersede all full-file-draw numbers.
+- **Fixed shared eval file — D_target_eval (owner 2026-07-22, supersedes
+  the 900k eval reserve of the same date)**: the reserve fixed G5
+  contamination but capped training at 900k rows, and the per-run 0.5%
+  val carve meant every pilot stopped and reported loss on different
+  data (n10k's val was ~50 examples). Owner requirements: full 1M
+  trainable, one test set identical for every run, nothing in it ever
+  trained. Resolution: `make_data.py --eval-set` generates
+  `D_target_eval.parquet` — 100k fresh operator add/sub questions,
+  disjoint from D_target ∪ D_algo ∪ probe (D_algo included: Arm A
+  pre-trained on those exact questions in NL notation, overlap would
+  advantage A; D_inst is multiplication, disjoint by op). The six cells
+  with x_digits + y_digits ≤ 4 are fully consumed by the frozen sets
+  (verified 2026-07-22: pool = union exactly) and contribute 0 rows
+  (~5.2% of the training distribution, easiest cells); the other ten
+  carry 10k each. Disjointness independently verified (triple- and
+  prompt-text-level, zero overlap); hash 588da81e…f6cb8 pinned in
+  configs; uploaded to `mhieuuu/elicit-vs-teach-arith` with report.json.
+  Consumers (same commit): rows 0–2047 = ε/k stopping block (identical
+  for every run/n — val_fraction retired, the training prefix trains
+  whole), rows 2048+ = reporting block (harness θ_T test loss, hence
+  EDL; G5 shots = rows 2048–2063, questions = next 1024 — fixed slices,
+  no sampling; G5 also records shared-set test_loss_nats over the full
+  reporting block). 900k reserve guards removed; n_examples up to 1M,
+  null still refused. Fixed-slice G5 re-runs supersede the
+  reserved-tail numbers (which superseded the full-file draw); expected
+  shifts are sampling-noise-sized (the reserved-tail re-run moved
+  −3.7…+0.9 points vs the contaminated draw with orderings unchanged).
+  Pilots keep their recorded per-run val stops (training is frozen
+  history); their shared-set test losses land via the G5 re-run.

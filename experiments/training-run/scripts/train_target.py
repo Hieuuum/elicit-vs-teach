@@ -1,11 +1,14 @@
 """Launch script for the LoRA target runs 5-6 (spec 02 §1 rows 5-6, §6 "Runs 5-6").
 
 Protocol-exempt glue, mirroring ``train_sft.py``: parses run YAML (+ pilot
-overlay), downloads the frozen D_target parquet and refuses on ``order_hash``
-mismatch (V5.40), takes the optional ``data.n_examples`` PREFIX of the frozen
-order (deterministic, comparable across OPEN(2) pilot arms), converts char to
-token spans with a label-covered EOS (V5.38/V5.43), enforces the parent-gate
-DAG rule and the G7 cross-run data-order match, computes the snapshot schedule
+overlay), downloads the frozen D_target parquet AND the frozen shared eval
+file (``data.eval_file``, owner 2026-07-22) and refuses on ``order_hash``
+mismatch for either (V5.40), takes the ``data.n_examples`` PREFIX of the
+frozen order (deterministic, comparable across OPEN(2) pilot arms; the full
+1M is trainable — the eval questions live in their own disjoint file, not a
+reserved tail), converts char to token spans with a label-covered EOS
+(V5.38/V5.43), enforces the parent-gate DAG rule and the G7 cross-run
+data-order match, computes the snapshot schedule
 (``geode.probe.snapshot_steps``) and writes it into the manifest BEFORE
 training, prints a cost estimate, and refuses to train without --confirm-cost
 (CLAUDE.md budget rule). Training runs through the prequential EDL harness
@@ -41,34 +44,34 @@ from geode.arith import order_hash, tokenize_with_spans
 from geode.edl.loop import PrequentialStepInfo, train_prequential
 from geode.edl.masking import TaskFormat, masking_config_hash
 from geode.probe import snapshot_steps
-from geode.train import ConvergenceTracker, StoppingRule, evaluate_sft_nll_nats, split_indices
+from geode.train import ConvergenceTracker, StoppingRule, evaluate_sft_nll_nats
 from geode.zoo import load_run, register_run, require_parent_ready, tokenizer_hash
 from train import REPO_ROOT, git_commit, load_config, phase
 
 ARM_REGIME = {"A": "elicit", "B": "teach"}  # regimes attach to the target runs
 
-# Rows at or beyond this index of the frozen D_target order are reserved for
-# evaluation (spec 02 §8, owner 2026-07-22): gates.py g5 draws its questions
-# and exemplar shots exclusively from the tail, so no target run may train a
-# prefix that reaches into it. Question texts in the frozen file are globally
-# unique (verified 2026-07-22 on order_hash 69e3b09e…), so index disjointness
-# is question-level disjointness.
-D_TARGET_EVAL_RESERVED_START = 900_000
+# The first EVAL_STOP_ROWS rows of the frozen eval file (D_target_eval,
+# question-disjoint from D_target ∪ D_algo ∪ probe by construction — spec 02
+# §5) are the in-loop ε/k stopping block, identical for every run and every
+# n. Everything after is the reporting block: the harness's final θ_T test
+# loss (eval/test_loss.json) and gates.py g5 draw from it, so no reported
+# number ever touches the rows that drove the stop decision.
+EVAL_STOP_ROWS = 2048
 
 
-def load_frozen_parquet(cfg: dict):
-    """Fetch + hash-verify the frozen parquet; return the full DataFrame.
+def load_frozen_parquet(d: dict):
+    """Fetch + hash-verify a frozen parquet data block; return the DataFrame.
 
+    ``d`` needs ``hf_id``/``file``/``order_hash`` (+ optional ``local_path``).
     The order_hash is recomputed over the FULL file before anything else
     (wrong file, truncated download, or a re-generated dataset all refuse);
     the ``data.n_examples`` prefix is taken by the caller afterwards, so the
     recorded hash always names the frozen artifact, not a slice.
-    ``data.local_path`` (smoke/CI escape hatch) skips the download but never
-    the hash check.
+    ``local_path`` (smoke/CI escape hatch) skips the download but never the
+    hash check.
     """
     import pandas as pd
 
-    d = cfg["data"]
     if d.get("local_path"):
         path = d["local_path"]
     else:
@@ -175,7 +178,14 @@ def manifest_fields(
             "init_from": str(init_from),
             "masking_config_hash": mask_hash,
             "data_order_hash": cfg["data"]["order_hash"],  # FULL frozen file
-            "n_examples": cfg["data"].get("n_examples"),  # prefix taken, null = all
+            "n_examples": cfg["data"].get("n_examples"),  # prefix taken
+            # Shared fixed eval file (spec 02 §5): stopping block first,
+            # reporting block (θ_T test loss + G5) after.
+            "eval_data": {
+                "file": cfg["data"]["eval_file"],
+                "order_hash": cfg["data"]["eval_order_hash"],
+                "stop_rows": EVAL_STOP_ROWS,
+            },
         },
     }
 
@@ -214,15 +224,14 @@ def main() -> int:
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
 
-    phase(2, "dataset — frozen parquet, order_hash verified, optional prefix, tokenize")
-    df = load_frozen_parquet(cfg)
+    phase(2, "dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize")
     d = cfg["data"]
+    df = load_frozen_parquet(d)
     n_examples = d.get("n_examples")
-    if n_examples is None or n_examples > D_TARGET_EVAL_RESERVED_START:
+    if n_examples is None:
         raise ValueError(
-            f"data.n_examples={n_examples}: target runs train a prefix of at most "
-            f"{D_TARGET_EVAL_RESERVED_START} rows — the tail is the G5 eval reserve "
-            "(spec 02 §8); null (full file) would leave no un-trained eval questions"
+            "data.n_examples is null — pin the prefix explicitly (OPEN(2)); "
+            f"the full frozen file is n_examples: {len(df)}"
         )
     if not (0 < n_examples <= len(df)):
         raise ValueError(f"data.n_examples={n_examples} outside 1..{len(df)}")
@@ -232,14 +241,37 @@ def main() -> int:
         f"{len(df)} rows (prefix {n_examples})",
         flush=True,
     )
-    texts = df["full_text"].tolist()
-    char_spans = list(zip(df["answer_char_start"].astype(int), df["answer_char_end"].astype(int)))
-    examples = tokenize_with_spans(texts, char_spans, tokenizer, append_eos=True)
-    max_len = max(len(ex.input_ids) for ex in examples)
+
+    def tokenize_df(frame):
+        texts = frame["full_text"].tolist()
+        spans = list(
+            zip(frame["answer_char_start"].astype(int), frame["answer_char_end"].astype(int))
+        )
+        return tokenize_with_spans(texts, spans, tokenizer, append_eos=True)
+
+    train_examples = tokenize_df(df)  # the FULL prefix trains — no val carve
+    max_len = max(len(ex.input_ids) for ex in train_examples)
     print(f"[evt] tokenized: max {max_len} tokens/example (expected ≈34 incl. EOS)", flush=True)
-    train_idx, val_idx = split_indices(len(df), d["val_fraction"], d["seed"])
-    train_examples = [examples[i] for i in train_idx]
-    val_examples = [examples[i] for i in val_idx]
+
+    # Shared fixed eval file (owner 2026-07-22): disjoint from all training
+    # data by construction, identical for every run — stopping block first,
+    # reporting block (final θ_T test loss, G5) after.
+    eval_df = load_frozen_parquet(
+        {
+            "hf_id": d["hf_id"],
+            "file": d["eval_file"],
+            "order_hash": d["eval_order_hash"],
+            "local_path": d.get("eval_local_path"),
+        }
+    )
+    eval_examples = tokenize_df(eval_df)
+    stop_examples = eval_examples[:EVAL_STOP_ROWS]
+    test_examples = eval_examples[EVAL_STOP_ROWS:]
+    print(
+        f"[evt] {d['eval_file']}: order_hash verified; stopping block "
+        f"{len(stop_examples)}, reporting block {len(test_examples)}",
+        flush=True,
+    )
 
     phase(3, "model — parent checkpoint (the harness applies the pinned LoRA)")
     print(f"[evt] loading init checkpoint {args.init_from} ...", flush=True)
@@ -296,7 +328,8 @@ def main() -> int:
     steps_per_epoch = math.ceil(len(train_examples) / t["batch_size"])  # no drop-last
     epochs_total = math.ceil(t["max_steps"] / steps_per_epoch)
     print(
-        f"[evt] run_id={cfg['run_id']} train={len(train_examples)} val={len(val_examples)} "
+        f"[evt] run_id={cfg['run_id']} train={len(train_examples)} "
+        f"stop-eval={len(stop_examples)} test={len(test_examples)} "
         f"steps/epoch={steps_per_epoch} max_steps={t['max_steps']} (ceiling) "
         f"trainable={n_trainable / 1e6:.1f}M of {n_params / 1e6:.1f}M"
     )
@@ -330,11 +363,13 @@ def main() -> int:
     print(f"[evt] store={store}  snapshots scheduled: {len(schedule)}", flush=True)
 
     # Stopping (spec 02 §6 / OPEN(3) inheritance): loss-convergence ε/k on the
-    # held-out val split, evaluated in-loop every eval_every steps; max_steps
-    # is a pure cost ceiling. The spec-02 §6 logging extension (per-step LR +
-    # train-accuracy) lands in train_log.jsonl at the run root; val evals in
-    # eval_log.jsonl. Both ride the harness's step_callback so the EDL loop
-    # itself stays untouched.
+    # fixed stopping block (first EVAL_STOP_ROWS rows of the frozen eval
+    # file — identical data for every run), evaluated in-loop every
+    # eval_every steps; max_steps is a pure cost ceiling. The spec-02 §6
+    # logging extension (per-step LR + train-accuracy) lands in
+    # train_log.jsonl at the run root; stopping evals in eval_log.jsonl
+    # (field name val_loss_nats kept for continuity). Both ride the
+    # harness's step_callback so the EDL loop itself stays untouched.
     s = t["stopping"]
     tracker = ConvergenceTracker(
         StoppingRule(eps_nats=s["eps_nats"], k=s["k"], min_steps=s.get("min_steps", 0))
@@ -366,7 +401,7 @@ def main() -> int:
             at_ceiling = info.step >= max_steps
             if info.step % eval_every == 0 or at_ceiling:
                 val_loss_nats = evaluate_sft_nll_nats(
-                    model, val_examples, task_format, batch_size=batch_size, device=args.device
+                    model, stop_examples, task_format, batch_size=batch_size, device=args.device
                 )
                 eval_f.write(
                     json.dumps(
@@ -387,7 +422,7 @@ def main() -> int:
 
         train_prequential(
             model,
-            {"train": train_examples, "test": val_examples, "tokenizer_hash": tok_hash},
+            {"train": train_examples, "test": test_examples, "tokenizer_hash": tok_hash},
             task_format,
             manifest,
             device=args.device,
