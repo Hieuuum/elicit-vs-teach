@@ -1,0 +1,8 @@
+# Run-3 installer LR sweep arm — downward grid extension (2026-07-21): the
+# original grid 3e-5..1e-3 all failed G2 (arithmetic retention monotone in
+# LR: 0.68 at 3e-5), while G4 hit 1.0 everywhere. See run3_sweep_lr1e-4.yaml
+# for the grid rationale and winner criterion.
+# Launch: train_sft.py --config configs/run3_inst.yaml --override this file.
+run_id: evt-run3-sweep-lr3e-6
+train:
+  lr: 3.0e-6

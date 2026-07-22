@@ -42,7 +42,13 @@ from pathlib import Path
 
 import torch
 
-from geode.arith import exact_match, format_valid, greedy_completions, tokenize_with_spans
+from geode.arith import (
+    exact_match,
+    format_valid,
+    greedy_completions,
+    parse_answer,
+    tokenize_with_spans,
+)
 from geode.train import split_indices
 from geode.zoo import load_run
 from train import REPO_ROOT, load_config
@@ -100,6 +106,23 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str) -> int:
         f"[evt] {gate} accuracy {accuracy:.4f} on n={args.n} (by op: {by_op}) -> "
         f"{'PASS' if passed else 'FAIL'} (threshold {args.threshold})"
     )
+    if args.dump:
+        # Failure-mode discriminator: a miss whose slot still parses is a
+        # clean-but-wrong integer (arithmetic loss); an unparseable slot means
+        # the model left the answer format (e.g. slipped into another trained
+        # format on these prompts).
+        misses = [i for i, h in enumerate(hits) if not h]
+        parsed = {i: parse_answer("Answer:" + completions[i]) for i in misses}
+        n_malformed = sum(p is None for p in parsed.values())
+        print(
+            f"[evt] {gate} dump: {len(misses)} misses, {n_malformed} with an "
+            f"unparseable answer slot ({len(misses) - n_malformed} clean-but-wrong)"
+        )
+        for i in misses[: args.dump]:
+            prompt_text = tokenizer.decode(prompt_ids[i])
+            print(
+                f"  {prompt_text!r} -> {completions[i]!r} (want {answers[i]}, parsed {parsed[i]!r})"
+            )
 
     manifest.data.setdefault("experiment", {}).setdefault("gates", {})[gate] = {
         "pass": passed,
@@ -205,6 +228,12 @@ def main() -> int:
         p.add_argument("--n", type=int, default=1024)
         p.add_argument("--sample-seed", type=int, default=316)
         p.add_argument("--threshold", type=float, default=EXACT_MATCH_THRESHOLD)
+        p.add_argument(
+            "--dump",
+            type=int,
+            default=0,
+            help="print up to N misses (prompt -> completion) for failure diagnosis",
+        )
         p.set_defaults(func=partial(run_exact_match_gate, gate=gate))
 
     g4 = sub.add_parser("g4", help="format validity, in-loop metric re-scored (runs 3-4)")
