@@ -12,12 +12,12 @@
 #   1. evt-run3-armA-inst must be complete with G2 + G4 recorded PASS —
 #      the launcher enforces both (parent_required_gates, V0.6). G5 is
 #      evidence-only (spec 02 §8) and never gates a child.
-#   2. train.lr is null DELIBERATELY: the LoRA target LR is unpinned —
-#      the paper's 3.53e-4 was tuned at 1B and is void at this scale
-#      (spec 02 §6); a pilot mini-sweep pins the winner (the run-2/run-3
-#      precedent). The launcher refuses a null-lr launch (a placeholder-lr
-#      run is a silent redo, 2026-07-21 incident class). Starting point
-#      for the sweep: ~3e-4.
+#   2. train.lr 1e-3 pinned 2026-07-22 by the target-LR mini-sweep (Arm B
+#      @ the 50K frozen prefix; original decade 3e-5..1e-3 came back
+#      monotone, extended upward to bracket: 3e-4 0.107 > 1e-3 0.035 <
+#      3e-3 0.086, 1e-2 unstable — decisions.md). The paper's 3.53e-4 was
+#      tuned at 1B and is void at this scale (spec 02 §6). SAME pin as
+#      run 6 (matched target recipe; arms may differ only in the parent).
 #   3. Precision: the prequential harness computes fp32 (no autocast) on
 #      any device — EDL numerics stay precision-uniform; the manifest
 #      records the resolved fp32.
@@ -63,19 +63,20 @@ lora:                          # r/alpha restated from common.yaml for the recor
                                # = train.seed (single-seed convention)
 
 train:
-  lr: null                     # UNPINNED — pilot mini-sweep (header note 2);
-                               # launcher refuses null
+  lr: 1.0e-3                   # pinned 2026-07-22 — sweep winner (header
+                               # note 2); same pin as run 6
   batch_size: 128
-  eval_every: 500              # loss-rule cadence (OPEN(3) inheritance)
+  eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
   max_steps: 15626             # pure cost ceiling = 2 epochs of the full 1M
                                # file at batch 128 (2 × ceil(1e6/128) = 15626);
                                # the ε/k rule is the planned stop —
                                # stop_reason=max_steps means "did not
                                # converge": investigate, don't ship
   stopping:                    # loss branch of the V0.7 union (no `metric`):
-    eps_nats: 0.005            # ε/k inherited from OPEN(3) (run-1 LR sweep)
-    k: 3
-    min_steps: 0
+    eps_nats: 0.002            # canonical loss rule at short-run cadence
+    k: 5                       # (owner 2026-07-22, spec 02 §6); min_steps
+    min_steps: 0               # 5000 grace was scaled for ~100k-step runs —
+                               # at ~390-step epochs k=5 patience is the grace
   snapshots:
     n: 1024                    # spec 02 §6: 1024 snapshots, dense-then-log-
     dense_until: 30            # then-uniform (geode.probe.snapshot_steps);

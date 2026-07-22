@@ -225,8 +225,11 @@ the 2026-07-18 downscale):
 - LR: the paper's Table-3 values (2e-5 full FT / 3.53e-4 LoRA) were
   tuned for 1B and are void at this scale — LR is pilot-determined
   (starting points ~3e-4 pretrain, ~1e-4 full-FT pre-teach, ~3e-4 LoRA;
-  brief sweep). Batch 128 placeholder — step count and snapshot schedule
-  follow from OPEN(2)+OPEN(4).
+  brief sweep; executed runs record theirs in their manifests). LoRA
+  target LR pinned 1e-3 for runs 5–6 (sweep 2026-07-22 — grid extended
+  upward to bracket the monotone first decade; decisions.md). Batch 128
+  placeholder — step count and snapshot schedule follow from
+  OPEN(2)+OPEN(4).
 - LoRA (runs 5–6 only): r=128; Q,K,V,O,G,U,D all layers; α=32; scaling
   α/2r; dropout 0; A Kaiming 1/√d_in, B zero. 12.1M params,
   ~24 MB/adapter bf16.
@@ -273,8 +276,19 @@ the 2026-07-18 downscale):
   format-validity eval is new trainer tooling (§6.1), lands with the
   run-3 task, and is property-tested (its silent failure would break
   the matched-arms design). Target runs 5–6 are the EDL measurement
-  itself — their training schedule is part of the metric and stays
-  with OPEN(2)/OPEN(4).
+  itself — their training schedule is part of the metric; the ε/k rule
+  is ratified below (2026-07-22), dataset size and snapshot schedule
+  stay with OPEN(2)/OPEN(4).
+- Stopping (runs 5–6, target runs — owner 2026-07-22): the canonical
+  loss rule at short-run cadence — **ε=0.002 nats, k=5, eval_every 500,
+  min_steps 0**. The canonical min_steps=5000 grace and eval_every 1000
+  were scaled for ~100k-step runs; at ~390-step epochs (50K prefix,
+  batch 128) the k=5 patience is the grace. Ratified before the OPEN(2)
+  grid so the grid runs under the production rule; the target-LR sweep
+  arms ran under the superseded 0.005/3 their manifests record (LR
+  ranking unaffected — the winner's margin was ~3×). The rule is part
+  of the metric: it sets θ_T, hence L_test, hence EDL = MDL −
+  N·L_test.
 
 **Runs 1–4 (full FT):** need a small full-FT trainer with validation-loss
 stopping; snapshots = final checkpoint only (plus the base). **Decided
