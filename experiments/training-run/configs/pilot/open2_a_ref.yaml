@@ -1,0 +1,16 @@
+# OPEN(2) pilot, Arm A reference @ n=50K (spec 02 §11-§12).
+# Overlay over configs/run5_target.yaml (Arm A base: parent
+# evt-run3-armA-inst, gates G2+G4):
+#     python train_target.py --config configs/run5_target.yaml \
+#         --override configs/pilot/open2_a_ref.yaml \
+#         --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model [--store ...]
+# The Arm A anchor for the B-convergence sweep: one matched n (50K, the same
+# frozen-order prefix as open2_n50k.yaml), so "B within a few points of A"
+# is read off a like-for-like pair. Same lr-pin prerequisite and inherited
+# max_steps ceiling as the B overlays (see open2_n10k.yaml).
+run_id: evt-pilot-open2-a-ref
+data:
+  n_examples: 50000            # prefix of the frozen order, = open2_n50k.yaml
+train:
+  snapshots:
+    n: 20                      # pilot-sized schedule (spec 02 §11)

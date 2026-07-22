@@ -1,0 +1,80 @@
+# Run 6 — Arm B target: operator-notation add/sub, correct labels, LoRA
+# (spec 02 §1 row 6, §6 "Runs 5-6"). Identical recipe to run 5 — arms
+# differ ONLY in the parent (run 4: format installed, no algo pre-teach;
+# that absence IS the treatment). Trains via scripts/train_target.py
+# through the prequential EDL harness; see run5_target.yaml for the full
+# header (adapter pin, fp32 note, OPEN(2) note).
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run4-armB-inst must be complete with G3 + G4 recorded PASS
+#      (launcher enforces; G5 is evidence-only). G3 = random labels
+#      taught no arithmetic; G4 = format installed.
+#   2. evt-run5-armA-target must be REGISTERED first: G7 is enforced at
+#      launch via match_data_order_with — the launcher refuses unless
+#      run 5's manifest records the identical (data_order_hash,
+#      n_examples).
+#   3. train.lr: null until the pilot mini-sweep pins the winner — the
+#      SAME pin as run 5 (matched target recipe; arms may differ only in
+#      the parent). Launcher refuses null.
+#   4. Every block below except run_id/experiment must stay
+#      verbatim-identical to run5_target.yaml.
+run_id: evt-run6-armB-target
+experiment:
+  name: training-run
+  arm: B
+  role: target
+  parent_run_id: evt-run4-armB-inst
+  parent_required_gates: [G3, G4]  # no label leak + format installed
+  match_data_order_with: evt-run5-armA-target  # G7, enforced at launch
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-5
+
+task:
+  name: arith_op_addsub        # operator-notation add/sub (D_target); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:                          # VERBATIM copy of run5_target.yaml (G7)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target.parquet       # 1M op-notation add/sub, correct labels, seed 20260717
+  order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
+  n_examples: null             # null = full file; must match run 5 (G7)
+  val_fraction: 0.005          # held-out split; in-loop stopping evals + L_test
+  seed: 316                    # runs 5+6 must share seed/val_fraction/batch
+                               # order: identical D_target stream (G7)
+
+lora:                          # r/alpha restated from common.yaml for the record
+  r: 128                       # spec 02 §6 pin (2026-07-18 arch decision)
+  alpha: 32                    # scaling α/2r, dropout 0, targets QKVOGUD —
+                               # inherited from common.yaml; adapter init seed
+                               # = train.seed (single-seed convention)
+
+train:
+  lr: null                     # UNPINNED — same pilot pin as run 5 (header
+                               # note 3); launcher refuses null
+  batch_size: 128
+  eval_every: 500              # loss-rule cadence (OPEN(3) inheritance)
+  max_steps: 15626             # pure cost ceiling = 2 epochs of the full 1M
+                               # file at batch 128 (2 × ceil(1e6/128) = 15626);
+                               # the ε/k rule is the planned stop —
+                               # stop_reason=max_steps means "did not
+                               # converge": investigate, don't ship
+  stopping:                    # loss branch of the V0.7 union (no `metric`):
+    eps_nats: 0.005            # ε/k inherited from OPEN(3) (run-1 LR sweep)
+    k: 3
+    min_steps: 0
+  snapshots:
+    n: 1024                    # spec 02 §6: 1024 snapshots, dense-then-log-
+    dense_until: 30            # then-uniform (geode.probe.snapshot_steps);
+                               # schedule computed over max_steps at launch and
+                               # written into the manifest BEFORE training;
+                               # steps past the actual stop simply never
+                               # materialize (manifest snapshots_taken)
+  seed: 316
+
+# No cost block: train_target.py quotes the max_steps ceiling directly
+# (6·N·tokens over max_steps × batch × padded len — the worst case).

@@ -1,0 +1,22 @@
+# OPEN(2) pilot, Arm B @ n=10K — target-dataset-size sweep (spec 02 §11-§12).
+# Overlay over configs/run6_target.yaml:
+#     python train_target.py --config configs/run6_target.yaml \
+#         --override configs/pilot/open2_n10k.yaml \
+#         --init-from $GEODE_STORE/runs/evt-run4-armB-inst/model [--store ...]
+# Trains Arm B (format-installed, no algo pre-teach) to the ε/k convergence
+# rule on the FIRST 10K rows of the frozen D_target order (a prefix, so every
+# pilot arm sees a nested subset in identical order — comparable by
+# construction). OPEN(2) closes on the smallest n where B lands within a few
+# points of A (reference: open2_a_ref.yaml). Paper's teaching peak for this
+# task ≈300K at 1B scale; the 2026-07-18 downscale voids that number.
+# The base config's null train.lr must be pinned (LoRA LR mini-sweep) before
+# this grid runs; max_steps stays the inherited production ceiling (pure cost
+# ceiling — convergence is expected far earlier at pilot n).
+run_id: evt-pilot-open2-b-10k
+experiment:
+  match_data_order_with: null  # G7 binds the production pair, not the pilot grid
+data:
+  n_examples: 10000            # prefix of the frozen order
+train:
+  snapshots:
+    n: 20                      # pilot-sized schedule (spec 02 §11)
