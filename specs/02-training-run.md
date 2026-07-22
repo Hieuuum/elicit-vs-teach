@@ -764,7 +764,8 @@ launch.
 
 **Snapshot scheduler.** `snapshot_steps(total_steps, n=1024, dense_until≈30)`
 → strictly increasing, includes first and final step, dense unit-stride
-prefix, log-then-uniform tail. Exact parameters OPEN(4).
+prefix, log-then-uniform tail. Exact parameters OPEN(4). Scheme implemented
+2026-07-21 (`geode/probe/schedule.py`, V5.55–V5.61; V5.8 is the umbrella).
 
 **Extraction pass** (offline, separate rental). For each snapshot: load
 the self-contained snapshot (spec 00 §1 — no separate base checkpoint);
@@ -805,6 +806,24 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
 
 - V5.8  schedule: exact count, strictly increasing, dense prefix, includes
   first + final step.
+- V5.55 (2026-07-21) schedule is purely deterministic: repeated calls, under
+  perturbed global RNG, return identical plain-int lists; no seed argument
+  exists.
+- V5.56 schedule steps are strictly increasing ints in [1, total_steps]
+  across production-shaped and degenerate parameter grids.
+- V5.57 schedule length is exactly min(n, total_steps), including
+  n == total_steps and n > total_steps (⇒ every step).
+- V5.58 dense unit-stride prefix 1..dense_until present whenever budget
+  allows; clamps: total_steps <= dense_until ⇒ every step; n <= dense_until
+  ⇒ prefix truncated to n-1 with the final step kept.
+- V5.59 first and final step always present; at n == 1 the final snapshot
+  outranks step 1.
+- V5.60 schedule inputs validated loudly: total_steps < 1, n < 1, or
+  dense_until < 0 raises ValueError.
+- V5.61 spacing shape: gaps never shrink by more than 1 (rounding jitter);
+  unit stride continues just past the dense prefix; the largest gap lives
+  in the late tail; last-tenth gaps ~uniform (max <= 1.6 x min) —
+  discriminating log-then-uniform from log-to-the-end.
 - V5.9  extraction captures n_layers+1 hook points with correct shapes and
   stored mask on a tiny fixture model.
 - V5.10 per-example gradients match an explicit one-example-at-a-time
