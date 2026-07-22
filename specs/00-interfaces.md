@@ -256,4 +256,7 @@ not a contract.
   (`*.base.weight`/`*.A.weight`/`*.B.weight` keys) under a `full_ft`
   manifest — or a plain one under `"lora"` — is a loud refusal: plain
   `from_pretrained` on a wrapped checkpoint does not error, it silently
-  random-initializes every wrapped projection.
+  random-initializes every wrapped projection. Tied-embedding checkpoints
+  (`tie_word_embeddings: true`, where `save_pretrained` drops the
+  `lm_head.weight` duplicate from safetensors) load bit-exactly on the
+  lora path too: the tied alias is restored before the strict load.

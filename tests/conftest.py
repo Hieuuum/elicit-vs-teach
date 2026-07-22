@@ -52,6 +52,7 @@ def tiny_llama() -> Callable[..., LlamaForCausalLM]:
         n_layers: int = 2,
         d_model: int = 64,
         vocab_size: int = DEFAULT_VOCAB_SIZE,
+        tie_word_embeddings: bool = False,
     ) -> LlamaForCausalLM:
         config = LlamaConfig(
             vocab_size=vocab_size,
@@ -64,6 +65,7 @@ def tiny_llama() -> Callable[..., LlamaForCausalLM]:
             pad_token_id=0,
             bos_token_id=BOS_ID,
             eos_token_id=3,
+            tie_word_embeddings=tie_word_embeddings,
         )
         torch.manual_seed(seed)
         model = LlamaForCausalLM(config)

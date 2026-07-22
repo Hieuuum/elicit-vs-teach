@@ -65,6 +65,19 @@ def test_v0_9_lora_checkpoint_round_trip_bit_exact(tiny_llama, tmp_path: Path) -
     assert torch.equal(logits(loaded), logits(saved))
 
 
+def test_v0_9_tied_embeddings_lora_round_trip_bit_exact(tiny_llama, tmp_path: Path) -> None:
+    # Production base models tie embeddings, so save_pretrained drops the
+    # lm_head.weight duplicate from safetensors (2026-07-22 G5 re-run failure:
+    # strict reapply_lora raised "Missing key(s) ... lm_head.weight").
+    store = tmp_path / "store"
+    saved = apply_lora(tiny_llama(seed=0, tie_word_embeddings=True), seed=1, **LORA_KW)
+    perturb_adapters(saved, seed=9)
+    write_run(store, "run-tied", saved, "lora")
+
+    loaded = load_model("run-tied", store=store)
+    assert torch.equal(logits(loaded), logits(saved))
+
+
 def test_v0_9_full_ft_checkpoint_round_trip_bit_exact(tiny_llama, tmp_path: Path) -> None:
     store = tmp_path / "store"
     saved = tiny_llama(seed=0)

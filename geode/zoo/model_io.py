@@ -61,10 +61,16 @@ def load_model(
         from geode.train.lora import reapply_lora
 
         lora = manifest.data["training"]["lora"]
-        model = AutoModelForCausalLM.from_config(AutoConfig.from_pretrained(ckpt))
+        config = AutoConfig.from_pretrained(ckpt)
+        model = AutoModelForCausalLM.from_config(config)
+        state = load_file(weights)
+        if config.tie_word_embeddings and "lm_head.weight" not in state:
+            # save_pretrained drops the tied duplicate from safetensors;
+            # restore the alias so reapply_lora can load strictly.
+            state["lm_head.weight"] = state["model.embed_tokens.weight"]
         reapply_lora(
             model,
-            load_file(weights),
+            state,
             rank=lora["rank"],
             alpha=lora["alpha"],
             target_modules=tuple(lora["target_modules"]),
