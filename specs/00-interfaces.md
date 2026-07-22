@@ -20,6 +20,11 @@ $GEODE_STORE/
     training_meta.json        # trainer config echo + stop record
     snapshots/step_{k}/       # self-contained full-model snapshots (runs 5-6):
                               #   model.safetensors = the complete state_dict
+    probe/step_{k}/           # offline probe dumps (spec 02 §7):
+                              #   acts.safetensors + grads.safetensors (bf16,
+                              #   n_layers+1 named residual tensors each),
+                              #   probe_data.safetensors (ids/masks + fp32
+                              #   per-example loss), meta.json sidecar
     logs/
       prequential.jsonl       # per-batch first-epoch label losses (§3)
       gradstats.jsonl         # per-step gradient statistics (§4)

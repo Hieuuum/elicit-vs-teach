@@ -770,20 +770,27 @@ prefix, log-then-uniform tail. Exact parameters OPEN(4). Scheme implemented
 **Extraction pass** (offline, separate rental). For each snapshot: load
 the self-contained snapshot (spec 00 §1 — no separate base checkpoint);
 run the probe set forward + backward (loss on label
-tokens, **sum** reduction); capture activations and activation gradients
-at all 9 residual points (embedding output + 8 post-block residuals for
-this arch — hook count is n_layers+1, never hardcoded), per example,
-bf16, padded + attention mask stored alongside. Write one safetensors
-file per (snapshot, quantity ∈ {acts, grads}) containing 9 named
-tensors; sidecar meta: run_id, arm, step, probe_set_hash, tokenizer_hash,
-base_model_key, dtype. Per-example probe loss saved per snapshot (late
-gradients are numerically degenerate — analyses condition on nonzero
-loss).
+tokens, **sum** reduction, through the shared M1 `label_mask`); capture
+activations and activation gradients at all 9 residual points (embedding
+output + 8 post-block residuals for this arch — hook count is
+n_layers+1, never hardcoded; names follow the TransformerLens convention
+of spec 00 §6: `hook_embed`, `blocks.{i}.hook_resid_post`), per example,
+bf16. One dump per snapshot at `runs/{run_id}/probe/step_{k}/`
+(spec 00 §1): one safetensors file per quantity ∈ {acts, grads}
+containing the 9 named tensors, plus `probe_data.safetensors` holding
+the padded `input_ids`, attention mask, label mask, and the per-example
+probe loss in **fp32** (losses are reported quantities, never
+down-cast; late gradients are numerically degenerate — analyses
+condition on nonzero loss). Sidecar `meta.json`: run_id, arm, step,
+probe_set_hash, tokenizer_hash, base_model_key, dtype, plus the
+template/format identity `task_name` + `format_version`.
 
 **Matched-load guard** (V0.4 pattern re-asserted at this surface): the
 pairwise loader for cross-arm comparison refuses unless probe_set_hash,
-tokenizer_hash, and template/format metadata all match, with a clear
-error.
+tokenizer_hash, and the template/format metadata (`task_name`,
+`format_version`) all match, with a clear error naming the field. The
+guard deliberately ignores run_id, arm, step, and base_model_key —
+those legitimately differ between the two dumps being compared.
 
 **Analysis metrics** (pure functions over dumps; results written through
 the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
@@ -827,13 +834,16 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
 - V5.9  extraction captures n_layers+1 hook points with correct shapes and
   stored mask on a tiny fixture model.
 - V5.10 per-example gradients match an explicit one-example-at-a-time
-  backward reference (sum reduction ⇒ equality), and are nonzero iff the
+  backward reference (sum reduction ⇒ equality up to kernel-order float
+  noise, measured ≤1e-6 vs gradient scale ≥1; padding positions and
+  zero-loss example rows are EXACTLY zero), and are nonzero iff the
   example's loss is nonzero.
 - V5.11 dump ↔ load roundtrip preserves values (bf16), names, metadata.
 - V5.12 matched-load guard raises on probe_set_hash / tokenizer_hash /
   template mismatch with a clear error.
 - V5.13 alignment metric: planted parallel gradients ⇒ ≈1; random
-  gradients ⇒ ≈0 (with the n≪d caveat pinned numerically).
+  gradients ⇒ pairwise cosine ≈0 while top-PC explained variance ⇒
+  ≈1/n, not 0 (the n≪d caveat, pinned numerically).
 - V5.14 drift: zero at the init snapshot; planted per-class shift
   recovered per class.
 - V5.15 effective rank: planted rank-r adapter delta ⇒ r.
