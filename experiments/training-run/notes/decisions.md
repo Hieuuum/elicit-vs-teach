@@ -921,3 +921,11 @@ Dataset items: none.
   within a few accuracy points of A (endpoint eval, spec 02 §11), then
   OPEN(4) schedule params. Probe extraction (V5.9–V5.13) validates on
   the grid's snapshots before the box is destroyed.
+- **Addendum (2026-07-22, later)**: owner reversed "sweeps are
+  disposable" — sweep + grid artifacts get preserved on the relay before
+  the box dies. Sweep runs renamed on the box to the precedent form,
+  `evt-sweep-target-lr*` → `evt-run6-sweep-lr*` (run-6 recipe: Arm B,
+  init run-4; the mv rewrites `run_id` inside each manifest), then
+  pushed to `mhieuuu/geode-store` along with the five `evt-pilot-open2-*`
+  runs and the run-3/run-4 installers. None of these are in the
+  forbidden-from-box set (`evt-run1-base-v1/v2/v2-ext/v3` only).
