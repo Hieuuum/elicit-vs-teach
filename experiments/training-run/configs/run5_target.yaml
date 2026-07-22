@@ -50,8 +50,10 @@ data:
   # recomputes over the FULL downloaded file and refuses on mismatch —
   # before any prefix is taken.
   order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
-  n_examples: null             # null = full file; pilots take a PREFIX of the
-                               # frozen order (deterministic, comparable arms)
+  n_examples: null             # OPEN(2) pins this; pilots take a PREFIX of the
+                               # frozen order (deterministic, comparable arms).
+                               # Max 900000: rows beyond are the G5 eval
+                               # reserve — null/full file is refused at launch
   val_fraction: 0.005          # held-out split; in-loop stopping evals + L_test
   seed: 316                    # runs 5+6 must share seed/val_fraction/batch
                                # order: identical D_target stream (G7)

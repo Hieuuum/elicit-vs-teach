@@ -64,6 +64,7 @@ from geode.train import split_indices
 from geode.zoo import checkpoint_dir, load_model, load_run
 from train import REPO_ROOT, load_config
 from train_sft import load_frozen_parquet
+from train_target import D_TARGET_EVAL_RESERVED_START
 
 # G1 and G2 share the bar: 0.95 is the committed definition of "capability
 # present", no separate installer δ (owner 2026-07-21, spec 02 §8).
@@ -238,11 +239,26 @@ def run_g5(args: argparse.Namespace) -> int:
     model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
 
     df = load_frozen_parquet(cfg)
-    # No run has trained on D_target at gate time (runs 5-6 are downstream),
-    # so there is no split to respect: one seeded draw over the full file,
-    # first 16 indices are the exemplar shots, the rest the eval questions —
-    # disjoint by sample-without-replacement.
-    picks = random.Random(args.sample_seed).sample(range(len(df)), args.n + G5_N_SHOTS)
+    # Eval questions must never have been trained on (owner 2026-07-22 —
+    # the original full-file draw overlapped the OPEN(2) pilots' training
+    # prefixes, 1.2%-50.6% of eval questions at n10k-n500k): the draw is
+    # restricted to the eval-reserved tail, which train_target refuses to
+    # train into. Question texts in the frozen file are globally unique
+    # (verified on the pinned order_hash), so index disjointness is
+    # question-level disjointness. First 16 picks are the exemplar shots,
+    # the rest the eval questions — disjoint by sample-without-replacement.
+    exp = manifest.data.get("experiment", {})
+    if exp.get("data_order_hash") == cfg["data"]["order_hash"]:
+        trained_n = exp.get("n_examples") or len(df)  # null = full file
+        if trained_n > D_TARGET_EVAL_RESERVED_START:
+            raise ValueError(
+                f"{args.run}: trained on a {trained_n}-row prefix of the G5 eval file, "
+                f"reaching into the eval reserve (rows >= {D_TARGET_EVAL_RESERVED_START}) "
+                "— no un-trained eval questions exist for this run"
+            )
+    picks = random.Random(args.sample_seed).sample(
+        range(D_TARGET_EVAL_RESERVED_START, len(df)), args.n + G5_N_SHOTS
+    )
     shots = df.iloc[picks[:G5_N_SHOTS]]["full_text"].tolist()
     rows = df.iloc[picks[G5_N_SHOTS:]]
     q_texts = rows["full_text"].tolist()
@@ -286,12 +302,14 @@ def run_g5(args: argparse.Namespace) -> int:
         "n": args.n,
         "n_shots": G5_N_SHOTS,
         "sample_seed": args.sample_seed,
+        "eval_reserved_start": D_TARGET_EVAL_RESERVED_START,
         "checkpoint": str(checkpoint),
         "protocol": (
             "token-prefix prompts of few-shot composed texts (exemplars + "
             "complete query, blank-line separated), greedy EOS-stopped "
-            "first-line, seeded disjoint question/shot sample of the full "
-            "D_target file, exact_match; evidence only, no pass bar"
+            "first-line, seeded disjoint question/shot sample of the "
+            "eval-reserved D_target tail (never trained on), exact_match; "
+            "evidence only, no pass bar"
         ),
     }
     manifest.save(store / "runs" / args.run / "manifest.json")

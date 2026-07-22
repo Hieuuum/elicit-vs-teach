@@ -935,3 +935,20 @@ Dataset items: none.
   name relay folders (if an earlier push landed them) deleted after the
   new-name push is verified present. None of these are in the
   forbidden-from-box set (`evt-run1-base-v1/v2/v2-ext/v3` only).
+- **G5 eval contamination — found, measured, resolved (owner
+  2026-07-22)**: the G5 draw sampled the FULL D_target file, but the
+  OPEN(2) pilots train its prefixes — 12/49/209/518 of the 1,024
+  seed-316 eval questions (1.2%–50.6%) fell inside the
+  n10k/n50k/n200k/n500k trained prefixes. Question texts are globally
+  unique in the frozen file (verified on order_hash 69e3b09e…), so
+  there is no additional text-level leakage. Measured effect (local CPU
+  re-score reproducing the box numbers exactly): clean-subset accuracy
+  0.9765 (B@500k) / 0.9374 (B@50k) / 0.9918 (A@50k) vs 0.9805 / 0.9385
+  / 0.9922 recorded — inflation ≤ 0.4 points, OPEN(2) picture
+  unchanged. Resolution (spec 02 §8, same commit): rows ≥ 900,000 of
+  the frozen order are the eval reserve — g5 samples questions + shots
+  only from the tail, `train_target.py` refuses any prefix reaching
+  into it (null/full file included), and g5 refuses to score a run
+  whose manifest records a D_target prefix past it (keyed on
+  data_order_hash, so runs 3/4 still score). Reserved-protocol G5
+  re-runs supersede all full-file-draw numbers.

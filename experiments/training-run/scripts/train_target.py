@@ -47,6 +47,14 @@ from train import REPO_ROOT, git_commit, load_config, phase
 
 ARM_REGIME = {"A": "elicit", "B": "teach"}  # regimes attach to the target runs
 
+# Rows at or beyond this index of the frozen D_target order are reserved for
+# evaluation (spec 02 §8, owner 2026-07-22): gates.py g5 draws its questions
+# and exemplar shots exclusively from the tail, so no target run may train a
+# prefix that reaches into it. Question texts in the frozen file are globally
+# unique (verified 2026-07-22 on order_hash 69e3b09e…), so index disjointness
+# is question-level disjointness.
+D_TARGET_EVAL_RESERVED_START = 900_000
+
 
 def load_frozen_parquet(cfg: dict):
     """Fetch + hash-verify the frozen parquet; return the full DataFrame.
@@ -210,13 +218,18 @@ def main() -> int:
     df = load_frozen_parquet(cfg)
     d = cfg["data"]
     n_examples = d.get("n_examples")
-    if n_examples is not None:
-        if not (0 < n_examples <= len(df)):
-            raise ValueError(f"data.n_examples={n_examples} outside 1..{len(df)}")
-        df = df.head(n_examples)  # PREFIX of the frozen order (OPEN(2) comparability)
+    if n_examples is None or n_examples > D_TARGET_EVAL_RESERVED_START:
+        raise ValueError(
+            f"data.n_examples={n_examples}: target runs train a prefix of at most "
+            f"{D_TARGET_EVAL_RESERVED_START} rows — the tail is the G5 eval reserve "
+            "(spec 02 §8); null (full file) would leave no un-trained eval questions"
+        )
+    if not (0 < n_examples <= len(df)):
+        raise ValueError(f"data.n_examples={n_examples} outside 1..{len(df)}")
+    df = df.head(n_examples)  # PREFIX of the frozen order (OPEN(2) comparability)
     print(
         f"[evt] {d['file']}: order_hash verified on full file; using "
-        f"{len(df)} rows ({'full file' if n_examples is None else f'prefix {n_examples}'})",
+        f"{len(df)} rows (prefix {n_examples})",
         flush=True,
     )
     texts = df["full_text"].tolist()
