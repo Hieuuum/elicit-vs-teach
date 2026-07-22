@@ -1089,3 +1089,37 @@ Dataset items: none.
   extract.py discovers/loads either format; train_target finalize
   counts `adapter.safetensors`. The FINAL `model/` checkpoint stays
   self-contained (zoo.load_model V0.9 unchanged).
+
+## Runs 5–6 complete — both converged, G5 recorded (2026-07-22)
+
+- **Outcomes:** run 5 (A, elicit) `stop_reason=converged` at step 6,000,
+  min_val 0.00245 nats; run 6 (B, teach) converged at step 12,500,
+  min_val 0.02301. Both far under the 23,442 ceiling; G7 verified in
+  both manifests (identical `data_order_hash`, n=500,000). Snapshots
+  materialized adapter-only as designed: 711 + base (run 5), 832 + base
+  (run 6), every step dir carrying `adapter.safetensors`.
+- **θ_T evidence (reporting block, 97,952 rows) + G5:** A 0.00194 vs
+  B 0.03558 nats — an **18× loss gap on identical never-trained
+  questions**, with zero-shot exact-match 0.9980 (A) vs 0.9502 (B).
+  16-shot ≈ 0 both (known collapse, invalidated metric). A@500K also
+  beats the A@50K pilot (0.0019 vs 0.0059) — more data still helps the
+  elicited arm.
+- **Stop-wobble caveat (quote θ_T with it):** run 6 undershot its
+  *same-seed* pilot — the open2_n500k overlay changed only run_id and
+  n_examples, yet the pilot's ε/k fired at 15,500 (θ_T 0.0140) and
+  run 6's at 12,500 (θ_T 0.0356). With seed/data/lr/rule identical, the
+  divergence is GPU nondeterminism compounding across steps, and the
+  ε/k rule is noise-sensitive in B's shallow tail: the 2048-row
+  stopping block produced 5 consecutive sub-2-mnat deltas while the
+  reporting block shows B still improving ~3 mnat per 500 steps — the
+  n200K artifact class. **Accepted** (owner-ratified rule, applied
+  identically to both arms; re-running to chase a lower B number would
+  be post-hoc protocol tampering; the primary measurement is the
+  prequential curves). Even at the pilot's later stop the gap is ~7×.
+  Concrete instance of the single-seed limitation (spec 02 §13).
+- **Box logistics:** snapshots (~75 GB) exist only on the box; relay
+  push is HELD — `hf_checkpoint.py push` uploads the whole run folder
+  including snapshots, so pushing runs 5/6 is a storage decision, not a
+  default step. Box stays alive for the extraction pass; ~31 GB free
+  is fine for G5/idle but not for full extraction output (size at
+  extraction planning).

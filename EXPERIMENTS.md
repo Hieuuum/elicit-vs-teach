@@ -27,8 +27,8 @@ spec 02 §13).
 | 2 | `evt-run2-armA-algo` | pre-teach | run 1 | full FT | `D_algo` (NL add/sub, correct labels) | **DONE — converged** (2026-07-21, lr 3e-4, step 19k, `min_val_nats` 0.0037); G1 0.9961 PASS |
 | 3 | `evt-run3-armA-inst` | format install | run 2 | full FT | `D_inst` (op-notation mult, random labels), to behavioral stop (spec 02 §6) | **DONE** (2026-07-22, lr 3e-6, behavioral stop @ 750); G2/G4/G5 recorded |
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | **DONE** (2026-07-22, behavioral stop @ 750); G3/G4/G5 recorded |
-| 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` 500K prefix (op-notation add/sub; OPEN(2) closed 2026-07-22) | **launch-ready** — lr 1e-3 + n 500K pinned; OPEN(4)/(10) closed 2026-07-22 |
-| 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | same — G7 order guard at launch |
+| 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` 500K prefix (op-notation add/sub; OPEN(2) closed 2026-07-22) | **DONE — converged** (2026-07-22, step 6,000, min_val 0.00245; 711 snapshots + base); G5 recorded |
+| 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | **DONE — converged** (2026-07-22, step 12,500, min_val 0.02301; 832 snapshots + base); G7 verified; G5 recorded (stop-wobble caveat → decisions.md) |
 
 DAG: `1 → 2 → 3 → 5` (Arm A, elicit) and `1 → 4 → 6` (Arm B, teach).
 Every run registers in zoo before launch; `require_parent_ready`
@@ -90,7 +90,7 @@ ungated inspection tool.
 | G2 | run 3 | Arm A still ≥95% on NL add/sub post-install — same bar as G1, no separate δ (owner 2026-07-21); drop from G1 reported | **PASS 0.9531** (drop 0.043 from G1; installer-LR length-prior finding → decisions.md 2026-07-22) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | **PASS 0.0000** |
 | G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | **PASS 1.0 both arms** |
-| G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. 16-shot ≈ 0 everywhere (collapse — invalidated as a metric; decisions.md) |
+| G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. 16-shot ≈ 0 everywhere (collapse — invalidated as a metric; decisions.md) |
 | G6 | data gen | V5.1/V5.2 integrity on the real sets | partial — generation-time evidence in `report.json`; formal re-run when `gates.py` grows the subcommand |
 | G7 | before run 6 | `data_order_hash`(run 5) == (run 6) | enforced at launch |
 
@@ -133,13 +133,13 @@ drivers, `export_hf.py`, `gates.py` g6.
 3. **`geode.probe` extraction + `scripts/extract.py`** (V5.9–V5.13:
    offline probe pass — activations + activation-gradients at 9
    residual points, matched-load guards, alignment metric) — in
-   progress 2026-07-22; validate on the pilot's snapshots before that
-   box is destroyed (train → extract → one real gradient-alignment
-   plot, spec 02 §11).
-4. **Runs 5–6** — LoRA prequential with 1,024 full-model snapshots;
-   G7 order-hash guard at run-6 launch. Box needs ≥400 GB disk
-   (fp32 snapshots, 148 MB × 1,024 × 2 arms ≈ 300 GB) unless the
-   owner opts for bf16 snapshots.
+   progress 2026-07-22; the pilot box is gone — validate on the real
+   runs-5/6 snapshots, which live only on the current box (keep it
+   alive until extraction is done or the snapshots are relayed);
+   target: extract → one real gradient-alignment plot (spec 02 §11).
+4. ~~Runs 5–6~~ — **DONE 2026-07-22**: both converged (§2 table), G5
+   recorded, 711/832 adapter-only snapshots + base per run (~75 GB,
+   on-box only — relay push HELD, see decisions.md box logistics).
 5. **Analyses + publication** — metrics V5.14–V5.16, the four drivers
    (alignment, drift, adapters, matching), `export_hf.py` to the HF
    dataset repo (spec 02 §9–10).
