@@ -58,6 +58,14 @@ ARM_REGIME = {"A": "elicit", "B": "teach"}  # regimes attach to the target runs
 # number ever touches the rows that drove the stop decision.
 EVAL_STOP_ROWS = 2048
 
+# Curve evals (owner 2026-07-22): extra in-loop evals at a dense-then-log-
+# spaced set of steps (same tested scheduler as snapshots) so the val learning
+# curve has resolution on a log step axis. Logged-only — rows carry
+# stopping_eval: false and are NEVER fed to the ε/k tracker; the ratified
+# stopping rule consumes exactly the eval_every cadence (+ the ceiling eval).
+EVAL_CURVE_N = 64
+EVAL_CURVE_DENSE_UNTIL = 16
+
 
 def load_frozen_parquet(d: dict):
     """Fetch + hash-verify a frozen parquet data block; return the DataFrame.
@@ -365,7 +373,9 @@ def main() -> int:
     # Stopping (spec 02 §6 / OPEN(3) inheritance): loss-convergence ε/k on the
     # fixed stopping block (first EVAL_STOP_ROWS rows of the frozen eval
     # file — identical data for every run), evaluated in-loop every
-    # eval_every steps; max_steps is a pure cost ceiling. The spec-02 §6
+    # eval_every steps. Extra curve evals (EVAL_CURVE_*) run at log-spaced
+    # steps for learning-curve resolution but never feed the tracker;
+    # max_steps is a pure cost ceiling. The spec-02 §6
     # logging extension (per-step LR + train-accuracy) lands in
     # train_log.jsonl at the run root; stopping evals in eval_log.jsonl
     # (field name val_loss_nats kept for continuity). Both ride the
@@ -376,6 +386,7 @@ def main() -> int:
     )
     state: dict[str, Any] = {"final_step": 0, "stop_reason": None}
     eval_every, max_steps, batch_size = t["eval_every"], t["max_steps"], t["batch_size"]
+    curve_steps = set(snapshot_steps(max_steps, n=EVAL_CURVE_N, dense_until=EVAL_CURVE_DENSE_UNTIL))
     out_dir.mkdir(parents=True, exist_ok=True)
 
     with (
@@ -399,7 +410,8 @@ def main() -> int:
             train_f.flush()
             state["final_step"] = info.step
             at_ceiling = info.step >= max_steps
-            if info.step % eval_every == 0 or at_ceiling:
+            stopping_eval = info.step % eval_every == 0 or at_ceiling
+            if stopping_eval or info.step in curve_steps:
                 val_loss_nats = evaluate_sft_nll_nats(
                     model, stop_examples, task_format, batch_size=batch_size, device=args.device
                 )
@@ -408,16 +420,18 @@ def main() -> int:
                         {
                             "step": info.step,
                             "val_loss_nats": val_loss_nats,
+                            "stopping_eval": stopping_eval,
                             "time_unix": time.time(),
                         }
                     )
                     + "\n"
                 )
                 eval_f.flush()
-                if tracker.update(val_loss_nats, step=info.step):
-                    state["stop_reason"] = "converged"  # wins the ceiling tie-break
-                elif at_ceiling:
-                    state["stop_reason"] = "max_steps"
+                if stopping_eval:
+                    if tracker.update(val_loss_nats, step=info.step):
+                        state["stop_reason"] = "converged"  # wins the ceiling tie-break
+                    elif at_ceiling:
+                        state["stop_reason"] = "max_steps"
             return state["stop_reason"] is not None
 
         train_prequential(

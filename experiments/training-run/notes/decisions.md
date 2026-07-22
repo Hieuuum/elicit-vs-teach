@@ -981,3 +981,25 @@ Dataset items: none.
   −3.7…+0.9 points vs the contaminated draw with orderings unchanged).
   Pilots keep their recorded per-run val stops (training is frozen
   history); their shared-set test losses land via the G5 re-run.
+
+## Curve evals — dense log-spaced val logging (owner 2026-07-22)
+
+- **Decision:** runs launched from now log extra in-loop stopping-block
+  evals at `snapshot_steps(max_steps, n=64, dense_until=16)` (the same
+  tested scheduler as snapshots: every step through 16, then log-spaced
+  stretching, uniform tail). Rows carry `stopping_eval: false` in
+  `eval_log.jsonl` and are **never fed to the ε/k tracker** — ratified
+  logging-only, so the 2026-07-22 stopping rule (ε 2 mnat / k 5 /
+  eval_every 500 / min_steps 0) keeps byte-identical semantics and
+  runs-5/6 stopping stays comparable to the pilots.
+- **Why:** the val curve had no resolution where the learning happens —
+  first eval at step 500, by which Arm A is mostly converged (7 total
+  points at its 3500-step stop). On the log step axes the notebook now
+  uses, the every-500 cadence leaves the first two decades empty.
+- **Cost:** ~60 extra 2048-row evals per run (16 batches each) — ~1–2
+  min of GPU per run, no training-path change.
+- **Consumers:** monitor.py replays the tracker over stopping rows only
+  (absent field = pre-curve-eval log = stopping row, so pilot logs
+  replay unchanged); pilot_loss_compare.ipynb plots all rows, train and
+  val panels now log-log. Spec 02 §6 records the protocol (same
+  commit).

@@ -314,7 +314,14 @@ the 2026-07-18 downscale):
   first 2048 rows of the frozen eval set (§5, owner 2026-07-22), the
   identical data for every run and every n; the OPEN(2) pilots
   predate this and stopped on per-run 0.5% val carves their manifests
-  record.
+  record. **Curve evals** (owner 2026-07-22): the launcher additionally
+  evaluates the stopping block at a dense-then-log-spaced set of steps
+  (`snapshot_steps(max_steps, n=64, dense_until=16)` — the same tested
+  scheduler as snapshots) so the val curve has resolution on a log step
+  axis. These rows land in `eval_log.jsonl` with `stopping_eval: false`
+  and are **never fed to the ε/k tracker** — the ratified rule consumes
+  exactly the eval_every cadence (+ the ceiling eval). Logging-only:
+  they change no stop decision and no reported number.
 
 **Runs 1–4 (full FT):** need a small full-FT trainer with validation-loss
 stopping; snapshots = final checkpoint only (plus the base). **Decided

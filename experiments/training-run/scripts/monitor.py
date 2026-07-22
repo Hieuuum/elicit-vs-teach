@@ -85,6 +85,11 @@ def eval_line(
     if i > 0:
         delta = (e["val_loss_nats"] - evals[i - 1]["val_loss_nats"]) * 1000
         line += f"  Δ {delta:+.1f} mnat"
+    # Curve-only evals (runs-5/6 dense log-spaced logging, stopping_eval:
+    # false) never feed the ε/k tracker — mirror that here (absent field =
+    # pre-curve-eval log = stopping eval).
+    if not e.get("stopping_eval", True):
+        return line + " | curve eval (not fed to rule)"
     line += f" | min {st['min']:.5f}"
     if rule is not None:
         if e["step"] < rule.min_steps:
@@ -171,8 +176,10 @@ def main() -> int:
         states = []
         if rule is not None:
             tracker = ConvergenceTracker(rule)
+            stopped = False
             for e in evals:
-                stopped = tracker.update(e["val_loss_nats"], step=e["step"])
+                if e.get("stopping_eval", True):  # curve-only rows skip the tracker
+                    stopped = tracker.update(e["val_loss_nats"], step=e["step"])
                 states.append(
                     {
                         "min": tracker.min_nats,
