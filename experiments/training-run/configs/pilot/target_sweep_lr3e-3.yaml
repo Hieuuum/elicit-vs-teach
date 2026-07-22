@@ -1,0 +1,14 @@
+# LoRA target-LR mini-sweep @ lr 3e-3 — upward grid extension (2026-07-22):
+# the original decade 3e-5..1e-3 came back monotone (min_val 0.783 / 0.202 /
+# 0.107 / 0.035, higher LR strictly better) with the winner at the grid edge,
+# so the optimum was unbracketed. Run together with lr 1e-2 to bracket in one
+# pass. See target_sweep_lr3e-4.yaml for the full header (usage, winner rule).
+run_id: evt-sweep-target-lr3e-3
+experiment:
+  match_data_order_with: null  # G7 binds the production pair, not sweeps
+data:
+  n_examples: 50000            # prefix of the frozen order
+train:
+  lr: 3.0e-3
+  snapshots:
+    n: 4                       # disposable sweep run — minimal schedule
