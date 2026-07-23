@@ -21,7 +21,7 @@ cd /workspace
 git clone -b cut-to-core https://github.com/Hieuuum/elicit-vs-teach.git
 cd elicit-vs-teach && git log --oneline -1     # must equal the laptop hash
 pip install -e ".[dev]"
-export GEODE_STORE=/workspace/geode-store      # store OUTSIDE the clone
+export GEODE_STORE=/workspace/elicit-vs-teach/geode-store      # store INSIDE the clone
 export NTFY=ntfy.sh/<your-topic>               # re-export BOTH in every tmux window
 python -m pytest -q; echo "suite exit: $?"     # expect 0, ~2 min
 cd experiments/training-run/scripts
@@ -85,7 +85,7 @@ from pathlib import Path
 from huggingface_hub import CommitOperationAdd, HfApi
 api = HfApi(token=os.environ["HF_WRITE_TOKEN"])
 for rid in ("evt-run5-armA-target", "evt-run6-armB-target"):
-    src = Path("/workspace/geode-store/runs") / rid
+    src = Path("/workspace/elicit-vs-teach/geode-store/runs") / rid
     keep = [p.relative_to(src).as_posix() for p in sorted(src.rglob("*")) if p.is_file()]
     keep = [r for r in keep
             if any(fnmatch.fnmatch(r, a) for a in ("*.json", "*.jsonl", "*.yaml"))
@@ -106,7 +106,8 @@ Laptop: `python hf_checkpoint.py pull --run-id <each> --no-weights`.
 
 Snapshots exist **only on this box**. Keep it alive until `extract.py` has run
 over them (or they're relayed); then destroy the instance on vast.ai — stopped
-still bills storage.
+still bills storage. Store lives inside the clone now — never `git clean -dfx`
+on this box, it deletes run artifacts too.
 
 ## Troubleshooting
 
