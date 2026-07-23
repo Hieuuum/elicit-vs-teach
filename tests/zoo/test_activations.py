@@ -231,6 +231,27 @@ def test_matched_pair_error_message_is_clear(geode_store: Path) -> None:
     assert TOK_HASH_B in msg
 
 
+def test_matched_pair_row_count_mismatch_raises(geode_store: Path) -> None:
+    """Identical dataset_key/position_policy/tokenizer_hash but a differing
+    row count between the two stored tensors is refused — an undetected
+    count mismatch would silently misalign every downstream matched-pair
+    comparison. The message names both model keys and both counts so the
+    mismatch is debuggable at GPU-run time."""
+    _save(_meta(model_key=MODEL_A), geode_store, seed=1)  # N_SAMPLES rows
+    short = torch.randn(
+        N_SAMPLES - 1, N_POS, D_MODEL, generator=torch.Generator().manual_seed(2)
+    )
+    save_activations(short, _meta(model_key=MODEL_B), HOOK, store=geode_store)
+
+    with pytest.raises(ValueError) as excinfo:
+        load_matched_pair(MODEL_A, MODEL_B, DATASET, HOOK, store=geode_store)
+    msg = str(excinfo.value)
+    assert MODEL_A in msg
+    assert MODEL_B in msg
+    assert str(N_SAMPLES) in msg
+    assert str(N_SAMPLES - 1) in msg
+
+
 def test_matched_pair_matched_returns_both(geode_store: Path) -> None:
     """Positive V0.4 contract: with identical dataset_key/position_policy/
     tokenizer_hash, the loader returns both tensors — in (a, b) order — and

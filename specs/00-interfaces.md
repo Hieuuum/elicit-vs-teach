@@ -172,6 +172,10 @@ A sidecar `{hook_name}.meta.json` records: model_key, hf_id + revision,
 dataset_key, position policy (`all | answer_only | last`), sample count,
 tokenizer hash. Matched-input comparisons across models require identical
 dataset_key, position policy, and tokenizer hash; loaders must enforce this.
+A matched pair must also have identical row counts; if per-row example
+identifiers are stored in the sidecar, they must match element-wise.
+`load_matched_pair` refuses row-count or per-row-id mismatches the same way
+it refuses the other matched-input mismatches.
 
 ## 7. Results tables
 
