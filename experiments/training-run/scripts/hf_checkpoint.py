@@ -14,6 +14,9 @@ Usage:
     python hf_checkpoint.py pull --run-id <run-id>
     # laptop, logs/manifest only — no *.safetensors (analysis without weights):
     python hf_checkpoint.py pull --run-id <run-id> --no-weights
+    # either direction: snapshots/ is SKIPPED by default (multi-GB, needed
+    # only for extraction) — opt in explicitly:
+    python hf_checkpoint.py pull --run-id <run-id> --with-snapshots
 
 The hub repo (default mhieuuu/geode-store, private) mirrors the local
 store layout — runs/<run-id>/... — so every run lands as its own folder
@@ -61,10 +64,12 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def push(store: Path, run_id: str, repo_id: str, public: bool) -> int:
+def push(store: Path, run_id: str, repo_id: str, public: bool, with_snapshots: bool = False) -> int:
     src = store / "runs" / run_id
     ckpt = find_checkpoint(store, run_id)
     print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
+    if not with_snapshots:
+        print("[hf] snapshots/ skipped (default; pass --with-snapshots to include)")
     api = HfApi()
     api.create_repo(repo_id, private=not public, exist_ok=True)
     api.upload_folder(
@@ -72,20 +77,28 @@ def push(store: Path, run_id: str, repo_id: str, public: bool) -> int:
         folder_path=src,
         path_in_repo=f"runs/{run_id}",
         commit_message=f"{run_id} run artifacts",
+        ignore_patterns=None if with_snapshots else ["snapshots/*"],
     )
     print(f"[hf] pushed {src} -> https://huggingface.co/{repo_id}/tree/main/runs/{run_id}")
     print("[hf] next, on the box: python hf_checkpoint.py pull")
     return 0
 
 
-def pull(store: Path, run_id: str, repo_id: str, no_weights: bool = False) -> int:
+def pull(
+    store: Path, run_id: str, repo_id: str, no_weights: bool = False, with_snapshots: bool = False
+) -> int:
+    ignore = [] if with_snapshots else [f"runs/{run_id}/snapshots/*"]
+    if no_weights:
+        ignore.append("*.safetensors")
+    if not with_snapshots:
+        print("[hf] snapshots/ skipped (default; pass --with-snapshots to include)")
     # The repo mirrors the store layout, so unpacking at the store root
     # puts runs/<run-id>/... exactly where train.py expects it.
     snapshot_download(
         repo_id=repo_id,
         local_dir=store,
         allow_patterns=[f"runs/{run_id}/*"],
-        ignore_patterns=["*.safetensors"] if no_weights else None,
+        ignore_patterns=ignore or None,
     )
     if no_weights:
         # No checkpoint landed, so there is nothing to sha-verify; a later
@@ -131,13 +144,21 @@ def main() -> int:
     parser.add_argument(
         "--no-weights",
         action="store_true",
-        help="pull only: skip *.safetensors (final model + snapshots) — "
+        help="pull only: also skip *.safetensors (the final model) — "
         "manifest/logs/gates land for laptop-side analysis",
     )
+    parser.add_argument(
+        "--with-snapshots",
+        action="store_true",
+        help="include runs/<run-id>/snapshots/ (skipped by default both ways — "
+        "multi-GB, needed only for extraction)",
+    )
     args = parser.parse_args()
+    if args.no_weights and args.with_snapshots:
+        parser.error("--no-weights and --with-snapshots contradict (snapshots are weights)")
     if args.cmd == "push":
-        return push(args.store, args.run_id, args.repo_id, args.public)
-    return pull(args.store, args.run_id, args.repo_id, args.no_weights)
+        return push(args.store, args.run_id, args.repo_id, args.public, args.with_snapshots)
+    return pull(args.store, args.run_id, args.repo_id, args.no_weights, args.with_snapshots)
 
 
 if __name__ == "__main__":
