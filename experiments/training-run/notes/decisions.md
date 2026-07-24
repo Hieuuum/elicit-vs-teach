@@ -1320,3 +1320,32 @@ Dataset items: none.
   never overwrites an existing /root/onstart.sh. Also noted: instance
   LIFETIME — the rental end date is locked at rent time; the box
   holding the runs-5/6 snapshots must be watched against it.
+
+## 1M B-arm LR sweep — first pass results, edge rule FIRED (2026-07-24)
+
+Three points, one epoch each (7,813 steps), stopping-block min_val_nats:
+
+| lr   | min_val (nats) | stop |
+|------|----------------|------|
+| 3e-4 | 0.10630        | 7813 (max_steps — expected for sweeps) |
+| 1e-3 | 0.03967        | 7813 (") |
+| 3e-3 | 0.03434        | 7813 (") |
+
+3e-3 wins AT THE TOP EDGE → the pre-registered edge-extension rule fires:
+
+- **Grid extended one step up**: `pilot/target_sweep_1m_lr1e-2.yaml`
+  (run_id `evt-run8-sweep-lr1e-2`), added to `sweep_1m.sh`'s loop —
+  re-running the script skips the three complete points and launches only
+  this one. NOT a new sweep; the same pre-registered grid, one point wider.
+- **Arm-A safeguard armed**: if 3e-3 stands after the extension, it is the
+  only candidate never proven on Arm A → run
+  `pilot/target_pilot_100k_armA_lr3e-3.yaml` (100K prefix, ceiling 4,692 =
+  6 rescaled epochs, no snapshots, parent evt-run3-armA-inst) BEFORE
+  pinning. PASS = stop_reason=stopping_rule with a sane min_val;
+  max_steps/blown-up val = do not pin 3e-3 (1e-3 sits ~0.005 nats behind).
+- **If 1e-2 wins**: stop and consult the owner — one-LR-everywhere would
+  carry 1e-2 into the Llama chain (~28× the paper's 1B-tuned 3.53e-4;
+  the run-9 gentle-sweep fallback would likely fire).
+- Note for the record: the 1e-3 → 3e-3 gap is small (0.0053 nats ≈
+  0.0077 bits at the shared budget) while 3e-4 is clearly out; the rule
+  (lowest min_val + edge extension) decides, not eyeballing.

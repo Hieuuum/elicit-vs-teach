@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # 1M Arm-B LR sweep runner — automates run7-8-guide.md §2 (the runs-7/8
-# pilot). Three overlays on run8_target_1m.yaml, one epoch each (max_steps
-# 7813, no snapshots), sequential. Skips points already complete in the
-# store, so a crashed sweep resumes by re-running this script. Ends with a
+# pilot). Grid overlays on run8_target_1m.yaml, one epoch each (max_steps
+# 7813, no snapshots), sequential. 2026-07-24: grid EXTENDED to 1e-2 after
+# the first pass came back 3e-4:0.1063 / 1e-3:0.0397 / 3e-3:0.0343 — an
+# edge win at 3e-3 (the pre-registered extension rule). Skips points
+# already complete in the store, so re-running this script launches only
+# the new point (and a crashed sweep resumes the same way). Ends with a
 # winner summary + the edge-rule verdict (guide §3).
 #
 #   ./sweep_1m.sh --confirm-cost
@@ -43,7 +46,7 @@ print(json.loads(p.read_text())["status"] if p.is_file() else "missing")
 PY
 }
 
-for lr in 3e-4 1e-3 3e-3; do
+for lr in 3e-4 1e-3 3e-3 1e-2; do
   rid=evt-run8-sweep-lr${lr}
   st=$(status_of "$rid")
   if [[ $st == complete ]]; then
@@ -72,7 +75,7 @@ from pathlib import Path
 
 store = Path(os.environ["GEODE_STORE"])
 rows = []
-for tag in ("3e-4", "1e-3", "3e-3"):
+for tag in ("3e-4", "1e-3", "3e-3", "1e-2"):
     m = json.loads((store / "runs" / f"evt-run8-sweep-lr{tag}" / "manifest.json").read_text())
     r = m["experiment"]["target_result"]
     val = r["min_val_nats"] if r["min_val_nats"] is not None else float("inf")
@@ -80,9 +83,16 @@ for tag in ("3e-4", "1e-3", "3e-3"):
     print(f"lr {tag:>5}: min_val {val:.5f} nats  stop {r['final_step']} ({r['stop_reason']})")
 val, tag = min(rows)
 print(f"\nwinner: lr={tag} (lowest stopping-block min_val_nats at the shared 1-epoch budget)")
-if tag == "3e-3":
-    print("EDGE + unproven on Arm A: extend the grid (1e-2) AND run the 100K Arm-A")
-    print("pilot before pinning (guide §3, decisions.md 2026-07-24).")
+if tag == "1e-2":
+    print("EDGE winner at the EXTENDED top — stop and consult the owner before going")
+    print("further: one-LR-everywhere would carry 1e-2 into the Llama chain (~28x the")
+    print("paper's 1B pin; the run-9 gentle-sweep fallback is likely to fire).")
+elif tag == "3e-3":
+    print("interior winner after the 1e-2 extension — but 3e-3 is unproven on Arm A:")
+    print("run the 100K Arm-A pilot (pilot/target_pilot_100k_armA_lr3e-3.yaml, needs")
+    print("the evt-run3-armA-inst parent pulled) and pin ALL FOUR yamls only after it")
+    print("converges (stop_reason=stopping_rule; max_steps or a blown-up val = fall")
+    print("back toward 1e-3, ~0.005 nats behind).")
 elif tag == "3e-4":
     print("EDGE winner: extend the grid one step down (1e-4) before pinning (guide §3).")
 else:

@@ -1,0 +1,16 @@
+# 1M target-LR sweep @ lr 1e-2 — EDGE EXTENSION point (2026-07-24): the
+# first 3-point bracket came back 3e-4:0.1063 / 1e-3:0.0397 / 3e-3:0.0343
+# min_val nats — 3e-3 won AT THE TOP EDGE, so the pre-registered
+# edge-extension rule fires (decisions.md 2026-07-24): add one step up
+# before pinning. See target_sweep_1m_lr3e-4.yaml for the sweep design;
+# this file differs only in run_id and train.lr. If THIS point wins too,
+# stop and consult the owner — one-LR-everywhere would carry 1e-2 into
+# the Llama chain (~28x the paper's 1B pin; the run-9 fallback is likely).
+run_id: evt-run8-sweep-lr1e-2
+experiment:
+  match_data_order_with: null  # G7 binds the production pair, not sweeps
+train:
+  lr: 1.0e-2
+  max_steps: 7813              # fixed 1-epoch budget (owner 2026-07-24) — see lr3e-4
+  snapshots:
+    n: 0                       # sweeps save nothing (owner 2026-07-24)
