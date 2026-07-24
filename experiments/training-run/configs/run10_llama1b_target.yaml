@@ -85,8 +85,11 @@ train:
     min_steps: 0               # the runs-5/6 family) — inherited BY
                                # CITATION, not silently
   snapshots:
-    n: 1024                    # spec 02 §6 schedule (dense-then-log);
-    dense_until: 30            # computed over max_steps at launch; steps past
+    n: 1024                    # NOT yet bumped to the runs-7/8 front-load rule
+    dense_until: 30            # (owner 2026-07-24): Llama r=64 adapters are
+                               # ~180 MB each, so n=2048 needs a ~400 GB box —
+                               # decide n when sizing the Llama box. Schedule
+                               # computed over max_steps at launch; steps past
                                # the actual stop never materialize
   seed: 316
 

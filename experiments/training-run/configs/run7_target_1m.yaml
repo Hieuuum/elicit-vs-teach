@@ -98,11 +98,15 @@ train:
                                # grace at short epochs) — inherited BY
                                # CITATION, not silently
   snapshots:
-    n: 1024                    # spec 02 §6: 1024 snapshots, dense-then-log-
-    dense_until: 30            # then-uniform (geode.probe.snapshot_steps);
-                               # schedule computed over max_steps at launch and
-                               # written into the manifest BEFORE training;
-                               # steps past the actual stop simply never
+    n: 2048                    # owner 2026-07-24 front-load rule: >=1024 must
+    dense_until: 30            # land by HALF the ceiling (runs stop early —
+                               # runs 5/6 banked 711/832 of 1024 scheduled over
+                               # the full ceiling). Same tested scheduler
+                               # (geode.probe.snapshot_steps, dense-then-log-
+                               # then-uniform over max_steps); computed for
+                               # n=2048 over 46878: 1566 land <= 23439, and
+                               # even an ~8K stop banks ~1220. ~48 MB/snapshot
+                               # adapter-only; steps past the actual stop never
                                # materialize (manifest snapshots_taken)
   seed: 316
 

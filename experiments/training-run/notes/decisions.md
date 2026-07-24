@@ -1219,3 +1219,18 @@ Dataset items: none.
   (Arm A) 711 taken of 1024 planned (last at step 5,978); run 6 (Arm B)
   832 of 1024 (last at 12,469) — the rest of each schedule fell past the
   run's ε/k stop and never materialized, as designed.
+- **Snapshot front-load rule for runs 7/8 (owner 2026-07-24)**: at least
+  1024 snapshots must already be scheduled by HALF the max_steps ceiling,
+  with saving continuing over the rest of the run. Motivation: the
+  schedule is computed over the ceiling but runs stop at convergence —
+  runs 5/6 banked only 711/832 of their 1024. Implemented as **config
+  n: 2048** with the unchanged tested scheduler (front-loading is
+  inherent in its dense-then-log shape): computed over 46,878, n=2048
+  puts 1,566 steps ≤ 23,439 (half), and ≥1024 land even by step ~8K
+  (1,220) — an Arm-A-fast stop still banks the full target. n=1536 was
+  rejected (only ~970 by 8K). Disk: ~48 MB/snapshot ⇒ realistic pair
+  ≈ 130 GB (A-stop ~8K → ~59 GB, B-stop ~20K → ~72 GB), worst case
+  96 GB/run at ceiling — plan **~200 GB free** before the pair launch
+  (supersedes the ≥120 GB figure above). Run 10 NOT bumped: Llama r=64
+  adapters ≈ 180 MB each, n=2048 would need a ~400 GB box — decide when
+  sizing the Llama box.

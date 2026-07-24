@@ -81,12 +81,9 @@ train:
                                # grace at short epochs) — inherited BY
                                # CITATION, not silently
   snapshots:
-    n: 1024                    # spec 02 §6: 1024 snapshots, dense-then-log-
-    dense_until: 30            # then-uniform (geode.probe.snapshot_steps);
-                               # schedule computed over max_steps at launch and
-                               # written into the manifest BEFORE training;
-                               # steps past the actual stop simply never
-                               # materialize (manifest snapshots_taken)
+    n: 2048                    # owner 2026-07-24 front-load rule — must stay
+    dense_until: 30            # verbatim-identical to run7_target_1m.yaml
+                               # (see its snapshot block for the numbers)
   seed: 316
 
 # No cost block: train_target.py quotes the max_steps ceiling directly
