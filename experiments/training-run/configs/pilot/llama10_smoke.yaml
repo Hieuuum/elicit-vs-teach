@@ -21,4 +21,6 @@ train:
   max_steps: 10
   eval_every: 5
   snapshots:
-    n: 2
+    n: 0                       # match production (owner 2026-07-24: run 10
+                               # saves no snapshots), so the smoke exercises
+                               # exactly the paths the real run takes

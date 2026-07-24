@@ -63,8 +63,14 @@ EVAL_STOP_ROWS = 2048
 # curve has resolution on a log step axis. Logged-only — rows carry
 # stopping_eval: false and are NEVER fed to the ε/k tracker; the ratified
 # stopping rule consumes exactly the eval_every cadence (+ the ceiling eval).
-EVAL_CURVE_N = 64
-EVAL_CURVE_DENSE_UNTIL = 16
+# Density 64→256 / dense 16→30 (owner 2026-07-24, "record val a lot for
+# plotting"): ~161 curve evals land <= step 2000 over the 46,878 ceiling —
+# the expected early-stop region. Worst case at 1.24B: one eval ≈ 16 fp32
+# forward batches ≈ 5 update steps of wall-clock, so even an early-stopping
+# run 10 pays tens of minutes, dollars-cents at box rates. Train loss needs
+# no knob: train_log.jsonl + logs/prequential.jsonl record EVERY step.
+EVAL_CURVE_N = 256
+EVAL_CURVE_DENSE_UNTIL = 30
 
 
 def load_frozen_parquet(d: dict):

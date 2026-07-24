@@ -23,9 +23,13 @@ chain script does at each step.
 - HF account that has **accepted the Meta Llama license** for
   `meta-llama/Llama-3.2-1B` (gated repo) — 401/403 on download means the
   token's account hasn't.
-- Disk: run 10 snapshots ≈ 180 MB × up to 1024 + a ~5 GB fp32 base ⇒
-  **~200 GB free for run 10 alone** (`df -h /workspace`). Run 9 is one
-  final checkpoint (~5 GB wrapped + ~5 GB merged), no snapshot schedule.
+- Disk: **~30 GB free covers the whole chain** (`df -h /workspace`) —
+  run 10 stores NO snapshots (owner 2026-07-24: no Llama extraction is
+  planned; the external-validity claim is behavioral EDL, and the loss
+  curves live in per-step `train_log.jsonl` + dense-curve
+  `eval_log.jsonl`). Run 9 is one final checkpoint (~5 GB wrapped +
+  ~5 GB merged), run 10 one wrapped checkpoint (~5 GB), plus the hub
+  cache.
 - Laptop pushed, box hash matches (see run7-8-guide.md §1); exports set
   in every tmux window (`GEODE_STORE`, `NTFY`).
 
@@ -108,8 +112,10 @@ near-zero-EDL elicitation is the expected finding there, not a bug.
 ## 4. Archive + teardown
 
 Small-artifact push per run5-6-guide.md §6 with run list
-`("evt-run9-llama1b-inst", "evt-run10-llama1b-target")`. Snapshots +
-checkpoints stay on-box until the owner's extraction/relay decision.
+`("evt-run9-llama1b-inst", "evt-run10-llama1b-target")` — the loss-curve
+logs (`train_log.jsonl`, `eval_log.jsonl`) ride along (they match the
+`*.jsonl` keep-glob). No snapshots exist for these runs; checkpoints stay
+on-box until the owner's relay decision.
 Destroy (never stop) when cleared; store lives inside the clone — never
 `git clean -dfx`.
 

@@ -22,9 +22,9 @@
 #      pilot/llama10_sweep_lr*.yaml kept as history). Accepted trade-off:
 #      the winner may sit above the paper's 1B-tuned 3.53e-4, shifting
 #      EDL magnitude — fine for a single external-validity chain.
-#   4. Disk: adapter-only snapshots at r=64 on 1.24B ≈ ~180 MB × up to
-#      1024 + one ~5 GB fp32 base file ⇒ budget ~190 GB for this run
-#      alone before launch.
+#   4. Disk: NO snapshots (owner 2026-07-24, see train.snapshots) — this
+#      run stores its final wrapped checkpoint (~5 GB) plus logs; budget
+#      ~15 GB, not the old ~190 GB snapshot plan.
 #   5. Evidence pre-launch (recorded, not gating): zero-shot op add/sub
 #      on the merged parent — real Llama may already answer op-notation
 #      add/sub; a near-zero EDL elicitation would itself be the expected
@@ -95,12 +95,16 @@ train:
     min_steps: 0               # the runs-5/6 family) — inherited BY
                                # CITATION, not silently
   snapshots:
-    n: 1024                    # NOT yet bumped to the runs-7/8 front-load rule
-    dense_until: 30            # (owner 2026-07-24): Llama r=64 adapters are
-                               # ~180 MB each, so n=2048 needs a ~400 GB box —
-                               # decide n when sizing the Llama box. Schedule
-                               # computed over max_steps at launch; steps past
-                               # the actual stop never materialize
+    n: 0                       # owner 2026-07-24: NO snapshots for the Llama
+    dense_until: 30            # chain — no extraction is planned here (the
+                               # external-validity claim is behavioral EDL);
+                               # closes the open "pick n at box sizing" item
+                               # (was 1024 ≈ 180 MB × up to 1024 + 5 GB base).
+                               # The EDL stream + val curve are unaffected:
+                               # train_log/prequential.jsonl log every step,
+                               # eval_log.jsonl gets the dense curve evals
+                               # (EVAL_CURVE_N, train_target.py). Runs 7/8
+                               # KEEP n=2048 — their extraction is owed.
   seed: 316
 
 # No cost block: train_target.py quotes the max_steps ceiling directly —

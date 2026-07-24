@@ -18,9 +18,11 @@
 # push the run INCLUDING snapshots/ to the private relay
 # (mhieuuu/geode-store), verify every local file is listed on the hub,
 # then delete the heavy dirs (snapshots/, model/, model_merged/) locally.
-# Peak disk ~220 GB instead of ~420 GB. Costs: extraction must later pull
-# snapshots back (--with-snapshots), and the relay grows by 200-400 GB —
-# check the HF plan's private-storage quota first. Needs HF_WRITE_TOKEN
+# Peak disk ~120 GB instead of ~250 GB (run 10 stores NO snapshots, owner
+# 2026-07-24 — only runs 7/8 carry them). Costs: extraction must later
+# pull the 7/8 snapshots back (--with-snapshots), and the relay grows by
+# ~100-200 GB — check the HF plan's private-storage quota first. Needs
+# HF_WRITE_TOKEN
 # (env, or typed at start on a tty); it is passed per-push only
 # (HF_TOKEN=<write> python ...) — the box's ambient login stays READ-only.
 # Runs 5/6 are NEVER touched (their relay push is owner-held).
@@ -134,7 +136,8 @@ need = {
     "evt-run7-armA-target-1m": 100,   # 2048 x ~48 MB adapter snapshots
     "evt-run8-armB-target-1m": 100,
     "evt-run9-llama1b-inst": 15,      # wrapped + merged ~5 GB each + hub cache
-    "evt-run10-llama1b-target": 200,  # 1024 x ~180 MB + ~5 GB base
+    "evt-run10-llama1b-target": 15,   # NO snapshots (owner 2026-07-24) —
+                                      # final wrapped checkpoint + logs
 }
 
 
@@ -321,7 +324,8 @@ launch_run evt-run10-llama1b-target train_target.py run10_llama1b_target.yaml \
 g5_if_missing evt-run10-llama1b-target
 
 # Run 9 prunes only now — run 10 needed model_merged/ as its parent.
-prune_run evt-run10-llama1b-target snapshots model
+# (Run 10 has no snapshots/ — owner 2026-07-24 — so only model/ goes.)
+prune_run evt-run10-llama1b-target model
 prune_run evt-run9-llama1b-inst model model_merged
 
 # ---- summary ---------------------------------------------------------------

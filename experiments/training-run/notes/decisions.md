@@ -1349,3 +1349,26 @@ Three points, one epoch each (7,813 steps), stopping-block min_val_nats:
 - Note for the record: the 1e-3 → 3e-3 gap is small (0.0053 nats ≈
   0.0077 bits at the shared budget) while 3e-4 is clearly out; the rule
   (lowest min_val + edge extension) decides, not eyeballing.
+
+## Owner directives 2026-07-24 (fourth batch: no Llama snapshots, dense val curve)
+
+- **Run 10 stores NO snapshots** (`snapshots.n: 0`; smoke overlay matched):
+  no extraction is planned for the Llama chain — the external-validity
+  claim is behavioral EDL only. This CLOSES the open "pick snapshot n at
+  Llama box sizing" item (the n=256/512/1024 storage table above is moot);
+  the whole Llama chain now fits in ~30 GB. Runs 7/8 KEEP n=2048 — their
+  extraction is owed. Chain-script disk guard and prune calls updated
+  (run-10 need 200→15 GB; prune peak ~120 GB, no-prune total ~250 GB).
+- **Loss curves for plotting (owner: "record train and val a lot")**:
+  train needs no change — `train_log.jsonl` (+ `logs/prequential.jsonl`,
+  the EDL stream itself) already records EVERY step. Val: curve-eval
+  density raised in train_target.py, `EVAL_CURVE_N` 64→256 and
+  `EVAL_CURVE_DENSE_UNTIL` 16→30 — ~161 curve evals land ≤ step 2000 of
+  the 46,878 ceiling (the expected run-10 early-stop region), every step
+  to 30 covered. Curve evals stay logged-only (`stopping_eval: false`,
+  never fed to the ε/k tracker) — the ratified stopping rule and its
+  eval_every cadence are UNTOUCHED, so this is instrumentation, not a
+  protocol change. Applies to every train_target.py run (7/8 get the
+  denser curve too; evals are near-free at 38.7M). Worst-case cost at
+  1.24B: one eval ≈ 16 fp32 forward batches ≈ 5 update steps — tens of
+  minutes over a full run, cents at box rates.
