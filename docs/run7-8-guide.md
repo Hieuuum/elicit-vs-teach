@@ -35,6 +35,10 @@ for lr in 3e-4 1e-3 3e-3; do
 done
 ```
 
+Or use the runner: `./sweep_1m.sh --confirm-cost` — same three points,
+skips already-completed points on re-run (crash resume), stops on a failed
+point, and ends with the winner summary + edge-rule verdict.
+
 Watch from a second window: `python monitor.py --run-id evt-run8-sweep-lr<X>`
 (prints steps/s + ETA — the first point calibrates wall-clock for the other
 two). Disk is a non-issue here: no snapshots, <~1 GB per run (final model +
@@ -54,6 +58,10 @@ Then, laptop: set `train.lr` in **both** `run7_target_1m.yaml` and
 push; box `git pull` and confirm the hash before the pair launches. Launch
 order and gate mechanics for the pair are in the two configs' headers
 (run 7 first — G7).
+
+Then the pair runs unattended: `./launch_pair_1m.sh --confirm-cost` — checks
+the pin equals the sweep winner in the store, ≥200 GB free, parents present;
+run 7 then run 8 with NTFY pings; skips a completed run on re-run.
 
 ## Troubleshooting
 

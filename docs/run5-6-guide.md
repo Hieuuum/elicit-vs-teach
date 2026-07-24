@@ -14,6 +14,10 @@ git rev-parse --short HEAD    # note this hash — the box must match it
 
 ## 1. Box setup
 
+(Or put `scripts/box_onstart.sh` in the vast.ai template's on-start field —
+it does this section idempotently: clone + install + suite + bashrc exports.
+It never launches training and never auto-pulls; §0's hash check stays yours.)
+
 ```bash
 nvidia-smi; python --version; df -h /workspace | tail -1
 tmux new -s train
