@@ -119,6 +119,7 @@ def manifest_fields(
     est_usd: float,
     init_from: Path,
     mask_hash: str,
+    precision: str,
 ) -> dict[str, Any]:
     t = cfg["train"]
     lora = cfg["lora"]
@@ -159,9 +160,11 @@ def manifest_fields(
             },
             "lr_schedule": "constant",  # structural: the prequential loop has no scheduler
             "min_lr": None,
-            # Resolved value: the prequential harness computes fp32 (no
-            # autocast) on any device — EDL numerics stay precision-uniform.
-            "precision": "fp32",
+            # Resolved value after any CPU fallback (spec 00 §2). The harness
+            # reads THIS field: bf16 autocasts only its update forward — every
+            # recorded loss stays fp32 (V5.62; Llama chain, owner 2026-07-24).
+            # Small-model runs ship no train.precision and stay fp32.
+            "precision": precision,
             "eval_every": t["eval_every"],
             "max_steps": t["max_steps"],
             "stopping": {  # loss branch of the V0.7 union (no `metric` key)
@@ -330,6 +333,8 @@ def main() -> int:
 
     t = cfg["train"]
     gpu = cfg["gpu"]
+    # Same CPU fallback as train_sft.py; spec 00 §2 records the resolved value.
+    precision = t.get("precision", "fp32") if args.device != "cpu" else "fp32"
     # The ceiling is what the budget must cover: max_steps batches of
     # right-padded rows (set-max padding, geode.edl.loop convention).
     flops = 6.0 * n_params * (t["max_steps"] * t["batch_size"] * max_len)
@@ -372,6 +377,7 @@ def main() -> int:
             est_usd=est_usd,
             init_from=args.init_from,
             mask_hash=mask_hash,
+            precision=precision,
         ),
         store=store,
     )

@@ -49,6 +49,15 @@ EDL-3 tests):
   every entry is a sub-norm of the global norm.
 - **Optimizer**: SGD (spec 00 §2 ``optimizer.name == "sgd"``); any other name
   raises rather than silently substituting.
+- **Precision** (2026-07-24, the Llama-1B chain): ``manifest.training.precision
+  == "bf16"`` autocasts **only the grad-enabled update forward** — the
+  prequential stream and the θ_T test loss are always computed fp32 on the
+  fp32 master weights (losses are reported quantities, the spec 02 §7
+  principle; ``no_grad`` forwards store no activations, so fp32 costs no
+  memory there). bf16 therefore changes only which θ trajectory the run
+  traverses, never how a loss is measured at a given θ. Read from the
+  manifest — the same source as every other training field — so recorded and
+  executed precision cannot disagree. V5.62.
 - **p=0 guard** (deferred EDL-2 item, ``prequential.py`` silent wraparound): a
   causal LM predicts token ``p`` from position ``p-1``, so a label at position 0
   has no predecessor. The loop refuses such a mask with a clear error instead of
@@ -79,6 +88,7 @@ from safetensors.torch import load_file, load_model, save_file
 
 from geode.edl.masking import TaskFormat, label_mask, masking_config_hash
 from geode.edl.prequential import PrequentialAccumulator, prequential_step
+from geode.train.loop import _device_type
 from geode.train.lora import apply_lora
 from geode.zoo import (
     GradStatRecord,
@@ -148,6 +158,12 @@ def train_prequential(
     lora_cfg = training["lora"]
     batch_size = int(optimizer_cfg["batch_size"])
     epochs_total = int(training["epochs_total"])
+    precision = training.get("precision", "fp32")
+    if precision not in ("fp32", "bf16"):
+        raise ValueError(
+            f"train_prequential: unsupported training.precision {precision!r} "
+            "(expected 'fp32' or 'bf16')"
+        )
     snapshot_steps = set(manifest.data["snapshot_steps"])
 
     train_examples = dataset["train"]
@@ -236,8 +252,14 @@ def train_prequential(
                 later_records.append(record)
 
             # One grad-enabled update on the same batch (θ_k -> θ_{k+1}).
+            # bf16 autocasts this forward ONLY (module docstring): the
+            # measurement forwards above/below stay fp32.
             optimizer.zero_grad(set_to_none=True)
-            loss, accuracy = _masked_mean_loss(wrapped, batch, mask, device)
+            if precision == "bf16":
+                with torch.autocast(device_type=_device_type(device), dtype=torch.bfloat16):
+                    loss, accuracy = _masked_mean_loss(wrapped, batch, mask, device)
+            else:
+                loss, accuracy = _masked_mean_loss(wrapped, batch, mask, device)
             loss.backward()
             if updates_done % gradstats_stride == 0:
                 gradstat_log.append(_gradstat(wrapped, updates_done))  # pre-clip norms

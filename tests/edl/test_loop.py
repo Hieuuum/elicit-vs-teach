@@ -149,6 +149,7 @@ def _manifest_fields(
     epochs_total: int = 1,
     snapshot_steps: tuple[int, ...] = (),
     seed: int = LOOP_SEED,
+    precision: str = "fp32",
 ) -> dict:
     """A fully valid spec 00 §2 manifest driving the loop's training config."""
     return {
@@ -180,7 +181,7 @@ def _manifest_fields(
             },
             "lr_schedule": "constant",
             "min_lr": None,
-            "precision": "fp32",
+            "precision": precision,
             "eval_every": None,
             "max_steps": None,
             "stopping": {"eps_nats": None, "k": None, "min_steps": None},
@@ -1201,3 +1202,60 @@ def test_v1_10_step_callback_mid_epoch1_stop_still_writes_artifacts(
     assert (run_dir / "logs" / "prequential.jsonl").is_file()
     assert (run_dir / "logs" / "gradstats.jsonl").is_file()
     assert (run_dir / "eval" / "test_loss.json").is_file()
+
+
+# ---------------------------------------------------------------------------
+# V5.62 — bf16 touches only the update path
+# ---------------------------------------------------------------------------
+
+
+def test_v5_62_bf16_touches_only_the_update_path(geode_store, tiny_llama, copy_token_task):
+    """V5.62: ``training.precision == "bf16"`` autocasts only the update forward.
+
+    The step-0 prequential record is taken at θ_0 *before* any update and the
+    measurement path is always fp32, so it must be bit-identical between a
+    same-seed fp32 run and bf16 run — a loop that autocasts the measurement
+    forwards (or loads bf16 weights) fails this exactly. Later records and
+    the θ_T test loss ride a bf16-perturbed trajectory, so they are only
+    required to exist and be finite. An unknown precision string raises
+    before any training.
+    """
+    train = copy_token_task(seed=11, n=6)
+    test = copy_token_task(seed=12, n=4)
+    records = {}
+    for run_id, precision in (("run-prec-fp32", "fp32"), ("run-prec-bf16", "bf16")):
+        manifest = register_run(
+            _manifest_fields(run_id, n_unique=6, batch_size=2, lr=0.05, precision=precision)
+        )
+        train_prequential(
+            tiny_llama(seed=MODEL_SEED),
+            _dataset(train, test),
+            _task_format(),
+            manifest,
+            device="cpu",
+            seed=LOOP_SEED,
+        )
+        records[precision] = _sorted_records(run_id)
+
+    fp32_recs, bf16_recs = records["fp32"], records["bf16"]
+    assert [r.step for r in bf16_recs] == [r.step for r in fp32_recs] == [0, 1, 2]
+    # θ_0 is pre-update and fp32-measured under both precisions: bit-identical.
+    assert bf16_recs[0].loss_sum_nats == fp32_recs[0].loss_sum_nats
+    assert all(math.isfinite(r.loss_sum_nats) for r in bf16_recs)
+    tl = test_loss("run-prec-bf16")
+    assert math.isfinite(tl.loss_per_label_token_nats)
+
+    # Unknown precision refuses loudly, before any training or disk write.
+    # (register_run's schema enum already rejects it at registration, so the
+    # harness guard is exercised by mutating a registered manifest in place.)
+    bad = register_run(_manifest_fields("run-prec-bad", n_unique=6, batch_size=2, lr=0.05))
+    bad.data["training"]["precision"] = "fp16"
+    with pytest.raises(ValueError, match="precision"):
+        train_prequential(
+            tiny_llama(seed=MODEL_SEED),
+            _dataset(train, test),
+            _task_format(),
+            bad,
+            device="cpu",
+            seed=LOOP_SEED,
+        )

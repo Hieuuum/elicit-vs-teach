@@ -13,9 +13,10 @@
 #      (plain checkpoint from scripts/merge_adapter.py). NEVER the wrapped
 #      model/ dir — plain from_pretrained on a wrapped checkpoint silently
 #      random-inits projections (zoo.load_model rule).
-#   2. Smoke first: pilot/llama10_smoke.yaml — the fp32 harness at 1.24B
-#      params, batch 128 is the memory worst case on a 24 GB 4090; if it
-#      OOMs, STOP and ask the owner (batch change = protocol change).
+#   2. Smoke first: pilot/llama10_smoke.yaml — the harness at 1.24B params,
+#      batch 128 (bf16 update forward, fp32 measurement forwards — see
+#      train.precision below) is the memory worst case on a 24 GB 4090; if
+#      it OOMs, STOP and ask the owner (batch change = protocol change).
 #   3. train.lr is null — pin it from the Llama target sweep
 #      (pilot/llama10_sweep_lr*.yaml). The paper's 3.53e-4 was tuned AT
 #      this scale (spec 02 §6 note) — it is back in scope here; the
@@ -71,6 +72,14 @@ lora:
 train:
   lr: null                     # PIN FROM THE LLAMA TARGET SWEEP (header
                                # note 3) — do not launch unpinned
+  precision: bf16              # owner 2026-07-24: the Llama chain trains
+                               # bf16, matching run 9's installer. Autocast
+                               # wraps ONLY the harness's update forward
+                               # (V5.62): the prequential stream, stopping
+                               # evals, and θ_T test loss stay fp32 — bf16
+                               # moves the θ trajectory, never how a loss is
+                               # measured. All-fp32 at 1.24B/batch 128 was
+                               # the 24 GB OOM worst case (header note 2).
   batch_size: 128
   eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
   max_steps: 46878             # pure cost ceiling = 6 epochs of the full 1M

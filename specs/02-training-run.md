@@ -760,6 +760,15 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   freshly wrapped model (B=0) merges to the base weights bit-exactly (the
   update is exactly zero); merged `state_dict()` keys equal a never-wrapped
   model's, so `save_pretrained` → plain `from_pretrained` round-trips.
+- V5.62 bf16 touches only the update path (2026-07-24, §6, the Llama-1B
+  chain): with `manifest.training.precision == "bf16"`, `train_prequential`
+  autocasts the grad-enabled update forward and nothing else — the
+  prequential stream and θ_T test loss are always measured fp32 on the fp32
+  master weights (losses are reported quantities, the §7 principle). The
+  step-0 record is taken at θ_0 before any update, so it is bit-identical to
+  a same-seed fp32 run's; all artifacts stay complete and finite. An unknown
+  precision string raises. Runs 5–8 ship fp32; only the Llama chain sets
+  `train.precision: bf16`.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
@@ -807,7 +816,10 @@ run-2 2026-07-21 incident class).
 **Runs 5–6 (LoRA target):** use `train_prequential` as-is — pre-update
 losses, gradstats (per-module grad norms already covered), full-model
 snapshots (spec 00 §1) at `manifest.snapshot_steps`. Additions needed: LR + train-acc
-scalars per step (small logging extension). Probe loss/acc are **not**
+scalars per step (small logging extension). The harness reads
+`training.precision` from the manifest (default fp32): `"bf16"` autocasts
+only the update forward — every recorded loss stays fp32 (V5.62; the
+Llama-1B chain is the only user, 2026-07-24). Probe loss/acc are **not**
 computed in-training: the extraction pass (§7) yields per-example probe
 loss at every snapshot, and early snapshots are per-step anyway, so probe
 curves at snapshot resolution come free. Snapshot schedule: 1024 steps,
