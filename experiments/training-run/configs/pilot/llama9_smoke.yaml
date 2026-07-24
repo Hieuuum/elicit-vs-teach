@@ -14,3 +14,7 @@ train:
                                # not learning
   max_steps: 10
   eval_every: 5
+  stopping:
+    n_prompts: 8               # val split at max_rows 2000 is only 10 rows;
+                               # the inherited 512 crashed random.sample()
+                               # (chain smoke failure 2026-07-24)

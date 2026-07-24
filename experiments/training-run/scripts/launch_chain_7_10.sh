@@ -219,7 +219,7 @@ run_smoke() { # $1 smoke run_id  $2.. the smoke command — disposable by design
   if "${@:2}"; then
     rm -rf "${GEODE_STORE:?}/runs/${1:?}"
   else
-    fail "$1 smoke (OOM = protocol question: batch/precision are owner calls — llama-guide troubleshooting)"
+    fail "$1 smoke — read its traceback above; if CUDA OOM: protocol question (batch/precision are owner calls — llama-guide troubleshooting)"
   fi
 }
 
