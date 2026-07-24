@@ -3,11 +3,14 @@
 Elicitation on the real pretrained model (owner 2026-07-23, decisions.md):
 run 9 = LoRA format install on `D_inst` (behavioral stop), merge to a
 plain checkpoint, run 10 = LoRA target on the full 1M `D_target` through
-the fp32 EDL harness. Configs: `run9_llama1b_inst.yaml` /
-`run10_llama1b_target.yaml` — **both ship `lr: null`; each stage has its
-own sweep** (`pilot/llama9_sweep_lr*`, `pilot/llama10_sweep_lr*`).
-Sequencing: this chain waits until extraction + runs 7/8 are done
-(one-box plan), or gets its own box.
+the EDL harness (bf16 update forward, fp32-measured losses — V5.62).
+Configs: `run9_llama1b_inst.yaml` / `run10_llama1b_target.yaml` — both
+ship `lr: null` until the **runs-7/8 1M sweep winner** is pinned into
+them: **one LR everywhere** (owner 2026-07-24) — the per-stage Llama
+sweeps are dropped (`pilot/llama{9,10}_sweep_lr*` kept only as history;
+fallback: if run 9's gates fail at the shared LR, revive the gentle
+installer sweep for run 9 only). Sequencing: this chain waits until
+extraction + runs 7/8 are done (one-box plan), or gets its own box.
 
 ## 0. Prerequisites
 
@@ -38,26 +41,19 @@ Llama chunks digits up to 3 per token and its BPE merges differ from the
 custom tokenizer the span checks were tuned on. Any failure: stop, bring
 the output back to the owner. Do not patch around a span error.
 
-## 2. Run 9 — smoke, sweep, pin, launch, gate, merge
+## 2. Run 9 — smoke, launch, gate, merge
+
+LR: the runs-7/8 sweep winner, already pinned in the config before this
+chain starts (one LR everywhere, owner 2026-07-24 — no installer sweep).
+If G4 fails or zero-shot arithmetic degrades at that LR, stop and revive
+the gentle installer sweep (`pilot/llama9_sweep_lr*`) for run 9 only.
 
 ```bash
 # memory + plumbing (~1 min, disposable)
 python train_sft.py --config ../configs/run9_llama1b_inst.yaml \
     --override ../configs/pilot/llama9_smoke.yaml \
     --init-from meta-llama/Llama-3.2-1B --confirm-cost
-
-# installer LR sweep — 4 points; each stops behaviorally (G4 in-loop)
-for lr in 3e-6 1e-5 3e-5 1e-4; do
-  python train_sft.py --config ../configs/run9_llama1b_inst.yaml \
-      --override ../configs/pilot/llama9_sweep_lr${lr}.yaml \
-      --init-from meta-llama/Llama-3.2-1B --confirm-cost \
-    ; curl -d "llama9 sweep lr=${lr} done (exit $?)" $NTFY
-done
 ```
-Winner rule (run-3 precedent): the **gentlest** lr whose behavioral stop
-fires while zero-shot arithmetic evidence survives best; gentlest-point
-win ⇒ extend downward first. Pin on the laptop
-(`run9_llama1b_inst.yaml` + decisions.md), push, `git pull` on the box.
 
 ```bash
 python train_sft.py --config ../configs/run9_llama1b_inst.yaml \
@@ -74,25 +70,20 @@ python merge_adapter.py --run-id evt-run9-llama1b-inst
 ls $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged/
 ```
 
-## 3. Run 10 — smoke, sweep, pin, launch, evidence
+## 3. Run 10 — smoke, launch, evidence
+
+LR: the same runs-7/8 winner, pinned in the config (no target sweep —
+one LR everywhere, owner 2026-07-24).
 
 ```bash
-# fp32 harness at 1.24B, batch 128 — the memory worst case (~2 min).
-# OOM here = STOP and ask the owner; a batch change is a protocol change.
+# harness at 1.24B, batch 128 (bf16 update forward, fp32 measurement
+# forwards) — the memory worst case (~2 min). OOM here = STOP and ask
+# the owner; a batch/precision change is a protocol change.
 python train_target.py --config ../configs/run10_llama1b_target.yaml \
     --override ../configs/pilot/llama10_smoke.yaml \
     --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged --confirm-cost
-
-# target LR sweep — 3 points @ the 100K prefix (cost control at 1.24B)
-for lr in 1e-4 3e-4 1e-3; do
-  python train_target.py --config ../configs/run10_llama1b_target.yaml \
-      --override ../configs/pilot/llama10_sweep_lr${lr}.yaml \
-      --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged --confirm-cost \
-    ; curl -d "llama10 sweep lr=${lr} done (exit $?)" $NTFY
-done
 ```
-Winner = lowest `min_val_nats` among converged; edge win ⇒ extend. Pin
-both the config and decisions.md (laptop), push, pull. Then:
+Then:
 
 ```bash
 python train_target.py --config ../configs/run10_llama1b_target.yaml \

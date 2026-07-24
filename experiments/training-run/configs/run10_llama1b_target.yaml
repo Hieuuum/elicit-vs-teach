@@ -17,10 +17,11 @@
 #      batch 128 (bf16 update forward, fp32 measurement forwards — see
 #      train.precision below) is the memory worst case on a 24 GB 4090; if
 #      it OOMs, STOP and ask the owner (batch change = protocol change).
-#   3. train.lr is null — pin it from the Llama target sweep
-#      (pilot/llama10_sweep_lr*.yaml). The paper's 3.53e-4 was tuned AT
-#      this scale (spec 02 §6 note) — it is back in scope here; the
-#      bracket {1e-4, 3e-4, 1e-3} straddles it.
+#   3. train.lr is null — pin it to the RUNS-7/8 1M SWEEP WINNER (one LR
+#      everywhere, owner 2026-07-24; the Llama target sweep is dropped,
+#      pilot/llama10_sweep_lr*.yaml kept as history). Accepted trade-off:
+#      the winner may sit above the paper's 1B-tuned 3.53e-4, shifting
+#      EDL magnitude — fine for a single external-validity chain.
 #   4. Disk: adapter-only snapshots at r=64 on 1.24B ≈ ~180 MB × up to
 #      1024 + one ~5 GB fp32 base file ⇒ budget ~190 GB for this run
 #      alone before launch.
@@ -70,8 +71,8 @@ lora:
                                # QKVOGUD; adapter init seed = train.seed
 
 train:
-  lr: null                     # PIN FROM THE LLAMA TARGET SWEEP (header
-                               # note 3) — do not launch unpinned
+  lr: null                     # PIN = RUNS-7/8 SWEEP WINNER (header note 3,
+                               # one LR everywhere) — do not launch unpinned
   precision: bf16              # owner 2026-07-24: the Llama chain trains
                                # bf16, matching run 9's installer. Autocast
                                # wraps ONLY the harness's update forward

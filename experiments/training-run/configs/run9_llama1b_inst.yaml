@@ -15,11 +15,12 @@
 #      it must PASS (pad/EOS handling, vocab guard, span checks on the
 #      frozen parquets under Llama's 3-digit-chunking tokenizer).
 #   2. Smoke first: pilot/llama9_smoke.yaml (memory + plumbing, ~1 min).
-#   3. train.lr is null — pin it from the Llama installer sweep
-#      (pilot/llama9_sweep_lr*.yaml). Run-3 precedent: random mult-length
-#      labels attack the answer-termination prior first, so the GENTLEST
-#      lr that still installs the format (behavioral stop fires) while
-#      retaining arithmetic (zero-shot evidence pre/post) wins.
+#   3. train.lr is null — pin it to the RUNS-7/8 1M SWEEP WINNER (one LR
+#      everywhere, owner 2026-07-24; the installer sweep is dropped,
+#      pilot/llama9_sweep_lr*.yaml kept as history). Fallback: if G4
+#      fails or zero-shot arithmetic degrades at that lr, revive the
+#      gentle sweep for run 9 only (run-3 precedent: gentlest lr that
+#      installs the format while retaining arithmetic).
 #   4. After completion: record G4 (gates.py g4), then MERGE the adapter
 #      to a plain checkpoint (scripts/merge_adapter.py --run-id
 #      evt-run9-llama1b-inst) — run 10 warm-starts from model_merged/;
@@ -63,8 +64,8 @@ lora:                          # install-stage adapter (owner 2026-07-23)
                                # QKVOGUD, init from common.yaml
 
 train:
-  lr: null                     # PIN FROM THE LLAMA INSTALLER SWEEP (header
-                               # note 3) — launcher refuses null lr
+  lr: null                     # PIN = RUNS-7/8 SWEEP WINNER (header note 3,
+                               # one LR everywhere) — launcher refuses null
   batch_size: 128
   eval_every: 250              # behavioral cadence (spec 02 §6, OPEN(1) close)
   max_steps: 15546             # pure ceiling, same math as run 3: 2 epochs of

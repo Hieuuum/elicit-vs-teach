@@ -1234,3 +1234,42 @@ Dataset items: none.
   (supersedes the ≥120 GB figure above). Run 10 NOT bumped: Llama r=64
   adapters ≈ 180 MB each, n=2048 would need a ~400 GB box — decide when
   sizing the Llama box.
+
+## Owner directives 2026-07-24 (second batch: precision, LR policy, launchers)
+
+- **Llama chain trains bf16 (owner)**: `train.precision: bf16` in
+  run10_llama1b_target.yaml (run 9's installer was already bf16).
+  Implemented as V5.62 (spec 02 §6, f4acb44): `train_prequential` reads
+  `training.precision` from the manifest and autocasts ONLY the
+  grad-enabled update forward — the prequential stream, stopping evals,
+  and θ_T test loss are always measured fp32 on fp32 master weights
+  (losses are reported quantities, §7 principle). bf16 moves the θ
+  trajectory, never how a loss is measured. Runs 5–8 stay fp32.
+- **One LR everywhere (owner, ratified after the run-9/10 structure was
+  clarified)**: the runs-7/8 1M sweep winner is the single shared pin for
+  run 7, run 8, run 9, AND run 10. Both Llama sweeps are dropped
+  (`pilot/llama{9,10}_sweep_lr*.yaml` kept as history only). Fallback
+  (assistant, owner notified): if run 9's G4 fails or zero-shot
+  arithmetic degrades at that lr, revive the gentle installer sweep for
+  run 9 only. Accepted trade-off on run 10: the winner may sit above the
+  paper's 1B-tuned 3.53e-4, shifting EDL magnitude — acceptable for a
+  single external-validity chain. This also ACKS the shared-LR-for-7/8
+  recommendation (the deferred LR-policy item is now closed).
+- **Llama chain stays two-stage (owner)**: run 9 (format install,
+  ~minutes) + run 10 (the EDL measurement). Not an elicit/teach pair —
+  run 9 exists so run 10 measures arithmetic elicitation, not
+  format learning.
+- **Unattended launchers (owner asked for scripted runs, a9c47db)**:
+  `sweep_1m.sh` (three 1M sweep points, crash resume, winner + edge-rule
+  summary) and `launch_pair_1m.sh` (run 7 → run 8; refuses unless the
+  shared pin matches the store's sweep winner, ≥200 GB free, parents
+  present). The pair script deliberately ENDS after run 8 (owner): the
+  Llama chain gets its own script later, when its box is sized — not
+  implemented yet. `box_onstart.sh` = idempotent vast.ai provisioning
+  (never launches training, never auto-pulls).
+- **Run-10 snapshot storage (computed for the box-sizing decision, still
+  open)**: adapter 180 MB + base 4.94 GB once; over the 46,878 ceiling —
+  n=1024: ~80 GB at a 1K-step stop, ~130 GB at 7.8K, 190 GB worst;
+  n=512: ~50–74–97 GB; n=256: ~30–41–51 GB. Half-res n=512 keeps the
+  Llama box in the ~100 GB class if snapshot density can be halved for
+  the external-validity chain — owner call at box sizing.
