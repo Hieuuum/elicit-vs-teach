@@ -111,11 +111,40 @@ near-zero-EDL elicitation is the expected finding there, not a bug.
 
 ## 4. Archive + teardown
 
-Small-artifact push per run5-6-guide.md §6 with run list
-`("evt-run9-llama1b-inst", "evt-run10-llama1b-target")` — the loss-curve
-logs (`train_log.jsonl`, `eval_log.jsonl`) ride along (they match the
-`*.jsonl` keep-glob). No snapshots exist for these runs; checkpoints stay
-on-box until the owner's relay decision.
+Small-artifact push (logs + manifest only, ~MBs — the recipe formerly in
+run5-6-guide.md §6, deleted 2026-07-24). `hf_checkpoint.py push` uploads
+the whole run dir including weights — don't use it for this. Two separate
+pastes (the `read` must be alone):
+
+```bash
+read -rsp "HF WRITE token: " HF_WRITE_TOKEN && export HF_WRITE_TOKEN && echo " ok"
+```
+```bash
+python3 - <<'EOF'
+import fnmatch, os
+from pathlib import Path
+from huggingface_hub import CommitOperationAdd, HfApi
+api = HfApi(token=os.environ["HF_WRITE_TOKEN"])
+for rid in ("evt-run9-llama1b-inst", "evt-run10-llama1b-target"):
+    src = Path("/workspace/elicit-vs-teach/geode-store/runs") / rid
+    keep = [p.relative_to(src).as_posix() for p in sorted(src.rglob("*")) if p.is_file()]
+    keep = [r for r in keep
+            if any(fnmatch.fnmatch(r, a) for a in ("*.json", "*.jsonl", "*.yaml"))
+            and not any(fnmatch.fnmatch(r, i) for i in ("snapshots/*", "model/*", "model_merged/*"))]
+    total = sum((src / r).stat().st_size for r in keep)
+    print(rid, len(keep), "files", f"{total/1e6:.1f} MB")
+    assert total < 200e6, "guard tripped — check the list, NOT uploading"
+    api.create_commit(repo_id="mhieuuu/geode-store",
+        operations=[CommitOperationAdd(f"runs/{rid}/{r}", str(src / r)) for r in keep],
+        commit_message=f"{rid}: logs+manifest only")
+print("DONE")
+EOF
+unset HF_WRITE_TOKEN
+```
+
+The loss-curve logs (`train_log.jsonl`, `eval_log.jsonl`) ride along (they
+match the `*.jsonl` keep-glob). No snapshots exist for these runs;
+checkpoints stay on-box until the owner's relay decision.
 Destroy (never stop) when cleared; store lives inside the clone — never
 `git clean -dfx`.
 

@@ -1,5 +1,6 @@
 __pycache__/
 /geode-store/
+.claude/worktrees/
 *.pyc
 *.egg-info/
 .venv/

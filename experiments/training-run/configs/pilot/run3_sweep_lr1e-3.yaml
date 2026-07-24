@@ -1,6 +1,0 @@
-# Run-3 installer LR sweep arm — see run3_sweep_lr1e-4.yaml for the grid
-# rationale and winner criterion.
-# Launch: train_sft.py --config configs/run3_inst.yaml --override this file.
-run_id: evt-run3-sweep-lr1e-3
-train:
-  lr: 1.0e-3

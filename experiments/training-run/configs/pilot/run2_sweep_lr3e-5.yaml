@@ -1,8 +1,0 @@
-# Run-2 SFT LR sweep arm: full-length (1 epoch), not a short pilot —
-# a complete run costs ~$0.02–0.06, so the sweep arms ARE candidate runs
-# and the winner's LR is re-launched as evt-run2-armA-algo (decisions.md
-# 2026-07-20; short-horizon extrapolation is what misled run 1).
-# Launch: train_sft.py --config configs/run2_algo.yaml --override this file.
-run_id: evt-run2-sweep-lr3e-5
-train:
-  lr: 3.0e-5

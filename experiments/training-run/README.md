@@ -40,9 +40,4 @@ graph LR
 export GEODE_STORE=/path/to/store
 python scripts/train.py --config configs/run1_pretrain.yaml            # prints cost, refuses
 python scripts/train.py --config configs/run1_pretrain.yaml --confirm-cost
-# pilot-scale end-to-end first (spec 02 §11):
-python scripts/train.py --config configs/run1_pretrain.yaml \
-  --override configs/pilot/run1_pretrain.yaml --confirm-cost
 ```
-
-Implementation history for every task lives in `docs/impl-logs/`.

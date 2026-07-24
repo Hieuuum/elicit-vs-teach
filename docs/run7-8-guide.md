@@ -47,8 +47,9 @@ python3 verify_llama_tokenizer.py  # early Meta-license/token check
 
 (No sweep pull — those run dirs were lost with the old box. The chain's
 LR guard verifies the pin against the committed `configs/lr_pin.yaml`
-instead, created at pin time in §3. Do NOT re-run `sweep_1m.sh` here: with
-nothing complete in this store it would retrain all four points.)
+instead, created at pin time in §3. The sweep runner `sweep_1m.sh` was
+DELETED 2026-07-24 — foot-gun removal: with nothing complete in a fresh
+store it would have retrained all four points.)
 
 ## 2. Launch — 7,813 steps per point, sequential
 

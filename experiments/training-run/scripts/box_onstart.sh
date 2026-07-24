@@ -10,7 +10,7 @@
 # Template env vars (vast.ai -> Environment Variables):
 #   HF_TOKEN     READ-only HF token; huggingface_hub reads the env var
 #                directly, no login step needed. NEVER a WRITE token (relay
-#                pushes are owner-gated, see run5-6-guide.md §6). For the
+#                pushes are owner-gated, see llama-guide.md §4). For the
 #                Llama box it must belong to the Meta-licensed account.
 #   NTFY         optional ping URL (ntfy.sh/<topic>) — the SAME variable
 #                every launcher and guide uses (owner 2026-07-24: one ntfy

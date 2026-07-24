@@ -19,7 +19,8 @@
 #      it OOMs, STOP and ask the owner (batch change = protocol change).
 #   3. train.lr is null — pin it to the RUNS-7/8 1M SWEEP WINNER (one LR
 #      everywhere, owner 2026-07-24; the Llama target sweep is dropped,
-#      pilot/llama10_sweep_lr*.yaml kept as history). Accepted trade-off:
+#      pilot/llama10_sweep_lr*.yaml deleted 2026-07-24, in git history).
+#      Accepted trade-off:
 #      the winner may sit above the paper's 1B-tuned 3.53e-4, shifting
 #      EDL magnitude — fine for a single external-validity chain.
 #   4. Disk: NO snapshots (owner 2026-07-24, see train.snapshots) — this

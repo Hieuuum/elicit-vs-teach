@@ -21,7 +21,7 @@ pure cost ceiling. This file must stay thin.
 
 Usage (run 5):
     python3 train_target.py --config configs/run5_target.yaml \
-        [--override configs/pilot/open2_a_ref.yaml] \
+        [--override configs/pilot/target_pilot_100k_armA_lr1e-3.yaml] \
         --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model \
         [--device cuda] [--store <dir>] [--confirm-cost]
 """

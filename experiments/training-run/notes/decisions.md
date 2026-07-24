@@ -1556,3 +1556,20 @@ Mechanics (unchanged in spirit, now mandatory instead of "recommended"):
 - Box keep-alive rule relaxes ONLY once both pushes are verified on the
   hub (file listing shows `snapshots/` for both runs); until then the
   box remains the sole copy.
+
+## Repo pruned — closed-era history removed from the working tree (owner 2026-07-24)
+
+Owner-approved sweep (everything stays in git history): runs-1–4 +
+runs-5/6 guides (6 files; the §6 small-artifact push recipe moved into
+llama-guide.md §4), docs/impl-logs/ (frozen since the 2026-07-17 cut),
+31 consumed pilot configs (run1/2/3 era, open2_* grid, 500K
+target_sweep_lr*, dropped llama10_sweep_lr*), `sweep_1m.sh` (foot-gun
+removal — its tripwire was "never re-run"), `measure_lengths.py`, and a
+stale merged `.claude/worktrees/` checkout that was accidentally tracked
+as a gitlink (now gitignored). KEPT deliberately: llama9_sweep_lr*
+(documented run-9 G4-fail fallback), llama9/10_smoke.yaml (chain uses
+them), target_sweep_1m_* + target_pilot_100k_* (LR-pin provenance),
+`sample_stories.py` (spec 02 §OPEN(12) keep), `train.py` +
+runs-1–6 configs (run records), `migrate_store_layout.py` (live remedy
+named by geode/zoo/store.py's legacy-layout error), notebooks
+(owner left the notebook question unanswered — untouched).
