@@ -1605,3 +1605,28 @@ tokenization, one level up: the whole tokenizer, not just the decode.
   stopping evals, and min_val 0.0156 nats were all computed inside
   train_target.py with the correct Llama tokenization (order_hash +
   G7-null verified). Only the two G5 evidence blocks are affected.
+
+## Runs 9/10 G5 re-measured with eval_target_data_llama.yaml — evidence now valid (2026-07-25, box)
+
+Re-run after the 2026-07-24 tokenizer incident (previous section);
+gates.py g5 overwrote both manifest G5 blocks in place.
+
+- **Run 10** (`evt-run10-llama1b-target`): zero-shot 0.9844, shared-set
+  test loss 0.0232 nats over n=97952 — consistent with its training
+  min_val 0.0156, the checkpoint and the convergence are real. 16-shot
+  0.0000 = the known collapse (see "16-shot ≈ 0 on all seven runs",
+  runs-5/6 entries — invalidated metric, now confirmed to extend to a
+  1.24B pretrained base after LoRA on single short examples); zero-shot
+  + loss carry the evidence.
+- **Run 9** (`evt-run9-llama1b-inst`, the format-installed parent —
+  same weights as run 10's `model_merged` init): zero-shot 0.0000,
+  16-shot 0.0000, test loss 9.2594 nats. **The "real Llama may already
+  answer op-notation add/sub → near-zero-EDL elicitation" prior is
+  refuted**: op-notation arithmetic was not behaviorally present in the
+  parent. Run 10's prequential EDL therefore measures a genuine
+  install/elicitation gap, not a formality.
+- Checkpoint census (both runs): `model/model.safetensors` = 2.56 GB,
+  370 tensors (112 base / 112 A / 112 B / 34 other, embeddings
+  present) — the complete wrapped state dict. The "run dir is 200 MB"
+  observation that triggered the audit was a mismeasure; `du` shows
+  2.5 GB.
