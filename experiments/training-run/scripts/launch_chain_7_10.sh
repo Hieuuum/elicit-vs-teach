@@ -118,7 +118,12 @@ for p in sorted((Path(os.environ["GEODE_STORE"]) / "runs").glob("evt-run8-sweep-
     if v < best:
         best, best_lr = v, float(m["training"]["optimizer"]["lr"])
 if seen < 3:
-    sys.exit(f"chain: only {seen} complete sweep runs in this store — the pin is unreviewable; finish sweep_1m.sh first")
+    sys.exit(
+        f"chain: only {seen} complete sweep runs in this store — the pin is unreviewable; "
+        "finish sweep_1m.sh first. Fresh box: pull the sweep evidence (manifests only) — "
+        "for lr in 3e-4 1e-3 3e-3 1e-2; do python hf_checkpoint.py pull "
+        "--run-id evt-run8-sweep-lr$lr --no-weights; done"
+    )
 if abs(lr - best_lr) > 1e-12:
     sys.exit(f"chain: configs pin lr={lr} but the sweep winner here is {best_lr} — re-pin (or resolve the discrepancy) first")
 print(f"[chain] lr pin {lr} matches the sweep winner in all four yamls ({seen} sweep runs checked)")
@@ -349,4 +354,8 @@ for rid in (
     gates = ",".join(sorted(exp.get("gates", {}))) or "-"
     print(f"{m['status']:>9}  {rid}: {stop}  gates[{gates}]{flag}")
 PY
-notify "chain COMPLETE: runs 7+8+9+10 — box stays ALIVE (runs-5/6 snapshots live only here)"
+# Keep-alive reminder names whatever actually holds snapshots on THIS box
+# (old box: runs 5/6; new chain box: runs 7/8 unless pruned to the relay).
+SNAP_RUNS=$(find "$GEODE_STORE/runs" -mindepth 2 -maxdepth 2 -type d -name snapshots ! -empty 2>/dev/null |
+  xargs -rn1 dirname | xargs -rn1 basename | sort | paste -sd' ' -)
+notify "chain COMPLETE: runs 7+8+9+10 — snapshot-bearing runs on THIS box: ${SNAP_RUNS:-none}; keep it ALIVE until they are extracted or relayed"

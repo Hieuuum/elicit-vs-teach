@@ -1372,3 +1372,47 @@ Three points, one epoch each (7,813 steps), stopping-block min_val_nats:
   denser curve too; evals are near-free at 38.7M). Worst-case cost at
   1.24B: one eval ≈ 16 fp32 forward batches ≈ 5 update steps — tens of
   minutes over a full run, cents at box rates.
+
+## 2026-07-24 — 1M sweep extension result: 3e-3 stands; chain moves to a new box
+
+**Extension result (evt-run8-sweep-lr1e-2):** min_val **1.86742** nats,
+stopped at 5500 with `stop_reason=converged` — the ε/k rule firing on a
+plateau at garbage (54× worse than 3e-3's 0.03435), i.e. optimization
+blew up and flatlined. The edge rule is satisfied: **3e-3 is now an
+interior winner** (full table: 3e-4 0.10630 / 1e-3 0.03967 / **3e-3
+0.03435** / 1e-2 1.86742). Remaining pre-registered step before pinning:
+the Arm-A 100K pilot at 3e-3 (`pilot/target_pilot_100k_armA_lr3e-3.yaml`)
+— runs on the OLD box, whose store already holds `evt-run3-armA-inst`
+(run 5 trained from it). PASS = `stop_reason=converged` **and** a small
+min_val (run-5 floor ~0.0025); the 1e-2 point is the standing proof that
+"converged" alone is not a pass. Only after PASS: pin 3e-3 in ALL FOUR
+run yamls (one LR everywhere).
+
+**stop_reason literal corrected in docs:** the harness emits
+`"converged"`/`"max_steps"` (train_target.py; geode/train/loop.py) —
+three doc spots said `stopping_rule` (pilot yaml header, run7-8-guide §3,
+sweep_1m.sh verdict text). All fixed; no mechanical check ever branched
+on the wrong string, so nothing misfired.
+
+**New chain box (owner 2026-07-24):** runs 7→10 run on a NEW box via
+`launch_chain_7_10.sh`; the old box stays alive as the runs-5/6 snapshot
+archive (+ sweep evidence + the Arm-A pilot). Consequences handled:
+
+- The chain's LR guard recomputes the winner from `evt-run8-sweep-lr*`
+  manifests IN THE LOCAL STORE — a fresh box has none. One-time fix: old
+  box pushes the four sweep runs to the relay (WRITE token per-command;
+  snapshots skipped by default, n=0 anyway, <~1 GB each), new box pulls
+  them `--no-weights` (manifests/logs only). Guard's refusal message now
+  prints the pull loop. This also archives the sweep evidence off a
+  mortal box.
+- Final chain ntfy no longer hardcodes "runs-5/6 live only here": it now
+  scans the local store for non-empty `snapshots/` dirs and names those
+  runs — correct on both boxes (new box: runs 7/8 unless pruned). The new
+  box inherits the keep-alive rule for runs 7/8 snapshots (extraction
+  owed) until they're extracted or relayed.
+- Sizing (vast disk FIXED at creation; rental end date LOCKED at rent —
+  set both generously): **no-prune ~265 GB worst case → rent 300 GB**
+  (run7 ~100 + run8 ~100 + run9 ~15 + run10 ~15 + env/cache/parents ~15
+  + headroom 20). Prune mode peaks ~140 GB → 160 GB box, but the relay
+  grows ~200 GB — needs paid HF storage quota; default is the 300 GB
+  no-prune box. GPU ≥24 GB (run-10 smoke is the memory worst case).

@@ -4,9 +4,13 @@ Re-pins `train.lr` before the runs-7/8 pair can launch (owner 2026-07-23/24).
 Grid points as overlays on `run8_target_1m.yaml`, each capped at **one
 epoch** of the full 1M (`max_steps` 7813) with **no snapshots**. First pass
 (2026-07-24): 3e-4 → 0.1063, 1e-3 → 0.0397, 3e-3 → 0.0343 min_val nats —
-3e-3 won at the top edge, so the grid is EXTENDED to {…, 1e-2} per the
-edge rule below. For sweep runs `stop_reason=max_steps` is the expected
-outcome, not a bug signal (documented exception, decisions.md 2026-07-24).
+3e-3 won at the top edge, so the grid was EXTENDED to {…, 1e-2} per the
+edge rule below. Extension result (same day): 1e-2 → **1.8674** nats,
+"converged" at step 5500 — the ε/k rule firing on a plateau at garbage.
+**3e-3 stands as the interior winner**; the Arm-A pilot (§3) is the last
+step before pinning. For sweep runs `stop_reason=max_steps` is the
+expected outcome, not a bug signal (documented exception, decisions.md
+2026-07-24).
 Design notes live in `configs/pilot/target_sweep_1m_lr3e-4.yaml`.
 Sequencing (owner 2026-07-24): extraction is deferred — this sweep goes
 first; the box must stay alive regardless (runs-5/6 snapshots live only
@@ -23,8 +27,23 @@ export NTFY=ntfy.sh/<your-topic>
 cd experiments/training-run/scripts
 ```
 
-Fresh box instead? run5-6-guide.md §1–2 first (clone, install, suite), then
-pull the parent: `python hf_checkpoint.py pull --run-id evt-run4-armB-inst`.
+Fresh box instead (e.g. a new chain box for `launch_chain_7_10.sh`)?
+Template runs `box_onstart.sh` (clone + install + CPU suite + exports; see
+its header for the HF_TOKEN/NTFY_TOPIC template vars — READ token, from the
+Meta-licensed account if the Llama chain runs here). Then in an SSH
+session, after the laptop-hash check above:
+
+```bash
+hf auth login --force            # READ token; --force always (owner 2026-07-24)
+python hf_checkpoint.py pull --run-id evt-run3-armA-inst   # run 7's parent
+python hf_checkpoint.py pull --run-id evt-run4-armB-inst   # run 8's parent
+# sweep evidence, manifests only — the chain's LR guard recomputes the
+# winner from these (the old box must have pushed them once first):
+for lr in 3e-4 1e-3 3e-3 1e-2; do
+  python hf_checkpoint.py pull --run-id evt-run8-sweep-lr$lr --no-weights
+done
+python verify_llama_tokenizer.py  # early Meta-license/token check
+```
 
 ## 2. Launch — 7,813 steps per point, sequential
 
@@ -52,13 +71,25 @@ logs).
 Winner = lowest stopping-block `min_val_nats` at the shared 1-epoch budget
 (a point that ε/k-converges earlier is fine — compare its floor the same
 way). **Edge rule:** an edge win extends the grid one step in that
-direction before pinning (already fired once: 3e-3 → added 1e-2). **If
-3e-3 stands after the extension:** run the 100K-prefix Arm-A sanity pilot
-before pinning (`pilot/target_pilot_100k_armA_lr3e-3.yaml`; needs
-`hf_checkpoint.py pull --run-id evt-run3-armA-inst` first) — 3e-4 and 1e-3
-are already proven on Arm A; PASS = `stop_reason=stopping_rule`. **If 1e-2
-wins:** stop — consult the owner (one LR everywhere would carry 1e-2 into
-the Llama chain).
+direction before pinning — fired once (3e-3 → added 1e-2) and RESOLVED:
+1e-2 plateaued at 1.8674, 3e-3 is the interior winner. **Remaining step:**
+the 100K-prefix Arm-A sanity pilot before pinning — 3e-3 is the only grid
+point never proven on Arm A (3e-4 and 1e-3 are). On the old box the
+`evt-run3-armA-inst` parent is already local (run 5 trained from it);
+elsewhere pull it first.
+
+```bash
+python train_target.py --config ../configs/run7_target_1m.yaml \
+    --override ../configs/pilot/target_pilot_100k_armA_lr3e-3.yaml \
+    --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model --confirm-cost \
+  ; curl -d "armA 3e-3 pilot done (exit $?)" $NTFY
+```
+
+PASS = `stop_reason=converged` **AND** a small min_val (run-5 reference
+floor ~0.0025 nats). "converged" alone is not a pass — the ε/k rule fires
+on any plateau (the 1e-2 point "converged" at 1.867). `max_steps` or a
+high plateau = do NOT pin 3e-3; fall back toward 1e-3 (~0.005 nats behind)
+and bring the numbers to the owner.
 
 Then, laptop: set `train.lr` in **ALL FOUR** run yamls (run7/run8/run9/
 run10 — one LR everywhere, owner 2026-07-24), record it in decisions.md,

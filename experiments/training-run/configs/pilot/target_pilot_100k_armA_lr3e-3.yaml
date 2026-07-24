@@ -8,9 +8,11 @@
 #     python train_target.py --config ../configs/run7_target_1m.yaml \
 #         --override ../configs/pilot/target_pilot_100k_armA_lr3e-3.yaml \
 #         --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model --confirm-cost
-# PASS = stop_reason=stopping_rule with a sane min_val (run-5 reference:
-# min_val 0.00245 nats at 500K/lr 1e-3). stop_reason=max_steps or a
-# blown-up val = do NOT pin 3e-3 — the 1e-3 runner-up is only ~0.005 nats
+# PASS = stop_reason=converged AND a small min_val (run-5 reference:
+# min_val 0.00245 nats at 500K/lr 1e-3). "converged" ALONE is not PASS —
+# the ε/k rule fires on any plateau: the 1e-2 sweep point "converged" at
+# 1.86742 nats, i.e. flatlined at garbage. stop_reason=max_steps or a
+# high plateau = do NOT pin 3e-3 — the 1e-3 runner-up is only ~0.005 nats
 # behind at the shared budget; bring the numbers to the owner.
 run_id: evt-run7-pilotA-lr3e-3
 experiment:

@@ -3,10 +3,13 @@
 # pilot). Grid overlays on run8_target_1m.yaml, one epoch each (max_steps
 # 7813, no snapshots), sequential. 2026-07-24: grid EXTENDED to 1e-2 after
 # the first pass came back 3e-4:0.1063 / 1e-3:0.0397 / 3e-3:0.0343 — an
-# edge win at 3e-3 (the pre-registered extension rule). Skips points
-# already complete in the store, so re-running this script launches only
-# the new point (and a crashed sweep resumes the same way). Ends with a
-# winner summary + the edge-rule verdict (guide §3).
+# edge win at 3e-3 (the pre-registered extension rule). Extension result:
+# 1e-2 "converged" at 5500 with min_val 1.8674 — the ε/k rule firing on a
+# plateau at garbage, not a win. 3e-3 stands as the interior winner;
+# next step is the Arm-A 100K pilot (guide §3). Skips points already
+# complete in the store, so re-running this script launches only missing
+# points (and a crashed sweep resumes the same way). Ends with a winner
+# summary + the edge-rule verdict.
 #
 #   ./sweep_1m.sh --confirm-cost
 #
@@ -91,8 +94,9 @@ elif tag == "3e-3":
     print("interior winner after the 1e-2 extension — but 3e-3 is unproven on Arm A:")
     print("run the 100K Arm-A pilot (pilot/target_pilot_100k_armA_lr3e-3.yaml, needs")
     print("the evt-run3-armA-inst parent pulled) and pin ALL FOUR yamls only after it")
-    print("converges (stop_reason=stopping_rule; max_steps or a blown-up val = fall")
-    print("back toward 1e-3, ~0.005 nats behind).")
+    print("PASSES: stop_reason=converged AND a small min_val (run-5 floor ~0.0025;")
+    print("the 1e-2 point 'converged' at 1.867 — a plateau is not a pass). max_steps")
+    print("or a high plateau = fall back toward 1e-3, ~0.005 nats behind.")
 elif tag == "3e-4":
     print("EDGE winner: extend the grid one step down (1e-4) before pinning (guide §3).")
 else:
