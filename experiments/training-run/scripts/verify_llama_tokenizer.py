@@ -43,17 +43,17 @@ CHAIN_FILES = ("D_inst", "D_target")
 def load_hub_artifacts(model_id: str):
     """Load tokenizer + config for ``model_id``, or exit with a friendly message.
 
-    A gated repo the account hasn't accepted the license for, or a missing/bad
-    token, surfaces as ``GatedRepoError``/``HfHubHTTPError`` — turned into an
-    actionable message instead of a raw traceback (item d).
+    A gated repo the account hasn't been granted access to, or a missing/bad
+    token, is turned into an actionable message instead of a raw traceback
+    (item d). ``transformers`` re-wraps the hub's ``GatedRepoError`` as a
+    plain ``OSError``, so that is what must be caught here.
     """
-    from huggingface_hub.utils import GatedRepoError, HfHubHTTPError
     from transformers import AutoConfig, AutoTokenizer
 
     try:
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         config = AutoConfig.from_pretrained(model_id)
-    except (GatedRepoError, HfHubHTTPError) as e:
+    except OSError as e:
         raise SystemExit(
             f"[verify] cannot load {model_id!r} from the hub ({e}) — accept the Meta "
             "Llama license on this HF account, then `hf auth login`"
