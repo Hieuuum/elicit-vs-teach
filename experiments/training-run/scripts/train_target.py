@@ -350,8 +350,14 @@ def main() -> int:
 
     phase(5, "register (snapshot schedule in manifest BEFORE training) + train")
     snaps = t["snapshots"]
-    schedule = snapshot_steps(
-        total_steps=t["max_steps"], n=snaps["n"], dense_until=snaps.get("dense_until", 30)
+    # n: 0 = save no snapshots at all (LR-sweep pilots, owner 2026-07-24);
+    # the scheduler keeps its n >= 1 contract, so bypass it here.
+    schedule = (
+        []
+        if snaps["n"] == 0
+        else snapshot_steps(
+            total_steps=t["max_steps"], n=snaps["n"], dense_until=snaps.get("dense_until", 30)
+        )
     )
     task_format = TaskFormat(name=cfg["task"]["name"], format_version=cfg["task"]["format_version"])
     tok_hash = tokenizer_hash(tokenizer)

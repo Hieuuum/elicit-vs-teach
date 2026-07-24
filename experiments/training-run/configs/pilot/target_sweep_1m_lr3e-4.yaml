@@ -2,10 +2,18 @@
 # the full-1M scale before launching runs 7/8 — the 1e-3 pin was chosen on
 # a 50K prefix and the optimum can shift with n). 3-point bracket around
 # the 500K-era winner: {3e-4, 1e-3, 3e-3}; the 50K sweep saw 3e-4 0.107 >
-# 1e-3 0.035 < 3e-3 0.086, 1e-2 unstable. Winner = lowest min_val_nats
-# among runs with stop_reason=converged; if a grid-EDGE point wins, extend
-# one step in that direction before pinning (precedent: the 50K sweep's
-# first decade came back monotone and had to be extended).
+# 1e-3 0.035 < 3e-3 0.086, 1e-2 unstable.
+# Sweep budget (owner 2026-07-24): each point runs the FIRST EPOCH only —
+# max_steps 7813 = ceil(1e6/128) — and saves NO snapshots (n: 0). The LR
+# ranking is a first-pass question (EDL itself is a first-pass quantity);
+# convergence behavior is run 8's job, not the sweep's. For these three
+# runs stop_reason=max_steps is the EXPECTED outcome — a documented
+# exception to the "max_steps = bug signal" convention (decisions.md
+# 2026-07-24); ε/k firing earlier is equally fine.
+# Winner = lowest stopping-block min_val_nats at the shared 1-epoch
+# budget; if a grid-EDGE point wins, extend one step in that direction
+# before pinning (precedent: the 50K sweep's first decade came back
+# monotone and had to be extended).
 # Arm B @ the full 1M (teaching is the arm the shared LR must serve;
 # shared-vs-per-arm policy deferred, owner 2026-07-23 — a B sweep is
 # needed under every policy). Overlay over configs/run8_target_1m.yaml:
@@ -19,5 +27,6 @@ experiment:
   match_data_order_with: null  # G7 binds the production pair, not sweeps
 train:
   lr: 3.0e-4
+  max_steps: 7813              # fixed 1-epoch budget (owner 2026-07-24, header)
   snapshots:
-    n: 4                       # disposable sweep run — minimal schedule
+    n: 0                       # sweeps save nothing (owner 2026-07-24)

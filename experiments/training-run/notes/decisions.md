@@ -1183,3 +1183,39 @@ Dataset items: none.
   its own box later. Disk checkpoint before runs 7/8: ≥120 GB free
   (guide §0); relaying/deleting runs-5/6 snapshots is an owner decision,
   never a default.
+
+## Owner directives 2026-07-24 (sweep design + sequencing updates)
+
+- **1M LR sweep = first epoch only, no snapshots** (owner). Each of the
+  three points overrides `max_steps: 7813` (= ceil(1e6/128), one pass
+  over the full 1M) and `snapshots.n: 0` (train_target.py now accepts 0
+  as "schedule nothing"; the `snapshot_steps` scheduler keeps its n ≥ 1
+  contract). Rationale: the sweep only has to RANK learning rates, and
+  the ranking is a first-pass question — EDL itself is a first-pass
+  quantity; convergence behavior (θ_T) is run 8's job, not the sweep's.
+  The fixed budget also makes sweep cost known in advance (3 × 7,813
+  steps) instead of open-ended. **stop_reason=max_steps is the EXPECTED
+  outcome for `evt-run8-sweep-lr*` only** — a documented exception to
+  the "max_steps = bug signal" rule; it stays a bug signal everywhere
+  else, runs 7/8 included. Winner = lowest stopping-block `min_val_nats`
+  at the shared 1-epoch budget (earlier ε/k convergence equally fine);
+  grid-edge extension rule unchanged.
+- **Sequencing update (owner): extraction deferred** ("save the
+  extraction for later") — the sweep goes first on the box. Runs-5/6
+  snapshots still exist ONLY on the box: keep it alive; the relay hold
+  is unchanged. Sweep disk footprint is now trivial (no snapshots,
+  <~1 GB/run), so the ≥120 GB disk checkpoint applies to the runs-7/8
+  pair launch, not the sweep.
+- **B-only sweep safeguard (assistant, owner notified 2026-07-24):** if
+  3e-3 wins the sweep, run a 100K-prefix Arm-A pilot at that lr before
+  launching run 7 — it is the only grid point never proven on Arm A
+  (1e-3 converged on A at 500K in run 5; 3e-4 is gentler). A 3e-4 or
+  1e-3 winner needs no A-side pilot.
+- **Llama-3.2-1B unblocked 2026-07-24**: Meta license granted to
+  `mhieuuu`; `verify_llama_tokenizer.py` OVERALL PASS on the laptop
+  (pad→eos 128001, vocab guard 128256, spans OK over D_inst 300 sampled
+  rows and D_target 250,011 rows incl. all 249,791 negative-answer rows).
+- **Runs 5/6 snapshot counts (verified from local manifests)**: run 5
+  (Arm A) 711 taken of 1024 planned (last at step 5,978); run 6 (Arm B)
+  832 of 1024 (last at 12,469) — the rest of each schedule fell past the
+  run's ε/k stop and never materialized, as designed.

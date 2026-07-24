@@ -7,5 +7,6 @@ experiment:
   match_data_order_with: null  # G7 binds the production pair, not sweeps
 train:
   lr: 1.0e-3
+  max_steps: 7813              # fixed 1-epoch budget (owner 2026-07-24) — see lr3e-4
   snapshots:
-    n: 4                       # disposable sweep run — minimal schedule
+    n: 0                       # sweeps save nothing (owner 2026-07-24)
