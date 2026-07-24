@@ -1451,6 +1451,28 @@ Changes made:
   mean, val = stopping + curve evals with min-val in the legend. Tested
   end-to-end on the surviving runs-5/6 logs.
 
+## Arm-A 3e-3 pilot: high plateau → tie-break pilot at 1e-3 (owner 2026-07-24)
+
+`evt-run7-pilotA-lr3e-3` (new box, first GPU job): **converged at step
+4500 (ceiling 4692), min_val 0.0122 nats** (eps-gated best 0.0129). No
+blow-up — but the floor is high against Arm A's 1e-3 track record:
+n50k pilot (`evt-run5-pilot-n50k`, verified same parent/LoRA/batch/ε-k/
+data order, lr 1e-3) reached **0.0057 at HALF the data**, and run-5
+production reached 0.0025 at 500K. Interpolating, 1e-3 at 100K should
+land ~0.004 — the 3e-3 pilot sits ~3x above that. Why it matters: Arm
+A's floor is the EDL-ratio numerator; inflating it shrinks the headline
+elicit-vs-teach gap, while 3e-3's B-side edge was only 0.0054 nats at a
+capped 1-epoch budget (convergence training likely shrinks it). This is
+the pre-registered "high plateau — do not pin" branch.
+
+**Owner decision: run the tie-break pilot** — identical 100K Arm-A
+pilot at lr 1e-3 (`pilot/target_pilot_100k_armA_lr1e-3.yaml`, run_id
+`evt-run7-pilotA-lr1e-3`), same box, only the LR differs, killing the
+50K-vs-100K extrapolation. **Pre-agreed pin rule:** min_val ≤ 0.006 →
+pin **1e-3** in all four yamls; min_val within ~25% of 0.0122 → floor
+was n-limited, pin **3e-3**; in-between → back to the owner.
+`configs/lr_pin.yaml` is created with whichever pin wins, same commit.
+
 ## Box portability: python3 everywhere + canonical /workspace (owner 2026-07-24)
 
 Two recurring new-box failures, fixes chosen by the owner from options:

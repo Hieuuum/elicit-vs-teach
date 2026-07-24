@@ -1,0 +1,23 @@
+# Arm-A 100K tie-break pilot @ lr 1e-3 (owner 2026-07-24): the 3e-3 twin
+# (target_pilot_100k_armA_lr3e-3.yaml) converged at min_val 0.0122 nats —
+# ~2-3x above 1e-3's Arm-A track record (n50k pilot 0.0057, run-5
+# production 0.0025), but that comparison extrapolates across n (50K vs
+# 100K). This overlay is IDENTICAL except train.lr, same box, same 100K
+# prefix — the only difference is the LR. Overlay over run7_target_1m.yaml:
+#     python3 train_target.py --config ../configs/run7_target_1m.yaml \
+#         --override ../configs/pilot/target_pilot_100k_armA_lr1e-3.yaml \
+#         --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model --confirm-cost
+# Pre-agreed pin rule (owner 2026-07-24): min_val clearly below the 3e-3
+# twin (<=0.006) => pin 1e-3 in ALL FOUR run yamls; min_val ~0.012 (within
+# ~25% of 0.0122) => the floor was n-limited, 3e-3 vindicated => pin 3e-3.
+# In-between => back to the owner with both numbers.
+run_id: evt-run7-pilotA-lr1e-3
+experiment:
+  match_data_order_with: null  # G7 binds the production pair, not pilots
+data:
+  n_examples: 100000           # same 100K prefix of the frozen 1M order
+train:
+  lr: 1.0e-3
+  max_steps: 4692              # same ceiling as the 3e-3 twin
+  snapshots:
+    n: 0                       # pilot — no extraction value
