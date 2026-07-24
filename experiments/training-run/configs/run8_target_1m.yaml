@@ -60,9 +60,11 @@ lora:                          # r/alpha restated from common.yaml for the recor
                                # = train.seed (single-seed convention)
 
 train:
-  lr: 1.0e-3                   # PROVISIONAL — 500K-era sweep winner; must be
-                               # re-pinned by the 1M sweep before launch
-                               # (run7 header note 2); same pin as run 7
+  lr: 1.0e-3                   # PINNED 2026-07-24 (one LR everywhere): Arm-A
+                               # 100K pilot pair — 1e-3 0.0039 vs 3e-3 0.0122
+                               # nats; the 1M B-sweep's 3e-3 edge (0.0054 at
+                               # the capped epoch) lost the tie-break
+                               # (lr_pin.yaml + decisions.md)
   batch_size: 128
   eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
   max_steps: 46878             # pure cost ceiling = 6 epochs of the full 1M

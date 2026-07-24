@@ -52,11 +52,24 @@ for p in sorted((Path(os.environ["GEODE_STORE"]) / "runs").glob("evt-run8-sweep-
     v = float("inf") if v is None else v
     if v < best:
         best, best_lr = v, float(m["training"]["optimizer"]["lr"])
-if seen < 3:
-    sys.exit(f"pair: only {seen} complete sweep runs in this store — the pin is unreviewable; finish sweep_1m.sh first")
-if abs(lr7 - best_lr) > 1e-12:
-    sys.exit(f"pair: configs pin lr={lr7} but the sweep winner here is {best_lr} — re-pin (or resolve the discrepancy) first")
-print(f"[pair] lr pin {lr7} matches the sweep winner ({seen} sweep runs checked)")
+if seen >= 3:
+    if abs(lr7 - best_lr) > 1e-12:
+        sys.exit(f"pair: configs pin lr={lr7} but the sweep winner here is {best_lr} — re-pin (or resolve the discrepancy) first")
+    print(f"[pair] lr pin {lr7} matches the sweep winner ({seen} sweep runs checked)")
+else:
+    # evt-run8-sweep-lr* dirs were lost with the old box (2026-07-24, owner-
+    # accepted); the committed pin record is the evidence instead — same
+    # fallback as launch_chain_7_10.sh guard 1. NEVER re-run sweep_1m.sh.
+    rec_path = cfg / "lr_pin.yaml"
+    if not rec_path.is_file():
+        sys.exit(
+            f"pair: only {seen} complete sweep runs in this store and no configs/lr_pin.yaml — "
+            "the pin is unreviewable; git pull to get the committed pin record"
+        )
+    rec_lr = float(yaml.safe_load(rec_path.read_text())["lr"])
+    if abs(lr7 - rec_lr) > 1e-12:
+        sys.exit(f"pair: configs pin lr={lr7} but committed configs/lr_pin.yaml says {rec_lr} — resolve before launching")
+    print(f"[pair] lr pin {lr7} matches committed lr_pin.yaml (sweep manifests lost with the old box; provenance in decisions.md)")
 PY
 
 # 2. Disk: the pair adds ~130 GB realistic / ~190 GB worst case (n=2048).

@@ -71,8 +71,9 @@ lora:
                                # QKVOGUD; adapter init seed = train.seed
 
 train:
-  lr: null                     # PIN = RUNS-7/8 SWEEP WINNER (header note 3,
-                               # one LR everywhere) — do not launch unpinned
+  lr: 1.0e-3                   # PINNED 2026-07-24 (one LR everywhere; Arm-A
+                               # tie-break, lr_pin.yaml + decisions.md);
+                               # 2.8x the paper's 1B pin 3.53e-4
   precision: bf16              # owner 2026-07-24: the Llama chain trains
                                # bf16, matching run 9's installer. Autocast
                                # wraps ONLY the harness's update forward

@@ -7,8 +7,11 @@ epoch** of the full 1M (`max_steps` 7813) with **no snapshots**. First pass
 3e-3 won at the top edge, so the grid was EXTENDED to {…, 1e-2} per the
 edge rule below. Extension result (same day): 1e-2 → **1.8674** nats,
 "converged" at step 5500 — the ε/k rule firing on a plateau at garbage.
-**3e-3 stands as the interior winner**; the Arm-A pilot (§3) is the last
-step before pinning. For sweep runs `stop_reason=max_steps` is the
+**PIN RESOLVED 2026-07-24: lr 1e-3 everywhere.** The Arm-A 100K pilot
+pair overrode the B-sweep's capped-budget winner: 3e-3 → 0.0122 nats vs
+1e-3 → 0.0039 (identical overlays, only the LR differs). All four run
+yamls + `configs/lr_pin.yaml` carry the pin; decisions.md has the full
+record. §2/§3 below are history. For sweep runs `stop_reason=max_steps` is the
 expected outcome, not a bug signal (documented exception, decisions.md
 2026-07-24).
 Design notes live in `configs/pilot/target_sweep_1m_lr3e-4.yaml`.

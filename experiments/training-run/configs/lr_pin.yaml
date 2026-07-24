@@ -1,0 +1,18 @@
+# One-LR-everywhere pin record (owner 2026-07-24). This file is the chain
+# launcher's LR-guard evidence: the evt-run8-sweep-lr* run dirs were lost
+# with the old box, so the guard verifies the four run yamls against this
+# committed record instead (launch_chain_7_10.sh guard 1).
+#
+# Provenance — 1M B-arm sweep, shared 1-epoch budget (min_val nats):
+#   3e-4 0.1063 / 1e-3 0.0397 / 3e-3 0.0343 / 1e-2 1.8674 ("converged" on
+#   a plateau at garbage — edge-extension rule fired and resolved).
+# 3e-3 won the capped budget but was unproven on Arm A; the pre-registered
+# Arm-A 100K pilot pair (identical overlays, only the LR differs) overrode:
+#   evt-run7-pilotA-lr3e-3  converged @4500  min_val 0.0122 nats
+#   evt-run7-pilotA-lr1e-3  converged @3500  min_val 0.0039 nats
+# Pre-agreed rule (owner, decisions.md 2026-07-24): <=0.006 => pin 1e-3.
+# Arm A's floor is the EDL-ratio numerator; 3e-3's 0.0054-nat B-side edge
+# at the capped epoch does not justify a ~3x Arm-A floor inflation.
+lr: 1.0e-3
+pinned: 2026-07-24
+applies_to: [run7, run8, run9, run10]

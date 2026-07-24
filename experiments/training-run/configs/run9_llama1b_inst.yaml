@@ -64,8 +64,10 @@ lora:                          # install-stage adapter (owner 2026-07-23)
                                # QKVOGUD, init from common.yaml
 
 train:
-  lr: null                     # PIN = RUNS-7/8 SWEEP WINNER (header note 3,
-                               # one LR everywhere) — launcher refuses null
+  lr: 1.0e-3                   # PINNED 2026-07-24 (one LR everywhere; Arm-A
+                               # tie-break, lr_pin.yaml + decisions.md);
+                               # G4-fail fallback = gentle installer sweep
+                               # (header note 3)
   batch_size: 128
   eval_every: 250              # behavioral cadence (spec 02 §6, OPEN(1) close)
   max_steps: 15546             # pure ceiling, same math as run 3: 2 epochs of

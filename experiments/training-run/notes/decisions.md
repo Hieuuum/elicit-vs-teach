@@ -1473,6 +1473,20 @@ pin **1e-3** in all four yamls; min_val within ~25% of 0.0122 → floor
 was n-limited, pin **3e-3**; in-between → back to the owner.
 `configs/lr_pin.yaml` is created with whichever pin wins, same commit.
 
+**RESULT — 1e-3 PINNED (2026-07-24):** `evt-run7-pilotA-lr1e-3` converged
+at step 3500 with **min_val 0.0039 nats** (eps-gated best 0.0044) —
+identical overlay to the 3e-3 twin (0.0122), only the LR differed, same
+box. 0.0039 ≤ 0.006 → the pre-agreed rule fires: **train.lr 1.0e-3 in
+ALL FOUR run yamls + `configs/lr_pin.yaml`** (this commit). The result
+also validates the interpolation that flagged 3e-3 (predicted ~0.004 for
+1e-3 at 100K). The 1M B-sweep's 3e-3 edge (0.0343 vs 0.0397 at the
+capped epoch) is knowingly given up: Arm A's floor is the EDL-ratio
+numerator and 3e-3 inflated it ~3×. `launch_pair_1m.sh`'s LR guard also
+gained the lr_pin.yaml fallback (it still hard-required sweep manifests
+in the store — would have refused on the new box and pointed at the
+tripwired sweep_1m.sh). Chain is GO: box git pull →
+`./launch_chain_7_10.sh --confirm-cost`.
+
 ## Box portability: python3 everywhere + canonical /workspace (owner 2026-07-24)
 
 Two recurring new-box failures, fixes chosen by the owner from options:
