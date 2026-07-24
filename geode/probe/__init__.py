@@ -10,18 +10,31 @@ from geode.probe.extract import (
     residual_hook_names,
     save_probe_dump,
 )
-from geode.probe.metrics import GradientAlignment, gradient_alignment
+from geode.probe.metrics import (
+    GradientAlignment,
+    PerformanceMatch,
+    RepresentationDrift,
+    effective_rank,
+    gradient_alignment,
+    performance_aligned_matching,
+    representation_drift,
+)
 from geode.probe.schedule import snapshot_steps
 
 __all__ = [
     "GradientAlignment",
+    "PerformanceMatch",
     "ProbeCapture",
     "ProbeMeta",
+    "RepresentationDrift",
+    "effective_rank",
     "extract_probe",
     "gradient_alignment",
     "load_matched_probe_pair",
     "load_probe_dump",
+    "performance_aligned_matching",
     "probe_dump_dir",
+    "representation_drift",
     "residual_hook_names",
     "save_probe_dump",
     "snapshot_steps",

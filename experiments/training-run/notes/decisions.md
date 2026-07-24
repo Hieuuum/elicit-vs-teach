@@ -1705,3 +1705,44 @@ after mapping the constraints (minor, owner-approved from three options):
   (drift/adapters/matching/export_hf still to come). Revisit only after
   the extraction box is destroyed, if ever; the durable anti-sprawl
   mechanism stays the geode/ promotion rule, not directory depth.
+
+## Analysis metrics V5.14–V5.16 + drivers built (2026-07-24)
+
+Tested core + property tests in one pass (workflow rule), then three
+thin drivers cloned from `alignment.py`. Suite 516 → 528. Design
+decisions worth recording:
+
+- **Drift (V5.14, `geode.probe.representation_drift` + `drift.py`)**:
+  per-example representation = masked mean over `label_mask`-True
+  positions (padding *activations* are nonzero, unlike gradients — the
+  metric refuses to flatten and takes an explicit mask); class = probe
+  `cell` (16 digit-pair classes) + an "all" aggregate; NO
+  `probe_loss_nats > 0` filter (activations don't degenerate at zero
+  loss); row-alignment guard: parquet `order_hash` must equal every
+  dump's `probe_set_hash` + `input_ids` equality vs ref.
+- **Reference snapshot** (drift + full-FT adapter diffs): earliest
+  dumped/snapshotted step, `--ref-step` to override. Step 1 is one
+  optimizer update in — closest available stand-in for init, not init
+  itself. Ref-step rows are emitted as exact-zero self-checks.
+- **Effective rank (V5.15, `geode.probe.effective_rank` +
+  `adapters.py`)**: spectral-entropy erank (Roy & Vetterli 2007) of ΔW;
+  equals r exactly at equal singular values (the planted-test
+  construction). `adapters.py` reads snapshot safetensors raw (no model
+  instantiation): full-FT ΔW = W_k − W_ref; LoRA ΔW = (α/2r)·B@A (V5.47
+  scaling, NOT peft's α/r) with no ref subtraction (B zero-init). 1-D
+  tensors feed ‖ΔW‖ totals/allocation but carry no rank.
+- **Matching (V5.16, `geode.probe.performance_aligned_matching` +
+  `matching.py`)**: performance proxy = **mean per-example probe loss
+  in nats** — probe *accuracy* needs generation, which dumps don't
+  store; ties break toward the earliest arm-B step (strict-< scan, no
+  torch argmin tie-break dependence); `layer = -1` sentinel on all rows
+  (nothing layer-resolved). Driver reads only `meta.json` +
+  `probe_loss_nats` per step (never `load_probe_dump` — acts+grads are
+  ~0.5 GiB/dump the analysis never touches) and re-asserts the
+  `_MATCH_FIELDS` guard across steps and arms.
+- Results parquets via the ZOO-4 writer: `representation_drift`,
+  `adapter_diffs`, `performance_matching`; figures to
+  `analysis/figures/` (gitignored). All three drivers smoke-tested
+  end-to-end against synthetic stores (real `register_run` manifests,
+  planted known answers: exact-zero drift at ref, planted rank-2 ⇒
+  erank 2.0002, known pairing recovered, guards verified to refuse).

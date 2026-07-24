@@ -121,13 +121,12 @@ ungated inspection tool.
 Built so far: `geode.edl` (incl. the pinned-adapter prequential loop,
 V1.9/V1.10), `geode.train` (full FT + SFT + `apply_lora`), `geode.zoo`,
 `geode.arith`, `geode.probe` (schedule V5.55–V5.61, extraction
-V5.9–V5.12, alignment metric V5.13) — all with property tests;
+V5.9–V5.12, analysis metrics V5.13–V5.16) — all with property tests;
 launchers `train_sft.py` + `train_target.py`, `gates.py` g1–g5,
-`scripts/extract.py` (resumable, `--limit` disk cap),
-`analysis/alignment.py` (first driver). Not yet built: metrics
-V5.14–V5.16 (drift, effective rank, performance-aligned matching) +
-their drivers (`drift.py`, `adapters.py`, `matching.py`),
-`export_hf.py`, `gates.py` g6.
+`scripts/extract.py` (resumable, `--limit` disk cap), and all four
+analysis drivers (`alignment.py`, `drift.py`, `adapters.py`,
+`matching.py` — 2026-07-24, design notes in decisions.md). Not yet
+built: `export_hf.py`, `gates.py` g6.
 
 ## 6. Remaining work, in order
 
@@ -160,11 +159,13 @@ their drivers (`drift.py`, `adapters.py`, `matching.py`),
    the relay with full snapshot sets.
 6. ~~Llama chain (runs 9–10)~~ — **DONE 2026-07-24** via
    `launch_chain_7_10.sh` (§2 table; four chain bugs + the G5
-   eval-tokenizer incident fixed en route — decisions.md). Run 9
-   relayed; run 10 push pending.
-7. **Analyses + publication** — metrics V5.14–V5.16, the four drivers
-   (alignment, drift, adapters, matching), `export_hf.py` to the HF
-   dataset repo (spec 02 §9–10).
+   eval-tokenizer incident fixed en route — decisions.md). All four
+   runs on the relay, run 10 LFS-hash-verified 2026-07-24.
+7. **Analyses + publication** — metrics V5.14–V5.16 + the four
+   drivers (alignment, drift, adapters, matching) **built 2026-07-24**
+   (suite 528; decisions.md design notes); remaining: run
+   drift/adapters/matching on the box dumps + relay snapshots, then
+   `export_hf.py` to the HF dataset repo (spec 02 §9–10).
 
 ## 7. Budget
 
