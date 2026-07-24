@@ -73,7 +73,7 @@ python3 train_sft.py --config ../configs/run9_llama1b_inst.yaml \
   ; curl -d "run9 llama install done (exit $?)" $NTFY
 
 python3 gates.py g4 --run evt-run9-llama1b-inst \
-    --config ../configs/eval_target_data.yaml --device cuda
+    --config ../configs/run9_llama1b_inst.yaml --device cuda
 
 # merge the install adapter into a plain checkpoint — run 10's parent.
 # NEVER point run 10 at model/ (wrapped); only model_merged/ is loadable

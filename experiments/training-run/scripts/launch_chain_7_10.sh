@@ -304,7 +304,7 @@ sys.exit(0 if "G4" in m.get("experiment", {}).get("gates", {}) else 1)
 PY
 then
   python3 gates.py g4 --run evt-run9-llama1b-inst \
-    --config ../configs/eval_target_data.yaml --device cuda || fail "run9 G4 command"
+    --config ../configs/run9_llama1b_inst.yaml --device cuda || fail "run9 G4 command"
 fi
 python3 - <<'PY' || fail "run9 G4 at the shared LR — owner fallback: revive the gentle installer sweep (pilot/llama9_sweep_lr*), run9 config header note 3"
 import json, os, sys
