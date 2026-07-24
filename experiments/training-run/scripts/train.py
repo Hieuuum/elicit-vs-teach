@@ -6,7 +6,7 @@ geode.zoo, prints a cost estimate, and refuses to train without
 geode.train; this file must stay thin.
 
 Usage:
-    python train.py --config configs/run1_pretrain.yaml [--override configs/pilot/run1_pretrain.yaml]
+    python3 train.py --config configs/run1_pretrain.yaml [--override configs/pilot/run1_pretrain.yaml]
         [--device cuda] [--init-from <checkpoint_dir>] [--confirm-cost]
 """
 

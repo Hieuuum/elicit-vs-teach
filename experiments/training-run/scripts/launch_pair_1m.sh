@@ -31,7 +31,7 @@ echo "[pair] store $GEODE_STORE"
 notify() { [[ -n ${NTFY:-} ]] && curl -sd "$1" "$NTFY" >/dev/null || true; }
 
 # 1. LR pin: shared, non-null, and equal to the sweep winner in this store.
-python - <<'PY' || exit 1
+python3 - <<'PY' || exit 1
 import json, os, sys
 from pathlib import Path
 
@@ -70,13 +70,13 @@ echo "[pair] disk ok: ${free_gb} GB free"
 # 3. Parents.
 for parent in evt-run3-armA-inst evt-run4-armB-inst; do
   [[ -f $GEODE_STORE/runs/$parent/model/model.safetensors ]] || {
-    echo "pair: parent checkpoint missing — python hf_checkpoint.py pull --run-id $parent" >&2
+    echo "pair: parent checkpoint missing — python3 hf_checkpoint.py pull --run-id $parent" >&2
     exit 1
   }
 done
 
 status_of() { # run_id -> complete | missing | <status>
-  python - "$1" <<'PY'
+  python3 - "$1" <<'PY'
 import json, os, sys
 from pathlib import Path
 
@@ -97,7 +97,7 @@ launch_one() { # $1 run_id  $2 config yaml  $3 parent run_id
     return 1
   fi
   echo "[pair] launching $1 ..."
-  if python train_target.py --config "../configs/$2" \
+  if python3 train_target.py --config "../configs/$2" \
       --init-from "$GEODE_STORE/runs/$3/model" --confirm-cost; then
     notify "$1 done"
   else
@@ -110,7 +110,7 @@ launch_one() { # $1 run_id  $2 config yaml  $3 parent run_id
 launch_one evt-run7-armA-target-1m run7_target_1m.yaml evt-run3-armA-inst || exit 1
 launch_one evt-run8-armB-target-1m run8_target_1m.yaml evt-run4-armB-inst || exit 1
 
-python - <<'PY'
+python3 - <<'PY'
 import json, os
 from pathlib import Path
 

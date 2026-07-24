@@ -11,7 +11,7 @@ story begins right after an EOS, so this samples the model's uncondi-
 tional story distribution. Pure temperature sampling, one seeded batch.
 
 Usage:
-    python sample_stories.py --checkpoint <run_dir>/pretrain/model [--device cuda]
+    python3 sample_stories.py --checkpoint <run_dir>/pretrain/model [--device cuda]
 """
 
 from __future__ import annotations

@@ -13,7 +13,7 @@ Read-only + CPU-only; prints a report, writes nothing. Outcomes land in
 notes/decisions.md and close OPEN(5) in specs/02-training-run.md.
 
 Usage:
-    python measure_lengths.py [--tokenizer DIR] [--skip-stories]
+    python3 measure_lengths.py [--tokenizer DIR] [--skip-stories]
 """
 
 from __future__ import annotations

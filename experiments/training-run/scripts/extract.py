@@ -19,7 +19,7 @@ still costs GPU time at scale, so it prints an estimate and refuses without
 ``--confirm-cost`` (CLAUDE.md budget rule). This file must stay thin.
 
 Usage:
-    python extract.py --config configs/run5_target.yaml --run-id evt-run5-armA-target \
+    python3 extract.py --config configs/run5_target.yaml --run-id evt-run5-armA-target \
         [--probe-file probe.parquet] [--probe-local <path>] [--probe-hash <sha256>] \
         [--device cuda] [--store <dir>] [--overwrite] [--confirm-cost]
 """

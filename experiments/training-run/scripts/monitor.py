@@ -15,7 +15,7 @@ what the run will do, not a reimplementation.
 Read-only; never touches the GPU; exits on its own when the manifest
 leaves "running". ``--once`` prints a single snapshot and exits.
 
-    python monitor.py --run-id evt-run1-base-v3-ext
+    python3 monitor.py --run-id evt-run1-base-v3-ext
 """
 
 from __future__ import annotations

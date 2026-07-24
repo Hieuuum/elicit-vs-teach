@@ -16,7 +16,7 @@ Refuses if ``model_merged/`` already exists (no silent overwrite) or if the
 run's checkpoint is not LoRA-wrapped (``merge_lora`` raises).
 
 Usage:
-    python merge_adapter.py --run-id evt-run9-llama1b-inst
+    python3 merge_adapter.py --run-id evt-run9-llama1b-inst
 """
 
 from __future__ import annotations

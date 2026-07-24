@@ -8,7 +8,7 @@ without --confirm-cost (CLAUDE.md budget rule). All learning logic lives in
 ``geode.train.sft``; this file must stay thin.
 
 Usage (run 2):
-    python train_sft.py --config configs/run2_algo.yaml \
+    python3 train_sft.py --config configs/run2_algo.yaml \
         [--override configs/pilot/run2_sweep_lr1e-4.yaml] \
         --init-from $GEODE_STORE/runs/<floor-1 run>/model \
         [--device cuda] [--confirm-cost]

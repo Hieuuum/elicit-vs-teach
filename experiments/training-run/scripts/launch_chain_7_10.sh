@@ -24,7 +24,7 @@
 # ~100-200 GB — check the HF plan's private-storage quota first. Needs
 # HF_WRITE_TOKEN
 # (env, or typed at start on a tty); it is passed per-push only
-# (HF_TOKEN=<write> python ...) — the box's ambient login stays READ-only.
+# (HF_TOKEN=<write> python3 ...) — the box's ambient login stays READ-only.
 # Runs 5/6 are NEVER touched (their relay push is owner-held).
 #
 # Refuses to start unless ALL of:
@@ -60,7 +60,7 @@ fail() {
 }
 
 status_of() { # run_id -> complete | missing | <status>
-  python - "$1" <<'PY'
+  python3 - "$1" <<'PY'
 import json, os, sys
 from pathlib import Path
 
@@ -88,7 +88,7 @@ if ((PRUNE)); then
 fi
 
 # 1. LR pin: one shared non-null value in all four yamls == the sweep winner.
-python - <<'PY' || exit 1
+python3 - <<'PY' || exit 1
 import json, os, sys
 from pathlib import Path
 
@@ -141,7 +141,7 @@ PY
 
 # 2. Disk: worst-case GB each PENDING run adds (decisions.md 2026-07-24);
 #    prune mode needs only the largest single pending run at once.
-CHAIN_PRUNE=$PRUNE python - <<'PY' || exit 1
+CHAIN_PRUNE=$PRUNE python3 - <<'PY' || exit 1
 import json, os, shutil, sys
 from pathlib import Path
 
@@ -181,14 +181,14 @@ for pair in "evt-run7-armA-target-1m:evt-run3-armA-inst" "evt-run8-armB-target-1
   rid=${pair%%:*} parent=${pair##*:}
   [[ $(status_of "$rid") == complete ]] && continue
   [[ -f $GEODE_STORE/runs/$parent/model/model.safetensors ]] || {
-    echo "chain: parent checkpoint missing — python hf_checkpoint.py pull --run-id $parent" >&2
+    echo "chain: parent checkpoint missing — python3 hf_checkpoint.py pull --run-id $parent" >&2
     exit 1
   }
 done
 
 # 4. Tokenizer verification before anything Llama trains (llama-guide §1).
 if [[ $(status_of evt-run9-llama1b-inst) != complete || $(status_of evt-run10-llama1b-target) != complete ]]; then
-  python verify_llama_tokenizer.py || {
+  python3 verify_llama_tokenizer.py || {
     echo "chain: verify_llama_tokenizer FAILED — stop, bring the output to the owner (llama-guide §1)" >&2
     exit 1
   }
@@ -206,7 +206,7 @@ launch_run() { # $1 run_id  $2 trainer.py  $3 config yaml  $4 --init-from value
     fail "$1 exists with status '$st' — crashed launch? Inspect it (and delete the run dir by hand) before re-running"
   fi
   echo "[chain] launching $1 ..."
-  if python "$2" --config "../configs/$3" --init-from "$4" --confirm-cost; then
+  if python3 "$2" --config "../configs/$3" --init-from "$4" --confirm-cost; then
     notify "chain: $1 done"
   else
     fail "$1 training (stopping before the next run burns budget)"
@@ -224,7 +224,7 @@ run_smoke() { # $1 smoke run_id  $2.. the smoke command — disposable by design
 }
 
 g5_if_missing() { # $1 run_id — recorded evidence, idempotent across re-runs
-  if python - "$1" <<'PY'
+  if python3 - "$1" <<'PY'
 import json, os, sys
 from pathlib import Path
 
@@ -235,7 +235,7 @@ PY
     echo "[chain] $1 G5 already recorded — skipping"
     return 0
   fi
-  python gates.py g5 --run "$1" --config ../configs/eval_target_data.yaml --device cuda \
+  python3 gates.py g5 --run "$1" --config ../configs/eval_target_data.yaml --device cuda \
     || fail "$1 G5 evidence"
 }
 
@@ -249,9 +249,9 @@ prune_run() { # $1 run_id  $2.. heavy dirs to delete after a VERIFIED relay push
     return 0
   }
   echo "[chain] prune: pushing $rid (with snapshots) to the relay ..."
-  HF_TOKEN=$HF_WRITE_TOKEN python hf_checkpoint.py push --run-id "$rid" --with-snapshots \
+  HF_TOKEN=$HF_WRITE_TOKEN python3 hf_checkpoint.py push --run-id "$rid" --with-snapshots \
     || fail "$rid relay push (nothing deleted)"
-  HF_TOKEN=$HF_WRITE_TOKEN python - "$rid" <<'PY' || fail "$rid hub verification (nothing deleted)"
+  HF_TOKEN=$HF_WRITE_TOKEN python3 - "$rid" <<'PY' || fail "$rid hub verification (nothing deleted)"
 import os, sys
 from pathlib import Path
 
@@ -288,14 +288,14 @@ prune_run evt-run8-armB-target-1m snapshots model
 # Run 9 — smoke, install, G4 gate (+ fallback tripwire), zero-shot evidence, merge.
 if [[ $(status_of evt-run9-llama1b-inst) != complete ]]; then
   run_smoke evt-run9-smoke \
-    python train_sft.py --config ../configs/run9_llama1b_inst.yaml \
+    python3 train_sft.py --config ../configs/run9_llama1b_inst.yaml \
     --override ../configs/pilot/llama9_smoke.yaml \
     --init-from meta-llama/Llama-3.2-1B --confirm-cost
 fi
 launch_run evt-run9-llama1b-inst train_sft.py run9_llama1b_inst.yaml \
   meta-llama/Llama-3.2-1B
 
-if ! python - <<'PY'
+if ! python3 - <<'PY'
 import json, os, sys
 from pathlib import Path
 
@@ -303,10 +303,10 @@ m = json.loads((Path(os.environ["GEODE_STORE"]) / "runs" / "evt-run9-llama1b-ins
 sys.exit(0 if "G4" in m.get("experiment", {}).get("gates", {}) else 1)
 PY
 then
-  python gates.py g4 --run evt-run9-llama1b-inst \
+  python3 gates.py g4 --run evt-run9-llama1b-inst \
     --config ../configs/eval_target_data.yaml --device cuda || fail "run9 G4 command"
 fi
-python - <<'PY' || fail "run9 G4 at the shared LR — owner fallback: revive the gentle installer sweep (pilot/llama9_sweep_lr*), run9 config header note 3"
+python3 - <<'PY' || fail "run9 G4 at the shared LR — owner fallback: revive the gentle installer sweep (pilot/llama9_sweep_lr*), run9 config header note 3"
 import json, os, sys
 from pathlib import Path
 
@@ -324,13 +324,13 @@ PY
 g5_if_missing evt-run9-llama1b-inst
 
 [[ -d $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged ]] || {
-  python merge_adapter.py --run-id evt-run9-llama1b-inst || fail "run9 merge_adapter"
+  python3 merge_adapter.py --run-id evt-run9-llama1b-inst || fail "run9 merge_adapter"
 }
 
 # Run 10 — smoke (memory worst case), the EDL measurement, G5 evidence.
 if [[ $(status_of evt-run10-llama1b-target) != complete ]]; then
   run_smoke evt-run10-smoke \
-    python train_target.py --config ../configs/run10_llama1b_target.yaml \
+    python3 train_target.py --config ../configs/run10_llama1b_target.yaml \
     --override ../configs/pilot/llama10_smoke.yaml \
     --init-from "$GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged" --confirm-cost
 fi
@@ -345,7 +345,7 @@ prune_run evt-run9-llama1b-inst model model_merged
 
 # ---- summary ---------------------------------------------------------------
 
-python - <<'PY'
+python3 - <<'PY'
 import json, os
 from pathlib import Path
 

@@ -5,8 +5,8 @@ Plotting aid (owner 2026-07-24): compare per-step training loss
 evals every eval_every plus the log-spaced curve evals) for runs 7, 8,
 and 10 on one log-log axes. Laptop-side, CPU-only; pull logs first:
 
-    python hf_checkpoint.py pull --run-id <rid> --no-weights
-    python plot_losses.py [--run-id <rid> ...] [--out losses.png]
+    python3 hf_checkpoint.py pull --run-id <rid> --no-weights
+    python3 plot_losses.py [--run-id <rid> ...] [--out losses.png]
 
 Losses are plotted in nats, exactly as stored (CLAUDE.md convention:
 bits conversion only at reporting boundaries — label the axis instead).
@@ -72,7 +72,7 @@ def main() -> None:
         if not (train_f.is_file() and eval_f.is_file()):
             print(
                 f"[plot] {rid}: logs missing under {run_dir} — skipped "
-                f"(python hf_checkpoint.py pull --run-id {rid} --no-weights)"
+                f"(python3 hf_checkpoint.py pull --run-id {rid} --no-weights)"
             )
             continue
         color = colors[i % len(colors)]

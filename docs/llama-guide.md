@@ -45,7 +45,7 @@ cd /workspace/elicit-vs-teach/experiments/training-run/scripts
 ## 1. Tokenizer verification — must PASS before anything trains
 
 ```bash
-python verify_llama_tokenizer.py
+python3 verify_llama_tokenizer.py
 ```
 Checks pad/EOS handling, the `len(tokenizer)`↔`config.vocab_size` launch
 guard, and `tokenize_with_spans` over samples of the frozen parquets —
@@ -62,23 +62,23 @@ the gentle installer sweep (`pilot/llama9_sweep_lr*`) for run 9 only.
 
 ```bash
 # memory + plumbing (~1 min, disposable)
-python train_sft.py --config ../configs/run9_llama1b_inst.yaml \
+python3 train_sft.py --config ../configs/run9_llama1b_inst.yaml \
     --override ../configs/pilot/llama9_smoke.yaml \
     --init-from meta-llama/Llama-3.2-1B --confirm-cost
 ```
 
 ```bash
-python train_sft.py --config ../configs/run9_llama1b_inst.yaml \
+python3 train_sft.py --config ../configs/run9_llama1b_inst.yaml \
     --init-from meta-llama/Llama-3.2-1B --confirm-cost \
   ; curl -d "run9 llama install done (exit $?)" $NTFY
 
-python gates.py g4 --run evt-run9-llama1b-inst \
+python3 gates.py g4 --run evt-run9-llama1b-inst \
     --config ../configs/eval_target_data.yaml --device cuda
 
 # merge the install adapter into a plain checkpoint — run 10's parent.
 # NEVER point run 10 at model/ (wrapped); only model_merged/ is loadable
 # by plain from_pretrained.
-python merge_adapter.py --run-id evt-run9-llama1b-inst
+python3 merge_adapter.py --run-id evt-run9-llama1b-inst
 ls $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged/
 ```
 
@@ -91,18 +91,18 @@ one LR everywhere, owner 2026-07-24).
 # harness at 1.24B, batch 128 (bf16 update forward, fp32 measurement
 # forwards) — the memory worst case (~2 min). OOM here = STOP and ask
 # the owner; a batch/precision change is a protocol change.
-python train_target.py --config ../configs/run10_llama1b_target.yaml \
+python3 train_target.py --config ../configs/run10_llama1b_target.yaml \
     --override ../configs/pilot/llama10_smoke.yaml \
     --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged --confirm-cost
 ```
 Then:
 
 ```bash
-python train_target.py --config ../configs/run10_llama1b_target.yaml \
+python3 train_target.py --config ../configs/run10_llama1b_target.yaml \
     --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged --confirm-cost \
   ; curl -d "run10 llama target done (exit $?)" $NTFY
 
-python gates.py g5 --run evt-run10-llama1b-target \
+python3 gates.py g5 --run evt-run10-llama1b-target \
     --config ../configs/eval_target_data.yaml --device cuda
 ```
 Also record zero-shot op add/sub on the merged parent BEFORE run 10

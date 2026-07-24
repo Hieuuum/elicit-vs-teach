@@ -37,9 +37,9 @@ session, after the laptop-hash check above:
 
 ```bash
 hf auth login --force            # READ token; --force always (owner 2026-07-24)
-python hf_checkpoint.py pull --run-id evt-run3-armA-inst   # run 7's + pilot's parent
-python hf_checkpoint.py pull --run-id evt-run4-armB-inst   # run 8's parent
-python verify_llama_tokenizer.py  # early Meta-license/token check
+python3 hf_checkpoint.py pull --run-id evt-run3-armA-inst   # run 7's + pilot's parent
+python3 hf_checkpoint.py pull --run-id evt-run4-armB-inst   # run 8's parent
+python3 verify_llama_tokenizer.py  # early Meta-license/token check
 ```
 
 (No sweep pull — those run dirs were lost with the old box. The chain's
@@ -51,7 +51,7 @@ nothing complete in this store it would retrain all four points.)
 
 ```bash
 for lr in 3e-4 1e-3 3e-3 1e-2; do
-  python train_target.py --config ../configs/run8_target_1m.yaml \
+  python3 train_target.py --config ../configs/run8_target_1m.yaml \
       --override ../configs/pilot/target_sweep_1m_lr${lr}.yaml \
       --init-from $GEODE_STORE/runs/evt-run4-armB-inst/model --confirm-cost \
     ; curl -d "1M sweep lr=${lr} done (exit $?)" $NTFY
@@ -63,7 +63,7 @@ already-completed points on re-run (so after the first pass it launches
 only the 1e-2 extension), stops on a failed point, and ends with the
 winner summary + edge-rule verdict.
 
-Watch from a second window: `python monitor.py --run-id evt-run8-sweep-lr<X>`
+Watch from a second window: `python3 monitor.py --run-id evt-run8-sweep-lr<X>`
 (prints steps/s + ETA — the first point calibrates wall-clock for the other
 two). Disk is a non-issue here: no snapshots, <~1 GB per run (final model +
 logs).
@@ -81,7 +81,7 @@ as its first GPU job (a good end-to-end shakedown before the chain);
 parent pull is in §1.
 
 ```bash
-python train_target.py --config ../configs/run7_target_1m.yaml \
+python3 train_target.py --config ../configs/run7_target_1m.yaml \
     --override ../configs/pilot/target_pilot_100k_armA_lr3e-3.yaml \
     --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model --confirm-cost \
   ; curl -d "armA 3e-3 pilot done (exit $?)" $NTFY

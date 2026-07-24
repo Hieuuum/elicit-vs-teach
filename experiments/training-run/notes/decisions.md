@@ -1450,3 +1450,31 @@ Changes made:
   7/8/10 (default set), log-log, nats; train = faint per-step rolling
   mean, val = stopping + curve evals with min-val in the legend. Tested
   end-to-end on the surviving runs-5/6 logs.
+
+## Box portability: python3 everywhere + canonical /workspace (owner 2026-07-24)
+
+Two recurring new-box failures, fixes chosen by the owner from options:
+
+1. **vast images ship only `python3`** — bare `python` crashed box setup
+   twice, including `box_onstart.sh`'s own `python -m pytest` (why the
+   CPU-suite marker never appeared). Fix (belt and suspenders): every
+   script and live-guide command now calls `python3` (self-sufficient
+   even if onstart never ran), and onstart additionally symlinks
+   `/usr/local/bin/python -> python3` for hand-typed commands. Old
+   guides (runs 1–6) left as history.
+2. **/workspace is a template lottery** (some images ship it, others
+   drop the shell in /root and work lands in `~/workspace` — a
+   *different* directory). Worse, onstart redirected its log INTO
+   /workspace before creating anything, so on such images it died with
+   no log. Fix: canonical `/workspace` on every box — onstart, BEFORE
+   the log redirect, (a) uses /workspace if present, (b) else adopts an
+   existing `~/workspace` via symlink `/workspace -> ~/workspace`
+   (data stays put, name becomes canonical), (c) else `mkdir -p
+   /workspace`; if both exist as distinct dirs it warns loudly and
+   prefers /workspace rather than guessing. On vast the rootfs IS the
+   rented disk, so physical placement is equivalent either way. Logic
+   unit-tested for all four cases (scratchpad harness, 2026-07-24).
+   Retrofit for an already-rented box:
+   `ln -s ~/workspace /workspace` (if needed) +
+   `command -v python || ln -s "$(command -v python3)" /usr/local/bin/python`,
+   then `git pull`.

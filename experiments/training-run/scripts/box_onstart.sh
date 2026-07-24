@@ -19,14 +19,37 @@
 # SSH-instance restarts run /root/onstart.sh — this script installs itself
 # there once, so both instance types re-provision on every container start.
 set -uo pipefail
+
+# Canonical work dir (owner 2026-07-24): /workspace on EVERY box. Images
+# vary — some ship /workspace, others drop the login shell in /root and
+# work lands in ~/workspace. Adopt-or-create BEFORE the log redirect:
+# on images without /workspace the old script died at the redirect with
+# no log at all. On vast the rootfs IS the rented disk, so a created dir
+# lands on the paid disk either way.
+if [[ ! -e /workspace ]]; then
+  if [[ -d "$HOME/workspace" ]]; then
+    ln -s "$HOME/workspace" /workspace   # existing data, canonical name
+  else
+    mkdir -p /workspace
+  fi
+fi
+
+# python shim (owner 2026-07-24): vast images ship only python3. Scripts
+# call python3 and never depend on this — the shim is for hand-typed
+# `python ...` in SSH sessions.
+command -v python >/dev/null 2>&1 || ln -s "$(command -v python3)" /usr/local/bin/python
+
 exec >>/workspace/onstart.log 2>&1
 echo "=== onstart $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
+if [[ -d "$HOME/workspace" && ! /workspace -ef "$HOME/workspace" ]]; then
+  echo "WARNING: /workspace and $HOME/workspace both exist and differ — using /workspace; check where the real data lives"
+fi
 
 BRANCH=cut-to-core
 cd /workspace
 [[ -d elicit-vs-teach ]] || git clone -b "$BRANCH" https://github.com/Hieuuum/elicit-vs-teach.git
 cd elicit-vs-teach
-pip install -q -e ".[dev]"
+python3 -m pip install -q -e ".[dev]"
 
 # Every login shell / tmux window gets the exports — a stale $GEODE_STORE in
 # a fresh window is the #1 guide troubleshooting item.
@@ -53,7 +76,7 @@ fi
 
 # Full CPU suite once per box (~2 min); the marker skips it on restarts.
 if [[ ! -f /workspace/.geode_suite_ok ]]; then
-  python -m pytest -q && touch /workspace/.geode_suite_ok
+  python3 -m pytest -q && touch /workspace/.geode_suite_ok
 fi
 suite=$([[ -f /workspace/.geode_suite_ok ]] && echo ok || echo FAILED)
 

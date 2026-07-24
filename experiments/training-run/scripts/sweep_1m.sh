@@ -32,7 +32,7 @@ export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 PARENT=$GEODE_STORE/runs/evt-run4-armB-inst/model
 [[ -f $PARENT/model.safetensors ]] || {
   echo "sweep_1m.sh: parent checkpoint missing at $PARENT — run:" >&2
-  echo "  python hf_checkpoint.py pull --run-id evt-run4-armB-inst" >&2
+  echo "  python3 hf_checkpoint.py pull --run-id evt-run4-armB-inst" >&2
   exit 1
 }
 echo "[sweep] repo  $(git log --oneline -1)"
@@ -41,7 +41,7 @@ echo "[sweep] store $GEODE_STORE"
 notify() { [[ -n ${NTFY:-} ]] && curl -sd "$1" "$NTFY" >/dev/null || true; }
 
 status_of() { # run_id -> complete | missing | <status>
-  python - "$1" <<'PY'
+  python3 - "$1" <<'PY'
 import json, os, sys
 from pathlib import Path
 
@@ -62,7 +62,7 @@ for lr in 3e-4 1e-3 3e-3 1e-2; do
     exit 1
   fi
   echo "[sweep] launching $rid ..."
-  if python train_target.py --config ../configs/run8_target_1m.yaml \
+  if python3 train_target.py --config ../configs/run8_target_1m.yaml \
       --override "../configs/pilot/target_sweep_1m_lr${lr}.yaml" \
       --init-from "$PARENT" --confirm-cost; then
     notify "1M sweep lr=${lr} done"
@@ -73,7 +73,7 @@ for lr in 3e-4 1e-3 3e-3 1e-2; do
   fi
 done
 
-python - <<'PY'
+python3 - <<'PY'
 import json, os
 from pathlib import Path
 

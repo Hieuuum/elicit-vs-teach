@@ -9,14 +9,14 @@ archive that future boxes can pull without the laptop.
 
 Usage:
     # laptop (must be logged in — check with `hf auth whoami`):
-    python hf_checkpoint.py push --run-id <run-id>
+    python3 hf_checkpoint.py push --run-id <run-id>
     # box (repo is private by default => `hf auth login` with a read token):
-    python hf_checkpoint.py pull --run-id <run-id>
+    python3 hf_checkpoint.py pull --run-id <run-id>
     # laptop, logs/manifest only — no *.safetensors (analysis without weights):
-    python hf_checkpoint.py pull --run-id <run-id> --no-weights
+    python3 hf_checkpoint.py pull --run-id <run-id> --no-weights
     # either direction: snapshots/ is SKIPPED by default (multi-GB, needed
     # only for extraction) — opt in explicitly:
-    python hf_checkpoint.py pull --run-id <run-id> --with-snapshots
+    python3 hf_checkpoint.py pull --run-id <run-id> --with-snapshots
 
 The hub repo (default mhieuuu/geode-store, private) mirrors the local
 store layout — runs/<run-id>/... — so every run lands as its own folder
@@ -80,7 +80,7 @@ def push(store: Path, run_id: str, repo_id: str, public: bool, with_snapshots: b
         ignore_patterns=None if with_snapshots else ["snapshots/*"],
     )
     print(f"[hf] pushed {src} -> https://huggingface.co/{repo_id}/tree/main/runs/{run_id}")
-    print("[hf] next, on the box: python hf_checkpoint.py pull")
+    print("[hf] next, on the box: python3 hf_checkpoint.py pull")
     return 0
 
 

@@ -39,12 +39,12 @@ trailing-space incident as above).
 CPU-only friendly and no ``--confirm-cost``: evaluation, not training.
 
 Usage:
-    python gates.py g1 --run evt-run2-armA-algo --config configs/run2_algo.yaml \
+    python3 gates.py g1 --run evt-run2-armA-algo --config configs/run2_algo.yaml \
         [--checkpoint <dir>] [--device cuda] [--n 1024] [--sample-seed 316]
-    python gates.py g2 --run evt-run3-sweep-lr3e-4 --config configs/run2_algo.yaml
-    python gates.py g3 --run evt-run4-armB-inst --config configs/run2_algo.yaml
-    python gates.py g4 --run evt-run3-sweep-lr3e-4 --config configs/run3_inst.yaml
-    python gates.py g5 --run evt-run3-armA-inst --config configs/eval_target_data.yaml
+    python3 gates.py g2 --run evt-run3-sweep-lr3e-4 --config configs/run2_algo.yaml
+    python3 gates.py g3 --run evt-run4-armB-inst --config configs/run2_algo.yaml
+    python3 gates.py g4 --run evt-run3-sweep-lr3e-4 --config configs/run3_inst.yaml
+    python3 gates.py g5 --run evt-run3-armA-inst --config configs/eval_target_data.yaml
 """
 
 from __future__ import annotations

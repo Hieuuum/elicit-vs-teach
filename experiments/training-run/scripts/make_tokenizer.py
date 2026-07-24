@@ -19,7 +19,7 @@ Deterministic given the corpus + settings; no timestamp lands in the
 artifact. CPU-only, no --confirm-cost needed (budget rule covers GPU jobs).
 
 Usage:
-    python make_tokenizer.py [--out DIR] [--vocab-size 10000] [--corpus-file PATH]
+    python3 make_tokenizer.py [--out DIR] [--vocab-size 10000] [--corpus-file PATH]
 """
 
 from __future__ import annotations

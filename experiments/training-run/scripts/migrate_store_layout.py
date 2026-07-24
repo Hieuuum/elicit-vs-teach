@@ -18,10 +18,10 @@ continue. ``--run-id`` restricts to one run; without it, every dir under
 ``runs/`` is visited — the script never invents run ids.
 
 Usage:
-    python migrate_store_layout.py [--store <root>]        # dry-run, all runs
-    python migrate_store_layout.py --apply                 # migrate all runs
-    python migrate_store_layout.py --run-id <id> --apply   # one run
-    python migrate_store_layout.py --run-id <id> --relay --apply
+    python3 migrate_store_layout.py [--store <root>]        # dry-run, all runs
+    python3 migrate_store_layout.py --apply                 # migrate all runs
+    python3 migrate_store_layout.py --run-id <id> --apply   # one run
+    python3 migrate_store_layout.py --run-id <id> --relay --apply
 
 ``--relay`` mirrors one already-migrated run to the HF relay repo
 (default mhieuuu/geode-store, which mirrors ``runs/<id>/...`` paths

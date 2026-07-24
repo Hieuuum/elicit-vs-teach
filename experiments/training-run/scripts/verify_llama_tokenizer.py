@@ -19,7 +19,7 @@ verifies four things a bad tokenizer would otherwise break silently:
 Nonzero exit on any FAIL. Read/verify only — writes nothing, trains nothing.
 
 Usage:
-    python verify_llama_tokenizer.py [--model-id meta-llama/Llama-3.2-1B]
+    python3 verify_llama_tokenizer.py [--model-id meta-llama/Llama-3.2-1B]
         [--n-sample 300] [--seed 316]
 """
 
