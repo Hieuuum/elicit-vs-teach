@@ -223,7 +223,9 @@ run_smoke() { # $1 smoke run_id  $2.. the smoke command — disposable by design
   fi
 }
 
-g5_if_missing() { # $1 run_id — recorded evidence, idempotent across re-runs
+g5_if_missing() { # $1 run_id  $2 eval config (tokenizer MUST match the model
+                  # under eval — 2026-07-24 G5 incident: runs 9/10 measured
+                  # with the custom arith tokenizer). Idempotent across re-runs.
   if python3 - "$1" <<'PY'
 import json, os, sys
 from pathlib import Path
@@ -235,7 +237,7 @@ PY
     echo "[chain] $1 G5 already recorded — skipping"
     return 0
   fi
-  python3 gates.py g5 --run "$1" --config ../configs/eval_target_data.yaml --device cuda \
+  python3 gates.py g5 --run "$1" --config "../configs/${2:?g5_if_missing needs an eval config}" --device cuda \
     || fail "$1 G5 evidence"
 }
 
@@ -277,12 +279,12 @@ notify "chain: started ($(git rev-parse --short HEAD), prune=$PRUNE)"
 # Runs 7 then 8 — G7 needs run 7's manifest registered first (kept by prune).
 launch_run evt-run7-armA-target-1m train_target.py run7_target_1m.yaml \
   "$GEODE_STORE/runs/evt-run3-armA-inst/model"
-g5_if_missing evt-run7-armA-target-1m
+g5_if_missing evt-run7-armA-target-1m eval_target_data.yaml
 prune_run evt-run7-armA-target-1m snapshots model
 
 launch_run evt-run8-armB-target-1m train_target.py run8_target_1m.yaml \
   "$GEODE_STORE/runs/evt-run4-armB-inst/model"
-g5_if_missing evt-run8-armB-target-1m
+g5_if_missing evt-run8-armB-target-1m eval_target_data.yaml
 prune_run evt-run8-armB-target-1m snapshots model
 
 # Run 9 — smoke, install, G4 gate (+ fallback tripwire), zero-shot evidence, merge.
@@ -321,7 +323,7 @@ PY
 
 # Zero-shot op add/sub evidence BEFORE run 10 (llama-guide §3) — same
 # weights as the merged parent (V5.52 exact fold), recorded as run-9 G5.
-g5_if_missing evt-run9-llama1b-inst
+g5_if_missing evt-run9-llama1b-inst eval_target_data_llama.yaml
 
 [[ -d $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged ]] || {
   python3 merge_adapter.py --run-id evt-run9-llama1b-inst || fail "run9 merge_adapter"
@@ -336,7 +338,7 @@ if [[ $(status_of evt-run10-llama1b-target) != complete ]]; then
 fi
 launch_run evt-run10-llama1b-target train_target.py run10_llama1b_target.yaml \
   "$GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged"
-g5_if_missing evt-run10-llama1b-target
+g5_if_missing evt-run10-llama1b-target eval_target_data_llama.yaml
 
 # Run 9 prunes only now — run 10 needed model_merged/ as its parent.
 # (Run 10 has no snapshots/ — owner 2026-07-24 — so only model/ goes.)

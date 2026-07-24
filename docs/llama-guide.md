@@ -103,11 +103,22 @@ python3 train_target.py --config ../configs/run10_llama1b_target.yaml \
   ; curl -d "run10 llama target done (exit $?)" $NTFY
 
 python3 gates.py g5 --run evt-run10-llama1b-target \
-    --config ../configs/eval_target_data.yaml --device cuda
+    --config ../configs/eval_target_data_llama.yaml --device cuda
 ```
-Also record zero-shot op add/sub on the merged parent BEFORE run 10
-(evidence): real Llama may already answer op-notation add/sub — a
-near-zero-EDL elicitation is the expected finding there, not a bug.
+G5 on runs 9/10 takes `eval_target_data_llama.yaml`, NEVER
+`eval_target_data.yaml` — same data pin, but the tokenizer must match the
+model under eval (2026-07-24 incident: the custom-tokenizer config scored
+a converged run 10 at 0.0000 exact match / 15-nat test loss).
+
+Also record zero-shot op add/sub BEFORE run 10 (evidence), as run-9 G5
+with the same llama eval config: real Llama may already answer
+op-notation add/sub — a near-zero-EDL elicitation is the expected finding
+there, not a bug.
+
+```bash
+python3 gates.py g5 --run evt-run9-llama1b-inst \
+    --config ../configs/eval_target_data_llama.yaml --device cuda
+```
 
 ## 4. Archive + teardown
 

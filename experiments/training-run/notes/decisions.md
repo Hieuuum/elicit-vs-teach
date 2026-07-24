@@ -1573,3 +1573,35 @@ them), target_sweep_1m_* + target_pilot_100k_* (LR-pin provenance),
 runs-1–6 configs (run records), `migrate_store_layout.py` (live remedy
 named by geode/zoo/store.py's legacy-layout error), notebooks
 (owner left the notebook question unanswered — untouched).
+
+## Runs 9/10 G5 evidence was measured with the wrong tokenizer — invalid, re-measure (2026-07-24)
+
+The chain's `g5_if_missing` hardcoded `eval_target_data.yaml` for every
+run; that config pins `tokenizer: ../tokenizer` (the frozen custom arith
+tokenizer). Correct for runs 7/8; for runs 9/10 it tokenized G5's
+prompts and the shared-set NLL in a vocabulary the Llama model never
+saw. Symptom on run 10: a run that converged at 0.0156 nats val scored
+zero-shot/16-shot exact match 0.0000 and a 15.04-nat "test loss" (worse
+than uniform over Llama's 128k vocab). Proof the checkpoints are fine:
+run 9's G4 used the correct tokenizer (run9 config) on the same
+checkpoint and passed at >=0.99 format validity. Same disease as the
+run-9 G4 config bug (0f9e1c7) — eval-config reuse across arms — but G5
+has no `train:` block to crash on, so it ran silently wrong. This is
+the incident class of feedback-eval-decode-must-match-training-
+tokenization, one level up: the whole tokenizer, not just the decode.
+
+- The G5 blocks currently in the run-9 and run-10 manifests are
+  GARBAGE EVIDENCE — do not quote them, do not push them to the relay.
+  Re-run `gates.py g5` for both runs with the new
+  `eval_target_data_llama.yaml` (same D_target_eval pin, tokenizer
+  `meta-llama/Llama-3.2-1B`); gates.py overwrites the manifest G5 block
+  in place.
+- Chain + llama-guide §3 fixed: `g5_if_missing` now takes the eval
+  config as an argument (runs 7/8 keep `eval_target_data.yaml`).
+- Rule: an eval config's tokenizer must match the model under eval,
+  exactly like training. Any future non-custom-tokenizer run needs its
+  own eval_target_data variant.
+- Training-side numbers are untouched: run 10's prequential logs,
+  stopping evals, and min_val 0.0156 nats were all computed inside
+  train_target.py with the correct Llama tokenization (order_hash +
+  G7-null verified). Only the two G5 evidence blocks are affected.
