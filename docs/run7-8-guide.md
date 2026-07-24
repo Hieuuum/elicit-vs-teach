@@ -12,9 +12,11 @@ step before pinning. For sweep runs `stop_reason=max_steps` is the
 expected outcome, not a bug signal (documented exception, decisions.md
 2026-07-24).
 Design notes live in `configs/pilot/target_sweep_1m_lr3e-4.yaml`.
-Sequencing (owner 2026-07-24): extraction is deferred — this sweep goes
-first; the box must stay alive regardless (runs-5/6 snapshots live only
-there).
+State (owner 2026-07-24): the old box was DELETED — the four sweep run
+dirs and the runs-5/6 snapshots + final weights went with it
+(owner-accepted; runs-5/6 manifests + all logs + θ_T test loss survive on
+the relay and laptop, so the headline numbers stand). Extraction now
+targets runs 7/8 exclusively. Everything below runs on the new chain box.
 
 ## 1. Sync the box
 
@@ -35,15 +37,15 @@ session, after the laptop-hash check above:
 
 ```bash
 hf auth login --force            # READ token; --force always (owner 2026-07-24)
-python hf_checkpoint.py pull --run-id evt-run3-armA-inst   # run 7's parent
+python hf_checkpoint.py pull --run-id evt-run3-armA-inst   # run 7's + pilot's parent
 python hf_checkpoint.py pull --run-id evt-run4-armB-inst   # run 8's parent
-# sweep evidence, manifests only — the chain's LR guard recomputes the
-# winner from these (the old box must have pushed them once first):
-for lr in 3e-4 1e-3 3e-3 1e-2; do
-  python hf_checkpoint.py pull --run-id evt-run8-sweep-lr$lr --no-weights
-done
 python verify_llama_tokenizer.py  # early Meta-license/token check
 ```
+
+(No sweep pull — those run dirs were lost with the old box. The chain's
+LR guard verifies the pin against the committed `configs/lr_pin.yaml`
+instead, created at pin time in §3. Do NOT re-run `sweep_1m.sh` here: with
+nothing complete in this store it would retrain all four points.)
 
 ## 2. Launch — 7,813 steps per point, sequential
 
@@ -74,9 +76,9 @@ way). **Edge rule:** an edge win extends the grid one step in that
 direction before pinning — fired once (3e-3 → added 1e-2) and RESOLVED:
 1e-2 plateaued at 1.8674, 3e-3 is the interior winner. **Remaining step:**
 the 100K-prefix Arm-A sanity pilot before pinning — 3e-3 is the only grid
-point never proven on Arm A (3e-4 and 1e-3 are). On the old box the
-`evt-run3-armA-inst` parent is already local (run 5 trained from it);
-elsewhere pull it first.
+point never proven on Arm A (3e-4 and 1e-3 are). It runs on the NEW box
+as its first GPU job (a good end-to-end shakedown before the chain);
+parent pull is in §1.
 
 ```bash
 python train_target.py --config ../configs/run7_target_1m.yaml \
@@ -92,7 +94,9 @@ high plateau = do NOT pin 3e-3; fall back toward 1e-3 (~0.005 nats behind)
 and bring the numbers to the owner.
 
 Then, laptop: set `train.lr` in **ALL FOUR** run yamls (run7/run8/run9/
-run10 — one LR everywhere, owner 2026-07-24), record it in decisions.md,
+run10 — one LR everywhere, owner 2026-07-24) **and commit the pin record
+`configs/lr_pin.yaml`** (lr + provenance — the chain's LR-guard evidence
+now that the sweep manifests are gone), record it in decisions.md,
 commit + push; box `git pull` and confirm the hash before the pair
 launches. Launch order and gate mechanics for the pair are in the configs'
 headers (run 7 first — G7).

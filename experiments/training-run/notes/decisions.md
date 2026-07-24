@@ -1416,3 +1416,37 @@ archive (+ sweep evidence + the Arm-A pilot). Consequences handled:
   + headroom 20). Prune mode peaks ~140 GB → 160 GB box, but the relay
   grows ~200 GB — needs paid HF storage quota; default is the 300 GB
   no-prune box. GPU ≥24 GB (run-10 smoke is the memory worst case).
+
+## 2026-07-24 — old box deleted before the pilot/pushes: losses accepted (owner)
+
+The old box was destroyed with the four `evt-run8-sweep-lr*` run dirs
+(never pushed) and the runs-5/6 snapshots (~75 GB; 711 + 832 adapters) +
+final model weights aboard. Inventory verified against the laptop store
+and a relay file listing: runs 5/6 survive as manifest + train_log +
+eval_log + logs/prequential + logs/gradstats + eval/test_loss on BOTH the
+relay and the laptop — every reported number and every curve stands; the
+run-3/run-4 parents have weights on the relay, so the chain is unblocked.
+
+**OWNER RULING: not a problem.** Extraction will not run on runs 5/6 —
+runs 7/8 snapshots (n=2048) are the extraction substrate. Recorded
+consequence: the project's internals evidence now depends entirely on
+runs 7/8 — once produced, their snapshots are irreplaceable, the new box
+inherits the keep-alive rule for them, and pushing them to the relay
+after the runs (`hf_checkpoint.py push --with-snapshots`, quota
+permitting) is cheap insurance against a repeat of this incident.
+
+Changes made:
+- `launch_chain_7_10.sh` LR guard: "pin == winner among local sweep
+  manifests" is permanently unsatisfiable now, so with <3 sweep runs in
+  the store the guard verifies the pin against a **committed
+  `configs/lr_pin.yaml`** (lr + provenance; created at pin time, i.e.
+  after the Arm-A pilot passes). Refusal messages updated.
+- `sweep_1m.sh`: header tripwire — on a fresh box nothing is complete,
+  so re-running it would silently RETRAIN all four points. Marked
+  CLOSED, do not run.
+- Arm-A 100K pilot moves to the NEW box as its first GPU job (parent
+  `evt-run3-armA-inst` pulled from the relay; guide §1/§3 updated).
+- `plot_losses.py` (owner request): train-vs-val overlay for runs
+  7/8/10 (default set), log-log, nats; train = faint per-step rolling
+  mean, val = stopping + curve evals with min-val in the legend. Tested
+  end-to-end on the surviving runs-5/6 logs.

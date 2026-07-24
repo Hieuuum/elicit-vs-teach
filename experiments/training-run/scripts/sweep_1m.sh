@@ -6,10 +6,11 @@
 # edge win at 3e-3 (the pre-registered extension rule). Extension result:
 # 1e-2 "converged" at 5500 with min_val 1.8674 — the ε/k rule firing on a
 # plateau at garbage, not a win. 3e-3 stands as the interior winner;
-# next step is the Arm-A 100K pilot (guide §3). Skips points already
-# complete in the store, so re-running this script launches only missing
-# points (and a crashed sweep resumes the same way). Ends with a winner
-# summary + the edge-rule verdict.
+# next step is the Arm-A 100K pilot (guide §3). SWEEP CLOSED — and the
+# four run dirs were lost with the old box (2026-07-24), so on a fresh
+# box the skip-complete logic finds NOTHING complete and this script
+# would RETRAIN all four points (~4x 7813 steps of budget). Do not run
+# it again; the results live in decisions.md and configs/lr_pin.yaml.
 #
 #   ./sweep_1m.sh --confirm-cost
 #

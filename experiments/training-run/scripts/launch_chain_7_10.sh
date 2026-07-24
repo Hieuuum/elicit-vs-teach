@@ -30,7 +30,8 @@
 # Refuses to start unless ALL of:
 #   - train.lr pinned, EQUAL and non-null in ALL FOUR run yamls, matching
 #     the sweep winner in this store (one LR everywhere, owner 2026-07-24;
-#     >=3 complete evt-run8-sweep-lr* runs);
+#     >=3 complete evt-run8-sweep-lr* runs) — or, since those run dirs were
+#     lost with the old box (2026-07-24), the committed configs/lr_pin.yaml;
 #   - free disk covers the PENDING runs (sum; per-run max when pruning);
 #   - parent checkpoints present for pending runs 7/8;
 #   - verify_llama_tokenizer.py PASSES (when 9/10 are pending);
@@ -117,16 +118,25 @@ for p in sorted((Path(os.environ["GEODE_STORE"]) / "runs").glob("evt-run8-sweep-
     v = float("inf") if v is None else v
     if v < best:
         best, best_lr = v, float(m["training"]["optimizer"]["lr"])
-if seen < 3:
-    sys.exit(
-        f"chain: only {seen} complete sweep runs in this store — the pin is unreviewable; "
-        "finish sweep_1m.sh first. Fresh box: pull the sweep evidence (manifests only) — "
-        "for lr in 3e-4 1e-3 3e-3 1e-2; do python hf_checkpoint.py pull "
-        "--run-id evt-run8-sweep-lr$lr --no-weights; done"
-    )
-if abs(lr - best_lr) > 1e-12:
-    sys.exit(f"chain: configs pin lr={lr} but the sweep winner here is {best_lr} — re-pin (or resolve the discrepancy) first")
-print(f"[chain] lr pin {lr} matches the sweep winner in all four yamls ({seen} sweep runs checked)")
+if seen >= 3:
+    if abs(lr - best_lr) > 1e-12:
+        sys.exit(f"chain: configs pin lr={lr} but the sweep winner here is {best_lr} — re-pin (or resolve the discrepancy) first")
+    print(f"[chain] lr pin {lr} matches the sweep winner in all four yamls ({seen} sweep runs checked)")
+else:
+    # The evt-run8-sweep-lr* run dirs were lost with the old box (2026-07-24,
+    # owner-accepted); the committed pin record is the evidence instead
+    # (numbers in decisions.md + run7-8-guide.md).
+    rec_path = cfg / "lr_pin.yaml"
+    if not rec_path.is_file():
+        sys.exit(
+            f"chain: only {seen} complete sweep runs in this store and no configs/lr_pin.yaml — "
+            "the pin is unreviewable. The pin record is committed together with the pin itself "
+            "after the Arm-A pilot passes (run7-8-guide.md §3); git pull to get it."
+        )
+    rec_lr = float(yaml.safe_load(rec_path.read_text())["lr"])
+    if abs(lr - rec_lr) > 1e-12:
+        sys.exit(f"chain: configs pin lr={lr} but committed configs/lr_pin.yaml says {rec_lr} — resolve before launching")
+    print(f"[chain] lr pin {lr} matches committed lr_pin.yaml (sweep manifests lost with the old box; provenance in decisions.md)")
 PY
 
 # 2. Disk: worst-case GB each PENDING run adds (decisions.md 2026-07-24);
