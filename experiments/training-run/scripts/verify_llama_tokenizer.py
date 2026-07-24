@@ -10,7 +10,8 @@ verifies four things a bad tokenizer would otherwise break silently:
     (train_sft.py/train_target.py) assumes this.
 (c) ``geode.arith.spans.tokenize_with_spans`` over a seeded sample of each
     frozen parquet the Llama chain uses (D_inst.parquet for run 9,
-    D_target.parquet for run 10), deliberately including negative-answer
+    D_target.parquet for run 10; laptop-local copy if present, else pulled
+    from the public dataset repo), deliberately including negative-answer
     (subtraction) rows — the merged "-<digit>" sign token is the sharpest
     edge case for a new tokenizer (geode/arith/spans.py module docstring).
 (d) the hub download itself: a 401/403/gated error becomes a friendly
@@ -35,9 +36,27 @@ from geode.arith import tokenize_with_spans
 DEFAULT_MODEL_ID = "meta-llama/Llama-3.2-1B"
 EXP_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = EXP_DIR / "data" / "full"
+# Public frozen-dataset repo — the same source train_sft.py/train_target.py
+# pull from (data.hf_id in the run configs).
+DATASET_REPO = "mhieuuu/elicit-vs-teach-arith"
 # The two frozen files the Llama chain trains on: run 9 (format install,
 # D_inst) and run 10 (target, D_target).
 CHAIN_FILES = ("D_inst", "D_target")
+
+
+def resolve_parquet(name: str) -> Path:
+    """Laptop-local copy if present, else the public hub copy (fresh box).
+
+    data/full/ is gitignored (generated on the laptop), so a fresh clone has
+    only report.json — the box gets the parquet the same way the trainers do.
+    """
+    local = DATA_DIR / f"{name}.parquet"
+    if local.is_file():
+        return local
+    from huggingface_hub import hf_hub_download
+
+    print(f"[verify] {name}: no local copy under {DATA_DIR} — pulling from {DATASET_REPO}")
+    return Path(hf_hub_download(DATASET_REPO, f"{name}.parquet", repo_type="dataset"))
 
 
 def load_hub_artifacts(model_id: str):
@@ -103,8 +122,7 @@ def check_spans(name: str, tokenizer, *, n: int, seed: int) -> bool:
     """Item (c): tokenize_with_spans over a sample of one frozen parquet."""
     import pandas as pd
 
-    path = DATA_DIR / f"{name}.parquet"
-    df = pd.read_parquet(path)
+    df = pd.read_parquet(resolve_parquet(name))
     rows = sample_rows(df, n, seed)
     texts = rows["full_text"].tolist()
     char_spans = list(
