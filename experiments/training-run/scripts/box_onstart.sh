@@ -58,6 +58,21 @@ if ! grep -q GEODE_STORE ~/.bashrc 2>/dev/null; then
   [[ -n ${NTFY_TOPIC:-} ]] && echo "export NTFY=ntfy.sh/$NTFY_TOPIC" >>~/.bashrc
 fi
 
+# vast SSH often lands INSIDE a tmux session already (their default entry
+# point) — nesting `tmux new` there fails. Tell every login shell which
+# case it is in ($TMUX is set iff inside tmux); Ubuntu's interactive guard
+# at the top of .bashrc keeps the echo out of scp/rsync shells.
+if ! grep -q 'geode tmux hint' ~/.bashrc 2>/dev/null; then
+  cat >>~/.bashrc <<'HINT'
+# geode tmux hint
+if [[ -n ${TMUX:-} ]]; then
+  echo "[box] inside tmux session '$(tmux display-message -p '#S' 2>/dev/null)' — run long jobs directly; do NOT nest 'tmux new'"
+else
+  echo "[box] NOT in tmux — wrap long jobs: tmux new -s <name>"
+fi
+HINT
+fi
+
 # Template env vars don't reach SSH sessions on vast.ai; /etc/environment is
 # the documented fix (their FAQ). READ token only — the write rule stands.
 for var in HF_TOKEN NTFY_TOPIC; do
