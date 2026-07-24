@@ -52,6 +52,14 @@ def main() -> int:
     parser.add_argument("--probe-hash", default=None, help="refuse on probe_set_hash mismatch")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--store", type=Path, default=None, help="override $GEODE_STORE")
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="extract at most N snapshots, evenly index-spaced over the available "
+        "list (first + final always kept) — the on-box disk cap: one dump is "
+        "~0.5 GiB, full density is ~0.6 TiB/run",
+    )
     parser.add_argument("--overwrite", action="store_true", help="re-extract existing dumps")
     parser.add_argument("--confirm-cost", action="store_true")
     args = parser.parse_args()
@@ -117,6 +125,17 @@ def main() -> int:
     )
     if on_disk - declared:
         print(f"[evt] WARNING: {len(on_disk - declared)} on-disk snapshots are undeclared; skipped")
+    if args.limit is not None and args.limit < len(steps):
+        if args.limit < 2:
+            raise ValueError(f"--limit must be >= 2 (first + final step), got {args.limit}")
+        idx = {round(i * (len(steps) - 1) / (args.limit - 1)) for i in range(args.limit)}
+        steps = [steps[i] for i in sorted(idx)]
+        print(
+            f"[evt] --limit {args.limit}: {len(steps)} snapshots selected, evenly "
+            f"index-spaced over the available list (keeps the schedule's "
+            f"log-then-uniform shape)",
+            flush=True,
+        )
 
     phase(4, "model skeleton — final-checkpoint config + snapshot state per step")
     arch = AutoConfig.from_pretrained(checkpoint_dir(args.run_id, store=store))

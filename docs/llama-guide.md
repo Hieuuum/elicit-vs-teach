@@ -134,17 +134,17 @@ weights must ever be excluded.
 
 Push runs 9/10 only AFTER their G5 blocks were re-measured with
 `eval_target_data_llama.yaml` (§3) — never relay garbage evidence.
-Two separate pastes (the `read` must be alone), WRITE token never
-stored beyond the paste:
+The WRITE token comes from the vast template env var (owner
+2026-07-24: `HF_WRITE_TOKEN` ships in the instance environment — check
+`env | grep -i hf`); it is passed per-command so the ambient
+`huggingface_hub` login stays the READ account. No template var? Fall
+back to a solo `read -rsp "HF WRITE token: " HF_WRITE_TOKEN` paste,
+then `unset` after.
 
 ```bash
-read -rsp "HF WRITE token: " HF_WRITE_TOKEN && export HF_WRITE_TOKEN && echo " ok"
-```
-```bash
 cd /workspace/elicit-vs-teach/experiments/training-run/scripts
-HF_TOKEN=$HF_WRITE_TOKEN python3 hf_checkpoint.py push --run-id evt-run9-llama1b-inst
+HF_TOKEN=${HF_WRITE_TOKEN:?not in env — read-paste it} python3 hf_checkpoint.py push --run-id evt-run9-llama1b-inst
 HF_TOKEN=$HF_WRITE_TOKEN python3 hf_checkpoint.py push --run-id evt-run10-llama1b-target
-unset HF_WRITE_TOKEN
 ```
 
 Destroy (never stop) when cleared; store lives inside the clone — never

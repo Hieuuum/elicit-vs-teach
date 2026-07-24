@@ -1,6 +1,6 @@
 # EXPERIMENTS.md — live experiment plan
 
-Status: **executing** (updated 2026-07-23). This is the current state
+Status: **executing** (updated 2026-07-24). This is the current state
 and remaining work of the elicit-vs-teach training-run experiment.
 `specs/02-training-run.md` is the detailed design source;
 `experiments/training-run/notes/decisions.md` is the running decision
@@ -29,10 +29,10 @@ spec 02 §13).
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | **DONE** (2026-07-22, behavioral stop @ 750); G3/G4/G5 recorded |
 | 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` 500K prefix (op-notation add/sub; OPEN(2) closed 2026-07-22) | **DONE — converged** (2026-07-22, step 6,000, min_val 0.00245; 711 snapshots + base); G5 recorded |
 | 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | **DONE — converged** (2026-07-22, step 12,500, min_val 0.02301; 832 snapshots + base); G7 verified; G5 recorded (stop-wobble caveat → decisions.md) |
-| 7 | `evt-run7-armA-target-1m` | target @ full 1M | run 3 | LoRA | full 1M `D_target` (owner 2026-07-23; supersedes OPEN(2) for this pair only) | **planned** — LR pending the 1M sweep (`pilot/target_sweep_1m_lr*`) |
-| 8 | `evt-run8-armB-target-1m` | target @ full 1M | run 4 | LoRA | identical data + order as run 7 (G7) | **planned** — launches after run 7 |
-| 9 | `evt-run9-llama1b-inst` | format install, external validity | `meta-llama/Llama-3.2-1B` (base) | LoRA r=64, merged after | same frozen `D_inst` + behavioral stop | **planned** — design 2026-07-23 (decisions.md) |
-| 10 | `evt-run10-llama1b-target` | target, external validity | run 9 (merged) | LoRA r=64 | full 1M `D_target` | **planned** — after run 9 + Llama-tokenizer verification |
+| 7 | `evt-run7-armA-target-1m` | target @ full 1M | run 3 | LoRA | full 1M `D_target` (owner 2026-07-23; supersedes OPEN(2) for this pair only) | **DONE — converged** (2026-07-24 chain, lr 1e-3, step 6,000, min_val 0.0027); G5 recorded; on relay with full snapshots |
+| 8 | `evt-run8-armB-target-1m` | target @ full 1M | run 4 | LoRA | identical data + order as run 7 (G7) | **DONE — converged** (2026-07-24 chain, step 11,000, min_val 0.0237 — 8.7× the run-7 floor); G5 recorded; on relay with full snapshots |
+| 9 | `evt-run9-llama1b-inst` | format install, external validity | `meta-llama/Llama-3.2-1B` (base) | LoRA r=64, merged after | same frozen `D_inst` + behavioral stop | **DONE** (2026-07-24 chain, behavioral stop @ 750; G4 1.0; merged → `model_merged/`); G5: zero-shot 0.0000 / 9.26 nats — Llama does NOT already answer op-notation, so run 10 measures a real gap; on relay |
+| 10 | `evt-run10-llama1b-target` | target, external validity | run 9 (merged) | LoRA r=64 | full 1M `D_target` | **DONE — converged** (2026-07-24 chain, step 7,500, min_val 0.0156); G5 0.9844 / 0.0232 nats (re-measured after the eval-tokenizer incident, decisions.md); relay push pending |
 
 DAG: `1 → 2 → 3 → 5` (Arm A, elicit) and `1 → 4 → 6` (Arm B, teach);
 the 1M rerun pair reuses the installers: `3 → 7`, `4 → 8`. External
@@ -98,7 +98,7 @@ ungated inspection tool.
 | G2 | run 3 | Arm A still ≥95% on NL add/sub post-install — same bar as G1, no separate δ (owner 2026-07-21); drop from G1 reported | **PASS 0.9531** (drop 0.043 from G1; installer-LR length-prior finding → decisions.md 2026-07-22) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | **PASS 0.0000** |
 | G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | **PASS 1.0 both arms** |
-| G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. 16-shot ≈ 0 everywhere (collapse — invalidated as a metric; decisions.md) |
+| G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. **1M pair: run 7 (A) 0.9971 / 0.0025 vs run 8 (B) 0.9551 / 0.0312 — 12.4× θ_T gap. Llama: run 9 parent 0.0000 / 9.26 (latent as required), run 10 0.9844 / 0.0232 — measured with `eval_target_data_llama.yaml` (an eval's tokenizer must match the model under eval; decisions.md 2026-07-24)**. 16-shot ≈ 0 everywhere incl. the 1.24B Llama (collapse — invalidated as a metric; decisions.md) |
 | G6 | data gen | V5.1/V5.2 integrity on the real sets | partial — generation-time evidence in `report.json`; formal re-run when `gates.py` grows the subcommand |
 | G7 | before run 6 | `data_order_hash`(run 5) == (run 6) | enforced at launch |
 
@@ -120,11 +120,14 @@ ungated inspection tool.
 
 Built so far: `geode.edl` (incl. the pinned-adapter prequential loop,
 V1.9/V1.10), `geode.train` (full FT + SFT + `apply_lora`), `geode.zoo`,
-`geode.arith`, `geode.probe.schedule` — all with property tests (suite
-≈ 491); launchers `train_sft.py` + `train_target.py`, `gates.py` g1–g5.
-Not yet built: `geode.probe` extraction + metrics (V5.9–V5.16, extraction
-+ V5.13 in progress 2026-07-22), `scripts/extract.py`, `analysis/`
-drivers, `export_hf.py`, `gates.py` g6.
+`geode.arith`, `geode.probe` (schedule V5.55–V5.61, extraction
+V5.9–V5.12, alignment metric V5.13) — all with property tests;
+launchers `train_sft.py` + `train_target.py`, `gates.py` g1–g5,
+`scripts/extract.py` (resumable, `--limit` disk cap),
+`analysis/alignment.py` (first driver). Not yet built: metrics
+V5.14–V5.16 (drift, effective rank, performance-aligned matching) +
+their drivers (`drift.py`, `adapters.py`, `matching.py`),
+`export_hf.py`, `gates.py` g6.
 
 ## 6. Remaining work, in order
 
@@ -138,29 +141,27 @@ drivers, `export_hf.py`, `gates.py` g6.
    closed **no** (owner) — runs 5/6 are launch-ready; snapshots are
    adapter-only (owner 2026-07-22, ~48 MB/step + one base file ⇒
    ~75 GB both runs; decisions.md sizing).
-3. **`geode.probe` extraction + `scripts/extract.py`** (V5.9–V5.13:
-   offline probe pass — activations + activation-gradients at 9
-   residual points, matched-load guards, alignment metric) — in
-   progress 2026-07-22; the pilot box is gone — validate on the real
-   runs-5/6 snapshots, which live only on the current box (keep it
-   alive until extraction is done or the snapshots are relayed);
-   target: extract → one real gradient-alignment plot (spec 02 §11).
-4. ~~Runs 5–6~~ — **DONE 2026-07-22**: both converged (§2 table), G5
-   recorded, 711/832 adapter-only snapshots + base per run (~75 GB,
-   on-box only — relay push HELD, see decisions.md box logistics).
-5. **1M LR re-pin + runs 7–8** (owner 2026-07-23, decisions.md; after
-   extraction — one-box sequential plan): 3-point B-arm sweep @ 1M
-   (`pilot/target_sweep_1m_lr*.yaml`) → pin winner in
-   `run7/run8_target_1m.yaml` → launch 7 then 8. Shared-vs-per-arm LR
-   policy deferred (owner). Guide: `docs/run7-8-guide.md` (disk
-   checkpoint in §0 — the box needs ≥120 GB free for the new pair).
-6. **Llama-3.2-1B external-validity chain (runs 9–10)** (owner
-   2026-07-23, decisions.md): LoRA format install on `D_inst` → merge
-   adapter to a plain checkpoint (new core merge fn + logit-equality
-   property test, planned) → LoRA target @ full 1M. Before any launch:
-   Llama-tokenizer verification (pad_token, digit chunking, span
-   checks) + a Llama LR mini-sweep. Box TBD (may follow runs 7/8 on
-   the current box or get its own).
+3. **Extraction over runs 7/8** — tooling DONE 2026-07-24
+   (`geode.probe` V5.9–V5.13 + `scripts/extract.py` +
+   `analysis/alignment.py`; the runs-5/6 snapshots died with the old
+   box, so runs 7/8 are the only extraction targets). Protocol:
+   `--limit 128` snapshots/run (one dump ≈ 0.5 GiB; full density
+   ≈ 0.6 TiB/run does not fit the 300 GB box), resumable, dumps stay
+   on-box (regenerable from the hub snapshots). Paste sheet:
+   `docs/run7-8-guide.md` §4; target: one real gradient-alignment
+   plot (spec 02 §11).
+4. ~~Runs 5–6~~ — **DONE 2026-07-22**: both converged, G5 recorded;
+   snapshots + final weights LOST 2026-07-24 with the old box
+   (owner-accepted; logs/manifests survive on relay + laptop) —
+   headline numbers stand, internals evidence moves to runs 7/8.
+5. ~~1M LR re-pin + runs 7–8~~ — **DONE 2026-07-24**: pin lr 1e-3
+   everywhere (Arm-A tie-break pilot overrode the B-sweep edge;
+   decisions.md); chain ran 7 → 8 to convergence (§2 table); both on
+   the relay with full snapshot sets.
+6. ~~Llama chain (runs 9–10)~~ — **DONE 2026-07-24** via
+   `launch_chain_7_10.sh` (§2 table; four chain bugs + the G5
+   eval-tokenizer incident fixed en route — decisions.md). Run 9
+   relayed; run 10 push pending.
 7. **Analyses + publication** — metrics V5.14–V5.16, the four drivers
    (alignment, drift, adapters, matching), `export_hf.py` to the HF
    dataset repo (spec 02 §9–10).

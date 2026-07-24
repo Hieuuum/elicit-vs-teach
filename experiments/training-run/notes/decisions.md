@@ -1641,3 +1641,37 @@ logs-only recipe lives in git history). Adapter-only stripping
 rejected: no tooling loads it, and run 10's adapter is relative to
 run 9's merged model. Rationale: the runs-5/6 weights loss (old box
 deletion) — never leave a box as the sole copy of final weights.
+
+## Extraction protocol for runs 7/8 — `--limit 128`, dumps stay on-box (2026-07-24)
+
+Relay status, verified from the laptop 2026-07-24: runs 7 (1,142
+snapshot dirs incl. `base`) and 8 (1,308) are fully pushed with
+snapshots — the keep-alive rule (hub shows `snapshots/` for BOTH) is
+satisfied; run 9 is pushed (incl. `model_merged/`); **run 10 is the
+only run not yet on the relay** (push via the vast-template
+`HF_WRITE_TOKEN`, llama-guide §4). Loss overlay 7-vs-8 produced on the
+laptop from pulled logs: min_val 0.0027 (A) vs 0.0237 (B), Arm A's
+drop at steps ~30–200, Arm B's plateau ~1.5 nats until ~700.
+
+Extraction decisions (minor, decide-and-notify):
+
+- **Disk math forces subsampling.** One dump = 1,024 probe examples
+  (hash-verified `2b6d51c2…`) × max 28 tokens × d512 × 9 hooks,
+  acts+grads bf16 ≈ 504 MiB. Full density (1,141 + 1,307 materialized
+  step snapshots) ≈ 1.2 TiB — the 300 GB chain box cannot hold it.
+  `scripts/extract.py` grew `--limit N`: evenly index-spaced over the
+  materialized snapshot list (first + final always kept; the list is
+  already log-then-uniform, so index spacing preserves its shape).
+  Starting density **128/run ≈ 129 GiB both runs**; extraction is
+  resumable, so a later larger `--limit` only adds dumps.
+- **Dumps are not relayed.** They regenerate from the hub snapshots
+  for ~$1 of GPU; only the small outputs (`results/*.parquet`,
+  `analysis/figures/*.png`) come back to the laptop (scp).
+- **First driver written**: `analysis/alignment.py` — V5.13 alignment
+  per (snapshot, layer), conditioned on per-example probe loss > 0,
+  ZOO-4 long-format `results/gradient_alignment.parquet` (`regime` =
+  elicit/teach) + the spec-02 §11 gradient-alignment figure.
+  Smoke-tested on synthetic dumps: planted-parallel gradients ⇒
+  pairwise cosine 1.0, random ⇒ ≈ 0 with top-PC EVR near 1/n.
+- Paste sheet: run7-8-guide §4. Probe tests all green (78) before the
+  driver landed.

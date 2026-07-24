@@ -111,6 +111,44 @@ chain — it skips completed runs, so it also picks up after the pair) — check
 the pin equals the sweep winner in the store, ≥200 GB free, parents present;
 run 7 then run 8 with NTFY pings; skips a completed run on re-run.
 
+## 4. Extraction — runs 7/8 snapshots → probe dumps → alignment plot
+
+The internals pass (spec 02 §7). Disk math (2026-07-24): one dump is
+~0.5 GiB (1024 probe examples × 28 tokens × d512 × 9 hooks, acts+grads
+bf16); full density would be ~0.6 TiB/run, so extraction runs at
+`--limit 128` per run (~129 GiB both, evenly index-spaced over the
+materialized snapshot list, first + final kept). Check
+`df -h /workspace` ≥ 150 GB free first. Resumable — existing dumps are
+skipped; a later re-run with a larger `--limit` only adds density.
+Dumps are NOT relayed: they regenerate from the hub snapshots for ~$1
+of GPU, unlike the snapshots themselves.
+
+```bash
+cd /workspace/elicit-vs-teach && git pull  # hash must match laptop
+cd experiments/training-run/scripts
+python3 extract.py --config ../configs/run7_target_1m.yaml \
+    --run-id evt-run7-armA-target-1m \
+    --probe-hash 2b6d51c27fce0e69b6b0b7d2f033fcc720e39ade287bb31350cb6b2f6fb562e2 \
+    --limit 128 --device cuda --confirm-cost \
+  ; curl -d "run7 extraction done (exit $?)" $NTFY
+python3 extract.py --config ../configs/run8_target_1m.yaml \
+    --run-id evt-run8-armB-target-1m \
+    --probe-hash 2b6d51c27fce0e69b6b0b7d2f033fcc720e39ade287bb31350cb6b2f6fb562e2 \
+    --limit 128 --device cuda --confirm-cost \
+  ; curl -d "run8 extraction done (exit $?)" $NTFY
+```
+
+Then the first analysis driver (CPU, minutes):
+
+```bash
+python3 ../analysis/alignment.py
+```
+
+Writes `geode-store/results/gradient_alignment.parquet` (ZOO-4
+long-format) and `analysis/figures/gradient_alignment.png`. Copy both
+back to the laptop (scp — a few hundred KB); the box is teardown-safe
+once they're off and all four runs are verified on the hub.
+
 ## Troubleshooting
 
 | Symptom | Fix |
