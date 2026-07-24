@@ -48,7 +48,11 @@ from geode.train import ConvergenceTracker, StoppingRule, evaluate_sft_nll_nats
 from geode.zoo import load_run, register_run, require_parent_ready, tokenizer_hash
 from train import REPO_ROOT, git_commit, load_config, phase
 
-ARM_REGIME = {"A": "elicit", "B": "teach"}  # regimes attach to the target runs
+# Regimes attach to the target runs. Run 10 (arm "llama") records "unknown"
+# (spec 00: regime is design-known at creation; whether real Llama holds the
+# capability latent is exactly what that run measures — run-9 SFT precedent).
+# Explicit entry, not .get(default): a typo'd arm must still fail loudly.
+ARM_REGIME = {"A": "elicit", "B": "teach", "llama": "unknown"}
 
 # The first EVAL_STOP_ROWS rows of the frozen eval file (D_target_eval,
 # question-disjoint from D_target ∪ D_algo ∪ probe by construction — spec 02
