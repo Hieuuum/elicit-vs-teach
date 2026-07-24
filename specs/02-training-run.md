@@ -751,6 +751,15 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   (`<name>.base/.A/.B.weight`); fresh base model (any weights) →
   `reapply_lora` (same rank/α/targets) → strict `load_state_dict` reproduces
   outputs bit-exactly — no separate base checkpoint, no merge.
+- V5.52 merge for parent handoff (2026-07-23, §6): `geode.train.lora.merge_lora`
+  folds each `LoRALinear` into its base `nn.Linear`
+  (`W_base + scaling·B.weight@A.weight`, in place) — cross-stage parent
+  handoff only (a LoRA install run's result warm-starting a plain
+  `from_pretrained` child run); snapshots are never merged, V5.51 stands.
+  Merged logits match the wrapped model's up to float-rounding tolerance; a
+  freshly wrapped model (B=0) merges to the base weights bit-exactly (the
+  update is exactly zero); merged `state_dict()` keys equal a never-wrapped
+  model's, so `save_pretrained` → plain `from_pretrained` round-trips.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

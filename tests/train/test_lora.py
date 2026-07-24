@@ -1,4 +1,4 @@
-"""LoRA adapter tests — specs/02 §6 "LoRA (runs 5-6 only)" pin, V5.47-V5.51.
+"""LoRA adapter tests — specs/02 §6 "LoRA (runs 5-6 only)" pin, V5.47-V5.52.
 
 CPU-only, tiny in-process models, fp32. The pinned r=128 and the 12.1M-param
 figure belong to the real 512-hidden/8-layer arch and are never hardcoded
@@ -16,7 +16,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from geode.train.lora import LORA_TARGET_MODULES, LoRALinear, apply_lora, reapply_lora
+from geode.train.lora import LORA_TARGET_MODULES, LoRALinear, apply_lora, merge_lora, reapply_lora
 from tests.conftest import DEFAULT_VOCAB_SIZE
 
 # Tiny stand-ins for the pinned r=128/α=32: small enough to be fast, and
@@ -176,3 +176,67 @@ def test_v5_51_state_dict_round_trip(tiny_llama):
 
     restored = reapply_lora(tiny_llama(seed=9), state, rank=_RANK, alpha=_ALPHA)
     assert torch.equal(_logits(restored, ids), reference)
+
+
+# --------------------------------------------------------------------------
+# V5.52 — merge for cross-stage parent handoff (never snapshots)
+# --------------------------------------------------------------------------
+def test_v5_52a_merge_logits_match_wrapped(tiny_llama):
+    # Nonzero B so the merge exercises the actual delta formula, not just the
+    # B=0 identity already covered by V5.47/(b) below.
+    model = tiny_llama(seed=0)
+    apply_lora(model, rank=_RANK, alpha=_ALPHA, seed=1)
+    gen = torch.Generator().manual_seed(2)
+    with torch.no_grad():
+        for module in model.modules():
+            if isinstance(module, LoRALinear):
+                module.B.weight.copy_(torch.randn(module.B.weight.shape, generator=gen))
+    ids = _random_ids(seed=3)
+    wrapped_logits = _logits(model, ids)
+
+    merge_lora(model)
+    merged_logits = _logits(model, ids)
+    torch.testing.assert_close(merged_logits, wrapped_logits)
+
+
+def test_v5_52b_merge_at_init_bit_exact_to_base(tiny_llama):
+    # B=0 at init (V5.47) ⇒ the merge delta is exactly zero: every merged
+    # weight must be bit-identical to the pre-apply_lora base weight.
+    model = tiny_llama(seed=0)
+    before = {name: param.detach().clone() for name, param in model.named_parameters()}
+    apply_lora(model, rank=_RANK, alpha=_ALPHA, seed=1)
+
+    merge_lora(model)
+    after = dict(model.named_parameters())
+    assert after.keys() == before.keys()
+    for name, param in after.items():
+        assert torch.equal(param, before[name]), name
+
+
+def test_v5_52c_merged_state_dict_keys_match_unwrapped(tiny_llama):
+    # Plain-checkpoint round-trip property: a merged model's keys must equal
+    # a never-wrapped model's, and no LoRALinear may remain on the tree.
+    model = tiny_llama(seed=0)
+    apply_lora(model, rank=_RANK, alpha=_ALPHA, seed=1)
+    merge_lora(model)
+
+    reference = tiny_llama(seed=5)
+    assert model.state_dict().keys() == reference.state_dict().keys()
+    assert not any(isinstance(module, LoRALinear) for module in model.modules())
+
+
+def test_v5_52d_merge_unwrapped_raises(tiny_llama):
+    # Merging a model with no adapters is a caller bug, not a silent no-op.
+    model = tiny_llama(seed=0)
+    with pytest.raises(ValueError, match="no LoRALinear"):
+        merge_lora(model)
+
+
+def test_v5_52e_merge_reenables_grad_everywhere(tiny_llama):
+    # apply_lora freezes everything, including non-wrapped params (e.g.
+    # embeddings); merge_lora must undo that so the result behaves like a
+    # freshly loaded plain model.
+    model = tiny_llama(seed=0)
+    apply_lora(model, rank=_RANK, alpha=_ALPHA, seed=1)
+    merge_lora(model)
+    assert all(param.requires_grad for param in model.parameters())

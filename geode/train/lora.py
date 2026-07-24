@@ -14,9 +14,15 @@ Snapshots stay self-contained (specs/00 §1): the wrapped model's
 ``state_dict()`` holds base + adapter tensors together (``<name>.base.weight``,
 ``<name>.A.weight``, ``<name>.B.weight``) and ``apply_lora`` rebuilds the
 identical module tree on any fresh base model, so ``reapply_lora`` reloads a
-saved state dict bit-exactly — no separate base checkpoint, no merge (merging
-would perturb weights by float rounding and hide the factors the adapter-diff
-analysis reads straight from the snapshot tensors).
+saved state dict bit-exactly — no separate base checkpoint, and snapshots are
+never merged (merging would perturb weights by float rounding and hide the
+factors the adapter-diff analysis reads straight from the snapshot tensors).
+
+``merge_lora`` serves a different, narrower purpose: cross-stage parent
+handoff, not snapshots — folding an install run's adapter into the base
+weights so a child run can warm-start via plain ``from_pretrained`` (a
+wrapped checkpoint silently random-inits every projection under plain
+``from_pretrained`` — a known past incident). Never use it on a snapshot.
 
 Randomness: the A init is the only randomness and is drawn from a dedicated
 CPU ``torch.Generator`` seeded by the explicit ``seed`` argument, in module
@@ -149,3 +155,41 @@ def reapply_lora(
     wrapped = apply_lora(model, rank=rank, alpha=alpha, seed=0, target_modules=target_modules)
     wrapped.load_state_dict(state_dict, strict=True)
     return wrapped
+
+
+def merge_lora(model: nn.Module) -> nn.Module:
+    """Fold every ``LoRALinear``'s adapter into its base ``nn.Linear``, in place.
+
+    For cross-stage parent handoff only (e.g. run 9's LoRA install → run 10's
+    plain ``LlamaForCausalLM.from_pretrained``), never for snapshots — see the
+    module docstring. Each wrapper on the module tree is replaced on its
+    parent by its base ``nn.Linear``, whose weight becomes
+    ``W_base + scaling * (B.weight @ A.weight)`` (fp32 math in the base
+    weight's own dtype/device — this repo's models are fp32, and ``A``/``B``
+    already live on that dtype/device per ``LoRALinear.__init__``).
+
+    All parameters are then re-enabled for grad: ``apply_lora`` froze
+    everything, including non-wrapped params like embeddings, so the merged
+    model must be un-frozen to behave like a freshly loaded plain model.
+
+    Raises ``ValueError`` if ``model`` has no ``LoRALinear`` modules — merging
+    an unwrapped model is a caller bug. Returns ``model`` (the same object,
+    mutated); the merged ``state_dict()`` keys are then exactly those of the
+    never-wrapped model, so ``save_pretrained`` → ``from_pretrained``
+    round-trips as a plain checkpoint (V5.52).
+    """
+    to_merge: list[tuple[nn.Module, str, LoRALinear]] = []
+    for parent in model.modules():
+        for attr, child in parent.named_children():
+            if isinstance(child, LoRALinear):
+                to_merge.append((parent, attr, child))
+    if not to_merge:
+        raise ValueError("merge_lora: model contains no LoRALinear modules to merge")
+    for parent, attr, wrapper in to_merge:
+        base = wrapper.base
+        with torch.no_grad():
+            base.weight.add_(wrapper.scaling * (wrapper.B.weight @ wrapper.A.weight))
+        setattr(parent, attr, base)
+    for param in model.parameters():
+        param.requires_grad_(True)
+    return model

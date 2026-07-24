@@ -1,7 +1,7 @@
 """Corpus packing + full-FT/pretrain trainer (specs/02 §6.1)."""
 
 from geode.train.loop import TrainResult, evaluate_nll_nats, train_full
-from geode.train.lora import LORA_TARGET_MODULES, LoRALinear, apply_lora, reapply_lora
+from geode.train.lora import LORA_TARGET_MODULES, LoRALinear, apply_lora, merge_lora, reapply_lora
 from geode.train.packing import pack_corpus, split_documents, split_indices, train_val_split
 from geode.train.stopping import (
     BehavioralStoppingRule,
@@ -21,6 +21,7 @@ __all__ = [
     "TrainResult",
     "apply_lora",
     "evaluate_nll_nats",
+    "merge_lora",
     "pack_corpus",
     "reapply_lora",
     "split_documents",
