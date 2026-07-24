@@ -12,13 +12,19 @@
 #                directly, no login step needed. NEVER a WRITE token (relay
 #                pushes are owner-gated, see run5-6-guide.md §6). For the
 #                Llama box it must belong to the Meta-licensed account.
-#   NTFY_TOPIC   optional ntfy.sh topic for the "box ready" ping.
+#   NTFY         optional ping URL (ntfy.sh/<topic>) — the SAME variable
+#                every launcher and guide uses (owner 2026-07-24: one ntfy
+#                variable everywhere; NTFY_TOPIC retired).
 #
 # vast.ai FAQ notes (2026-07-24): template env vars are NOT visible inside
 # SSH/Jupyter sessions unless written to /etc/environment (done below), and
 # SSH-instance restarts run /root/onstart.sh — this script installs itself
 # there once, so both instance types re-provision on every container start.
 set -uo pipefail
+
+# Old-template compat: a box created before the rename may still set
+# NTFY_TOPIC — feed it into the one canonical variable.
+NTFY=${NTFY:-${NTFY_TOPIC:+ntfy.sh/$NTFY_TOPIC}}
 
 # Canonical work dir (owner 2026-07-24): /workspace on EVERY box. Images
 # vary — some ship /workspace, others drop the login shell in /root and
@@ -55,7 +61,7 @@ python3 -m pip install -q -e ".[dev]"
 # a fresh window is the #1 guide troubleshooting item.
 if ! grep -q GEODE_STORE ~/.bashrc 2>/dev/null; then
   echo "export GEODE_STORE=/workspace/elicit-vs-teach/geode-store  # store INSIDE the clone" >>~/.bashrc
-  [[ -n ${NTFY_TOPIC:-} ]] && echo "export NTFY=ntfy.sh/$NTFY_TOPIC" >>~/.bashrc
+  [[ -n ${NTFY:-} ]] && echo "export NTFY=$NTFY" >>~/.bashrc
 fi
 
 # vast SSH often lands INSIDE a tmux session already (their default entry
@@ -75,7 +81,7 @@ fi
 
 # Template env vars don't reach SSH sessions on vast.ai; /etc/environment is
 # the documented fix (their FAQ). READ token only — the write rule stands.
-for var in HF_TOKEN NTFY_TOPIC; do
+for var in HF_TOKEN NTFY; do
   val=${!var:-}
   if [[ -n $val ]] && ! grep -q "^$var=" /etc/environment 2>/dev/null; then
     echo "$var=$val" >>/etc/environment
@@ -99,6 +105,6 @@ nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 df -h /workspace | tail -1
 hash=$(git rev-parse --short HEAD)
 echo "ready: $hash suite=$suite (box hash must match laptop before any launch)"
-[[ -n ${NTFY_TOPIC:-} ]] && curl -sd "box ready: $hash suite=$suite" "ntfy.sh/$NTFY_TOPIC" >/dev/null
+[[ -n ${NTFY:-} ]] && curl -sd "box ready: $hash suite=$suite" "$NTFY" >/dev/null
 echo "=== onstart done ==="
 exit 0

@@ -34,7 +34,7 @@ cd experiments/training-run/scripts
 
 Fresh box instead (e.g. a new chain box for `launch_chain_7_10.sh`)?
 Template runs `box_onstart.sh` (clone + install + CPU suite + exports; see
-its header for the HF_TOKEN/NTFY_TOPIC template vars — READ token, from the
+its header for the HF_TOKEN/NTFY template vars — READ token, from the
 Meta-licensed account if the Llama chain runs here). Then in an SSH
 session, after the laptop-hash check above:
 

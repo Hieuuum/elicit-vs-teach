@@ -1514,3 +1514,45 @@ Two recurring new-box failures, fixes chosen by the owner from options:
    `ln -s ~/workspace /workspace` (if needed) +
    `command -v python || ln -s "$(command -v python3)" /usr/local/bin/python`,
    then `git pull`.
+
+## One ntfy variable everywhere: $NTFY (owner 2026-07-24)
+
+`box_onstart.sh` took a topic-only `NTFY_TOPIC` template var while every
+launcher, sweep script, and live guide used `NTFY` (the full
+`ntfy.sh/<topic>` URL) — two names for one channel, and the mismatch is
+why a fresh SSH session could hit `curl: (2) no URL specified` even on a
+box whose template had the topic set. Owner: one variable, `NTFY`, full
+URL form, everywhere. `box_onstart.sh` now takes `NTFY` as its template
+var, writes it to both `~/.bashrc` and `/etc/environment`, and pings
+`"$NTFY"` directly; a one-line compat expansion still honors a stale
+template that sets only `NTFY_TOPIC` (feeds it into `NTFY`, which always
+wins if both are set). Update the vast template to set `NTFY=ntfy.sh/<topic>`.
+The already-running chain box keeps its old `/root/onstart.sh` copy —
+harmless, since its `~/.bashrc` already exports `NTFY`.
+
+## Runs 7/8 snapshots WILL be pushed to the relay — owner has HF Pro (2026-07-24)
+
+The earlier keep-alive-only plan assumed free-tier relay quota could not
+hold ~200 GB of snapshots. Owner 2026-07-24: **the account has HF Pro,
+so the snapshots go to Hugging Face** (`mhieuuu/geode-store`) as soon as
+each of runs 7/8 completes — the box is then no longer the sole copy of
+the project's only internals evidence (the old-box deletion must not be
+repeatable).
+
+Mechanics (unchanged in spirit, now mandatory instead of "recommended"):
+
+- The chain still launches in DEFAULT mode (`./launch_chain_7_10.sh
+  --confirm-cost`, **no** `--push-and-prune`). Reasons: prune mode needs
+  a WRITE token available for the whole multi-day unattended chain
+  (violates the never-store-WRITE rule) and deletes the local copies,
+  which extraction on the box will want. Disk is sized for no-prune
+  (300 GB).
+- After EACH of runs 7 and 8 completes (don't wait for the Llama half),
+  owner-gated manual push from a box SSH session, WRITE token
+  per-command only:
+  `HF_TOKEN=$HF_WRITE_TOKEN python3 hf_checkpoint.py push --run-id evt-run7-armA-target-1m --with-snapshots`
+  (then the same for `evt-run8-armB-target-1m`). Ambient login stays
+  READ.
+- Box keep-alive rule relaxes ONLY once both pushes are verified on the
+  hub (file listing shows `snapshots/` for both runs); until then the
+  box remains the sole copy.
