@@ -71,15 +71,18 @@ experiments/training-run/
     common.yaml        # shared blocks: optimizer, precision, batch, LoRA
     run1_pretrain.yaml … run6_armB_target.yaml     # one per run, §6 contract
     pilot/             # same six files, pilot-sized overrides (§11)
-  scripts/             # thin CLIs; GPU-cost paths gated by --confirm-cost
-    make_data.py       # geode.arith → datasets + probe set + hashes (CPU)
+  datagen/             # one-time dataset/tokenizer generation (CPU, outputs frozen)
+    make_data.py       # geode.arith → datasets + probe set + hashes
+    make_tokenizer.py  # frozen custom BPE → tokenizer/
+  scripts/             # GPU/box operations; cost paths gated by --confirm-cost
     train.py           # dispatch per config: full-FT trainer | train_prequential
     extract.py         # offline probe pass over snapshots (§7)
     gates.py           # run verification gates, write results into zoo manifest
     export_hf.py       # build hf-staging layout, export manifest.parquet, upload
-  analysis/
-    alignment.py  drift.py  adapters.py  matching.py   # drivers → zoo results/
-    figures/           # gitignored
+  analysis/            # CPU post-hoc drivers → zoo results/, plus plotting
+    alignment.py  drift.py  adapters.py  matching.py
+    plot_losses.py  sample_stories.py
+    figures/           # gitignored — ALL figures land here
   notes/
     decisions.md       # running log; pilot outcomes close OPEN items here first
 
@@ -168,7 +171,7 @@ b?` (add/sub only). Label modes:
 correct | random. Random-label sampling distribution OPEN(6) (default:
 uniform over answers with digit-count distribution matched to true
 answers). Subtraction negatives OPEN(7) (default: allowed). Datasets are
-generated **once** by `scripts/make_data.py` and frozen to files (not
+generated **once** by `datagen/make_data.py` and frozen to files (not
 regenerated at train time); `geode.arith` supplies only rendering, the
 random-label rule, evals, the water-fill allocation, and the validators.
 Every emitted example carries the answer **character** span (tokenizer-
@@ -932,7 +935,7 @@ samples, ≥16/20 coherent) is no longer part of the protocol: run 1 must
 train with the paper's exact recipe (constant LR, stop on validation-loss
 convergence), and whatever that recipe converges to *is* floor 1 —
 gating it on sample quality would license off-protocol fixes (the v2
-cosine retrain was exactly that). `scripts/sample_stories.py` remains as
+cosine retrain was exactly that). `analysis/sample_stories.py` remains as
 an ungated qualitative inspection tool. Historical verdicts (v1 fail,
 v2-ext pass) stay recorded in decisions.md and the v2-ext manifest.
 

@@ -1675,3 +1675,33 @@ Extraction decisions (minor, decide-and-notify):
   pairwise cosine 1.0, random ⇒ ≈ 0 with top-PC EVR near 1/n.
 - Paste sheet: run7-8-guide §4. Probe tests all green (78) before the
   driver landed.
+
+## Lifecycle reorg of experiments/training-run (2026-07-24)
+
+Owner asked for a folder reorganization; scoped to a **lifecycle split**
+after mapping the constraints (minor, owner-approved from three options):
+
+- `datagen/` (new): `make_data.py`, `make_tokenizer.py` — one-time
+  generation whose outputs are frozen (datasets on HF, tokenizer
+  committed).
+- `analysis/` absorbs `plot_losses.py` (default `--out` now
+  `analysis/figures/losses.png`, was CWD-relative) and
+  `sample_stories.py`. ALL figures land in `analysis/figures/`
+  (gitignored via the root `figures/` pattern).
+- `scripts/` = GPU/box operations only, **paths deliberately
+  unchanged**: `train_sft.py`/`train_target.py`/`gates.py`/`extract.py`
+  import `train.py` as a same-dir sibling; both launchers `cd
+  $(dirname $0)` and invoke siblings by bare name against `../configs`;
+  `tests/scripts/test_migrate_store_layout.py` pins
+  `scripts/migrate_store_layout.py`; and `box_onstart.sh` CANNOT move —
+  the vast.ai template holds an external verbatim copy whose line
+  `cp experiments/training-run/scripts/box_onstart.sh /root/onstart.sh`
+  git cannot update. Both box paste sheets (run7-8-guide §4 extraction,
+  llama-guide) therefore stay valid as printed.
+- A deeper split of `scripts/` (launch/relay/checks) was considered and
+  deferred: it requires package-ifying the sibling imports and
+  rewriting both launchers + both guides, and buys nothing while
+  `scripts/` is frozen operational tooling — growth is in `analysis/`
+  (drift/adapters/matching/export_hf still to come). Revisit only after
+  the extraction box is destroyed, if ever; the durable anti-sprawl
+  mechanism stays the geode/ promotion rule, not directory depth.

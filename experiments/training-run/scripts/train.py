@@ -248,7 +248,7 @@ def main() -> int:
     if not tok_path:
         print(
             "[evt] tokenizer.path is null — train the custom tokenizer first "
-            "(scripts/make_tokenizer.py; see configs/run1_pretrain.yaml). Exiting."
+            "(datagen/make_tokenizer.py; see configs/run1_pretrain.yaml). Exiting."
         )
         return 1
     # Relative paths resolve against the config dir; anything that doesn't

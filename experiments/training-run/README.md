@@ -20,19 +20,23 @@ graph LR
 
 ## Status
 
-| Run | run_id | State | Gates |
-|-----|--------|-------|-------|
-| 1 | `evt-run1-base` | code ready (TRAIN-1); launch blocked on OPEN(8)/OPEN(11) | — |
-| 2–6 | — | not yet implemented | G1–G7 pending |
+Live run/gate status lives in [`EXPERIMENTS.md`](../../EXPERIMENTS.md);
+decision history in `notes/decisions.md`.
 
-## Layout
+## Layout (lifecycle split, 2026-07-24)
 
 - `configs/` — one YAML per run; `common.yaml` shared blocks;
   `pilot/` overlays (pilot uploads go to the separate `-pilot` HF repo).
-- `scripts/train.py` — launch a run: registers it in geode.zoo, prints a
-  cost estimate, **refuses to train without `--confirm-cost`**.
-- `analysis/`, `notes/decisions.md` — filled as runs land; pilot outcomes
-  close spec 02 OPEN items in `notes/decisions.md` first, then the spec.
+- `datagen/` — one-time dataset + tokenizer generation (outputs frozen:
+  datasets on HF, tokenizer committed under `tokenizer/`).
+- `scripts/` — GPU/box operations: trainers, launchers, gates, relay,
+  monitoring, box provisioning. Cost paths **refuse without
+  `--confirm-cost`**. Paths in here are load-bearing (box paste sheets
+  in `docs/`, sibling imports, the vast.ai template) — don't move files.
+- `analysis/` — CPU post-hoc drivers (→ `geode-store/results/`) and
+  plotting; all figures land in `analysis/figures/` (gitignored).
+- `notes/` — `decisions.md` running log; pilot outcomes close spec 02
+  OPEN items there first, then the spec.
 
 ## Launching run 1 (once OPEN(8)/OPEN(11) are pinned)
 

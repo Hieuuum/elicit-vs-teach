@@ -37,7 +37,7 @@ Tested core, **built and passing (25 tests)** — mostly final:
   encode the old NL wording / old leakage rule.
 
 Script, **pilot-only, superseded design — rewrite**:
-- `experiments/training-run/scripts/make_data.py` — currently does
+- `experiments/training-run/datagen/make_data.py` — currently does
   commutative pair-level exclusion and a *hybrid with-replacement* fill (repeats
   in small cells). The finalized design forbids repeated questions and uses
   question-level exclusion. Keep its structure (build_probe / build_dataset /
@@ -207,7 +207,7 @@ apply, but the network write must stay behind `--push`.
 ```
 python -m pytest -p no:cacheprovider              # 242 (cut) + arith tests, 0 failed
 ruff check . && ruff format --check .
-python experiments/training-run/scripts/make_data.py --scale pilot --out <scratch> --seed 20260717
+python experiments/training-run/datagen/make_data.py --scale pilot --out <scratch> --seed 20260717
 # then a second run to a second dir; report.json must be byte-identical (V5.4)
 # inspect report.json: leakage 0, all-unique, per-cell distribution matches the plan
 ```

@@ -3,10 +3,11 @@
 Plotting aid (owner 2026-07-24): compare per-step training loss
 (train_log.jsonl) against the validation curve (eval_log.jsonl — stopping
 evals every eval_every plus the log-spaced curve evals) for runs 7, 8,
-and 10 on one log-log axes. Laptop-side, CPU-only; pull logs first:
+and 10 on one log-log axes. Laptop-side, CPU-only; pull logs first
+(from analysis/):
 
-    python3 hf_checkpoint.py pull --run-id <rid> --no-weights
-    python3 plot_losses.py [--run-id <rid> ...] [--out losses.png]
+    python3 ../scripts/hf_checkpoint.py pull --run-id <rid> --no-weights
+    python3 plot_losses.py [--run-id <rid> ...] [--out figures/losses.png]
 
 Losses are plotted in nats, exactly as stored (CLAUDE.md convention:
 bits conversion only at reporting boundaries — label the axis instead).
@@ -56,7 +57,11 @@ def main() -> None:
         default=Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store")),
         help="artifact store root (default: $GEODE_STORE, else <repo>/geode-store)",
     )
-    ap.add_argument("--out", type=Path, default=Path("losses.png"))
+    ap.add_argument(
+        "--out",
+        type=Path,
+        default=Path(__file__).resolve().parent / "figures" / "losses.png",
+    )
     ap.add_argument(
         "--window", type=int, default=100, help="rolling-mean window for the per-step train loss"
     )
@@ -104,6 +109,7 @@ def main() -> None:
     ax.legend(fontsize=8)
     ax.grid(True, which="both", alpha=0.2)
     fig.tight_layout()
+    args.out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(args.out, dpi=150)
     print(f"[plot] wrote {args.out} ({plotted} runs)")
 
