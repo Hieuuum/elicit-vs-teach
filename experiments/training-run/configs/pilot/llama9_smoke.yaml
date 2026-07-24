@@ -1,0 +1,16 @@
+# Llama install smoke (box, ~1 min): memory + plumbing check for the
+# run-9 recipe — LoRA-wrapped 1.24B model, bf16 autocast, batch 128 —
+# before any sweep or production launch. Overlay over
+# configs/run9_llama1b_inst.yaml:
+#     python train_sft.py --config ../configs/run9_llama1b_inst.yaml \
+#         --override ../configs/pilot/llama9_smoke.yaml \
+#         --init-from meta-llama/Llama-3.2-1B --confirm-cost
+# Disposable run — delete the run dir afterward.
+run_id: evt-run9-smoke
+data:
+  max_rows: 2000               # hash checked on the full file first
+train:
+  lr: 1.0e-5                   # any finite value — this run measures memory,
+                               # not learning
+  max_steps: 10
+  eval_every: 5

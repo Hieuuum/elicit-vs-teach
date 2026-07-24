@@ -1,0 +1,11 @@
+# 1M target-LR sweep @ lr 1e-3 — the 500K-era incumbent, re-measured at
+# the full 1M. See target_sweep_1m_lr3e-4.yaml for the sweep design
+# (3-point bracket, winner rule, edge-extension rule) and launch command;
+# this file differs only in run_id and train.lr.
+run_id: evt-run8-sweep-lr1e-3
+experiment:
+  match_data_order_with: null  # G7 binds the production pair, not sweeps
+train:
+  lr: 1.0e-3
+  snapshots:
+    n: 4                       # disposable sweep run — minimal schedule

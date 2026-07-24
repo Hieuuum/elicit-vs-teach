@@ -1,6 +1,6 @@
 # EXPERIMENTS.md — live experiment plan
 
-Status: **executing** (updated 2026-07-22). This is the current state
+Status: **executing** (updated 2026-07-23). This is the current state
 and remaining work of the elicit-vs-teach training-run experiment.
 `specs/02-training-run.md` is the detailed design source;
 `experiments/training-run/notes/decisions.md` is the running decision
@@ -29,8 +29,16 @@ spec 02 §13).
 | 4 | `evt-run4-armB-inst` | format install | run 1 | full FT | identical `D_inst` + order as run 3, same behavioral stop; counts emergent | **DONE** (2026-07-22, behavioral stop @ 750); G3/G4/G5 recorded |
 | 5 | `evt-run5-armA-target` | target | run 3 | LoRA | `D_target` 500K prefix (op-notation add/sub; OPEN(2) closed 2026-07-22) | **DONE — converged** (2026-07-22, step 6,000, min_val 0.00245; 711 snapshots + base); G5 recorded |
 | 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | **DONE — converged** (2026-07-22, step 12,500, min_val 0.02301; 832 snapshots + base); G7 verified; G5 recorded (stop-wobble caveat → decisions.md) |
+| 7 | `evt-run7-armA-target-1m` | target @ full 1M | run 3 | LoRA | full 1M `D_target` (owner 2026-07-23; supersedes OPEN(2) for this pair only) | **planned** — LR pending the 1M sweep (`pilot/target_sweep_1m_lr*`) |
+| 8 | `evt-run8-armB-target-1m` | target @ full 1M | run 4 | LoRA | identical data + order as run 7 (G7) | **planned** — launches after run 7 |
+| 9 | `evt-run9-llama1b-inst` | format install, external validity | `meta-llama/Llama-3.2-1B` (base) | LoRA r=64, merged after | same frozen `D_inst` + behavioral stop | **planned** — design 2026-07-23 (decisions.md) |
+| 10 | `evt-run10-llama1b-target` | target, external validity | run 9 (merged) | LoRA r=64 | full 1M `D_target` | **planned** — after run 9 + Llama-tokenizer verification |
 
-DAG: `1 → 2 → 3 → 5` (Arm A, elicit) and `1 → 4 → 6` (Arm B, teach).
+DAG: `1 → 2 → 3 → 5` (Arm A, elicit) and `1 → 4 → 6` (Arm B, teach);
+the 1M rerun pair reuses the installers: `3 → 7`, `4 → 8`. External
+validity: `Llama-3.2-1B → 9 → 10` (Llama's own pretraining stands in
+for the pre-teach stage; elicit-only — a real pretrained model can't be
+un-taught, so there is no Llama teach arm).
 Every run registers in zoo before launch; `require_parent_ready`
 (spec 00 V0.6) makes a child refuse to start unless its parent is
 complete, every recorded parent gate has `pass: true`, and the gates
@@ -140,7 +148,20 @@ drivers, `export_hf.py`, `gates.py` g6.
 4. ~~Runs 5–6~~ — **DONE 2026-07-22**: both converged (§2 table), G5
    recorded, 711/832 adapter-only snapshots + base per run (~75 GB,
    on-box only — relay push HELD, see decisions.md box logistics).
-5. **Analyses + publication** — metrics V5.14–V5.16, the four drivers
+5. **1M LR re-pin + runs 7–8** (owner 2026-07-23, decisions.md; after
+   extraction — one-box sequential plan): 3-point B-arm sweep @ 1M
+   (`pilot/target_sweep_1m_lr*.yaml`) → pin winner in
+   `run7/run8_target_1m.yaml` → launch 7 then 8. Shared-vs-per-arm LR
+   policy deferred (owner). Guide: `docs/run7-8-guide.md` (disk
+   checkpoint in §0 — the box needs ≥120 GB free for the new pair).
+6. **Llama-3.2-1B external-validity chain (runs 9–10)** (owner
+   2026-07-23, decisions.md): LoRA format install on `D_inst` → merge
+   adapter to a plain checkpoint (new core merge fn + logit-equality
+   property test, planned) → LoRA target @ full 1M. Before any launch:
+   Llama-tokenizer verification (pad_token, digit chunking, span
+   checks) + a Llama LR mini-sweep. Box TBD (may follow runs 7/8 on
+   the current box or get its own).
+7. **Analyses + publication** — metrics V5.14–V5.16, the four drivers
    (alignment, drift, adapters, matching), `export_hf.py` to the HF
    dataset repo (spec 02 §9–10).
 

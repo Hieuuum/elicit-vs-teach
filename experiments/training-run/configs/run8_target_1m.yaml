@@ -1,0 +1,93 @@
+# Run 8 — Arm B target @ FULL 1M: operator-notation add/sub, correct
+# labels, LoRA. Rerun of run 6 (evt-run6-armB-target, 500K prefix) on the
+# full frozen 1M D_target order — owner decision 2026-07-23 (decisions.md).
+# Identical recipe to run 7 — arms differ ONLY in the parent (run 4:
+# format installed, no algo pre-teach; that absence IS the treatment).
+# See run7_target_1m.yaml for the full header (1M rationale, provisional
+# LR, box sequencing) and run5_target.yaml for harness mechanics.
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run4-armB-inst must be complete with G3 + G4 recorded PASS
+#      (launcher enforces; G5 is evidence-only). G3 = random labels
+#      taught no arithmetic; G4 = format installed.
+#   2. evt-run7-armA-target-1m must be REGISTERED first: G7 is enforced
+#      at launch via match_data_order_with — the launcher refuses unless
+#      run 7's manifest records the identical (data_order_hash,
+#      n_examples).
+#   3. train.lr is PROVISIONAL until the 1M sweep re-pins it (run7
+#      header note 2) — same pin as run 7 unless the deferred LR-policy
+#      decision (owner 2026-07-23) says otherwise in decisions.md.
+#   4. Every block below except run_id/experiment must stay
+#      verbatim-identical to run7_target_1m.yaml.
+run_id: evt-run8-armB-target-1m
+experiment:
+  name: training-run
+  arm: B
+  role: target
+  parent_run_id: evt-run4-armB-inst
+  parent_required_gates: [G3, G4]  # no label leak + format installed
+  match_data_order_with: evt-run7-armA-target-1m  # G7, enforced at launch
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-7
+
+task:
+  name: arith_op_addsub        # operator-notation add/sub (D_target); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:                          # VERBATIM copy of run7_target_1m.yaml (G7)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target.parquet       # 1M op-notation add/sub, correct labels, seed 20260717
+  order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
+  n_examples: 1000000          # the FULL frozen order (owner 2026-07-23;
+                               # supersedes OPEN(2)'s 500K for this pair) —
+                               # must match run 7 (G7)
+  # Fixed shared eval set (owner 2026-07-22) — see run7_target_1m.yaml.
+  # First 2048 rows = ε/k stopping block; the rest = reporting block.
+  eval_file: D_target_eval.parquet
+  eval_order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8
+  seed: 316                    # runs 7+8 must share seed/batch order:
+                               # identical D_target stream (G7)
+
+lora:                          # r/alpha restated from common.yaml for the record
+  r: 128                       # spec 02 §6 pin (2026-07-18 arch decision)
+  alpha: 32                    # scaling α/2r, dropout 0, targets QKVOGUD —
+                               # inherited from common.yaml; adapter init seed
+                               # = train.seed (single-seed convention)
+
+train:
+  lr: 1.0e-3                   # PROVISIONAL — 500K-era sweep winner; must be
+                               # re-pinned by the 1M sweep before launch
+                               # (run7 header note 2); same pin as run 7
+  batch_size: 128
+  eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
+  max_steps: 46878             # pure cost ceiling = 6 epochs of the full 1M
+                               # at batch 128 (6 × ceil(1e6/128) = 46878) —
+                               # run 5's 6-epoch rule rescaled to n=1M. B's
+                               # convergence step at 1M is empirically
+                               # unknown (the OPEN(2) grid topped out at
+                               # 500K), so the ceiling keeps generous
+                               # headroom. The ε/k rule is the planned
+                               # stop — stop_reason=max_steps means "did
+                               # not converge": investigate, don't ship
+  stopping:                    # loss branch of the V0.7 union (no `metric`):
+    eps_nats: 0.002            # canonical loss rule at short-run cadence
+    k: 5                       # (owner 2026-07-22, spec 02 §6, ratified for
+    min_steps: 0               # the runs-5/6 family; k=5 patience is the
+                               # grace at short epochs) — inherited BY
+                               # CITATION, not silently
+  snapshots:
+    n: 1024                    # spec 02 §6: 1024 snapshots, dense-then-log-
+    dense_until: 30            # then-uniform (geode.probe.snapshot_steps);
+                               # schedule computed over max_steps at launch and
+                               # written into the manifest BEFORE training;
+                               # steps past the actual stop simply never
+                               # materialize (manifest snapshots_taken)
+  seed: 316
+
+# No cost block: train_target.py quotes the max_steps ceiling directly
+# (6·N·tokens over max_steps × batch × padded len — the worst case).

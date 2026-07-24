@@ -1,0 +1,6 @@
+# Llama installer LR sweep @ 3e-5. See llama9_sweep_lr3e-6.yaml for the
+# sweep design (bracket, winner rule) and launch command; this file
+# differs only in run_id and train.lr.
+run_id: evt-run9-sweep-lr3e-5
+train:
+  lr: 3.0e-5

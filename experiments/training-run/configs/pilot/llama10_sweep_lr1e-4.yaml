@@ -1,0 +1,22 @@
+# Llama target LR sweep @ 1e-4 — bracket {1e-4, 3e-4, 1e-3} around the
+# paper's 3.53e-4, which was tuned AT 1B scale and is back in scope here
+# (spec 02 §6 note; the custom-model runs voided it only for the 38.7M
+# downscale). Winner = lowest min_val_nats among stop_reason=converged;
+# an edge win extends one step before pinning. Overlay over
+# configs/run10_llama1b_target.yaml (run 9 must be complete + merged):
+#     python train_target.py --config ../configs/run10_llama1b_target.yaml \
+#         --override ../configs/pilot/llama10_sweep_lr1e-4.yaml \
+#         --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged \
+#         --confirm-cost
+# Winner lands in run10_llama1b_target.yaml + decisions.md.
+run_id: evt-run10-sweep-lr1e-4
+experiment:
+  match_data_order_with: null
+data:
+  n_examples: 100000           # 100K prefix of the frozen order — sweep cost
+                               # control at 1.24B params; the production run
+                               # re-measures at the full 1M
+train:
+  lr: 1.0e-4
+  snapshots:
+    n: 4                       # disposable sweep run — minimal schedule

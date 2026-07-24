@@ -1123,3 +1123,63 @@ Dataset items: none.
   default step. Box stays alive for the extraction pass; ~31 GB free
   is fine for G5/idle but not for full extraction output (size at
   extraction planning).
+
+## Owner directives 2026-07-23 — 1M rerun pair (runs 7/8), 1M LR re-pin, Llama-3.2-1B chain (runs 9/10)
+
+- **Full-1M rerun (owner):** a NEW target pair `evt-run7-armA-target-1m`
+  / `evt-run8-armB-target-1m` trains on the full 1M `D_target` order,
+  superseding OPEN(2)'s 500K **for this pair only** — runs 5/6 stand as
+  recorded history, nothing is overwritten or re-run to chase numbers.
+  Parents are unchanged (run 3 → run 7, run 4 → run 8): the re-chosen
+  LR and the n bump exist only in the target stage; upstream runs never
+  saw `D_target` and their pins are untouched. Eval integrity is free:
+  `D_target_eval` was built question-disjoint from the WHOLE 1M file at
+  generation time (2026-07-22 protocol), so the 500K→1M bump cannot
+  contaminate it. Configs `run7_target_1m.yaml` / `run8_target_1m.yaml`:
+  ceiling 46,878 = 6 epochs of 1M at batch 128 (run 5's 6-epoch rule
+  rescaled); ε/k block inherited by citation (2026-07-22 ratification);
+  seed 316 kept; snapshots n=1024 dense_until=30 unchanged.
+- **1M target-LR re-pin (owner):** the 1e-3 pin was chosen on a 50K
+  prefix; before runs 7/8 launch, a 3-point bracket {3e-4, 1e-3, 3e-3}
+  re-measures it on **Arm B @ the full 1M**
+  (`pilot/target_sweep_1m_lr*.yaml`, run_ids `evt-run8-sweep-lr*`,
+  disposable n=4 snapshots). Winner = lowest `min_val_nats` among
+  converged; an edge win extends one step before pinning (the 50K
+  sweep's monotone-decade precedent). **LR policy (one shared pin vs
+  per-arm best) is DEFERRED by owner (2026-07-23)** — default remains
+  one shared pin, and a B sweep is required under every policy; an A
+  sweep is added only if the owner later picks per-arm.
+- **Llama-3.2-1B external-validity chain (owner):** mirror the Arm A
+  pipeline on the real pretrained model — Llama's own pretraining stands
+  in for the pre-teach stage: `meta-llama/Llama-3.2-1B` (base, not
+  Instruct) → run 9 format install on the frozen `D_inst` (op-notation
+  mult, random labels, behavioral G4-style stop) → run 10 target on the
+  frozen full-1M `D_target`. Owner picked **LoRA for the install stage**
+  (over the full-FT mirror of runs 3/4 — fits the 24 GB 4090, no core
+  trainer changes; **recorded limitation:** the install method differs
+  from runs 3/4, so cross-model install comparisons are method-confounded).
+  Consequence: a LoRA install checkpoint cannot be a `--init-from`
+  parent (plain `from_pretrained` on a wrapped checkpoint silently
+  random-inits projections — the G5-on-random-model incident class), so
+  the install adapter must be **merged** into base weights and saved as
+  a plain checkpoint before the target stage. Merge math's silent
+  failure would corrupt everything downstream ⇒ promotion rule: core
+  `geode.train` merge function + logit-equality property test (planned,
+  spec edit in the same commit). Assistant minor pins (owner may veto):
+  LoRA r=64 for both Llama stages (the repo's own pre-downscale 1B pin,
+  common.yaml note), run_ids `evt-run9-llama1b-inst` /
+  `evt-run10-llama1b-target`, same frozen data artifacts + order hashes
+  as runs 3–8. **Before any launch:** verify the token-level machinery
+  against the Llama tokenizer — pad_token is likely None (decode glue
+  fix), digits chunk up to 3 per token, `token_label_span` contiguity /
+  whitespace-overhang checks were tuned on the custom BPE; and Llama LR
+  needs its own mini-sweep (the paper's 1B LRs may inform the bracket).
+  Base-model zero-shot op-notation accuracy is recorded pre/post install
+  as evidence (real Llama may already answer op-notation add/sub —
+  a near-zero-EDL elicitation would itself be the expected finding).
+- **Box plan (owner): one box, sequential, revisitable** — on the
+  current 4090: extraction over runs-5/6 snapshots FIRST (only copies),
+  then the 1M sweep, then runs 7/8; the Llama chain waits and may get
+  its own box later. Disk checkpoint before runs 7/8: ≥120 GB free
+  (guide §0); relaying/deleting runs-5/6 snapshots is an owner decision,
+  never a default.

@@ -1,0 +1,23 @@
+# 1M target-LR sweep @ lr 3e-4 (owner 2026-07-23: re-pin the target LR at
+# the full-1M scale before launching runs 7/8 — the 1e-3 pin was chosen on
+# a 50K prefix and the optimum can shift with n). 3-point bracket around
+# the 500K-era winner: {3e-4, 1e-3, 3e-3}; the 50K sweep saw 3e-4 0.107 >
+# 1e-3 0.035 < 3e-3 0.086, 1e-2 unstable. Winner = lowest min_val_nats
+# among runs with stop_reason=converged; if a grid-EDGE point wins, extend
+# one step in that direction before pinning (precedent: the 50K sweep's
+# first decade came back monotone and had to be extended).
+# Arm B @ the full 1M (teaching is the arm the shared LR must serve;
+# shared-vs-per-arm policy deferred, owner 2026-07-23 — a B sweep is
+# needed under every policy). Overlay over configs/run8_target_1m.yaml:
+#     python train_target.py --config ../configs/run8_target_1m.yaml \
+#         --override ../configs/pilot/target_sweep_1m_lr3e-4.yaml \
+#         --init-from $GEODE_STORE/runs/evt-run4-armB-inst/model --confirm-cost
+# The winner lands in run7/run8_target_1m.yaml + decisions.md, then the
+# production pair launches (run 7 first — G7).
+run_id: evt-run8-sweep-lr3e-4
+experiment:
+  match_data_order_with: null  # G7 binds the production pair, not sweeps
+train:
+  lr: 3.0e-4
+  snapshots:
+    n: 4                       # disposable sweep run — minimal schedule

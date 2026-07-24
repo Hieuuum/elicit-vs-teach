@@ -1,0 +1,15 @@
+# Llama installer LR sweep @ 3e-6 — bracket {3e-6, 1e-5, 3e-5, 1e-4}.
+# Run-3 precedent transplanted: random mult-length labels attack the
+# answer-termination prior first, so the winner is the GENTLEST lr whose
+# behavioral stop fires (format installs) while zero-shot arithmetic
+# evidence (recorded pre/post, gates.py g5-style) survives best. 3e-6 was
+# run 3's full-FT winner; LoRA typically wants a higher lr — the bracket
+# spans both regimes. If the gentlest point wins outright, extend
+# downward before pinning. Overlay over configs/run9_llama1b_inst.yaml:
+#     python train_sft.py --config ../configs/run9_llama1b_inst.yaml \
+#         --override ../configs/pilot/llama9_sweep_lr3e-6.yaml \
+#         --init-from meta-llama/Llama-3.2-1B --confirm-cost
+# Winner lands in run9_llama1b_inst.yaml + decisions.md.
+run_id: evt-run9-sweep-lr3e-6
+train:
+  lr: 3.0e-6
