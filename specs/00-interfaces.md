@@ -15,6 +15,11 @@ $GEODE_STORE/
                               #   model.safetensors = the complete state_dict
                               #   (base + adapter tensors — the FINAL checkpoint
                               #   stays self-contained; zoo.load_model V0.9)
+    model_merged/             # OPTIONAL: a LoRA install run's adapter folded
+                              #   into plain weights (scripts/merge_adapter.py,
+                              #   geode.train.merge_lora) for cross-stage parent
+                              #   handoff — loadable by plain from_pretrained,
+                              #   never zoo.load_model (it is not method-tagged)
     train_log.jsonl           # per-step trainer log (spec 02 §6.1 contract)
     eval_log.jsonl            # periodic held-out evals (same contract)
     training_meta.json        # trainer config echo + stop record

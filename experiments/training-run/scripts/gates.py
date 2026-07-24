@@ -94,6 +94,8 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = Fal
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
     checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] {gate}: loading checkpoint {checkpoint} ...", flush=True)
     model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
@@ -180,6 +182,8 @@ def run_g4(args: argparse.Namespace) -> int:
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
     checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] G4: loading checkpoint {checkpoint} ...", flush=True)
     model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
@@ -241,6 +245,8 @@ def run_g5(args: argparse.Namespace) -> int:
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
     checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
     print(f"[evt] G5: loading checkpoint {checkpoint} ...", flush=True)
     model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)

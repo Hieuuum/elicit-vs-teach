@@ -26,10 +26,11 @@ from pathlib import Path
 from typing import Any
 
 import torch
+import yaml
 
 from geode.arith import format_valid, greedy_completions, order_hash, tokenize_with_spans
 from geode.edl.masking import TaskFormat, masking_config_hash
-from geode.train import BehavioralStoppingRule, StoppingRule, split_indices, train_sft
+from geode.train import BehavioralStoppingRule, StoppingRule, apply_lora, split_indices, train_sft
 from geode.zoo import register_run, require_parent_ready, tokenizer_hash
 from train import REPO_ROOT, git_commit, load_config, phase
 
@@ -57,6 +58,30 @@ def load_frozen_parquet(cfg: dict):
     return df
 
 
+def own_lora_block(cfg: dict, config_path: Path, override_path: Path | None) -> dict | None:
+    """The run's LoRA config, iff the run YAML itself declares ``lora:``.
+
+    ``common.yaml`` carries a shared ``lora:`` block for the runs-5/6 LoRA
+    target family (its own comment: "kept here so both arm configs inherit
+    identical values"); ``load_config``'s deep_merge means every install-stage
+    config (run2/3/4, full FT) inherits it too, even though the run's own
+    YAML never mentions LoRA. Gating on the *merged* ``cfg["lora"]`` would
+    silently switch every existing full-FT launch to LoRA. Only a run (or its
+    pilot override) that explicitly declares its own ``lora:`` block — run9
+    style — opts in; the returned dict is still the fully merged
+    ``cfg["lora"]``, so an override like run9's r/alpha still layers on
+    common.yaml's target_modules/dropout defaults.
+    """
+    own = yaml.safe_load(config_path.read_text()) or {}
+    if "lora" in own:
+        return cfg["lora"]
+    if override_path is not None:
+        override = yaml.safe_load(override_path.read_text()) or {}
+        if "lora" in override:
+            return cfg["lora"]
+    return None
+
+
 def manifest_fields(
     cfg: dict,
     n_params: int,
@@ -66,8 +91,12 @@ def manifest_fields(
     mask_hash: str,
     *,
     precision: str,
+    lora_cfg: dict | None,
 ) -> dict[str, Any]:
     t = cfg["train"]
+    parent = cfg["experiment"]["parent_run_id"]
+    external_base = cfg["experiment"].get("external_base")
+    base_hf_id = external_base if not parent and external_base else f"zoo-run/{parent}"
     return {
         "schema_version": 1,
         "run_id": cfg["run_id"],
@@ -75,7 +104,7 @@ def manifest_fields(
         "git_commit": git_commit(),
         "regime": "unknown",  # regimes attach to target runs (5-6)
         "base_model": {
-            "hf_id": f"zoo-run/{cfg['experiment']['parent_run_id']}",
+            "hf_id": base_hf_id,
             "revision": "none",
         },
         "task": {"name": cfg["task"]["name"], "format_version": cfg["task"]["format_version"]},
@@ -85,14 +114,24 @@ def manifest_fields(
             "seed": cfg["data"]["seed"],
         },
         "training": {
-            "method": "full_ft",
-            "lora": {
-                "rank": None,
-                "alpha": None,
-                "target_modules": [],
-                "dropout": None,
-                "sparse_param_count": None,
-            },
+            "method": "lora" if lora_cfg else "full_ft",
+            "lora": (
+                {
+                    "rank": lora_cfg["r"],
+                    "alpha": lora_cfg["alpha"],
+                    "target_modules": list(lora_cfg["target_modules"]),
+                    "dropout": lora_cfg["dropout"],
+                    "sparse_param_count": None,
+                }
+                if lora_cfg
+                else {
+                    "rank": None,
+                    "alpha": None,
+                    "target_modules": [],
+                    "dropout": None,
+                    "sparse_param_count": None,
+                }
+            ),
             "optimizer": {
                 "name": cfg["optimizer"]["name"],
                 "lr": t["lr"],
@@ -163,11 +202,14 @@ def main() -> int:
             "(run-2 incident, 2026-07-21). Exiting."
         )
         return 1
+    lora_cfg = own_lora_block(cfg, args.config, args.override)
 
     from transformers import AutoTokenizer, LlamaForCausalLM
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     phase(2, "dataset — download frozen parquet, verify order_hash, tokenize spans")
     df = load_frozen_parquet(cfg)
@@ -198,27 +240,48 @@ def main() -> int:
         )
     n_params = sum(p.numel() for p in model.parameters())
 
+    if lora_cfg:
+        apply_lora(model, rank=lora_cfg["r"], alpha=lora_cfg["alpha"], seed=cfg["train"]["seed"])
+        n_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        print(
+            f"[evt] LoRA applied: r={lora_cfg['r']} alpha={lora_cfg['alpha']} "
+            f"trainable={n_trainable / 1e6:.1f}M of {n_params / 1e6:.1f}M",
+            flush=True,
+        )
+    else:
+        n_trainable = n_params
+
     phase(4, "parent gates + cost estimate + confirm gate")
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
     parent = cfg["experiment"]["parent_run_id"]
+    external_base = cfg["experiment"].get("external_base")
     if not parent:
+        if not external_base:
+            print(
+                "[evt] experiment.parent_run_id is null — pin it to the floor-1 run id "
+                "(see configs/run2_algo.yaml). Exiting."
+            )
+            return 1
         print(
-            "[evt] experiment.parent_run_id is null — pin it to the floor-1 run id "
-            "(see configs/run2_algo.yaml). Exiting."
+            f"[evt] external_base '{external_base}' — no zoo parent, skipping parent-gate check",
+            flush=True,
         )
-        return 1
-    require_parent_ready(
-        parent,
-        required_gates=tuple(cfg["experiment"].get("parent_required_gates", ())),
-        store=store,
-    )
-    print(f"[evt] parent '{parent}' complete, gates pass", flush=True)
+    else:
+        require_parent_ready(
+            parent,
+            required_gates=tuple(cfg["experiment"].get("parent_required_gates", ())),
+            store=store,
+        )
+        print(f"[evt] parent '{parent}' complete, gates pass", flush=True)
 
     t = cfg["train"]
     gpu = cfg["gpu"]
     epochs = cfg.get("cost", {}).get("assumed_epochs_for_estimate", 1)
     # Set-max right padding (geode.train.sft) means every row costs max_len.
+    # LoRA doesn't change the forward/backward FLOP order here (still a full
+    # forward + backward through every layer), so the estimate always uses
+    # full-model n_params regardless of training.method.
     flops = 6.0 * n_params * (len(train_examples) * max_len) * epochs
     hours = flops / (gpu["tflops_bf16"] * 1e12 * gpu["utilization"] * 3600.0)
     est_usd = hours * gpu["usd_per_hour"]
@@ -238,7 +301,14 @@ def main() -> int:
     precision = t.get("precision", "bf16") if args.device != "cpu" else "fp32"
     manifest = register_run(
         manifest_fields(
-            cfg, n_params, n_rows, est_usd, args.init_from, mask_hash, precision=precision
+            cfg,
+            n_trainable,
+            n_rows,
+            est_usd,
+            args.init_from,
+            mask_hash,
+            precision=precision,
+            lora_cfg=lora_cfg,
         )
     )
     # Flat run layout (spec 00 §1, 2026-07-21): logs + training_meta.json at

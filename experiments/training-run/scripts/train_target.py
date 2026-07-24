@@ -231,6 +231,8 @@ def main() -> int:
 
     local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
     tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
 
     phase(2, "dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize")
     d = cfg["data"]
