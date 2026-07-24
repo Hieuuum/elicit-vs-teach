@@ -1630,3 +1630,14 @@ gates.py g5 overwrote both manifest G5 blocks in place.
   present) — the complete wrapped state dict. The "run dir is 200 MB"
   observation that triggered the audit was a mismeasure; `du` shows
   2.5 GB.
+
+## Runs 9/10 archive = full run-dir relay pushes (owner 2026-07-25)
+
+Owner confirmed after the G5 re-measurement: runs 9/10 push their FULL
+run dirs to the relay (`hf_checkpoint.py push`, no `--with-snapshots` —
+none exist), ~2.6 GB per checkpoint. Supersedes "checkpoints stay
+on-box until the owner's relay decision" (llama-guide §4 updated;
+logs-only recipe lives in git history). Adapter-only stripping
+rejected: no tooling loads it, and run 10's adapter is relative to
+run 9's merged model. Rationale: the runs-5/6 weights loss (old box
+deletion) — never leave a box as the sole copy of final weights.

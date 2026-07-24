@@ -122,40 +122,31 @@ python3 gates.py g5 --run evt-run9-llama1b-inst \
 
 ## 4. Archive + teardown
 
-Small-artifact push (logs + manifest only, ~MBs — the recipe formerly in
-run5-6-guide.md §6, deleted 2026-07-24). `hf_checkpoint.py push` uploads
-the whole run dir including weights — don't use it for this. Two separate
-pastes (the `read` must be alone):
+Owner decision 2026-07-25: runs 9/10 archive as **full run-dir pushes**
+to the relay — weights + `model_merged/` + logs + manifest, ~2.6 GB per
+checkpoint; no snapshots exist for these runs, so a plain
+`hf_checkpoint.py push` (no `--with-snapshots`) uploads exactly that.
+Adapter-only stripping was rejected: nothing can load it
+(`zoo.load_model` expects the wrapped dir) and run 10's adapter is
+relative to run 9's merged model anyway. The logs-only recipe this
+section used to hold (run5-6-guide §6 lineage) is in git history if
+weights must ever be excluded.
+
+Push runs 9/10 only AFTER their G5 blocks were re-measured with
+`eval_target_data_llama.yaml` (§3) — never relay garbage evidence.
+Two separate pastes (the `read` must be alone), WRITE token never
+stored beyond the paste:
 
 ```bash
 read -rsp "HF WRITE token: " HF_WRITE_TOKEN && export HF_WRITE_TOKEN && echo " ok"
 ```
 ```bash
-python3 - <<'EOF'
-import fnmatch, os
-from pathlib import Path
-from huggingface_hub import CommitOperationAdd, HfApi
-api = HfApi(token=os.environ["HF_WRITE_TOKEN"])
-for rid in ("evt-run9-llama1b-inst", "evt-run10-llama1b-target"):
-    src = Path("/workspace/elicit-vs-teach/geode-store/runs") / rid
-    keep = [p.relative_to(src).as_posix() for p in sorted(src.rglob("*")) if p.is_file()]
-    keep = [r for r in keep
-            if any(fnmatch.fnmatch(r, a) for a in ("*.json", "*.jsonl", "*.yaml"))
-            and not any(fnmatch.fnmatch(r, i) for i in ("snapshots/*", "model/*", "model_merged/*"))]
-    total = sum((src / r).stat().st_size for r in keep)
-    print(rid, len(keep), "files", f"{total/1e6:.1f} MB")
-    assert total < 200e6, "guard tripped — check the list, NOT uploading"
-    api.create_commit(repo_id="mhieuuu/geode-store",
-        operations=[CommitOperationAdd(f"runs/{rid}/{r}", str(src / r)) for r in keep],
-        commit_message=f"{rid}: logs+manifest only")
-print("DONE")
-EOF
+cd /workspace/elicit-vs-teach/experiments/training-run/scripts
+HF_TOKEN=$HF_WRITE_TOKEN python3 hf_checkpoint.py push --run-id evt-run9-llama1b-inst
+HF_TOKEN=$HF_WRITE_TOKEN python3 hf_checkpoint.py push --run-id evt-run10-llama1b-target
 unset HF_WRITE_TOKEN
 ```
 
-The loss-curve logs (`train_log.jsonl`, `eval_log.jsonl`) ride along (they
-match the `*.jsonl` keep-glob). No snapshots exist for these runs;
-checkpoints stay on-box until the owner's relay decision.
 Destroy (never stop) when cleared; store lives inside the clone — never
 `git clean -dfx`.
 
