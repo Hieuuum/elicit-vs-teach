@@ -12,6 +12,12 @@ fallback: if run 9's gates fail at the shared LR, revive the gentle
 installer sweep for run 9 only). Sequencing: this chain waits until
 extraction + runs 7/8 are done (one-box plan), or gets its own box.
 
+Unattended alternative (owner 2026-07-24): `./launch_chain_7_10.sh
+--confirm-cost [--push-and-prune]` runs 7 → 8 → 9 → 10 end to end —
+smokes, G4/G5 evidence, merge, ntfy pings, completed runs skipped on
+re-run. This guide stays the manual path and the reference for what the
+chain script does at each step.
+
 ## 0. Prerequisites
 
 - HF account that has **accepted the Meta Llama license** for
@@ -24,9 +30,11 @@ extraction + runs 7/8 are done (one-box plan), or gets its own box.
   in every tmux window (`GEODE_STORE`, `NTFY`).
 
 ```bash
-hf auth login          # token whose account holds the Meta license;
-                       # the same login serves relay pulls (READ) — never
-                       # store a WRITE token in the env
+hf auth login --force  # token whose account holds the Meta license;
+                       # --force always (owner 2026-07-24) so a stale login
+                       # never masks the wrong account. The same login serves
+                       # relay pulls (READ) — never store a WRITE token in
+                       # the env
 cd /workspace/elicit-vs-teach/experiments/training-run/scripts
 ```
 

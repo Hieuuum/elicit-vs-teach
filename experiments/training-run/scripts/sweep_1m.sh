@@ -86,7 +86,9 @@ if tag == "3e-3":
 elif tag == "3e-4":
     print("EDGE winner: extend the grid one step down (1e-4) before pinning (guide §3).")
 else:
-    print("interior winner — pin train.lr in BOTH run7/run8 yamls + decisions.md,")
-    print("commit + push on the laptop, then box git pull and launch_pair_1m.sh.")
+    print("interior winner — pin train.lr in ALL FOUR run yamls (run7/run8/run9/")
+    print("run10 — one LR everywhere, owner 2026-07-24) + decisions.md, commit +")
+    print("push on the laptop, then box git pull and launch_pair_1m.sh (7/8 only)")
+    print("or launch_chain_7_10.sh (7 -> 8 -> 9 -> 10 unattended).")
 PY
 notify "1M sweep COMPLETE — check the winner summary"

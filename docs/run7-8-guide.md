@@ -59,7 +59,9 @@ push; box `git pull` and confirm the hash before the pair launches. Launch
 order and gate mechanics for the pair are in the two configs' headers
 (run 7 first — G7).
 
-Then the pair runs unattended: `./launch_pair_1m.sh --confirm-cost` — checks
+Then the pair runs unattended: `./launch_pair_1m.sh --confirm-cost` (or
+`./launch_chain_7_10.sh --confirm-cost` to continue straight into the Llama
+chain — it skips completed runs, so it also picks up after the pair) — checks
 the pin equals the sweep winner in the store, ≥200 GB free, parents present;
 run 7 then run 8 with NTFY pings; skips a completed run on re-run.
 

@@ -1273,3 +1273,50 @@ Dataset items: none.
   n=512: ~50–74–97 GB; n=256: ~30–41–51 GB. Half-res n=512 keeps the
   Llama box in the ~100 GB class if snapshot density can be halved for
   the external-validity chain — owner call at box sizing.
+
+## Owner directives 2026-07-24 (third batch: full-chain launcher, push-and-prune, hf --force)
+
+- **Full-chain launcher `launch_chain_7_10.sh` (owner, supersedes the
+  same-day "Llama script waits for box sizing")**: runs 7 → 8 → 9 → 10
+  sequentially, unattended, ntfy at every stage boundary and failure.
+  Per run: train → gate evidence → optional prune. Includes the Llama
+  smokes, run-9 G4 (+ the fallback tripwire: G4 fail at the shared LR →
+  abort with "revive the gentle installer sweep"), the zero-shot
+  op-add/sub evidence BEFORE run 10 (recorded as run-9 G5 on the wrapped
+  checkpoint — same weights as `model_merged/`, V5.52 exact fold;
+  `zoo.load_model` refuses a plain checkpoint under a lora manifest, so
+  the merged dir itself is not gate-loadable), merge_adapter, and G5 for
+  runs 7/8/10. Refusal guards: one shared non-null lr in ALL FOUR yamls
+  == store sweep winner (≥3 complete sweep runs); pending-aware disk
+  check; parents present; verify_llama_tokenizer PASS when 9/10 pending.
+  Completed runs skip on re-run (crash/restart resume).
+  `launch_pair_1m.sh` remains for a 7/8-only box.
+- **`--push-and-prune` mode (owner option)**: after each run's gates are
+  recorded, `hf_checkpoint.py push --with-snapshots` to the private
+  relay, then verify EVERY local file is listed on the hub
+  (`list_repo_files`) before `rm -rf` of the heavy dirs (snapshots/,
+  model/, model_merged/ — manifest/logs/gates always kept). Run 9 prunes
+  only after run 10 completes (model_merged is run 10's parent). Peak
+  disk ~220 GB vs ~420 GB. Costs: extraction must pull snapshots back
+  later, and the relay grows ~200–400 GB — the HF free tier caps private
+  storage well below that (check the plan; PRO-class quota needed).
+  WRITE token is passed per-push only (`HF_TOKEN=<write> python …`);
+  the ambient box login stays READ. Runs 5/6 are NEVER pruned (their
+  relay push stays owner-held).
+- **Storage plan (vast.ai FAQ: disk size is FIXED at instance
+  creation)**: worst-case adds — run 7 ~100 GB, run 8 ~100 GB, run 9
+  ~15 GB, run 10 ~200 GB (n=1024). One box also holding the runs-5/6
+  snapshots (~75 GB): ~490 GB worst / ~330 GB realistic → rent 500 GB
+  without prune; ~300 GB with --push-and-prune; a fresh box without
+  runs 5/6 subtracts 75 GB.
+- **`hf auth login --force` always (owner)**: every HF login in guides
+  and scripts uses `--force` (flag verified in hf CLI 1.23.0) so a stale
+  cached login never masks the wrong account (Meta-license and
+  READ-vs-WRITE mixups fail loudly at login time).
+- **box_onstart.sh hardened per the vast.ai FAQ**: template env vars are
+  invisible to SSH sessions → HF_TOKEN/NTFY_TOPIC now also written to
+  /etc/environment (idempotent); the script self-installs to
+  /root/onstart.sh when absent (SSH-instance restarts run that path);
+  never overwrites an existing /root/onstart.sh. Also noted: instance
+  LIFETIME — the rental end date is locked at rent time; the box
+  holding the runs-5/6 snapshots must be watched against it.

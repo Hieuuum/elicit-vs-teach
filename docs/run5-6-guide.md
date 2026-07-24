@@ -34,7 +34,9 @@ cd experiments/training-run/scripts
 ## 2. Parent checkpoints (private relay — read token is enough)
 
 ```bash
-hf auth login                                  # READ token, never write
+hf auth login --force                          # READ token, never write; --force
+                                               # always (owner 2026-07-24): never
+                                               # inherit a stale/wrong login
 python hf_checkpoint.py pull --run-id evt-run3-armA-inst
 python hf_checkpoint.py pull --run-id evt-run4-armB-inst
 ls $GEODE_STORE/runs/evt-run{3,4}-arm*-inst/model/   # config.json + model.safetensors
