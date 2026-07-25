@@ -2185,8 +2185,10 @@ never moves** — cos ≥ 0.982 at every step of 6000, while its magnitude grows
 (norm fraction 0.36 at step 10 → 0.9 by step 109). Training there sets a
 direction immediately and then just travels along it. Teaching's output-side
 direction *rotates away* to near-orthogonal (cos 0.117 at step 52), recovers
-past 0.5 only by step 279, then swings between ~0.4 and ~0.75 for the middle
-of the run and settles only in the last ~10%. Read with the steering square —
+past 0.5 only by step 279, and over the middle of the run (20–60%, 29
+snapshots) still ranges 0.409–0.840 with mean 0.612 — against elicit's
+0.9996–0.9999 over the same window — settling only in the last ~10%. Read
+with the steering square —
 elicit's direction is causally potent, teach's is behaviourally inert — this
 is the "turn a key" / "build a mechanism" contrast in one measurement.
 

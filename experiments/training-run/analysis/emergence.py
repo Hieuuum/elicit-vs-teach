@@ -31,17 +31,18 @@ that identity hold, so they are not optional.
 
 Design notes:
 
-- **Split-half is the noise floor that matters.** A cosine only means something
-  above the level at which the measurement reproduces itself. Comparing
-  ``dir_cos_to_final`` against a random vector's 1/√d is the weaker test:
-  ``dir_cos_split_half`` says what half the probe set thinks the other half's
-  direction is at that same step, so wherever the two curves meet, the
-  cos-to-final reading is noise and the direction is not yet resolved. Both
-  halves reuse the reference's own halves, so the split is a partition of the
-  measurement, not of the model. Measured on runs 7/8 it sits at ≈0.998 at
+- **Split-half is the reliability ceiling, and it is what makes the curve
+  readable.** A cosine only means something relative to how precisely the
+  thing is measured, which is a stronger test than beating a random vector's
+  1/√d. ``dir_cos_split_half`` is how well half the probe set reproduces the
+  other half's direction at that same step, so it bounds what any cosine at
+  that step can be: a ``dir_cos_to_final`` far *below* it is a real rotation,
+  while one that *reaches* it says the step's direction is no longer
+  distinguishable from the final one at the measurement's own precision. Both
+  halves reuse the reference's own halves, so the split partitions the
+  measurement, not the model. Measured on runs 7/8 it sits at 0.997–0.999 at
   every snapshot — the direction is estimated far more precisely than it
-  rotates, so the curve is signal end to end and the ceiling is never the
-  binding constraint on reading it.
+  rotates, so the whole curve is signal and the ceiling never binds.
 - **Quote persistent threshold crossings, not first ones.** Both curves jitter
   between snapshots, so a first crossing can be a transient touch the run then
   falls back from; the summary prints each threshold twice (first crossing and
@@ -447,23 +448,15 @@ def main() -> None:
         # Split-half is a reliability CEILING, not a threshold to beat: it says
         # how precisely each snapshot's direction is estimated. Near 1.0 means
         # any cos below it is a real rotation rather than sampling noise, so
-        # the whole curve is interpretable; the first step at which cos reaches
-        # that ceiling is where the direction stops being distinguishable from
-        # the one that ends up being injected.
-        common = cos.index.intersection(split.index)
-        at_ceiling = (cos[common] >= split[common]).sort_index()
-        held = at_ceiling[::-1].cummin()[::-1]  # True only if True from here on
-        locked = held[held]
-        when = (
-            f"step {int(locked.index[0])} ({locked.index[0] / last:.1%} of the run)"
-            if len(locked)
-            else "only at the final snapshot"
-        )
+        # the whole curve is readable. Deliberately NOT reported: the step at
+        # which cos first reaches that ceiling — cos is 1.0 at the final
+        # snapshot by construction, so that clause can only ever say "the last
+        # step", which reads as a finding and is not one.
         print(
             f"[evt] {rid} ({regime}): split-half reliability min {float(split.min()):.4f} / "
-            f"median {float(split.median()):.4f} — the direction is measured far more "
-            f"precisely than it rotates, so the curve is signal; indistinguishable from "
-            f"the final direction at that precision from {when}"
+            f"median {float(split.median()):.4f} over {len(split)} snapshots — the "
+            f"direction is measured far more precisely than it rotates, so every cosine "
+            f"below that is a real rotation and the curve is signal end to end"
         )
 
 
