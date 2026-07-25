@@ -2044,6 +2044,27 @@ Two confounds were identified and handled rather than reported through:
   healthy), and **run 9 v1's parent 0.0/0.0 — uninformative, since a destroyed
   capability and a saturated format both floor at zero**. So the healthy regime
   rests on a single observation. Record it as the observation, not the
-  mechanism; a real test would need a few un-saturated checkpoints with
-  nonzero zero-shot (mid-training snapshots of runs 7/8 would serve, and cost
-  nothing new — the snapshots are already on the box).
+  mechanism.
+- **The runs-7/8 snapshot test proposed above is WITHDRAWN (2026-07-25) — it
+  has no discriminating power.** It would only be informative if some
+  mid-training snapshot scored 16-shot > zero-shot; a null (0 everywhere) is
+  already predicted by two confounds that the experiment cannot separate from
+  format saturation:
+  (a) **These models have no reason to do in-context learning at all.** The
+  38.7M arms are trained from scratch on TinyStories + a fixed `Question:`/
+  `Answer:` task. Few-shot generalisation from chained exemplars is a property
+  of large-scale diverse pretraining — exactly what the Llama parent has and
+  what these models do not. "16-shot ≈ 0" on runs 1–8 is the expected reading
+  for a model of this scale and pretraining diet, independent of saturation.
+  (b) **The taught EOS makes a chained prompt off-distribution by
+  construction.** Under V5.43 every training example is a single Q→A pair with
+  EOS *inside* the label span — the model is explicitly taught that the text
+  stops after one answer. `few_shot_prompt` concatenates 16 two-line exemplars
+  with blank lines, a structure that appears nowhere in training.
+  Both predict the same null, so the run would buy no inference. The right
+  resolution is the explanation, not the experiment: **16-shot is not a
+  capability probe for the small scratch-trained arms** — for those, retention
+  is measured by G2/G3 zero-shot, which is what the arms were gated on anyway.
+  It IS a meaningful accessibility probe on the Llama parent, precisely
+  because that model brings ICL from pretraining — which makes the v2 parent's
+  0.5342 a stronger external-validity datapoint, not a weaker one.
