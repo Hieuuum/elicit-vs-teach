@@ -85,12 +85,7 @@ def test_v5_40_order_hash_numpy_scalars_hash_like_builtins():
     np = pytest.importorskip("numpy")
     rows = _rows()
     coerced = [
-        {
-            **r,
-            "a": np.int64(r["a"]),
-            "b": np.int64(r["b"]),
-            "shown_answer": np.int64(r["shown_answer"]),
-        }
+        {**r, "a": np.int64(r["a"]), "b": np.int64(r["b"]), "shown_answer": np.int64(r["shown_answer"])}
         for r in rows
     ]
     assert order_hash(coerced) == order_hash(rows)
