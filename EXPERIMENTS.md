@@ -31,14 +31,21 @@ spec 02 §13).
 | 6 | `evt-run6-armB-target` | target | run 4 | LoRA | identical data, identical order as run 5 | **DONE — converged** (2026-07-22, step 12,500, min_val 0.02301; 832 snapshots + base); G7 verified; G5 recorded (stop-wobble caveat → decisions.md) |
 | 7 | `evt-run7-armA-target-1m` | target @ full 1M | run 3 | LoRA | full 1M `D_target` (owner 2026-07-23; supersedes OPEN(2) for this pair only) | **DONE — converged** (2026-07-24 chain, lr 1e-3, step 6,000, min_val 0.0027); G5 recorded; on relay with full snapshots |
 | 8 | `evt-run8-armB-target-1m` | target @ full 1M | run 4 | LoRA | identical data + order as run 7 (G7) | **DONE — converged** (2026-07-24 chain, step 11,000, min_val 0.0237 — 8.7× the run-7 floor); G5 recorded; on relay with full snapshots |
-| 9 | `evt-run9-llama1b-inst` | format install, external validity | `meta-llama/Llama-3.2-1B` (base) | LoRA r=64, merged after | same frozen `D_inst` + behavioral stop | **DONE** (2026-07-24 chain, behavioral stop @ 750; G4 1.0; merged → `model_merged/`); G5: zero-shot 0.0000 / 9.26 nats — Llama does NOT already answer op-notation, so run 10 measures a real gap; on relay |
-| 10 | `evt-run10-llama1b-target` | target, external validity | run 9 (merged) | LoRA r=64 | full 1M `D_target` | **DONE — converged** (2026-07-24 chain, step 7,500, min_val 0.0156); G5 0.9844 / 0.0232 nats (re-measured after the eval-tokenizer incident, decisions.md); relay push pending |
+| 9 | `evt-run9-llama1b-inst` | format install, external validity | `meta-llama/Llama-3.2-1B` (base) | LoRA r=64, merged after | same frozen `D_inst` + behavioral stop | **INVALIDATED 2026-07-25 — superseded by v2.** Ran at the target pin 1e-3 (scope leak, decisions.md): behavioral stop @ 750, G4 1.0, but **retention 0.0000** vs base Llama's 0.3271 on NL add/sub — format installed, arithmetic destroyed. Dir kept on the relay as the record of the defect |
+| 9-v2 | `evt-run9-llama1b-inst-v2` | format install, external validity | `meta-llama/Llama-3.2-1B` (base) | LoRA r=64, merged after | same frozen `D_inst` + behavioral stop | **DONE** (2026-07-25, **lr 3e-6** from the installer retention sweep): behavioral stop @ 1,000, **G4 1.0000**, **G2 retention 0.3193 = 97.6% of base** (bar 0.29). Merged → `model_merged/`, re-verified there: 112/147 tensors moved (max │Δ│ 2.44e-04), format 0.9902, retention 0.3242 |
+| 10 | `evt-run10-llama1b-target` | target, external validity | run 9 (merged) | LoRA r=64 | full 1M `D_target` | **INVALIDATED 2026-07-25 — superseded by v2.** Converged (2026-07-24 chain, step 7,500, min_val 0.0156), G5 0.9844 / 0.0232 nats, on relay — but its parent had **zero** arithmetic, so this run measured **teaching, not elicitation**. Consistent with min_val 0.0156 sitting between run 7 (0.0027) and run 8 (0.0237), nearer teach |
+| 10-v2 | `evt-run10-llama1b-target-v2` | target, external validity | run 9-v2 (merged) | LoRA r=64 | full 1M `D_target` | **RUNNING** (2026-07-25, lr 1e-3 unchanged). Pre-registered test: if min_val does not fall from v1's 0.0156 toward run 7's 0.0027, the borrowed target pin (right stage, wrong model — 2.8× the paper's 1B 3.53e-4) is suspect and the Llama target sweep is revived |
 
 DAG: `1 → 2 → 3 → 5` (Arm A, elicit) and `1 → 4 → 6` (Arm B, teach);
 the 1M rerun pair reuses the installers: `3 → 7`, `4 → 8`. External
-validity: `Llama-3.2-1B → 9 → 10` (Llama's own pretraining stands in
-for the pre-teach stage; elicit-only — a real pretrained model can't be
-un-taught, so there is no Llama teach arm).
+validity: `Llama-3.2-1B → 9-v2 → 10-v2` (Llama's own pretraining stands
+in for the pre-teach stage; elicit-only — a real pretrained model can't
+be un-taught, so there is no Llama teach arm). The v1 chain
+`9 → 10` is invalidated: run 9 ran at the target-stage LR pin and
+destroyed the very capability run 10 was meant to elicit. **The Llama
+arm only means "elicitation" if its installer PRESERVES arithmetic —
+that is now enforced, not assumed: run 10's `parent_required_gates` is
+`[G4, G2]`, so a parent that fails retention cannot launch a target.**
 Every run registers in zoo before launch; `require_parent_ready`
 (spec 00 V0.6) makes a child refuse to start unless its parent is
 complete, every recorded parent gate has `pass: true`, and the gates
@@ -98,7 +105,7 @@ ungated inspection tool.
 | G2 | run 3 | Arm A still ≥95% on NL add/sub post-install — same bar as G1, no separate δ (owner 2026-07-21); drop from G1 reported | **PASS 0.9531** (drop 0.043 from G1; installer-LR length-prior finding → decisions.md 2026-07-22) |
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | **PASS 0.0000** |
 | G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | **PASS 1.0 both arms** |
-| G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. **1M pair: run 7 (A) 0.9971 / 0.0025 vs run 8 (B) 0.9551 / 0.0312 — 12.4× θ_T gap. Llama: run 9 parent 0.0000 / 9.26 (latent as required), run 10 0.9844 / 0.0232 — measured with `eval_target_data_llama.yaml` (an eval's tokenizer must match the model under eval; decisions.md 2026-07-24)**. 16-shot ≈ 0 everywhere incl. the 1.24B Llama (collapse — invalidated as a metric; decisions.md) |
+| G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. **1M pair: run 7 (A) 0.9971 / 0.0025 vs run 8 (B) 0.9551 / 0.0312 — 12.4× θ_T gap. Llama: run 9 parent 0.0000 / 9.26, run 10 0.9844 / 0.0232 — measured with `eval_target_data_llama.yaml` (an eval's tokenizer must match the model under eval; decisions.md 2026-07-24)**. **Caution (2026-07-25): run 9's 0.0000 was read as "latent as required" — it is not that. It is op-notation after random-label training, not the retention probe. The retention probe is NL add/sub vs a base baseline, and on it run 9 v1 scored 0.0000 against base Llama's 0.3271: the capability was destroyed, not latent. See runs 9-v2/10-v2.** 16-shot ≈ 0 everywhere incl. the 1.24B Llama (collapse — invalidated as a metric; decisions.md) |
 | G6 | data gen | V5.1/V5.2 integrity on the real sets | partial — generation-time evidence in `report.json`; formal re-run when `gates.py` grows the subcommand |
 | G7 | before run 6 | `data_order_hash`(run 5) == (run 6) | enforced at launch |
 
