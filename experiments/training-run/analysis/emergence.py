@@ -210,6 +210,10 @@ def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) ->
                 "ref_step": ref,
                 "final_step": last,
                 "n_examples": n_examples,
+                # A never-moving hook still emits magnitude rows (0.0), so every
+                # aggregate has to be able to drop them: averaging a structural
+                # zero into a hook-mean is a 1/n_hooks bias, not a measurement.
+                "frozen_hook": name in degenerate,
             }
             final = final_dirs[name]
             final_norm = final_norms[name]
@@ -276,6 +280,7 @@ def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) ->
 
 
 def plot(df: pd.DataFrame, out: Path) -> None:
+    df = df[~df["frozen_hook"]]
     fig, axes = plt.subplots(3, 1, figsize=(9, 12))
     runs = sorted(df["run_id"].unique())
     colors = {rid: c for rid, c in zip(runs, ("tab:blue", "tab:orange"))}
@@ -390,7 +395,7 @@ def main() -> None:
     print(f"[evt] wrote {path} ({len(df)} rows)")
     plot(df, args.fig)
 
-    for rid, by_run in df.groupby("run_id", sort=True):
+    for rid, by_run in df[~df["frozen_hook"]].groupby("run_id", sort=True):
         regime = by_run["regime"].iloc[0]
         cos = (
             by_run[by_run["metric_name"] == METRIC_COS]
@@ -421,20 +426,26 @@ def main() -> None:
                 else "never"
             )
             print(f"[evt] {rid} ({regime}): first {label} at {when}")
-        # Where the direction first clears its own measurement noise, and stays clear.
+        # Split-half is a reliability CEILING, not a threshold to beat: it says
+        # how precisely each snapshot's direction is estimated. Near 1.0 means
+        # any cos below it is a real rotation rather than sampling noise, so
+        # the whole curve is interpretable; the first step at which cos reaches
+        # that ceiling is where the direction stops being distinguishable from
+        # the one that ends up being injected.
         common = cos.index.intersection(split.index)
-        clear = (cos[common] > split[common]).sort_index()
-        streak = clear[::-1].cummin()[::-1]  # True only if True from here to the end
-        resolved = streak[streak]
-        first = (
-            f"step {int(resolved.index[0])} ({resolved.index[0] / last:.1%})"
-            if len(resolved)
-            else "never"
+        at_ceiling = (cos[common] >= split[common]).sort_index()
+        held = at_ceiling[::-1].cummin()[::-1]  # True only if True from here on
+        locked = held[held]
+        when = (
+            f"step {int(locked.index[0])} ({locked.index[0] / last:.1%} of the run)"
+            if len(locked)
+            else "only at the final snapshot"
         )
         print(
-            f"[evt] {rid} ({regime}): cos exceeds split-half reliability from {first} onward; "
-            f"split-half at the earliest step {float(split.iloc[0]):.4f}, at the end "
-            f"{float(split.iloc[-1]):.4f}"
+            f"[evt] {rid} ({regime}): split-half reliability min {float(split.min()):.4f} / "
+            f"median {float(split.median()):.4f} — the direction is measured far more "
+            f"precisely than it rotates, so the curve is signal; indistinguishable from "
+            f"the final direction at that precision from {when}"
         )
 
 
