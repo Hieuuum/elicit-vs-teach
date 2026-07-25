@@ -8,7 +8,6 @@ experiment:
   match_data_order_with: null
 train:
   lr: 3.0e-4
-  max_steps: 24000
-  seed: 317
+  max_steps: 7813
   snapshots:
     n: 0

@@ -2303,3 +2303,28 @@ four points); the marginal dollar cost is near zero while the box is kept
 alive, so the real question for the owner is the time, not the budget.
 NOT LAUNCHED — awaiting owner go-ahead, and `--confirm-cost` per the budget
 rule.
+
+**Amended same day, before launch (owner):** two design changes, both
+recorded here because a pre-registration edited silently is not one.
+(1) **Seed 316 everywhere** — the production seed — which makes the 1e-3
+point an exact re-run of run 10-v2 and therefore not run at all: run 10-v2
+IS the incumbent datapoint, and the sweep is three points (1e-4, 3e-4,
+3e-3), not four. The seed twin and its noise handle are gone; reading rule 6
+(margin vs twin gap) is replaced by a fixed **>25% win threshold**
+(challenger must score ≤ 0.75× the incumbent's 0.01193 eval-log min),
+precedent the arm-A tie-break's "within ~25% = not clearly better".
+(2) **One-epoch budget** — `max_steps` 7,813 = one pass over the 1M at
+batch 128, in place of 24,000. Precedent: the 38.7M sweep was scored at a
+shared 1-epoch budget. Its lesson travels with it: capped budgets flatter
+high lrs and punish slow ones (3e-3 "won" that capped budget; the
+at-convergence pilot overturned it), so this sweep can vindicate the
+incumbent or flag a challenger but cannot condemn a slow lr — 1e-4 hitting
+the cap still descending is recorded as "not resolvable within one epoch",
+not as a loss. The asymmetry runs the other way for the incumbent:
+challengers get 7,813 steps where run 10-v2 converged in 5,500, so a
+surviving incumbent is the conservative reading. Any challenger that
+clears the threshold re-runs at convergence scale (max_steps 24,000, seed
+316, new run_id) before anything is pinned — the staged confirmation from
+the original design is unchanged, as is what gets reported. Worst case
+3 × 7,813 steps ≈ 97 min compute (~1.2–1.5 h realistic; 3e-3 is expected
+to stop or plateau early). Still NOT LAUNCHED.
