@@ -47,6 +47,14 @@ Design notes:
 - **The last snapshot is a self-check, asserted not just emitted**: cos and
   progress must both be 1.0 to fp tolerance there by construction, so a
   ref/last bookkeeping slip fails loudly instead of shifting the whole curve.
+- **Never-moving hooks emit no cosine.** Under LoRA the embedding table is
+  frozen, so ``hook_embed``'s activations are bit-identical at every snapshot
+  and its direction is exactly the zero vector — every ratio against it is
+  0/0. Those hooks emit the two magnitude rows (truthfully 0.0) and no
+  cosines, which also keeps them out of the hook-mean curves rather than
+  dragging them toward 0. A second assertion checks such a hook never moved
+  *mid-run* either, so a zero endpoint that is really a cancellation cannot
+  masquerade as a frozen parameter.
 - **Cross-arm timing is NOT read off ``train_frac``.** Runs 7 and 8 have
   different dump schedules (stride ~9 vs ~11) and different lengths (5991 vs
   10969), so step fraction conflates "earlier" with "shorter". Compare arms at
@@ -178,6 +186,14 @@ def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) ->
     # Pass 2: directions relative to ref, compared against the final direction.
     last = steps[-1]
     final_dirs = {name: means[last][name][0] - ref_means[name][0] for name in names}
+    final_norms = {name: float(final_dirs[name].norm().item()) for name in names}
+    # A hook whose final direction is EXACTLY zero never moved at all: under
+    # LoRA the embedding table is frozen, so identical probe input_ids give
+    # bit-identical hook_embed activations at every snapshot (the steering
+    # square saw the same thing — direction_norm 0 there, and alpha scaled it
+    # to nothing). Every ratio against it is 0/0, so those hooks emit the two
+    # magnitude rows (truthfully 0.0: no movement) and no cosine rows.
+    degenerate = {name for name in names if final_norms[name] == 0.0}
     rows: list[dict] = []
     for k in steps:
         for layer, name in enumerate(names):
@@ -196,7 +212,7 @@ def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) ->
                 "n_examples": n_examples,
             }
             final = final_dirs[name]
-            final_norm = float(final.norm().item())
+            final_norm = final_norms[name]
             direction = means[k][name][0] - ref_means[name][0]
             rows.append(
                 {
@@ -218,15 +234,18 @@ def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) ->
                     ),
                 }
             )
-            if k == ref:
-                continue  # direction is exactly the zero vector: both cosines undefined
+            if k == ref or name in degenerate:
+                continue  # zero direction: both cosines are 0/0, emit nothing
             rows.append({**base, "metric_name": METRIC_COS, "metric_value": _cos(direction, final)})
             dir_a = means[k][name][1] - ref_means[name][1]
             dir_b = means[k][name][2] - ref_means[name][2]
             rows.append({**base, "metric_name": METRIC_SPLIT, "metric_value": _cos(dir_a, dir_b)})
 
-    # Self-check: at the last snapshot the direction IS the final direction.
-    final_rows = [r for r in rows if r["checkpoint_step"] == last]
+    # Self-check 1: at the last snapshot the direction IS the final direction,
+    # so all three live metrics are 1.0 there by construction.
+    final_rows = [
+        r for r in rows if r["checkpoint_step"] == last and r["hook_name"] not in degenerate
+    ]
     for metric in (METRIC_COS, METRIC_PROGRESS, METRIC_NORM):
         vals = [r["metric_value"] for r in final_rows if r["metric_name"] == metric]
         worst = max(abs(v - 1.0) for v in vals)
@@ -235,11 +254,23 @@ def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) ->
                 f"{run_id}: {metric} at the final snapshot (step {last}) is not 1.0 "
                 f"(max deviation {worst:.3e}) — the reference/final bookkeeping is wrong"
             )
+    # Self-check 2: a hook that ends where it started must have been there the
+    # whole time. A frozen table cannot move and return; a nonzero intermediate
+    # would mean the zero endpoint is a cancellation, not a frozen parameter.
+    for name in sorted(degenerate):
+        moved = max(float((means[k][name][0] - ref_means[name][0]).norm().item()) for k in steps)
+        if moved > 0.0:
+            raise AssertionError(
+                f"{run_id}: {name} has a zero FINAL direction but moves to {moved:.3e} "
+                "mid-run — that endpoint is a cancellation, not a frozen parameter"
+            )
     d_model = int(final_dirs[names[0]].shape[0])
+    frozen = ", ".join(sorted(degenerate)) if degenerate else "none"
     print(
         f"[evt] {run_id} ({regime}): {len(steps)} dumps, ref step {ref} → final {last}, "
         f"{len(names)} hooks, {n_examples} probe examples (split {half}/{n_examples - half}), "
-        f"d_model {d_model}, random-vector cosine scale 1/√d = {1 / math.sqrt(d_model):.4f}"
+        f"d_model {d_model}, random-vector cosine scale 1/√d = {1 / math.sqrt(d_model):.4f}; "
+        f"never-moving hooks (no cosine rows): {frozen}"
     )
     return rows
 
