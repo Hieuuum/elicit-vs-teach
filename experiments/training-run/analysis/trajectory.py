@@ -26,17 +26,44 @@ the overlay figure lands in ``analysis/figures/`` (gitignored).
 
 Design notes:
 
-- **Full-FT only.** ``manifest.training.method`` must be ``"full_ft"`` (runs
-  7/8). LoRA runs are refused: their snapshots store the A/B factors, so a
-  weight-space step-delta is ``ΔW_k − ΔW_{k−1}`` of the *merged* update
-  (``adapters.lora_delta_w``), a different and much more expensive
-  materialisation, and the factorisation's rotational gauge freedom makes raw
-  factor differences meaningless. Out of scope here.
-- **Reference state**: the earliest discovered snapshot, exactly as
-  ``adapters.py`` picks it (this driver reuses its ``_discover_steps`` /
-  ``_load_state``). Step 1 is already one optimizer update in, so it is the
-  closest available stand-in for init, not init itself. The reference step
-  gets no rows — every metric is defined relative to it.
+- **Two weight-space paths**, chosen per run from ``manifest.training.method``:
+
+  - ``lora`` (runs 7/8): the trajectory point is the *merged* update
+    ΔW(module, k) = ``(α/2r)·(B_k @ A_k)`` (``adapters.lora_delta_w``), so a
+    step-delta is ``ΔW_k − ΔW_{k−1}``. The frozen base cancels out of every
+    difference taken here, and raw A/B factor differences are never formed —
+    the factorisation's rotational gauge freedom (``B→BR``, ``A→R⁻¹A`` leaves
+    ``B@A`` fixed) makes those meaningless, while the merged ΔW is gauge
+    invariant. Only the 7 target projections per layer carry adapters and
+    nothing else in the snapshot is trainable, so this trajectory is
+    *complete*, not a truncation of a larger moving parameter set.
+  - ``full_ft``: the point is the raw float parameter vector θ_k.
+
+- **Reference state** — the LoRA path's is the stronger of the two:
+
+  - ``lora``: ΔW ≡ 0 at init *exactly*, because B is zero-initialised. The
+    reference is therefore true init rather than a stand-in, and every
+    snapshot including the earliest gets rows. Useful consequence:
+    ``net_displacement(k)`` = ‖ΔW_k‖ is the same quantity as
+    ``adapter_diffs``'s ``delta_w_fro_total(k)`` reached by an independent
+    code path, which is how this driver's output is cross-checked.
+  - ``full_ft``: the earliest discovered snapshot, exactly as ``adapters.py``
+    picks it. Step 1 is already one optimizer update in, so it is the closest
+    available stand-in for init, not init itself. The reference step gets no
+    rows — every metric is defined relative to it.
+
+- **Cross-run comparison must match the step.** ``path_length_cum`` measures
+  the polyline through the *snapshots*, not the true optimizer path, so it is
+  a lower bound on arc length and ``path_efficiency`` an upper bound. Two runs
+  are only comparable on a shared snapshot schedule; runs 7/8 have identical
+  schedules over their common prefix (1141 steps, up to step 5991). Terminal
+  values are NOT comparable — efficiency erodes monotonically with continued
+  walking and run 8 runs on to 10969 — so the summary reports the matched
+  common step as the headline and labels each run's own terminal value
+  UNMATCHED.
+- ``cos_to_final_dir`` is within-run by construction: each run's Δ_final is its
+  own, so the metric asks "does this step buy displacement toward where *this*
+  run ends up", never a cross-run direction.
 - ``layer = -1`` on every row: the mandated ``layer`` column is a **global
   sentinel** here. Trajectory geometry is a whole-parameter-vector quantity;
   the per-layer allocation of update energy already lives in the
@@ -68,11 +95,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 import torch
+from safetensors.torch import load_file
 
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
 
-from adapters import _discover_steps, _load_state
+from adapters import _discover_steps, _load_state, _lora_deltas
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RUNS = ("evt-run7-armA-target-1m", "evt-run8-armB-target-1m")
@@ -83,6 +111,36 @@ LATE_STEP = 1000  # summary print averages step_cosine over steps beyond this
 def _float_keys(state: dict[str, torch.Tensor]) -> list[str]:
     """Sorted floating-point tensor keys — the parameters the trajectory lives in."""
     return sorted(key for key, tensor in state.items() if tensor.is_floating_point())
+
+
+def _lora_state(run_id: str, step: int, store: Path) -> dict[str, torch.Tensor]:
+    """A/B factors of θ_step — deliberately NOT ``adapters._load_state``.
+
+    Reads only ``adapter.safetensors``, skipping ``snapshots/base/``: under
+    LoRA the base weights are frozen and byte-identical at every step, so they
+    cancel out of every difference this driver forms (``d_k``, ``θ_k − θ_ref``,
+    ``Δ_final``). Merging them in would re-read the whole base model once per
+    snapshot — ~1141 times per run — only to add a constant that cancels.
+    Legacy single-file snapshots fall back to the shared loader.
+    """
+    adapter = run_dir(run_id, store=store) / "snapshots" / f"step_{step}" / "adapter.safetensors"
+    if adapter.is_file():
+        return load_file(str(adapter))
+    return _load_state(run_id, step, store)
+
+
+def _lora_point(state: dict[str, torch.Tensor], alpha: float, rank: int) -> dict[str, torch.Tensor]:
+    """Trajectory point of a LoRA snapshot: merged ΔW per target module.
+
+    Keyed by module name (not tensor key) because ``B@A`` collapses the two
+    stored factors into the single update they represent.
+    """
+    return {d.module: d.dw for d in _lora_deltas(state, alpha, rank)}
+
+
+def _full_ft_point(state: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """Trajectory point of a full-FT snapshot: the float parameters themselves."""
+    return {key: state[key] for key in _float_keys(state)}
 
 
 def _require_keys(run_id: str, step: int, state: dict[str, torch.Tensor], keys: list[str]) -> None:
@@ -146,12 +204,6 @@ def _step_geometry(
 def run_rows(run_id: str, store: Path) -> list[dict]:
     manifest = load_run(run_id, store=store)
     method = manifest.data["training"]["method"]
-    if method != "full_ft":
-        raise ValueError(
-            f"{run_id}: training.method is {method!r}, but trajectory.py handles 'full_ft' only. "
-            "LoRA trajectories need the merged ΔW per step (adapters.lora_delta_w) and the "
-            "factorisation's gauge freedom makes raw A/B differences meaningless — out of scope."
-        )
     common = {
         "run_id": run_id,
         "base_model_key": manifest.data["base_model"]["hf_id"],
@@ -160,16 +212,38 @@ def run_rows(run_id: str, store: Path) -> list[dict]:
     }
     snap_root = run_dir(run_id, store=store) / "snapshots"
     steps = _discover_steps(snap_root)
-    if len(steps) < 2:
+    if not steps:
+        raise FileNotFoundError(f"{run_id}: no snapshots under {snap_root}")
+
+    if method == "lora":
+        lora_cfg = manifest.data["training"]["lora"]
+        alpha, rank = float(lora_cfg["alpha"]), int(lora_cfg["rank"])
+
+        def point(step: int) -> dict[str, torch.Tensor]:
+            return _lora_point(_lora_state(run_id, step, store), alpha, rank)
+
+        # B is zero-initialised, so ΔW ≡ 0 at init: the reference is exact and
+        # every snapshot — the earliest included — is a real step away from it.
+        ref_state = {key: torch.zeros_like(t) for key, t in point(steps[0]).items()}
+        walk, ref_step = steps, 0
+    elif method == "full_ft":
+
+        def point(step: int) -> dict[str, torch.Tensor]:
+            return _full_ft_point(_load_state(run_id, step, store))
+
+        ref_state = point(steps[0])
+        walk, ref_step = steps[1:], steps[0]  # the reference is not a step from itself
+    else:
+        raise ValueError(f"{run_id}: unsupported training.method {method!r} (lora or full_ft)")
+
+    if not walk:
         raise FileNotFoundError(
             f"{run_id}: found {len(steps)} snapshot(s) under {snap_root} — trajectory geometry "
-            "needs at least a reference snapshot and one step after it"
+            "needs at least one step away from the reference state"
         )
 
-    ref_step = steps[0]
-    ref_state = _load_state(run_id, ref_step, store)
-    keys = _float_keys(ref_state)
-    final_state = _load_state(run_id, steps[-1], store)
+    keys = sorted(ref_state)
+    final_state = point(steps[-1])
     _require_keys(run_id, steps[-1], final_state, keys)
     delta_final = _difference(final_state, ref_state, keys)
     del final_state  # the last snapshot is re-read in step order; keep only Δ_final
@@ -180,8 +254,8 @@ def run_rows(run_id: str, store: Path) -> list[dict]:
     prev_norm = 0.0
     path_cum = 0.0
     rows: list[dict] = []
-    for k in steps[1:]:
-        state = _load_state(run_id, k, store)
+    for k in walk:
+        state = point(k)
         _require_keys(run_id, k, state, keys)
         delta, d_norm, net, dot_prev, dot_final = _step_geometry(
             state, prev_state, ref_state, delta_final, prev_delta, keys
@@ -201,9 +275,10 @@ def run_rows(run_id: str, store: Path) -> list[dict]:
                 continue
             rows.append({**base, "metric_name": name, "metric_value": value})
         prev_state, prev_delta, prev_norm = state, delta, d_norm
+    ref_txt = "init (ΔW=0, exact)" if method == "lora" else f"step {ref_step}"
     print(
-        f"[evt] {run_id}: {len(steps)} snapshots ({method}), ref step {ref_step}, "
-        f"‖Δ_final‖={final_norm:.4f}, {len(rows)} rows"
+        f"[evt] {run_id}: {len(steps)} snapshots ({method}), ref {ref_txt}, "
+        f"{len(walk)} stepped, ‖Δ_final‖={final_norm:.4f}, {len(rows)} rows"
     )
     return rows
 
@@ -236,6 +311,11 @@ def plot(df: pd.DataFrame, out: Path) -> None:
         axes[1].plot(
             by_run["checkpoint_step"], smooth, color=color, lw=2.0, label=f"{rid} ({regime})"
         )
+
+    # Past this step only one run is still walking — comparisons there are unmatched.
+    matched = int(df.groupby("run_id")["checkpoint_step"].max().min())
+    axes[0].axvline(matched, color="0.4", ls=":", lw=1.2, label=f"matched step {matched}")
+    axes[1].axvline(matched, color="0.4", ls=":", lw=1.2)
 
     for ax, ylabel in zip(axes, ("path efficiency (net / arc length)", "cos(d_k, d_{k-1})")):
         ax.set_xscale("log")
@@ -279,17 +359,29 @@ def main() -> None:
     print(f"[evt] wrote {path} ({len(df)} rows)")
     plot(df, args.fig)
 
+    # Horizon confound: path_efficiency erodes monotonically with continued
+    # walking, so a longer run reads as less efficient for that reason alone.
+    # Every cross-run number below is therefore taken at the common last step.
+    matched = int(df.groupby("run_id")["checkpoint_step"].max().min())
+    print(f"[evt] cross-run comparison matched at step {matched} (both runs' last common step)")
     for rid, by_run in df.groupby("run_id", sort=True):
-        n_snapshots = by_run["checkpoint_step"].nunique() + 1  # + the reference snapshot
+        n_steps = by_run["checkpoint_step"].nunique()
         eff = by_run[by_run["metric_name"] == "path_efficiency"].sort_values("checkpoint_step")
-        final_eff = float(eff["metric_value"].iloc[-1])
+        matched_eff = float(eff[eff["checkpoint_step"] <= matched]["metric_value"].iloc[-1])
+        term_step, term_eff = (
+            int(eff["checkpoint_step"].iloc[-1]),
+            float(eff["metric_value"].iloc[-1]),
+        )
         late = by_run[
-            (by_run["metric_name"] == "step_cosine") & (by_run["checkpoint_step"] > LATE_STEP)
+            (by_run["metric_name"] == "step_cosine")
+            & (by_run["checkpoint_step"] > LATE_STEP)
+            & (by_run["checkpoint_step"] <= matched)
         ]["metric_value"]
         late_txt = f"{late.mean():.4f} (n={len(late)})" if len(late) else "n/a (no such steps)"
         print(
-            f"[evt] {rid}: {n_snapshots} snapshots processed, final path_efficiency "
-            f"{final_eff:.4f}, mean step_cosine over steps>{LATE_STEP} {late_txt}"
+            f"[evt] {rid}: {n_steps} stepped snapshots | path_efficiency @{matched} "
+            f"{matched_eff:.4f} | terminal @{term_step} {term_eff:.4f} (UNMATCHED) | "
+            f"mean step_cosine over {LATE_STEP}<step<={matched} {late_txt}"
         )
 
 
