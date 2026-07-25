@@ -2125,10 +2125,21 @@ Three findings, in order of strength:
    not quote teach's 0.0352 as a small positive effect: it is indistinguishable
    from a random push of the same size.
 
-Together with the already-recorded fact that **teach's direction is inert in
-its own parent** (0.0000 everywhere, the b2b cell), the picture is that the
-constant-shift story of Wang et al. holds for the elicit arm only, and only
-where the capability already exists.
+Together with the b2b cell (teach's direction in its own parent: EM 0.0000 at
+every hook and alpha), the picture is that the constant-shift story of Wang
+et al. holds for the elicit arm only, and only where the capability already
+exists. **Say "behaviourally inert", not "inert".** Teach's direction is not
+doing nothing: it lowers loss in its own parent too (3.90 → 3.19 at
+blocks.0–2) and as much as elicit's in arm A's parent. What it never does is
+convert that into a correct answer. The distinction is the finding, so the
+loose word would erase it.
+
+Determinism check, free: the two diagonals were re-run from scratch in a
+separate process, and all **288 overlapping rows (alpha ≤ 2) reproduce the
+original `steering_transfer.parquet` exactly** — max |old − new| = 0.0, not
+merely close. Seeded end-to-end reproducibility holds for the steering path
+(cf. the run-9 sweep checkpoint whose sha256 matched run 9-v2's byte for
+byte).
 
 Caveats to carry: EM in the a2a cell is still climbing at alpha 4 for the
 early hooks (blocks.1 reaches 0.117), so the *reported peak* (blocks.4,

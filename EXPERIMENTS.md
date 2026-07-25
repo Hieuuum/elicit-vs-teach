@@ -186,7 +186,10 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    **Steering square (2026-07-25, `steering_square.parquet`).** The 2×2
    of direction source × injection target, one matched alpha grid
    extended to 4. Best EM into an untrained parent, no weight change:
-   elicit direction → arm A parent **0.1406** (random 0.0273) but →
+   elicit direction → arm A parent **0.1406** (random 0.0273; an
+   interior maximum for its own hook, but early hooks are still
+   climbing at the grid edge — `blocks.1` reaches 0.117 at alpha 4, so
+   this is the best *found*, not the maximum recoverable) but →
    arm B parent **0.0000**; teach direction → arm A parent 0.0352
    (= random, 9 vs 7 hits/256) and → arm B parent 0.0000. Reading: a
    steering vector **cannot install a capability that is not there**
