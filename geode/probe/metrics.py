@@ -1,4 +1,4 @@
-"""Analysis metrics over probe dumps (specs/02 §7, V5.13–V5.16).
+"""Analysis metrics over probe dumps (specs/02 §7, V5.13–V5.16, V5.63).
 
 ``gradient_alignment`` (V5.13) — one (snapshot, layer) at a time: given the
 per-example activation-gradient matrix (one row per probe example) summarize
@@ -235,3 +235,55 @@ def performance_aligned_matching(
         gaps.append(best_gap)
 
     return PerformanceMatch(pairs=tuple(pairs), perf_gaps=tuple(gaps))
+
+
+def linear_cka(x: torch.Tensor, y: torch.Tensor) -> float:
+    """Linear CKA between two representation matrices of the same examples.
+
+    ``x`` is ``[n, d1]`` and ``y`` is ``[n, d2]`` — one row per example, row i
+    of both the *same* example; the widths may differ, which is why CKA (not a
+    distance) is the cross-arm similarity measure. Both are column-centered,
+    then
+
+        CKA = ‖Xᶜᵀ Yᶜ‖_F² / (‖Xᶜᵀ Xᶜ‖_F · ‖Yᶜᵀ Yᶜ‖_F)
+
+    which is 1 for representations related by any orthogonal rotation and
+    isotropic rescaling, 0 for uncorrelated ones, and invariant to translation
+    (centering). Values lie in [0, 1] by Cauchy–Schwarz, up to fp64 rounding.
+    Computation is fp64 regardless of input dtype (dumps are bf16).
+
+    A constant (zero-variance) matrix has no linear structure to compare and
+    refuses rather than dividing by zero.
+    """
+    if x.ndim != 2 or y.ndim != 2:
+        raise ValueError(
+            f"linear_cka: expected [n_examples, d] matrices, got x {tuple(x.shape)} "
+            f"y {tuple(y.shape)}"
+        )
+    if x.shape[0] != y.shape[0]:
+        raise ValueError(
+            f"linear_cka: row counts differ ({x.shape[0]} vs {y.shape[0]}) — row i of "
+            "both matrices must be the same probe example"
+        )
+    n = x.shape[0]
+    if n < 2:
+        raise ValueError(f"linear_cka: need >= 2 examples, got {n}")
+
+    xf, yf = x.to(torch.float64), y.to(torch.float64)
+    for name, t in (("x", xf), ("y", yf)):
+        if not bool(torch.isfinite(t).all()):
+            raise ValueError(f"linear_cka: non-finite values in {name}")
+
+    xc = xf - xf.mean(dim=0, keepdim=True)
+    yc = yf - yf.mean(dim=0, keepdim=True)
+    gram_x = (xc.T @ xc).norm()
+    gram_y = (yc.T @ yc).norm()
+    for name, g in (("x", gram_x), ("y", gram_y)):
+        if float(g.item()) == 0.0:
+            raise ValueError(
+                f"linear_cka: {name} has zero centered Frobenius norm (constant rows) "
+                "— no linear structure to compare"
+            )
+
+    cross = (xc.T @ yc).norm() ** 2
+    return float((cross / (gram_x * gram_y)).item())

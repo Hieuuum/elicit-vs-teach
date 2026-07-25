@@ -16,6 +16,7 @@ from geode.probe.metrics import (
     RepresentationDrift,
     effective_rank,
     gradient_alignment,
+    linear_cka,
     performance_aligned_matching,
     representation_drift,
 )
@@ -30,6 +31,7 @@ __all__ = [
     "effective_rank",
     "extract_probe",
     "gradient_alignment",
+    "linear_cka",
     "load_matched_probe_pair",
     "load_probe_dump",
     "performance_aligned_matching",

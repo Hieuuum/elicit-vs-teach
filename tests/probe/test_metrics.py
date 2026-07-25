@@ -1,4 +1,4 @@
-"""Property tests for the specs/02 §7 analysis metrics (V5.13–V5.16).
+"""Property tests for the specs/02 §7 analysis metrics (V5.13–V5.16, V5.63).
 
 All inputs are seeded torch tensors / plain sequences; no model is involved —
 each metric is a pure function of its inputs.
@@ -8,6 +8,8 @@ n ≪ d caveat pinned numerically).
 V5.14: drift zero at init; planted per-class shift recovered per class.
 V5.15: planted rank-r adapter delta ⇒ effective rank r.
 V5.16: planted curves ⇒ known pairing; ties broken toward earliest step_b.
+V5.63: identical / rotated+rescaled / translated representations ⇒ 1;
+independent gaussians ⇒ ≈0; planted shared structure ⇒ high.
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import torch
 from geode.probe import (
     effective_rank,
     gradient_alignment,
+    linear_cka,
     performance_aligned_matching,
     representation_drift,
 )
@@ -275,3 +278,79 @@ def test_v5_16_degenerate_inputs_raise():
         performance_aligned_matching([2, 1], [0.1, 0.2], [1, 2], [0.1, 0.2])
     with pytest.raises(ValueError, match="non-finite"):
         performance_aligned_matching([1, 2], [0.1, float("nan")], [1, 2], [0.1, 0.2])
+
+
+# --- V5.63 linear CKA --------------------------------------------------------
+
+
+def test_v5_63_identical_and_invariant_representations_give_one():
+    """CKA = 1 for a representation compared with itself, with any orthogonal
+    rotation + isotropic rescaling of itself (the invariance that makes CKA the
+    cross-arm measure), and is unchanged by translating either input."""
+    gen = torch.Generator().manual_seed(41)
+    x = torch.randn(64, 16, generator=gen, dtype=torch.float64)
+    q, _ = torch.linalg.qr(torch.randn(16, 16, generator=gen, dtype=torch.float64))
+
+    assert linear_cka(x, x) == pytest.approx(1.0, abs=1e-8)
+    assert linear_cka(x, 3.7 * (x @ q)) == pytest.approx(1.0, abs=1e-8)
+
+    # Translation invariance: a shifted x scores identically against any y.
+    y = torch.randn(64, 24, generator=gen, dtype=torch.float64)
+    assert linear_cka(x + 5.0, y) == pytest.approx(linear_cka(x, y), abs=1e-8)
+
+    # bf16 (storage dtype of the dumps): rounding noise, still ≈1.
+    assert linear_cka(x.to(torch.bfloat16), (3.7 * (x @ q)).to(torch.bfloat16)) == pytest.approx(
+        1.0, abs=1e-3
+    )
+
+
+def test_v5_63_independent_representations_near_zero():
+    """Independent gaussians share no linear structure ⇒ CKA ≈ 0.
+
+    Calibration (scratchpad, 2026-07-24, seeds 40-44 of this generator at
+    n=256, d=32): CKA ∈ [0.103, 0.120], scattering around the d/n = 0.125
+    finite-sample floor — small but NOT 0, the same n-dependence V5.13 pins
+    for top-PC explained variance.
+    """
+    gen = torch.Generator().manual_seed(42)
+    x = torch.randn(256, 32, generator=gen, dtype=torch.float64)
+    y = torch.randn(256, 32, generator=gen, dtype=torch.float64)
+    assert linear_cka(x, y) < 0.2
+
+
+def test_v5_63_planted_shared_structure_scores_high():
+    """y = x @ M plus small noise (M a random [16, 24] map, so the widths
+    differ) ⇒ CKA well above the independent-gaussian floor."""
+    gen = torch.Generator().manual_seed(43)
+    x = torch.randn(64, 16, generator=gen, dtype=torch.float64)
+    m = torch.randn(16, 24, generator=gen, dtype=torch.float64)
+    y = x @ m + 0.05 * torch.randn(64, 24, generator=gen, dtype=torch.float64)
+    assert linear_cka(x, y) > 0.5
+
+
+def test_v5_63_degenerate_inputs_raise():
+    """Non-matrix inputs (either side), mismatched row counts, fewer than 2
+    examples, non-finite values, and a constant (zero-variance) matrix all
+    refuse loudly."""
+    gen = torch.Generator().manual_seed(44)
+    x = torch.randn(8, 4, generator=gen, dtype=torch.float64)
+    y = torch.randn(8, 6, generator=gen, dtype=torch.float64)
+
+    with pytest.raises(ValueError, match="n_examples, d"):
+        linear_cka(x[0], y)
+    with pytest.raises(ValueError, match="n_examples, d"):
+        linear_cka(x, y[0])
+    with pytest.raises(ValueError, match="row counts differ"):
+        linear_cka(x, y[:4])
+    with pytest.raises(ValueError, match=">= 2"):
+        linear_cka(x[:1], y[:1])
+    bad = x.clone()
+    bad[2, 1] = float("nan")
+    with pytest.raises(ValueError, match="non-finite values in x"):
+        linear_cka(bad, y)
+    with pytest.raises(ValueError, match="non-finite values in y"):
+        linear_cka(x, torch.full_like(y, float("inf")))
+    with pytest.raises(ValueError, match="y has zero centered Frobenius norm"):
+        linear_cka(x, torch.ones(8, 6, dtype=torch.float64))
+    with pytest.raises(ValueError, match="x has zero centered Frobenius norm"):
+        linear_cka(torch.ones(8, 4, dtype=torch.float64), y)

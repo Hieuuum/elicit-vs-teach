@@ -924,6 +924,12 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
 - V5.15 effective rank: planted rank-r adapter delta ⇒ r.
 - V5.16 performance-aligned matching: monotone in accuracy; planted
   curves ⇒ known pairing; ties broken deterministically.
+- V5.63 linear CKA: a representation against itself, against any
+  orthogonal rotation + isotropic rescaling of itself, and against a
+  translated copy ⇒ 1; independent gaussians ⇒ ≈0 (at the d/n
+  finite-sample floor, not 0); planted shared structure y = xM ⇒ high;
+  degenerate inputs (non-matrix, row-count mismatch, n<2, non-finite,
+  zero-variance) refuse.
 
 ## 8. Verification gates
 
