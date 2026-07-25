@@ -172,11 +172,31 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    runs on the relay, run 10 LFS-hash-verified 2026-07-24.
 7. **Analyses + publication** — metrics V5.14–V5.16 + V5.63 and all
    ten drivers **built 2026-07-24** (suite 532; decisions.md design
-   notes). Alignment run + analyzed (elicit grads more coherent;
-   figures on laptop); wave 2 (drift/adapters/matching/cka/curves/
-   rank/probes/trajectory) running on the box; remaining: steering.py
-   on the box, harvest + cross-metric analysis, then `export_hf.py`
-   to the HF dataset repo (spec 02 §9–10).
+   notes). All ten **run and harvested**; every parquet + figure is on
+   the relay. Headline internals results so far: elicit gradients more
+   coherent (late phase-mean cos 1.78×, top-PC EV 1.94×); weight-space
+   trajectory shows elicit aims at its final displacement ~2.8× more
+   sharply in the first 30 steps and keeps step-to-step consistency far
+   longer (late 0.51 vs 0.13, teach ending *anti*-correlated at −0.12)
+   while **path efficiency is identical across arms** — the difference
+   is aim and consistency, not wasted motion; **steering square
+   2026-07-25** (§ below). Remaining: cross-metric synthesis, then
+   `export_hf.py` to the HF dataset repo (spec 02 §9–10).
+
+   **Steering square (2026-07-25, `steering_square.parquet`).** The 2×2
+   of direction source × injection target, one matched alpha grid
+   extended to 4. Best EM into an untrained parent, no weight change:
+   elicit direction → arm A parent **0.1406** (random 0.0273) but →
+   arm B parent **0.0000**; teach direction → arm A parent 0.0352
+   (= random, 9 vs 7 hits/256) and → arm B parent 0.0000. Reading: a
+   steering vector **cannot install a capability that is not there**
+   (the right-column null is bracketed — at alpha 3–4 the same
+   injections drive that parent's loss 3.90 → 8–16 nats without one
+   correct answer), and only the elicit arm's shift is causally potent
+   where the capability *does* exist. Teach's direction lowers
+   teacher-forced loss as much as elicit's (1.58 vs 1.54 nats) while
+   producing 4× fewer correct answers — distributional movement is not
+   capability surfacing. Basis-comparability control in decisions.md.
 
 ## 7. Budget
 

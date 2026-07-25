@@ -2068,3 +2068,78 @@ Two confounds were identified and handled rather than reported through:
   It IS a meaningful accessibility probe on the Llama parent, precisely
   because that model brings ICL from pretraining — which makes the v2 parent's
   0.5342 a stronger external-validity datapoint, not a weaker one.
+
+## 2026-07-25 — Steering square: a direction is a key, not a capability
+
+The own-parent steering result (arm A's learned direction injected into arm
+A's parent: EM 0.0117 → 0.1406) left the central ambiguity unresolved. A
+direction that produces a 12× jump could be either (i) a *transferable
+encoding of the capability* — add the vector, get arithmetic — or (ii) a *key*
+that only opens a lock the target model already has. The own-parent cell
+cannot distinguish these, because arm A's parent has the latent capability.
+
+Filling in the 2×2 (direction source × injection target) settles it. All four
+cells were re-run on one matched alpha grid **extended past the diagonal's
+peak** (0, 0.5, 1, 2, **3, 4**; the earlier diagonals stopped at 2, exactly
+where the best cell sat, so any cross-cell null would have been confounded
+with "not pushed hard enough"). `results/steering_square.parquet`, 864 rows,
+n_eval 256 (resolution 1/256 = 0.0039), figure
+`analysis/figures/steering_square.png`.
+
+Best exact match over the grid, injection into an **untrained** parent with no
+weight change (hits/256 in brackets):
+
+| direction ↓ / target → | arm A parent (capable, base 3/256) | arm B parent (no capability, base 0/256) |
+|---|---|---|
+| **elicit** (run 7) | **0.1406 (36)** — random control 0.0273 (7) | **0.0000 (0)** |
+| **teach** (run 8) | 0.0352 (9) — random control 0.0273 (7) | **0.0000 (0)** |
+
+Three findings, in order of strength:
+
+1. **The right column is dead — a steering vector cannot install a capability
+   that is not there.** Neither arm's direction produces a single correct
+   answer in arm B's parent, at any hook, at any alpha. This is a *bracketed*
+   null, not a weak one: at alpha 3–4 the same injections drive that parent's
+   loss from 3.90 to 8–16 nats, i.e. we pushed it all the way to destruction
+   and never got one right answer on the way. Interpretation (ii) wins:
+   elicitation *surfaces*, it does not transplant.
+2. **The cross cell is a valid test, and the basis worry is answered
+   empirically.** A direction is only meaningful in the residual basis it was
+   measured in, and the two arms' directions are near-orthogonal early
+   (cos −0.05 to −0.03 at blocks.0–3) and only modestly aligned mid-stack
+   (+0.15 to +0.21 at blocks.4–6). That alone would leave the null ambiguous.
+   But the b2a cell *does* act strongly on its cross target — teach's
+   direction moves arm A's parent's loss 2.27 → 1.58 nats — so cross-arm
+   injection is causally effective in general. The right-column null is
+   therefore about the **target's capability**, not about incompatible bases.
+   Also checked before spending GPU: arm B's parent is **format_valid 1.0000,
+   EM 0.0000** — clean-but-wrong, a live target that emits parseable integers
+   (`25599`, `90012`: the D_inst random-label distribution), not garbage.
+3. **Loss and behaviour dissociate, and only elicitation's direction crosses
+   the gap.** Into the *same* capable parent, teach's direction lowers
+   teacher-forced loss essentially as much as elicit's (1.58 vs 1.54 nats
+   minimum) while yielding **9/256 vs 36/256** correct answers — and 9 vs the
+   norm-matched random control's 7 is two examples, i.e. nothing. So teaching's
+   shift moves the output distribution toward the right answers without ever
+   completing them; elicitation's shift actually surfaces the behaviour. Do
+   not quote teach's 0.0352 as a small positive effect: it is indistinguishable
+   from a random push of the same size.
+
+Together with the already-recorded fact that **teach's direction is inert in
+its own parent** (0.0000 everywhere, the b2b cell), the picture is that the
+constant-shift story of Wang et al. holds for the elicit arm only, and only
+where the capability already exists.
+
+Caveats to carry: EM in the a2a cell is still climbing at alpha 4 for the
+early hooks (blocks.1 reaches 0.117), so the *reported peak* (blocks.4,
+alpha 2, 0.1406) is an interior maximum but the grid edge has not been
+explored for every hook; nothing here is a claim about the maximum
+recoverable EM. And 0.1406 is ~14% of the task — the shift is real and
+causal, but training is not mostly a constant vector.
+
+Tooling: `steering.py --target-parent` adds the cross cell; a cross cell must
+be written under its own `--results-name` (hard error otherwise) because
+`write_results` is overwrite-by-name and `steering_transfer.parquet` holds the
+original own-parent diagonals, which are left untouched. `base_model_key` now
+names the model actually injected — it previously came from the direction
+source's manifest and would have mislabelled every cross row.
