@@ -1911,3 +1911,78 @@ Two confounds were identified and handled rather than reported through:
   budget and the track is parked; `reference/` stays read-only.
 - **Logit lens** — adds little over the probe and steering results
   already in hand.
+
+## 2026-07-25 — run 9's installer LR was a scope leak; retention swept, now gating
+
+- **The defect.** `configs/lr_pin.yaml`'s 1e-3 was measured entirely at the
+  TARGET stage (1M `D_target` Arm-B sweep + the Arm-A 100K tie-break pair),
+  yet `applies_to` listed run9 and `launch_chain_7_10.sh` guard 1 *enforced*
+  equality across all four runs. Run 9 is an installer, whose binding
+  constraint is retention of the base model's arithmetic, not val loss.
+  Measured 2026-07-25 with a new `configs/eval_algo_data_llama.yaml` (same
+  1,024 `D_algo` questions G1/G2 use, Llama tokenizer): base Llama-3.2-1B
+  **0.3271** NL add/sub, `evt-run9-llama1b-inst` @1e-3 **0.0000** — 1024
+  misses, **0 unparseable**, emitting the `D_inst` random-label distribution
+  (`515000`, `51502`). Format intact, arithmetic gone. **Run 10 v1 therefore
+  measured teaching, not elicitation**, consistent with its min_val 0.0156
+  sitting between run 7 (0.0027) and run 8 (0.0237), nearer teach.
+- **Why nothing caught it.** `run9_llama1b_inst.yaml` shipped with no
+  retention gate ("no G2/G3 analogue — recorded but not gating") while the
+  38.7M installer sweep had *already* established retention as the binding
+  installer constraint (G4 = 1.0 at every LR while retention ran 3e-5 0.68 /
+  1e-4 0.42 / 3e-4 0.04 / 1e-3 0.00, forcing run 3 to 3e-6).
+- **This was pre-registered, not improvised.** The 2026-07-24 one-LR entry
+  carries the fallback "if run 9's G4 fails or zero-shot arithmetic degrades
+  at that lr, revive the gentle installer sweep for run 9 only." Arithmetic
+  degraded to zero; the trigger fired. Note the run-9 sweep had never been
+  run before — the overlays were committed 2026-07-24 (410c766) and dropped
+  the same day by the one-LR ratification.
+- **Sweep (5 points + lr=0 base ref, `D_inst`, LoRA r=64 α/2r=0.25, bf16).**
+  Retention on the same 1,024 questions:
+
+  | lr | base | 3e-6 | 1e-5 | 3e-5 | 1e-4 | 3e-4 | 1e-3 |
+  |---|---|---|---|---|---|---|---|
+  | retention | 0.3271 | **0.3193** | 0.2900 | 0.1816 | 0.1729 | 0.0576 | 0.0000 |
+
+  Monotone. **Every point installs the format** (`stop_reason=behavior` at
+  all six), so format validity does not discriminate and retention alone
+  picks the winner. **Pin 3e-6** — 97.6% of base, the gentlest point tested,
+  and the same value run 3 landed on. The grid-edge extension rule (applied
+  twice before) does not bind: retention is within 2.4% of its ceiling so
+  there is almost nothing left to find below, and gentler risks the format
+  not installing at all. Two things the aggregate hides, recorded rather
+  than smoothed over: `+` *rose* 0.4990 → 0.5288 while `−` fell 0.1612 →
+  0.1171 (≈2.7 SE at n≈512/op), and val loss *rises* as lr drops (4.188
+  @3e-6 vs 4.098 @3e-4) — the gentlest point learned least of the
+  random-label distribution, which corroborates the retention story.
+- **Fix (181ce35), three parts.** (1) `lr_pin.yaml`: run9 out of
+  `applies_to`, `installer_lr: 3.0e-6` recorded with the sweep table and a
+  scope note. (2) The chain guard binds the shared pin to the three TARGET
+  yamls and checks run 9 against `installer_lr`; run 9's lr *equalling* the
+  target pin is now a hard error naming this incident. (3) **Run 10's
+  `parent_required_gates: [G4] → [G4, G2]`** — retention is gating now,
+  scored `--threshold 0.29` (90% of base 0.3271; the 0.95 G1/G2 bar does not
+  apply to a never-taught model). The comment that retention was "recorded
+  but not gating" *was* the hole; a guard in the DAG replaces it.
+- **Run 10 keeps 1e-3, on a pre-registered test.** Its pin is the right
+  *stage* of evidence but the wrong *model* (38.7M, not 1.24B Llama), and
+  sits 2.8× above the paper's 1B-tuned 3.53e-4. Rerunning at 1e-3 costs
+  $0.21 and is itself the cheapest test: **if min_val does not fall from
+  v1's 0.0156 toward run 7's 0.0027, the borrowed pin is suspect and the
+  Llama target sweep is revived** (5 points, ~2.5 h, ~$1). Deliberately not
+  tuned ad hoc: min_val IS the EDL numerator, so only a pre-registered sweep
+  may touch it.
+- **Generalisation (owner asked how to stop the rerun churn).** Six known
+  incidents share one failure class — a value validated in context A applied
+  in context B: 50K→1M LR; target-stage LR→installer (this one); arith eval
+  tokenizer→Llama; `ARM_REGIME` without "llama"; `n_prompts: 512`→10-row
+  smoke split; `trajectory.py` full-FT-only vs LoRA. The fix that
+  generalises is scope-checked pins plus gate completeness (both landed
+  here), not versioned artifacts — a versioned-artifact schema would have
+  prevented none of the six and touches spec 00 + `hf_checkpoint`.
+- **Reruns are `-v2`** (`evt-run9-llama1b-inst-v2`,
+  `evt-run10-llama1b-target-v2`); v1 run dirs and manifests stay intact as
+  the record of the defect. Gate mechanics worth knowing: `gates.py g4`
+  takes no `--threshold` (g1/g2/g3 do), and `require_parent_ready` refuses
+  on *any* recorded gate with `pass: false`, so disposable sweep points must
+  be scored `--threshold 0.0`.
