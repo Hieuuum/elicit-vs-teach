@@ -1,0 +1,39 @@
+# Base Llama-3.2-1B retention REFERENCE point (2026-07-25) — the "lr = 0"
+# corner of the run-9 installer sweep.
+#
+# Purpose: the installer sweep's objective is "gentlest lr that installs the
+# format while RETAINING arithmetic" (run-3 precedent), and that objective has
+# no bar until base Llama's own NL add/sub accuracy is known. Base Llama was
+# never trained on this distribution, so G1/G2's 0.95 bar (set by run 2 having
+# *taught* the task to 0.9961) does not apply; retention must be scored
+# relative to this run.
+#
+# Why a 1-step lr=0 run instead of registering a hand-written manifest: LoRA
+# initialises B to zeros, so ΔW ≡ 0 and this checkpoint is base Llama's weights
+# EXACTLY -- while still being a normal run dir that `geode.zoo.load_model`
+# loads through the ordinary method='lora' path. No new load path, no new
+# registration code, and it doubles as a plumbing check on this box before the
+# sweep spends anything. `stop_reason=max_steps` is EXPECTED here (it is the
+# whole point) and is not the usual bug signal.
+#
+# Overlay over configs/run9_llama1b_inst.yaml:
+#     python3 train_sft.py --config ../configs/run9_llama1b_inst.yaml \
+#         --override ../configs/pilot/llama9_baseref_lr0.yaml \
+#         --init-from meta-llama/Llama-3.2-1B --confirm-cost
+# Then score retention (the same 1,024 questions G1/G2 used):
+#     python3 gates.py g2 --run evt-llama1b-base-ref \
+#         --config ../configs/eval_algo_data_llama.yaml
+run_id: evt-llama1b-base-ref
+
+data:
+  max_rows: 2000               # the training stream is irrelevant at lr 0;
+                               # keep it small so this costs ~1 minute
+
+train:
+  lr: 0.0                      # no weight moves: the checkpoint IS base Llama
+  max_steps: 1
+  eval_every: 1
+  stopping:
+    n_prompts: 8               # val split at max_rows 2000 is only 10 rows;
+                               # the inherited 512 crashes random.sample()
+                               # (chain smoke failure 2026-07-24)

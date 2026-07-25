@@ -1,0 +1,10 @@
+# Llama installer LR sweep @ 3e-4 — added 2026-07-25 to close the gap between
+# the original bracket's top (1e-4) and run 9's shipped 1e-3, so the sweep
+# covers the full decade the 38.7M installer sweep did. That sweep's retention
+# at this point was 0.04 (vs 0.95 bar) under FULL FT; run 9 is LoRA r=64 with
+# alpha/2r = 0.25 scaling, a materially weaker perturbation at the same nominal
+# lr, so this is a measurement and not a prediction. Same overlay recipe as the
+# other four points (see llama9_sweep_lr3e-6.yaml).
+run_id: evt-run9-sweep-lr3e-4
+train:
+  lr: 3.0e-4
