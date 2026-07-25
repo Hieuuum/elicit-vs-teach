@@ -1986,3 +1986,57 @@ Two confounds were identified and handled rather than reported through:
   takes no `--threshold` (g1/g2/g3 do), and `require_parent_ready` refuses
   on *any* recorded gate with `pass: false`, so disposable sweep points must
   be scored `--threshold 0.0`.
+
+## 2026-07-25 — runs 9-v2 / 10-v2: the Llama chain now measures elicitation
+
+- **Run 9-v2** (`evt-run9-llama1b-inst-v2`, lr 3e-6): behavioral stop @ 1,000,
+  min_val 4.1881 nats (bit-identical to the 3e-6 sweep point, as it must be —
+  same config and seed). **G4 1.0000** (bar 0.99). **G2 retention 0.3193**
+  (bar 0.29 = 90% of base 0.3271) — 97.6% of base preserved.
+- **Merged-checkpoint verification, run before launching the child.** Run 10
+  consumes `model_merged/`, not the adapter, and `gates.py --checkpoint` cannot
+  score it (load_model dispatches on `training.method='lora'` and refuses a
+  plain state dict — V0.9, working as designed). Verified separately by loading
+  it exactly as `train_target.py --init-from` does: **112/147 tensors differ
+  from base Llama, max │Δ│ 2.441e-04** at `model.layers.9.mlp.gate_proj.weight`
+  (112 = 7 projections × 16 layers = precisely the LoRA target set, so the
+  adapter survived the merge and did not round away at bf16 — a real risk at
+  3e-6, where the delta is ~333× smaller than any merge this path had
+  carried); **format 0.9902**; **retention 0.3242**.
+- **Run 10-v2** (`evt-run10-llama1b-target-v2`, lr 1e-3 unchanged):
+  **converged** @ step **5,500**, **min_val 0.013230** nats, best_val 0.015063.
+  G5: zero-shot **0.9883**, 16-shot 0.1426, shared-set test loss **0.0129**
+  nats.
+- **THE RESULT: this is elicitation, and v1 was not.** The parent's own G5 is
+  the evidence, and it is the number that matters most in this entry:
+
+  | | zero-shot EM | 16-shot EM | test loss |
+  |---|---|---|---|
+  | run 9 v1 parent (lr 1e-3) | 0.0000 | 0.0 | 9.26 nats |
+  | **run 9-v2 parent (lr 3e-6)** | **0.2969** | **0.5342** | **1.5010 nats** |
+  | run 10-v2 (converged) | 0.9883 | 0.1426 | 0.0129 nats |
+
+  The v2 parent already answers ~30% of op-notation add/sub cold and ~53% with
+  16 exemplars, so run 10-v2 surfaces a capability that was demonstrably
+  present and accessible. The v1 parent answered **none**, so run 10 v1 could
+  only have been teaching. Within-arm (identical model, tokenizer, data and
+  order; only the parent differs) the fix also shows up as a lower floor and a
+  faster stop: **0.0156 → 0.01323 (−15%), 7,500 → 5,500 steps (−27%)**.
+- **The pre-registered test was partly ill-posed — recording that honestly.**
+  It said "min_val should fall from v1's 0.0156 toward run 7's 0.0027". It
+  fell, but only ~18% of the way to run 7, and the comparison to run 7 is
+  **not valid in absolute nats**: run 7 uses the custom arith tokenizer and
+  run 10 uses Llama's 3-digit-chunking tokenizer, so per-token nats have
+  different denominators. Cross-tokenizer loss levels are not comparable;
+  only the within-arm v1↔v2 contrast above is. The Llama arm also has no
+  teach counterpart, so there is no EDL *ratio* to compare against runs 7/8's
+  12.4×. The external-validity claim this chain supports is therefore
+  qualitative: **elicitation from a genuinely latent capability reproduces on
+  a real 1.24B pretrained model**, not "the ratio is X at 1B".
+- **16-shot is not uniformly broken — it collapses on saturated models.** The
+  standing note ("16-shot ≈ 0 everywhere, invalidated as a metric") needs
+  qualifying: the un-saturated v2 parent shows the healthy pattern, 16-shot
+  0.5342 > zero-shot 0.2969. Collapse appears on models fine-tuned to
+  convergence on one format (run 10-v2: 16-shot 0.1426 ≪ zero-shot 0.9883),
+  where few-shot exemplars push the model off its trained format. So the
+  metric is informative on parents and misleading on converged targets.
