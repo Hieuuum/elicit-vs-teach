@@ -15,4 +15,28 @@
 # at the capped epoch does not justify a ~3x Arm-A floor inflation.
 lr: 1.0e-3
 pinned: 2026-07-24
-applies_to: [run7, run8, run9, run10]
+applies_to: [run7, run8, run10]   # TARGET stage only — see scope note below
+
+# SCOPE (2026-07-25): run9 was REMOVED from applies_to. Every number above
+# was measured on D_target through the prequential harness — target-stage
+# evidence, with no bearing on an installer. Run 9 is the Llama *installer*
+# (D_inst, random labels), whose binding constraint is not loss but
+# RETENTION of the base model's arithmetic, and 1e-3 destroyed it outright:
+# base Llama scored 0.3271 on NL add/sub, run 9 at 1e-3 scored 0.0000 (clean
+# but wrong — the D_inst random-label distribution). Run 10 then measured
+# teaching, not elicitation. This is the same 333x installer/target split the
+# 38.7M chain already has (run 3 = 3e-6, runs 5-8 = 1e-3): mirroring an arm
+# means matching each stage's ROLE, never a single number.
+installer_lr: 3.0e-6
+installer_pinned: 2026-07-25
+installer_applies_to: [run9]
+# Provenance — Llama installer sweep (5 points, D_inst, LoRA r=64 a/2r=0.25,
+# bf16), scored as NL add/sub retention on the same 1,024 D_algo questions
+# G1/G2 use (configs/eval_algo_data_llama.yaml) vs base Llama-3.2-1B 0.3271:
+#   3e-6 0.3193 (97.6% of base) | 1e-5 0.2900 | 3e-5 0.1816 | 1e-4 0.1729
+#   | 3e-4 0.0576 | 1e-3 0.0000
+# Monotone; ALL SIX install the format (stop_reason=behavior at every point),
+# so format validity does not discriminate and retention alone picks the
+# winner — the gentlest point, exactly the run-3 precedent. The grid-edge
+# extension rule does not bind: 3e-6 retains within 2.4% of base, leaving
+# almost nothing to find below it, and going gentler risks not installing.

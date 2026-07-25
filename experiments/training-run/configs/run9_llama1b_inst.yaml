@@ -15,18 +15,30 @@
 #      it must PASS (pad/EOS handling, vocab guard, span checks on the
 #      frozen parquets under Llama's 3-digit-chunking tokenizer).
 #   2. Smoke first: pilot/llama9_smoke.yaml (memory + plumbing, ~1 min).
-#   3. train.lr is null — pin it to the RUNS-7/8 1M SWEEP WINNER (one LR
-#      everywhere, owner 2026-07-24; the installer sweep is dropped,
-#      pilot/llama9_sweep_lr*.yaml kept as history). Fallback: if G4
-#      fails or zero-shot arithmetic degrades at that lr, revive the
-#      gentle sweep for run 9 only (run-3 precedent: gentlest lr that
-#      installs the format while retaining arithmetic).
-#   4. After completion: record G4 (gates.py g4), then MERGE the adapter
-#      to a plain checkpoint (scripts/merge_adapter.py --run-id
-#      evt-run9-llama1b-inst) — run 10 warm-starts from model_merged/;
-#      a wrapped checkpoint must never be an --init-from parent
-#      (G5-on-random-model incident class; zoo.load_model rule).
-run_id: evt-run9-llama1b-inst
+#   3. train.lr is PINNED 3e-6 from the installer retention sweep — the
+#      2026-07-24 fallback ("if G4 fails or zero-shot arithmetic degrades
+#      at that lr, revive the gentle sweep for run 9 only") FIRED on
+#      2026-07-25: v1 ran at the target pin 1e-3 and scored 0.0000 NL
+#      add/sub against base Llama's 0.3271 — format installed, arithmetic
+#      destroyed, so run 10 v1 measured teaching, not elicitation. Full
+#      sweep table + scope analysis in configs/lr_pin.yaml.
+#   4. After completion, BOTH gates before run 10 launches:
+#        gates.py g4 --run evt-run9-llama1b-inst-v2 \
+#            --config ../configs/run9_llama1b_inst.yaml
+#        gates.py g2 --run evt-run9-llama1b-inst-v2 \
+#            --config ../configs/eval_algo_data_llama.yaml --threshold 0.29
+#      G2 here is RETENTION (0.29 = 90% of base Llama's 0.3271), now a
+#      gating parent requirement on run 10 — the missing guard that let v1
+#      through. Read it relative to base, never against G1/G2's 0.95 bar.
+#   5. Then MERGE the adapter to a plain checkpoint (scripts/merge_adapter.py
+#      --run-id evt-run9-llama1b-inst-v2) — run 10 warm-starts from
+#      model_merged/; a wrapped checkpoint must never be an --init-from
+#      parent (G5-on-random-model incident class; zoo.load_model rule).
+#      Re-score BOTH gates against model_merged/ explicitly
+#      (--checkpoint .../model_merged): at 3e-6 the LoRA delta is ~333x
+#      smaller than any merge this path has carried, and run 10 consumes
+#      the merged artifact, not the adapter.
+run_id: evt-run9-llama1b-inst-v2
 experiment:
   name: training-run
   arm: llama                   # external-validity chain (not A/B)
@@ -64,10 +76,14 @@ lora:                          # install-stage adapter (owner 2026-07-23)
                                # QKVOGUD, init from common.yaml
 
 train:
-  lr: 1.0e-3                   # PINNED 2026-07-24 (one LR everywhere; Arm-A
-                               # tie-break, lr_pin.yaml + decisions.md);
-                               # G4-fail fallback = gentle installer sweep
-                               # (header note 3)
+  lr: 3.0e-6                   # PINNED 2026-07-25 from the installer retention
+                               # sweep (lr_pin.yaml installer_lr): gentlest of
+                               # 6 points, retains 0.3193 of base 0.3271
+                               # (97.6%) while still installing the format.
+                               # NOT the target pin 1e-3 — that is a
+                               # target-stage number and it scored 0.0000
+                               # retention here (header note 3). Same 333x
+                               # installer/target split as the 38.7M chain.
   batch_size: 128
   eval_every: 250              # behavioral cadence (spec 02 §6, OPEN(1) close)
   max_steps: 15546             # pure ceiling, same math as run 3: 2 epochs of

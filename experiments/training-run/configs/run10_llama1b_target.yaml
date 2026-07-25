@@ -8,21 +8,30 @@
 # mechanics; only the Llama deltas are annotated here.
 #
 # BEFORE LAUNCH (owner):
-#   1. evt-run9-llama1b-inst complete with G4 recorded PASS, then merged:
-#      --init-from must point at .../evt-run9-llama1b-inst/model_merged
-#      (plain checkpoint from scripts/merge_adapter.py). NEVER the wrapped
-#      model/ dir — plain from_pretrained on a wrapped checkpoint silently
-#      random-inits projections (zoo.load_model rule).
+#   1. evt-run9-llama1b-inst-v2 complete with G4 AND G2 recorded PASS, then
+#      merged: --init-from must point at
+#      .../evt-run9-llama1b-inst-v2/model_merged (plain checkpoint from
+#      scripts/merge_adapter.py). NEVER the wrapped model/ dir — plain
+#      from_pretrained on a wrapped checkpoint silently random-inits
+#      projections (zoo.load_model rule). The -v2 parent is not cosmetic:
+#      v1's parent had 0.0000 arithmetic, so run 10 v1 measured teaching.
+#      parent_run_id AND --init-from must BOTH name -v2, or this run
+#      silently retrains on the destroyed parent and reproduces v1.
 #   2. Smoke first: pilot/llama10_smoke.yaml — the harness at 1.24B params,
 #      batch 128 (bf16 update forward, fp32 measurement forwards — see
 #      train.precision below) is the memory worst case on a 24 GB 4090; if
 #      it OOMs, STOP and ask the owner (batch change = protocol change).
-#   3. train.lr is null — pin it to the RUNS-7/8 1M SWEEP WINNER (one LR
-#      everywhere, owner 2026-07-24; the Llama target sweep is dropped,
-#      pilot/llama10_sweep_lr*.yaml deleted 2026-07-24, in git history).
-#      Accepted trade-off:
-#      the winner may sit above the paper's 1B-tuned 3.53e-4, shifting
-#      EDL magnitude — fine for a single external-validity chain.
+#   3. train.lr stays the RUNS-7/8 1M SWEEP WINNER (one LR everywhere, owner
+#      2026-07-24; the Llama target sweep is dropped, pilot/llama10_sweep_lr*
+#      .yaml deleted 2026-07-24, in git history). This is the right STAGE of
+#      evidence (a target-stage sweep) but the wrong MODEL — 38.7M, not
+#      1.24B Llama — so it is borrowed, not validated here. Accepted
+#      trade-off: it sits 2.8x above the paper's 1B-tuned 3.53e-4, shifting
+#      EDL magnitude. Pre-registered test (2026-07-25): if this run's
+#      min_val does not fall from v1's 0.0156 toward run 7's 0.0027, the
+#      borrowed pin is suspect and the Llama target sweep gets revived
+#      (5 points, ~2.5 h, ~$1). Do not tune lr on min_val ad hoc — min_val
+#      IS the EDL numerator; only a pre-registered sweep may touch it.
 #   4. Disk: NO snapshots (owner 2026-07-24, see train.snapshots) — this
 #      run stores its final wrapped checkpoint (~5 GB) plus logs; budget
 #      ~15 GB, not the old ~190 GB snapshot plan.
@@ -30,15 +39,24 @@
 #      on the merged parent — real Llama may already answer op-notation
 #      add/sub; a near-zero EDL elicitation would itself be the expected
 #      finding, record it, don't "fix" it.
-run_id: evt-run10-llama1b-target
+run_id: evt-run10-llama1b-target-v2
 experiment:
   name: training-run
   arm: llama                   # external-validity chain (not A/B)
   role: target
-  parent_run_id: evt-run9-llama1b-inst
-  parent_required_gates: [G4]  # format installed; no G2/G3 analogue —
-                               # retention/leakage evidence is recorded but
-                               # not gating (no run-2/run-4 counterpart)
+  parent_run_id: evt-run9-llama1b-inst-v2
+  parent_required_gates: [G4, G2]
+                               # G4 = format installed. G2 = RETENTION, added
+                               # 2026-07-25 and now GATING: v1 shipped with
+                               # "retention evidence is recorded but not
+                               # gating", and that hole is exactly what let a
+                               # parent with 0.0000 arithmetic through. This
+                               # run only means "elicitation" if its parent
+                               # still HAS the capability, so the guard
+                               # belongs in the DAG, not in a comment. Score
+                               # G2 on the parent with --threshold 0.29
+                               # (90% of base Llama's 0.3271) — the 0.95 G1/G2
+                               # bar does not apply to a never-taught model.
   match_data_order_with: null  # G7 binds the A/B pair; this run's stream is
                                # identical by construction anyway (same frozen
                                # file, order_hash, n, seed)

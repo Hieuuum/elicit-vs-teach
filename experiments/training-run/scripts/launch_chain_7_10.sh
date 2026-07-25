@@ -95,18 +95,22 @@ from pathlib import Path
 import yaml
 
 cfg = Path("../configs")
+# The shared pin binds the TARGET stage only. Run 9 is an installer: its
+# constraint is retention of the base model's arithmetic, not val loss, and
+# enforcing equality with the target pin is what destroyed it at 1e-3
+# (2026-07-25, lr_pin.yaml scope note). Installers are checked against their
+# own pin below.
 pins = {
     name: yaml.safe_load((cfg / f).read_text())["train"]["lr"]
     for name, f in (
         ("run7", "run7_target_1m.yaml"),
         ("run8", "run8_target_1m.yaml"),
-        ("run9", "run9_llama1b_inst.yaml"),
         ("run10", "run10_llama1b_target.yaml"),
     )
 }
 vals = set(pins.values())
 if None in vals or len(vals) != 1:
-    sys.exit(f"chain: ONE shared non-null train.lr required in all four yamls (one LR everywhere) — got {pins}")
+    sys.exit(f"chain: ONE shared non-null train.lr required in the three TARGET yamls (one LR everywhere) — got {pins}")
 lr = float(next(iter(vals)))
 best, best_lr, seen = float("inf"), None, 0
 for p in sorted((Path(os.environ["GEODE_STORE"]) / "runs").glob("evt-run8-sweep-lr*/manifest.json")):
@@ -137,6 +141,17 @@ else:
     if abs(lr - rec_lr) > 1e-12:
         sys.exit(f"chain: configs pin lr={lr} but committed configs/lr_pin.yaml says {rec_lr} — resolve before launching")
     print(f"[chain] lr pin {lr} matches committed lr_pin.yaml (sweep manifests lost with the old box; provenance in decisions.md)")
+
+# Installer pin, checked against its OWN record (scope note in lr_pin.yaml).
+inst_lr = yaml.safe_load((cfg / "run9_llama1b_inst.yaml").read_text())["train"]["lr"]
+rec_inst = yaml.safe_load((cfg / "lr_pin.yaml").read_text()).get("installer_lr")
+if inst_lr is None or rec_inst is None:
+    sys.exit(f"chain: run9 needs a non-null train.lr and an installer_lr record in lr_pin.yaml — got {inst_lr} / {rec_inst}")
+if abs(float(inst_lr) - float(rec_inst)) > 1e-12:
+    sys.exit(f"chain: run9 pins installer lr={inst_lr} but lr_pin.yaml records {rec_inst} — resolve before launching")
+if abs(float(inst_lr) - lr) < 1e-12:
+    sys.exit(f"chain: run9's installer lr equals the target pin ({lr}) — this is the 2026-07-25 scope leak that destroyed retention; see lr_pin.yaml")
+print(f"[chain] installer lr {inst_lr} matches lr_pin.yaml installer_lr (retention sweep, provenance in decisions.md)")
 PY
 
 # 2. Disk: worst-case GB each PENDING run adds (decisions.md 2026-07-24);
