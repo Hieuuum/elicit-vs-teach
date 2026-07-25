@@ -2154,3 +2154,81 @@ be written under its own `--results-name` (hard error otherwise) because
 original own-parent diagonals, which are left untouched. `base_model_key` now
 names the model actually injected — it previously came from the direction
 source's manifest and would have mislabelled every cross row.
+
+## 2026-07-25 — Direction emergence: elicitation fixes its output direction at step 1
+
+`analysis/emergence.py` (`results/direction_emergence.parquet`, 8672 rows;
+`figures/direction_emergence.png`) times the vector the steering square
+injected. For every one of the 128 dumps per run it forms
+`direction_k = mean_i[pooled_i(k) − pooled_i(step 1)]` — the same pooling
+`steering.py` uses, imported from it rather than re-derived — and compares it
+to that run's final direction: `dir_cos_to_final`, `dir_norm_frac`,
+`dir_progress` (= cos × norm fraction), plus `dir_cos_split_half`.
+
+**The measurement is far more precise than the thing it measures.** Split-half
+reliability (first 512 probe examples' direction vs the last 512's, at the
+same step) is **0.997–0.999 at every snapshot of both runs**. So every cosine
+below that is a real rotation, not sampling noise, and the curve is signal end
+to end. This was computed in the same pass as the curve itself; adding it
+afterwards would have cost a second 128 GB read.
+
+**Headline — the final layer.** At `blocks.8.hook_resid_post`:
+
+| | elicit (run 7) | teach (run 8) |
+|---|---|---|
+| cos to final at the first dump | **0.9824** (step 10) | 0.4489 (step 11) |
+| worst cos over the whole run | **0.9824** | **0.1165** (step 52) |
+| mean cos over 20–60% of the run | **0.9994** | 0.6120 |
+
+Elicitation's output-side direction is **fixed from the first snapshot and
+never moves** — cos ≥ 0.982 at every step of 6000, while its magnitude grows
+(norm fraction 0.36 at step 10 → 0.9 by step 109). Training there sets a
+direction immediately and then just travels along it. Teaching's output-side
+direction *rotates away* to near-orthogonal (cos 0.117 at step 52), recovers
+past 0.5 only by step 279, then swings between ~0.4 and ~0.75 for the middle
+of the run and settles only in the last ~10%. Read with the steering square —
+elicit's direction is causally potent, teach's is behaviourally inert — this
+is the "turn a key" / "build a mechanism" contrast in one measurement.
+
+The depth pattern inverts between arms: elicit's *deep* hooks settle first
+(persistent cos ≥ 0.9 from 0–2% of the run at layers 5–8) and its shallow
+hooks last (46–91%); teach's shallow hooks settle at 13–26% and its deepest
+last (96%).
+
+**Quote persistent crossings, not first ones.** Both curves jitter between
+snapshots. Elicit first touches `progress ≥ 0.9` at step 172 (2.9% of the run)
+but only stays above it from step 5798 (96.8%) — quoting the first crossing
+would have overstated the settling time by 30×. The driver now prints both,
+and only these hook-mean thresholds are persistent-robust (first = persistent):
+
+| | elicit | teach |
+|---|---|---|
+| cos ≥ 0.5 | step 10 (0.2% of run) | step 402 (3.7%) |
+| progress ≥ 0.5 | step 28 (0.5%) | step 1037 (9.5%) |
+
+**Matched capability qualifies the cross-arm claim — do not skip this.**
+Joining `performance_matching.parquet` (V5.16), elicit leads on `dir_progress`
+at only **31 of 128** matched points, all early: at the first matched point
+(mean probe loss 6.6 nats, A step 10 ↔ B step 94) elicit is at cos 0.587 /
+progress 0.181 vs teach's 0.187 / 0.070, and over the 33 matched points down
+to 0.2 nats elicit leads 21 (mean progress 0.783 vs 0.724). Beyond that it
+washes out, and on `dir_cos_to_final` elicit leads at only 5.5% of matched
+points. Two things make the late comparison unreadable rather than negative:
+both metrics saturate at 1.0 by construction at each run's own final step, and
+at matched capability arm B sits on average **45.7%** through its own run
+against arm A's **3.4%** — so proximity-to-own-endpoint inflates teach exactly
+where it appears to lead. The early advantage is the conservative direction of
+that bias; the late "teach ahead" is an artifact. The defensible cross-arm
+statements are therefore the per-layer contrast above and the persistent 0.5
+thresholds, both of which normalise each run to its own endpoint symmetrically.
+
+Two guards earned their place. The final-snapshot self-check (cos, progress
+and norm fraction must be 1.0 there by construction) fired on the first run:
+under LoRA the embedding table never trains, so `hook_embed`'s activations are
+bit-identical at every snapshot, its direction is exactly zero, and every
+ratio against it is 0/0 — not 1.0. Frozen hooks now carry a `frozen_hook`
+column, emit no cosine rows, and are dropped from every aggregate; averaging a
+structural zero into a 9-hook mean is a 1/9 bias, and it was what made
+`progress ≥ 0.9` look unreachable at the final step. The converse assertion —
+a hook with a zero *final* direction must have a zero direction at *every*
+step — keeps a mid-run cancellation from ever passing as a frozen parameter.

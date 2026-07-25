@@ -201,6 +201,26 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    producing 4× fewer correct answers — distributional movement is not
    capability surfacing. Basis-comparability control in decisions.md.
 
+   **Direction emergence (2026-07-25, `direction_emergence.parquet`).**
+   `analysis/emergence.py` times the vector the square injected across
+   all 128 dumps per run. Split-half reliability is 0.997–0.999 at every
+   snapshot, so the curve is signal end to end. At the final hook point
+   elicitation's direction is **fixed from the first snapshot** — cos to
+   its final direction 0.9824 at step 10 and never below that across
+   6000 steps, while only its magnitude grows — whereas teaching's
+   rotates away to **cos 0.117** by step 52, recovers past 0.5 only at
+   step 279, and settles in the last ~10% (mean cos over the middle of
+   the run 0.612 vs elicit's 0.999). The depth pattern inverts: elicit's
+   deepest hooks settle first (0–2% of the run), teach's last (96%).
+   Persistent-robust hook-mean thresholds: cos ≥ 0.5 at 0.2% of the run
+   (elicit) vs 3.7% (teach); progress ≥ 0.5 at 0.5% vs 9.5%. **Caveat
+   carried in decisions.md**: at matched capability (V5.16) elicit leads
+   on progress at only 31/128 points, all early — the late comparison is
+   confounded because both metrics saturate at each run's own endpoint
+   and arm B sits 45.7% through its run against arm A's 3.4% at matched
+   points. Quote the per-layer contrast and the persistent thresholds,
+   not the raw step ratios.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
