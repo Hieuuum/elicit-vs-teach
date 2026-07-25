@@ -20,6 +20,14 @@ than only dumps:
    ``from_pretrained`` on a wrapped checkpoint silently random-initialises
    projections). No training, no weight edit: one forward hook adds
    ``alpha * direction_L`` to hook L's residual output.
+   ``--target-parent`` overrides the injection target with any other run in
+   the store — the **cross-arm** cell (arm A's direction into arm B's parent
+   and vice versa), which asks whether a direction is a transferable
+   capability or a key that only opens a lock the target already has. A cross
+   cell must be written under its own ``--results-name`` (guarded below), and
+   its null is only interpretable next to the per-hook cosine between the two
+   arms' directions: a direction is defined in the residual basis it was
+   measured in, and two separately fine-tuned parents need not share one.
 3. **Evaluate** target-task exact match + mean loss (nats) on the frozen
    ``D_target_eval`` reporting block — the same eval path gates.py g5 uses.
 
@@ -61,6 +69,7 @@ Usage:
         [--alphas 0,0.5,1.0,2.0] [--hooks hook_embed,blocks.7.hook_resid_post]
         [--n-eval 256] [--seed 0] [--device cuda] [--probe-local <path>]
         [--eval-config <yaml>] [--eval-local <parquet>]
+        [--target-parent <run_id>] [--results-name steering_transfer]
         [--fig figures/steering_transfer.png]
 """
 
@@ -106,6 +115,7 @@ DEFAULT_RUN = "evt-run7-armA-target-1m"
 DEFAULT_EVAL_CONFIG = CONFIGS_DIR / "eval_target_data.yaml"
 METRIC_EM = "steer_em"
 METRIC_LOSS = "steer_loss_nats"
+DEFAULT_RESULTS_NAME = "steering_transfer"
 DIRECTION_KINDS = ("learned", "random")
 PROBE_REPO = "mhieuuu/elicit-vs-teach-arith"
 PROBE_FILE = "probe.parquet"
@@ -371,6 +381,16 @@ def main() -> None:
         "--eval-local", type=Path, default=None, help="local eval parquet (skips the HF download)"
     )
     ap.add_argument(
+        "--target-parent",
+        default=None,
+        help="inject into this run's checkpoint instead of --run-id's own parent (cross-arm cell)",
+    )
+    ap.add_argument(
+        "--results-name",
+        default=DEFAULT_RESULTS_NAME,
+        help=f"results table name (default {DEFAULT_RESULTS_NAME}; a cross cell needs its own)",
+    )
+    ap.add_argument(
         "--fig",
         type=Path,
         default=Path(__file__).resolve().parent / "figures" / "steering_transfer.png",
@@ -403,7 +423,18 @@ def main() -> None:
             f"'{ZOO_PREFIX}<run_id>' parent — steering transfers into a parent run "
             "checkpoint held in this store, not an external hub model"
         )
-    parent_id = base_model_key[len(ZOO_PREFIX) :]
+    source_parent_id = base_model_key[len(ZOO_PREFIX) :]
+    parent_id = args.target_parent or source_parent_id
+    # A cross cell writes a different question's answer; sharing the default
+    # table name would silently overwrite the own-parent diagonals
+    # (write_results is overwrite-by-name, OQ-6).
+    if parent_id != source_parent_id and args.results_name == DEFAULT_RESULTS_NAME:
+        raise SystemExit(
+            f"[evt] --target-parent {parent_id} != {args.run_id}'s own parent "
+            f"{source_parent_id}: a cross-arm cell must be written under its own "
+            f"--results-name, not the default {DEFAULT_RESULTS_NAME!r} which holds "
+            "the own-parent diagonals"
+        )
 
     cfg = load_config(args.eval_config, None)
     from transformers import AutoTokenizer
@@ -421,6 +452,16 @@ def main() -> None:
     # trained — never a bare from_pretrained.
     print(f"[evt] loading parent {parent_id} (steering target, untrained on D_target) ...")
     model = load_model(parent_id, store=args.store, device=args.device)
+    # A direction is only meaningful in the residual basis it was measured in;
+    # a shape mismatch means the two models are not even the same architecture.
+    d_model = int(model.config.hidden_size)
+    d_direction = int(next(iter(directions.values())).shape[0])
+    if d_direction != d_model:
+        raise SystemExit(
+            f"[evt] {args.run_id} direction is {d_direction}-dim but target {parent_id} "
+            f"has hidden size {d_model} — a direction cannot be injected into a "
+            "different architecture"
+        )
 
     n_configs = len(names) * len(alphas) * len(DIRECTION_KINDS)
     print(
@@ -434,7 +475,11 @@ def main() -> None:
 
     common = {
         "run_id": args.run_id,
-        "base_model_key": base_model_key,
+        # The model actually injected, not the direction source's own parent —
+        # otherwise a groupby on base_model_key silently mixes cross cells in
+        # with the diagonals.
+        "base_model_key": ZOO_PREFIX + parent_id,
+        "source_parent_id": source_parent_id,
         "regime": manifest.data["regime"],
         "dataset_size": manifest.data["dataset"]["n_unique_examples"],
         "checkpoint_step": last_step,  # the direction's source snapshot
@@ -486,7 +531,7 @@ def main() -> None:
                     )
 
     df = pd.DataFrame(rows)
-    path = write_results(df, "steering_transfer", store=args.store)
+    path = write_results(df, args.results_name, store=args.store)
     print(f"[evt] wrote {path} ({len(df)} rows)")
     plot(df, args.fig)
 
