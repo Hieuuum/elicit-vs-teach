@@ -38,7 +38,15 @@ Design notes:
   direction is at that same step, so wherever the two curves meet, the
   cos-to-final reading is noise and the direction is not yet resolved. Both
   halves reuse the reference's own halves, so the split is a partition of the
-  measurement, not of the model.
+  measurement, not of the model. Measured on runs 7/8 it sits at ≈0.998 at
+  every snapshot — the direction is estimated far more precisely than it
+  rotates, so the curve is signal end to end and the ceiling is never the
+  binding constraint on reading it.
+- **Quote persistent threshold crossings, not first ones.** Both curves jitter
+  between snapshots, so a first crossing can be a transient touch the run then
+  falls back from; the summary prints each threshold twice (first crossing and
+  the step from which it holds to the end) and a wide gap between them means
+  that level is not yet a settled property of the run.
 - **Reference snapshot**: the earliest dump on disk (``--ref-step`` overrides),
   which is step 1 — one optimizer update in, the closest available stand-in for
   init, not init itself. Its rows exist and are identically 0 (norm_frac,
@@ -413,19 +421,29 @@ def main() -> None:
             .mean()
         )
         last = int(by_run["checkpoint_step"].max())
+        # Both curves jitter snapshot to snapshot, so a FIRST crossing can be a
+        # transient touch the curve then falls back from — reporting it alone
+        # would overstate how early the direction settles. Every threshold is
+        # therefore reported twice: first crossing, and the step from which the
+        # curve stays above it for the rest of the run. Quote the persistent
+        # one; a large gap between them means that threshold is not yet a
+        # settled property of the run.
         for label, series, thresh in (
             ("cos>=0.5", cos, 0.5),
             ("cos>=0.9", cos, 0.9),
             ("progress>=0.5", prog, 0.5),
             ("progress>=0.9", prog, 0.9),
         ):
-            hit = series[series >= thresh]
-            when = (
-                f"step {int(hit.index[0])} ({hit.index[0] / last:.1%} of the run)"
-                if len(hit)
-                else "never"
-            )
-            print(f"[evt] {rid} ({regime}): first {label} at {when}")
+            above = (series >= thresh).sort_index()
+            held = above[::-1].cummin()[::-1]  # True only if True from here on
+
+            def _at(mask: pd.Series) -> str:
+                if not mask.any():
+                    return "never"
+                step = int(mask.index[mask.values.argmax()])
+                return f"step {step} ({step / last:.1%})"
+
+            print(f"[evt] {rid} ({regime}): {label} — first {_at(above)}, persistent {_at(held)}")
         # Split-half is a reliability CEILING, not a threshold to beat: it says
         # how precisely each snapshot's direction is estimated. Near 1.0 means
         # any cos below it is a real rotation rather than sampling noise, so
