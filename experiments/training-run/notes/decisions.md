@@ -2033,10 +2033,17 @@ Two confounds were identified and handled rather than reported through:
   12.4×. The external-validity claim this chain supports is therefore
   qualitative: **elicitation from a genuinely latent capability reproduces on
   a real 1.24B pretrained model**, not "the ratio is X at 1B".
-- **16-shot is not uniformly broken — it collapses on saturated models.** The
-  standing note ("16-shot ≈ 0 everywhere, invalidated as a metric") needs
-  qualifying: the un-saturated v2 parent shows the healthy pattern, 16-shot
-  0.5342 > zero-shot 0.2969. Collapse appears on models fine-tuned to
-  convergence on one format (run 10-v2: 16-shot 0.1426 ≪ zero-shot 0.9883),
-  where few-shot exemplars push the model off its trained format. So the
-  metric is informative on parents and misleading on converged targets.
+- **16-shot is not uniformly ≈0 — one clean counterexample, mechanism still a
+  hypothesis.** The standing note ("16-shot ≈ 0 everywhere, invalidated as a
+  metric") is falsified as an absolute: the v2 parent scores **16-shot 0.5342
+  vs zero-shot 0.2969**, the healthy pattern where exemplars help. That is
+  enough to retire "everywhere". It is NOT yet enough to establish the
+  tempting two-regime explanation ("collapse is caused by format saturation"),
+  because the three Llama datapoints under-determine it: run 10-v2 saturated
+  (0.1426 ≪ 0.9883 — collapse), v2 parent un-saturated (0.5342 > 0.2969 —
+  healthy), and **run 9 v1's parent 0.0/0.0 — uninformative, since a destroyed
+  capability and a saturated format both floor at zero**. So the healthy regime
+  rests on a single observation. Record it as the observation, not the
+  mechanism; a real test would need a few un-saturated checkpoints with
+  nonzero zero-shot (mid-training snapshots of runs 7/8 would serve, and cost
+  nothing new — the snapshots are already on the box).
