@@ -2234,3 +2234,72 @@ structural zero into a 9-hook mean is a 1/9 bias, and it was what made
 `progress ≥ 0.9` look unreachable at the final step. The converse assertion —
 a hook with a zero *final* direction must have a zero direction at *every*
 step — keeps a mid-run cancellation from ever passing as a frozen parameter.
+
+## 2026-07-25 — Llama target LR sweep: PRE-REGISTERED, not yet launched
+
+The caveat this discharges is `run10_llama1b_target.yaml` header note 3: the
+target-stage pin 1e-3 was measured on the 38.7M model and borrowed for the
+1.24B Llama chain, where it sits 2.8× above the paper's 1B-tuned 3.53e-4.
+Note 3 also pre-registered the revive trigger — if run 10-v2's `min_val` did
+not fall from v1's 0.0156 toward run 7's 0.0027, the borrowed pin is suspect
+and the sweep runs.
+
+**The trigger's yardstick is unsound and is hereby retired.** It fell
+(0.01563 → 0.01323 stopping-eval, −15%), so it reads as a pass, but "toward
+run 7's 0.0027" is not a meaningful distance: this file already establishes
+that cross-tokenizer loss levels are not comparable (different tokenizer,
+different denominator). Only the within-arm v1↔v2 direction survives, and the
+residual ~4.8× gap to run 7 is therefore evidence of nothing — neither that
+the pin is wrong nor that it is right. The sweep is the only thing that
+settles it, and it is worth stating plainly what it buys: **a discharged
+caveat, not a new result.** Run 10-v2 already carries the external-validity
+claim (0.2969 → 0.9883 zero-shot EM from a parent that demonstrably held the
+capability), and with no teach counterpart there is no EDL ratio for a lower
+floor to sharpen.
+
+**Design** (full text in `configs/pilot/llama10_sweep_lr1e-4.yaml`, which the
+other three points reference): grid {1e-4, 3e-4, 1e-3, 3e-3}, bracketing the
+incumbent on both sides so it cannot win from a grid edge; the full 1M rather
+than the 2026-07-24 design's 100K prefix; seed 317 against production's 316;
+`max_steps` 24,000. Parent is run 9-v2's `model_merged`, never v1's.
+
+Two changes from the 2026-07-24 design are worth recording:
+
+- **Production scale, not a 100K prefix.** The old design capped the sweep at
+  100K as "cost control at 1.24B params". Measured throughput on this box is
+  **0.249 s/step** (run 10-v2: 5,500 steps in 0.38 h; v1 agrees at 0.244), so
+  a production-scale point costs ~23 min and the cost control buys nothing.
+  Running at 1M removes the cross-n extrapolation caveat that qualified the
+  arm-A tie-break, and makes the sweep's own numbers directly comparable to
+  the run it is auditing.
+- **The incumbent is re-run as a seed twin.** The 1e-3 point at seed 317 is
+  run 10-v2 with only the seed changed. It is one paired observation, not a
+  variance estimate, but it is the only handle on whether the gaps between
+  grid points exceed run-to-run noise — and without it a 0.001-nat win would
+  be unreadable.
+
+**Reading rules, fixed before launch.** The load-bearing one is that
+`stop_reason=converged` does not mean "reached its floor": ε/k (0.002, k=5 →
+2,500 flat steps) fires on any flat stretch, and the 1M sweep's 1e-2 point
+"converged" at 1.867 nats. So a point converging above 2× the incumbent is
+recorded as a plateau and cannot win; a point hitting `max_steps` is reported
+as "did not converge within 24,000 steps" and excluded from the ranking
+rather than placed last; and every point records its val-loss decrease over
+the final k=5 evals, which is what separates those two cases. An edge win
+extends the grid before anything is pinned. If the best point's margin over
+the incumbent is smaller than the seed twin's own gap, the sweep cannot
+separate lr from seed and the pin stands.
+
+**What gets reported** is fixed now, because `min_val` is the EDL numerator
+and selecting it post hoc is tuning the measurement. If 1e-3 wins, the
+reported number stays run 10-v2's 0.01323 at the production seed — not
+whichever of the two 1e-3 runs came out lower. If another point wins,
+production re-runs at that lr with seed 316 under a new run_id and that run's
+`min_val` is reported; no sweep point is ever promoted, since a sweep point's
+`min_val` is a selected minimum and biased low by construction.
+
+Expected cost ~3.5 h wall clock on the already-rented box (≈50K steps across
+four points); the marginal dollar cost is near zero while the box is kept
+alive, so the real question for the owner is the time, not the budget.
+NOT LAUNCHED — awaiting owner go-ahead, and `--confirm-cost` per the budget
+rule.

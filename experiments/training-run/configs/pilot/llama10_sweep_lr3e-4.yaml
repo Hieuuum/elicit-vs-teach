@@ -1,0 +1,14 @@
+# Llama target LR sweep @ 3e-4 — nearest grid point to the paper's
+# 3.53e-4 (tuned at 1B), and so the point this sweep most exists to
+# measure. See llama10_sweep_lr1e-4.yaml for the sweep design, reading
+# rules, and launch command; this file differs only in run_id and
+# train.lr.
+run_id: evt-run10-sweep-lr3e-4
+experiment:
+  match_data_order_with: null
+train:
+  lr: 3.0e-4
+  max_steps: 24000
+  seed: 317
+  snapshots:
+    n: 0

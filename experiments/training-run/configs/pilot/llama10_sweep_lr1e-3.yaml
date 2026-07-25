@@ -1,0 +1,15 @@
+# Llama target LR sweep @ 1e-3 — the INCUMBENT pin, re-run here at seed
+# 317 so it doubles as run 10-v2's seed twin (v2 is the same lr at seed
+# 316, min_val 0.01323). One paired observation, not a variance estimate;
+# reading rules 6 and 7 in llama10_sweep_lr1e-4.yaml govern what that
+# twin may and may not be used for. See that file for the sweep design
+# and launch command; this file differs only in run_id and train.lr.
+run_id: evt-run10-sweep-lr1e-3
+experiment:
+  match_data_order_with: null
+train:
+  lr: 1.0e-3
+  max_steps: 24000
+  seed: 317
+  snapshots:
+    n: 0
