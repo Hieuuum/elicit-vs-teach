@@ -32,6 +32,16 @@
 #      borrowed pin is suspect and the Llama target sweep gets revived
 #      (5 points, ~2.5 h, ~$1). Do not tune lr on min_val ad hoc — min_val
 #      IS the EDL numerator; only a pre-registered sweep may touch it.
+#      OUTCOME (2026-07-25): the sweep WAS revived and run (owner design:
+#      3 points, seed 316, one-epoch cap; pilot/llama10_sweep_lr*.yaml).
+#      3e-4 scored 0.00118 eval-log min vs this run's 0.01193 — 10.1x
+#      lower, past the <=0.75x stage-2 threshold (3e-3 plateaued at
+#      0.59954, min at step 1; 1e-4 capped at 0.00483 still descending).
+#      The borrowed pin is CHALLENGED for the Llama arm: stage 2 (3e-4 at
+#      max_steps 24000, seed 316, new run_id) decides, pending owner
+#      approval. Until that run exists, THIS run's numbers remain the
+#      reported Llama elicitation result (no sweep point is promoted).
+#      See lr_pin.yaml + decisions.md 2026-07-25.
 #   4. Disk: NO snapshots (owner 2026-07-24, see train.snapshots) — this
 #      run stores its final wrapped checkpoint (~5 GB) plus logs; budget
 #      ~15 GB, not the old ~190 GB snapshot plan.

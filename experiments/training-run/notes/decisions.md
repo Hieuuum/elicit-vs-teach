@@ -2328,3 +2328,40 @@ clears the threshold re-runs at convergence scale (max_steps 24,000, seed
 the original design is unchanged, as is what gets reported. Worst case
 3 × 7,813 steps ≈ 97 min compute (~1.2–1.5 h realistic; 3e-3 is expected
 to stop or plateau early). Still NOT LAUNCHED.
+
+**Launched and completed 2026-07-25 (16:16–17:46 UTC, box 45716725).** Three
+points, seed 316, cap 7,813, parent = run 9-v2 `model_merged`
+(manifest-verified on all three). Score = min `val_loss_nats` over
+`eval_log.jsonl`, same stream as the incumbent's 0.01193 (run 10-v2):
+
+| lr | stop | score (min_val) | final-5-eval Δ | reading |
+|---|---|---|---|---|
+| 3e-3 | converged @5500 | 0.59954 | −0.06313 (rising) | plateau (rule 2) — min at **step 1**: never beat its first eval |
+| 1e-3 | incumbent (run 10-v2, converged @5500) | 0.01193 | +0.00183 | — |
+| 3e-4 | converged @7000 | **0.00118** | +0.00154 | **winner — triggers stage 2** (≤0.75× = 0.00894; margin 10.1×) |
+| 1e-4 | max_steps @7813 | 0.00483 | +0.00304 | "not resolvable within one epoch" (rule 3); crossed the threshold but did not win |
+
+**Verdict per the pre-registered rules:** 3e-4 — the nearest grid point to the
+paper's 1B-tuned 3.53e-4, the point the sweep existed to measure — is a
+non-edge winner 10.1× below the incumbent, far past the >25% threshold. The
+grid bracketed a clean peak (3e-3 destroys, 1e-3 lands at 0.01193, 3e-4 at
+0.00118), and the shape is the 38.7M sweep's own curve shifted one grid step
+down (38.7M Arm A: 3e-3 0.0122 → 1e-3 0.0039; Llama: 1e-3 0.01193 → 3e-4
+0.00118). The 38.7M lr surface did not transfer to 1.24B: the borrowed pin is
+~3× too hot there — exactly the caveat run10 header note 3 pre-registered.
+Corroboration that this is not min-selection: the END-state θ_T test loss
+(held-out 98K, fp32, one number per run, same masking hash) shows the same
+ordering — 3e-4 0.00131 vs incumbent 0.01289 (9.8×), 1e-4 0.00583, 3e-3 2.97.
+
+**Nothing is pinned or reported from this sweep.** Stage 2 — 3e-4 at
+convergence scale (max_steps 24,000, seed 316, new run_id) — decides the pin,
+and THAT run's min_val vs run 10-v2's is what gets reported. Rule on edge
+wins does not bind (3e-4 is interior). One owner note: 1e-4 was still
+descending at the cap (+0.00304 over the final 5 evals), and the recorded
+budget-asymmetry lesson cuts in its favor — whether stage 2 should also probe
+1e-4 at convergence is an owner call, not forced by the rules. **STAGE 2 NOT
+LAUNCHED — awaiting owner go-ahead** (~24,000-step ceiling ≈ 1.7 h worst case
+on the kept-alive box). Artifacts: eval_log + manifest + logs per point on
+the box, pulled to the laptop store, and relay-pushed (18 files under
+`runs/evt-run10-sweep-lr*`, hub-verified); checkpoints deleted per design;
+figure `analysis/figures/losses_llama_lr_sweep.png` (local).

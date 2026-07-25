@@ -40,3 +40,19 @@ installer_applies_to: [run9]
 # winner — the gentlest point, exactly the run-3 precedent. The grid-edge
 # extension rule does not bind: 3e-6 retains within 2.4% of base, leaving
 # almost nothing to find below it, and going gentler risks not installing.
+
+# LLAMA CHALLENGE (2026-07-25): the 1e-3 target pin was borrowed at 1.24B
+# (validated only at 38.7M — runs 7/8 are unaffected by everything below).
+# The revived Llama target sweep (pilot/llama10_sweep_lr*.yaml, owner design:
+# {1e-4, 3e-4, 3e-3}, seed 316, one-epoch cap 7,813; incumbent = run 10-v2's
+# eval-log min 0.01193) scored, min_val nats over eval_log:
+#   3e-4 0.00118 (converged @7000) | 1e-4 0.00483 (capped @7813, still
+#   descending — "not resolvable within one epoch") | 3e-3 0.59954 (plateau,
+#   min at step 1 — cannot win)
+# 3e-4 is a NON-EDGE winner 10.1x below the incumbent, past the <=0.75x
+# stage-2 threshold. Per the pre-registered rules the pin does NOT move on a
+# sweep point (selected minimum, biased low; min_val IS the EDL numerator):
+# stage 2 — 3e-4 at convergence scale (max_steps 24000, seed 316, new
+# run_id) — decides. STAGE 2 PENDING owner approval. Until it runs: 1e-3
+# stands for runs 7/8; for the LLAMA arm it is CHALLENGED — launch no new
+# Llama TARGET work at 1e-3 without reading decisions.md 2026-07-25.
