@@ -1779,13 +1779,26 @@ V5.17 was already taken by the packing property (spec 02 §3).
   earliest dump and asserted identical (input_ids + label_mask) across
   every dump; majority-class baseline recorded per row. sklearn stays
   out of the dependency set; measured 0.07 s/fit at production dims.
-- **trajectory.py**: weight-space geometry from snapshots (full-FT
-  only — LoRA factor gauge freedom makes flat-vector geometry
-  meaningless, refuses `method: lora`); streams snapshots with
-  per-tensor fp64 accumulators (never materializes flat vectors);
-  path length, net displacement, efficiency, step cosines,
+- **trajectory.py**: weight-space geometry from snapshots; streams
+  snapshots with per-tensor fp64 accumulators (never materializes flat
+  vectors); path length, net displacement, efficiency, step cosines,
   cos-to-final-direction; undefined cosines dropped, never fabricated.
-  Imports `_discover_steps`/`_load_state` from sibling `adapters.py`.
+  Imports `_discover_steps`/`_load_state`/`_lora_deltas` from sibling
+  `adapters.py`. **Handles both methods (2026-07-25).** It originally
+  refused `method: lora` on gauge-freedom grounds while its
+  `DEFAULT_RUNS` were runs 7/8 — both LoRA — so the bare invocation
+  could never succeed; that is why the metric was missing from the
+  first nine. The fix takes the trajectory through the *merged* update
+  ΔW = (α/2r)·B@A, which is gauge invariant (B→BR, A→R⁻¹A leaves B@A
+  fixed), never through the raw factors. The LoRA reference is
+  *exactly* init (B is zero-initialised ⇒ ΔW ≡ 0), which is stronger
+  than the full-FT path's earliest-snapshot stand-in, so every
+  snapshot including the first gets rows. Reads only
+  `adapter.safetensors` (the frozen base cancels from every difference
+  and would otherwise be re-read ~1141×/run). Property tests in
+  `tests/analysis/test_trajectory.py`: gauge invariance, planted
+  straight line (pins ref=init), and agreement with `adapters.py`'s
+  independent ‖ΔW_k‖.
 - **steering.py (Wang et al. 2025 template)**: the only driver that
   touches a model. Direction per hook = mean pooled activation shift
   (final − earliest dump, masked-mean fp64); injected into the PARENT
@@ -1801,3 +1814,100 @@ V5.17 was already taken by the packing property (spec 02 §3).
   (CKA=1 on rotated copies, planted acquisition steps recovered,
   orthogonal walk ⇒ efficiency 1/√k exactly, alpha=0 bit-exact vs
   un-hooked, guards refuse on mismatched hashes/masks/methods).
+
+## Campaign close-out: all ten metrics, cross-arm findings (2026-07-25)
+
+Runs 7 (armA, elicit) and 8 (armB, teach) — 1M target-only reruns from
+frozen run-3/4 parents. All ten analysis parquets now exist and are on
+the relay. Numbers below are at the **matched step 5991** (both runs'
+last common snapshot) unless labelled otherwise.
+
+**Methodological finding, stated first because it conditions everything
+else: the matched comparison is only valid early.** `matched_step_b`
+pins at 10161 — teach's own best step — for every elicit step past
+A@360. Teach *never reaches* elicit's performance at any step: elicit's
+mean probe loss bottoms at 0.0146 nats, teach's at 0.1369 (9.4× worse)
+before rising to 0.2148 at its last step. So `cka_matched` (0.62 → 0.57)
+is comparing elicit@k against teach@its-best, not a performance-matched
+pair, and its drift should be read with that attached. Median matched
+gap 0.0546 nats, max 0.886.
+
+Two confounds were identified and handled rather than reported through:
+
+- **Horizon.** `path_efficiency` erodes monotonically with continued
+  walking, so run 8 (to step 10969) would read as less efficient than
+  run 7 (to 5991) partly for running longer. All cross-run numbers are
+  taken at the common last step; terminal values are labelled UNMATCHED
+  in the driver's own summary. Snapshot schedules are identical over the
+  common prefix (1141 steps to 5991), so no sampling-density confound
+  remains within it.
+- **Different parents.** Run 7 ← `evt-run3-armA-inst`, run 8 ←
+  `evt-run4-armB-inst`. Any cross-arm comparison of raw directions or
+  per-layer structure is "given each arm's own parent", not a clean
+  mechanism difference — layer 7 may already be doing different work in
+  the two parents. This is why no cross-arm direction cosine was
+  computed: the two residual bases are not aligned.
+
+### What the ten metrics say
+
+- **Weight movement is larger and less coherent for teaching.** ‖ΔW‖
+  109.0 (elicit) vs 168.6 (teach) — teach moves 1.55× further for 9.4×
+  worse loss. Arc lengths are nearly equal (2205 vs 2374), so teach's
+  walk is simply more *outward*.
+- **Step coherence separates sharply and late.** `step_cosine` at step
+  300: 0.951 vs 0.796; at 1000: 0.860 vs 0.464; at 3000: 0.540 vs
+  0.0395; at 5991: 0.111 vs −0.004. Teach's updates are an essentially
+  uncorrelated random walk from ~step 3000 onward, while still 9× short
+  of elicit's loss and still 8000 steps from its own stop. Elicit's own
+  decay to 0.111 is the signature of having *arrived* (it converged at
+  ~6000), not of diffusing.
+- **`path_efficiency` inverts the naive prediction** (elicit 0.0494 vs
+  teach 0.0710) and this was verified, not explained away:
+  `net_displacement` agrees with `adapter_diffs`'s independently
+  computed `delta_w_fro_total` to 3.0e-8 relative over all 2448 real
+  steps. Efficiency is a *net/arc* ratio, so teach's larger outward
+  displacement raises it even as its steps lose local coherence; the two
+  metrics measure different things and disagree here honestly.
+- **Gradient coherence favours elicitation, growing over training.**
+  pairwise cosine ratio 1.04× early → 1.37× mid → 2.00× late; top-PC
+  explained variance 0.75× early (INVERTED — teach higher) → 1.94× mid →
+  1.95× late.
+- **Acquisition is ~28× earlier and more complete for elicitation.**
+  Median `cell_acquisition_step` 172 (elicit) vs 4810 (teach); IQR
+  127–351 vs 3248–6320. Elicit acquires 17 cells, teach only 12 — teach
+  never crosses threshold on 5 of them (never-crossed cells emit no row
+  by design).
+- **Update energy lands in different layers** (given each arm's own
+  parent): teach puts 46.9% of ‖ΔW‖² in layer 7 (the last block) and
+  2.4% each in layers 0–1; elicit spreads over layers 1–6, peaking at
+  layer 6 (20.9%), with 6.7% in layer 7. Allocation cosine 0.581, L1
+  distance 0.803. Projection-type allocation is by contrast nearly
+  identical (both MLP-dominated: down/gate/up ≈ 0.79 elicit, 0.80
+  teach), so the arms differ in *where* they edit, not in *what kind* of
+  projection they edit.
+- **Steering transfer, run symmetrically (2026-07-25).** Each arm's
+  direction injected into its *own* parent. Elicit: EM 0.0117 → 0.1406
+  at blocks.4 α=2 (12×; random control max 0.0273), loss 2.2716 →
+  1.6182. Teach: EM 0.0000 → 0.0000 at every hook and α, loss 3.8994 →
+  3.1899 at blocks.1 α=1. **Caveat that must travel with this result:**
+  teach's parent has zero zero-shot EM, so EM has no headroom there and
+  cannot detect a small effect. On the comparable metric, absolute loss
+  improvement, the two are similar (−0.65 vs −0.71 nats); the honest
+  claim is that elicit's direction crosses into *behaviour* while
+  teach's only moves the distribution.
+- **Nulls worth recording.** Linear-probe test accuracy is
+  indistinguishable between arms late (0.5604 vs 0.5597, majority
+  baseline 0.2695) — whatever the probes decode, both arms end with it.
+  Activation effective-rank fraction differs only modestly and in
+  elicitation's favour (1.19–1.25×), i.e. elicitation does not compress
+  representations more; if anything it uses slightly more directions.
+
+### Techniques considered and declined
+
+- **Cross-arm direction cosine** — not rigorous: different parents mean
+  different residual bases. Basis-free comparison is what CKA is for,
+  and crosscoders/DFC are the parked track.
+- **Crosscoders / DFC** (Minder et al.; Jiralerspong & Bricken) — out of
+  budget and the track is parked; `reference/` stays read-only.
+- **Logit lens** — adds little over the probe and steering results
+  already in hand.
