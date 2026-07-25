@@ -3,7 +3,7 @@
 Plotting aid (owner 2026-07-24): compare per-step training loss
 (train_log.jsonl) against the validation curve (eval_log.jsonl — stopping
 evals every eval_every plus the log-spaced curve evals) for runs 7, 8,
-and 10 on one log-log axes. Laptop-side, CPU-only; pull logs first
+10 and 10-v2 on one log-log axes. Laptop-side, CPU-only; pull logs first
 (from analysis/):
 
     python3 ../scripts/hf_checkpoint.py pull --run-id <rid> --no-weights
@@ -28,6 +28,7 @@ DEFAULT_RUNS = (
     "evt-run7-armA-target-1m",
     "evt-run8-armB-target-1m",
     "evt-run10-llama1b-target",
+    "evt-run10-llama1b-target-v2",
 )
 
 
