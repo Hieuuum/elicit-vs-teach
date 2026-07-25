@@ -121,12 +121,14 @@ ungated inspection tool.
 Built so far: `geode.edl` (incl. the pinned-adapter prequential loop,
 V1.9/V1.10), `geode.train` (full FT + SFT + `apply_lora`), `geode.zoo`,
 `geode.arith`, `geode.probe` (schedule V5.55–V5.61, extraction
-V5.9–V5.12, analysis metrics V5.13–V5.16) — all with property tests;
-launchers `train_sft.py` + `train_target.py`, `gates.py` g1–g5,
-`scripts/extract.py` (resumable, `--limit` disk cap), and all four
-analysis drivers (`alignment.py`, `drift.py`, `adapters.py`,
-`matching.py` — 2026-07-24, design notes in decisions.md). Not yet
-built: `export_hf.py`, `gates.py` g6.
+V5.9–V5.12, analysis metrics V5.13–V5.16 + V5.63 linear CKA) — all
+with property tests; launchers `train_sft.py` + `train_target.py`,
+`gates.py` g1–g5, `scripts/extract.py` (resumable, `--limit` disk
+cap), and ten analysis drivers (`alignment.py`, `drift.py`,
+`adapters.py`, `matching.py`, `cka.py`, `learning_curves.py`,
+`act_rank.py`, `probes.py`, `trajectory.py`, `steering.py` —
+2026-07-24, design notes in decisions.md). Not yet built:
+`export_hf.py`, `gates.py` g6.
 
 ## 6. Remaining work, in order
 
@@ -161,11 +163,13 @@ built: `export_hf.py`, `gates.py` g6.
    `launch_chain_7_10.sh` (§2 table; four chain bugs + the G5
    eval-tokenizer incident fixed en route — decisions.md). All four
    runs on the relay, run 10 LFS-hash-verified 2026-07-24.
-7. **Analyses + publication** — metrics V5.14–V5.16 + the four
-   drivers (alignment, drift, adapters, matching) **built 2026-07-24**
-   (suite 528; decisions.md design notes); remaining: run
-   drift/adapters/matching on the box dumps + relay snapshots, then
-   `export_hf.py` to the HF dataset repo (spec 02 §9–10).
+7. **Analyses + publication** — metrics V5.14–V5.16 + V5.63 and all
+   ten drivers **built 2026-07-24** (suite 532; decisions.md design
+   notes). Alignment run + analyzed (elicit grads more coherent;
+   figures on laptop); wave 2 (drift/adapters/matching/cka/curves/
+   rank/probes/trajectory) running on the box; remaining: steering.py
+   on the box, harvest + cross-metric analysis, then `export_hf.py`
+   to the HF dataset repo (spec 02 §9–10).
 
 ## 7. Budget
 

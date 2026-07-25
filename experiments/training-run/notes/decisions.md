@@ -1746,3 +1746,58 @@ decisions worth recording:
   end-to-end against synthetic stores (real `register_run` manifests,
   planted known answers: exact-zero drift at ref, planted rank-2 ⇒
   erank 2.0002, known pairing recovered, guards verified to refuse).
+
+## Wave-2 analysis: V5.63 linear CKA + five drivers + steering (2026-07-24)
+
+Second analysis wave, same workflow rule (core + property tests in one
+pass, drivers single-pass). Suite 528 → 532. Numbered **V5.63** because
+V5.17 was already taken by the packing property (spec 02 §3).
+
+- **Linear CKA (V5.63, `geode.probe.linear_cka` + `cka.py`)**: fp64,
+  column-center both matrices, `‖XcᵀYc‖_F² / (‖XcᵀXc‖_F·‖YcᵀYc‖_F)` —
+  rotation/scale/translation-invariant, so meaningful across two
+  independently trained models. Driver consumes `matching.py`'s
+  `matched_step_b` rows (the V5.16 step map) and compares arms at
+  **equal competence**, not equal step; loads pairs only through
+  `load_matched_probe_pair` (V5.12) + a label-mask equality guard.
+  Row identity = arm A's step; arm B travels in `matched_run_id` /
+  `step_b` extras (matching.py convention).
+- **learning_curves.py**: probe_data+meta only (never acts/grads);
+  per-cell mean probe loss + `cell_acquisition_step` = earliest step a
+  cell's mean drops below `--threshold` (default 0.1 nats).
+  Never-crossed cells emit NO row (a fabricated sentinel step would
+  poison downstream mins) — they print a warning and appear as open
+  markers pinned at max-step in the figure.
+- **act_rank.py**: V5.15 effective rank applied to the pooled
+  (masked-mean, fp64, column-centered) activation matrix per hook per
+  snapshot; `_frac` variant normalizes by the `min(n−1, d)` ceiling.
+  No loss>0 filter (activations don't degenerate at zero loss).
+- **probes.py**: torch-only linear decodability of the true answer's
+  first label token from the residual stream one position earlier;
+  LBFGS + CE + l2 (‖W‖², default 1e-3), standardized features,
+  deterministic seeded 50/50 split built ONCE from the first run's
+  earliest dump and asserted identical (input_ids + label_mask) across
+  every dump; majority-class baseline recorded per row. sklearn stays
+  out of the dependency set; measured 0.07 s/fit at production dims.
+- **trajectory.py**: weight-space geometry from snapshots (full-FT
+  only — LoRA factor gauge freedom makes flat-vector geometry
+  meaningless, refuses `method: lora`); streams snapshots with
+  per-tensor fp64 accumulators (never materializes flat vectors);
+  path length, net displacement, efficiency, step cosines,
+  cos-to-final-direction; undefined cosines dropped, never fabricated.
+  Imports `_discover_steps`/`_load_state` from sibling `adapters.py`.
+- **steering.py (Wang et al. 2025 template)**: the only driver that
+  touches a model. Direction per hook = mean pooled activation shift
+  (final − earliest dump, masked-mean fp64); injected into the PARENT
+  (`zoo-run/<id>` only, loaded via `geode.zoo.load_model` V0.9) at all
+  positions via a forward hook on the same `_residual_modules` map
+  extraction uses; eval = the exact G5 slice/decode path (token-prefix
+  prompts, EOS-in-span loss, V5.43). alpha=0 baseline runs *through*
+  the hook; norm-matched seeded random control per hook (seed+layer, so
+  `--hooks` subsets draw identical vectors); post-config leak check
+  (hook removed ⇒ logits bit-equal to baseline, else raise).
+  `checkpoint_step` = the direction's source snapshot.
+- All five smoke-tested on synthetic stores with planted answers
+  (CKA=1 on rotated copies, planted acquisition steps recovered,
+  orthogonal walk ⇒ efficiency 1/√k exactly, alpha=0 bit-exact vs
+  un-hooked, guards refuse on mismatched hashes/masks/methods).
