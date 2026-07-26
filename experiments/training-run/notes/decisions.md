@@ -2478,3 +2478,127 @@ with no relay entry (deliberate, 2026-07-22); `evt-run3-sweep-lr3e-4` and
 the five `evt-run9-sweep-lr*` ARE on the relay. `evt-run9-llama1b-inst-v2`
 (parent of the valid Llama chain) pulled to the laptop store
 (`--no-weights`: manifest + logs), so the laptop is no longer blind to it.
+
+## 2026-07-26 — new phase built out: dose grid, twelve run configs, gate wiring, and the dose-rule calibration
+
+Follows the same-day ratification entry above; that entry recorded the five
+decisions, this one records what was built against them and what the
+measurements say. Owner instruction with it: **the dose grid is n ∈ {1, 2, 4,
+8, 16}** ("do five dose runs").
+
+**The twelve runs.** Five elicit dose installers `evt-p2-armA-dose{1,2,4,8,16}`,
+one teach shape installer `evt-p2-armB-instperm`, and **one target run per
+installer** — five `evt-p2-armA-target-dose{n}` plus `evt-p2-armB-target-perm`
+— so target EDL becomes a dose-response curve against a single teach point,
+rather than a single elicit point chosen by a selection rule nobody
+pre-registered. Cost is why this is affordable: runs 7/8 printed **$0.08** for
+this exact `max_steps` ceiling, and the new-phase targets carry
+`snapshots.n: 0` (EDL, not internals), so all six cost well under a dollar and
+no snapshot disk. Every dose is a PREFIX of the frozen `D_dose_mult` order, so
+dose 1 ⊂ 2 ⊂ 4 ⊂ 8 ⊂ 16 — a dose curve, not five unrelated samples.
+
+Config layout: the base config **is** the smallest member of each family
+(`p2_armA_dose.yaml` = dose 1, `p2_armA_target_dose.yaml` = the dose-1 target
+and the phase's G7 anchor), with the rest as overlays in `configs/p2/`. No
+config in the phase has an unlaunchable placeholder state, and the design
+notes live in exactly one file per family. Run ids use an `evt-p2-` prefix
+rather than continuing the run-N numbering: the phase is a parallel branch off
+runs 1-2, not a continuation of the 1-10 chain.
+
+**fp32 across the whole phase, both arms and both stages.** The target harness
+is already fp32; pinning the installers to it too removes an arm-asymmetric
+precision (the dose runs are small enough to run anywhere, the teach installer
+needs a GPU) and costs nothing at 38.7M. Runs 3/4/9 keep the bf16 their
+manifests record.
+
+**Step 0 is now recorded for every SFT run** (`experiment.step0` in the
+manifest: format validity for a behavioral run, full-dose loss for a dose
+run), measured in the launcher after the confirm gate and injected before
+`register_run`. Deliberately NOT in `geode.train.sft`: the trainer is
+validated core, and a step-0 row in `eval_log.jsonl` would change the shape of
+a file several analysis scripts already parse. Deliberately NOT recorded as a
+gate on the parent either — a failing G4 written onto `evt-run1-base-v3-ext`
+would make `require_parent_ready` refuse every child of it, including run 4.
+This closes the phase-0 defect at its source: runs 3/4 could not distinguish
+"the rule fired" from "the rule was satisfied before training".
+
+**Schema (spec 00 §2, V0.7, same commit).** `training.stopping` now dispatches
+on the *value* of `metric`, not its presence, with a third branch
+`train_loss` carrying the ε/k fields. Found the hard way: the first dose
+launch died at `register_run` with "metric must be one of
+['format_validity']". The branch is labelled rather than reusing the unlabelled
+ε/k branch because a dose run's number is the full-dose TRAINING loss — its
+`sft_result.min_val_nats` is not a val loss at all, and `stopping.metric` is
+what tells a reader that. An unlisted `metric` value is still an error.
+
+**Gate wiring.** `gates.py g4 --prompt-config` scores format validity on a
+FIXED slice (rows 2048:2560) of the frozen `D_target_eval` — no sampling, the
+identical prompts for every run, and the run's own parquet is never loaded
+(a dose config points at an artifact that is not on the hub, and the 16
+questions it trained on are exactly what a format check must not use).
+`--threshold` is explicit: 0.90, the phase's shared bar, so both arms' targets
+launch behind the same format requirement. Verified end-to-end against the
+run-3 checkpoint in a scratch store: 1.0000 on n=512, full provenance
+(file, hash, row range) in the record.
+
+Per-arm gates: **dose** runs take G4 (external prompts) + **G2 retention**
+(the gate that re-validates the inherited 3e-6 LR for this arm) + G5.
+**Teach** takes G4 (its own in-loop metric) + G3 + G5.
+
+**A gate-scope finding, recorded because it changes which number is
+load-bearing.** `D_inst_perm` is operator-notation add/sub — the *target
+task's own surface form* — while G3 scores `D_algo`, which is NL add/sub. G3
+is therefore CROSS-NOTATION for this installer and a pass proves little. The
+operative leak measure is **G5 zero-shot on `D_target_eval`** (matched
+notation, matched op, question-disjoint by construction), and since G5 records
+`pass: true` by protocol, the numeric bar (≤ 0.02) is enforced by
+`launch_phase2.sh` before the teach target launches. A leak would deflate the
+teach arm's EDL and inflate the headline ratio — the "flatters the hypothesis"
+class this project has been bitten by twice.
+
+**Dose stopping-rule calibration (partial — the pin is NOT set).** Method:
+run the two ends of the grid with `eps_nats: 0.0` (never trips a
+strict-improvement rule on a monotone descent, so the whole trajectory is
+recorded), then replay candidate rules over the recorded losses with the
+tested `ConvergenceTracker` itself — `analysis/dose_stop_calibration.py`. A
+replay verdict is exactly the verdict the run would have reached.
+
+Measured so far:
+
+| dose | step-0 loss | trajectory |
+|---|---|---|
+| n=1 | 8.9963 nats | → 0.00024 by step 1065 (floor reached) |
+| n=16 | 15.9081 nats | → 0.0709 at step 948, still descending (pilot killed by a shell teardown, not a training fault) |
+
+| eps | k | n=1 fires | %descent | n=16 fires | %descent |
+|---|---|---|---|---|---|
+| 0.02 | 5 | step 270, 0.0827 nats | 99.08% | step 540, 1.0026 nats | **93.70%** |
+| 0.002 | 5 | step 324, 0.0142 | 99.84% | not yet in the recorded curve | — |
+| 0.002 | 10 | step 351, 0.0081 | 99.91% | — | — |
+| 0.0002 | 5 | step 413, 0.0035 | 99.96% | — | — |
+
+%descent is against a fixed floor of 0 (the cross-entropy floor of a
+memorisable finite set; both pilots bottom at ~2e-4), so it does not depend on
+where a pilot was stopped.
+
+The first row is why this calibration was worth running: the inherited-style
+coarse rule fires at 99.08% of descent at n=1 but 93.70% at n=16, leaving 12×
+more residual loss at the large dose — the stop rule would have been part of
+what the dose-response curve measured. **Remaining: rerun the n=16 pilot to
+its floor (~750 more steps) and pin ε/k from the completed table.** Until
+then `p2_armA_dose.yaml` carries `eps_nats: null` and both `train_sft.py` and
+`launch_phase2.sh` refuse to launch — the placeholder-value incident class,
+guarded rather than trusted.
+
+Also measured: "absorbed" means trained to convergence ON the dose, so at n=1
+it is memorisation of a single example (~600 steps at lr 3e-6). The dose is a
+dose of *information*, delivered until the model has it — not a dose of steps.
+
+**Compute policy (owner 2026-07-26).** No heavy CPU/GPU work on the laptop;
+the phase runs on a rented box over SSH. The dose installers were measured to
+be laptop-feasible (1.06 s/step at n=16, ~20 min for the largest) and the
+calibration above was produced that way, but everything from here — the n=16
+rerun, the five dose runs, the teach installer, the six targets — belongs on
+the box. `launch_phase2.sh --stage doses|teach|targets` exists so the phase can
+be split across machines and resumed; every stage skips what is already
+complete.

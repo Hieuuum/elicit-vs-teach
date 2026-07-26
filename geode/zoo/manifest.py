@@ -37,15 +37,16 @@ _SchemaNode = dict[str, "_Leaf | dict | _Union"]
 
 @dataclass(frozen=True)
 class _Union:
-    """Discriminated union of two object schemas.
+    """Discriminated union of object schemas, selected by a discriminant value.
 
-    The value validates against ``if_present`` when ``discriminant`` is a key
-    of the object, else against ``if_absent`` — fields of the unselected
-    branch are neither required nor checked.
+    The value validates against ``by_value[data[discriminant]]`` when
+    ``discriminant`` is a key of the object (an unlisted value is an error —
+    the discriminant stays a closed enum), else against ``if_absent``. Fields
+    of the unselected branch are neither required nor checked.
     """
 
     discriminant: str
-    if_present: dict
+    by_value: dict[str, dict]
     if_absent: dict
 
 
@@ -93,14 +94,28 @@ _SCHEMA: _SchemaNode = {
         "max_steps": ("int", True),
         "stopping": _Union(
             discriminant="metric",
-            if_present={  # behavioral rule — format installers, spec 02 §6
-                "metric": (("format_validity",), False),
-                "threshold": ("float", False),
-                "k": ("int", False),
-                "n_prompts": ("int", False),
-                "prompt_seed": ("int", False),
+            by_value={
+                # Behavioral rule — format installers, spec 02 §6.
+                "format_validity": {
+                    "metric": (("format_validity",), False),
+                    "threshold": ("float", False),
+                    "k": ("int", False),
+                    "n_prompts": ("int", False),
+                    "prompt_seed": ("int", False),
+                },
+                # Full-dose training-loss ε/k rule — new-phase dose installers
+                # (2026-07-26, spec 02 §6). Same fields as the val-loss branch,
+                # named explicitly because the metric is NOT a held-out loss:
+                # nothing about a dose run's number is comparable to a val
+                # curve, and an unlabelled ε/k record would read as if it were.
+                "train_loss": {
+                    "metric": (("train_loss",), False),
+                    "eps_nats": ("float", False),
+                    "k": ("int", False),
+                    "min_steps": ("int", True),
+                },
             },
-            if_absent={  # loss ε/k rule
+            if_absent={  # loss ε/k rule on a held-out val split
                 "eps_nats": ("float", True),
                 "k": ("int", True),
                 "min_steps": ("int", True),
@@ -158,7 +173,16 @@ def _validate_node(data: dict, schema: _SchemaNode, prefix: str) -> None:
         if isinstance(sub, _Union):
             if not isinstance(value, dict):
                 raise ManifestError(f"field '{path}' must be an object, got {value!r}")
-            sub = sub.if_present if sub.discriminant in value else sub.if_absent
+            if sub.discriminant in value:
+                branch = value[sub.discriminant]
+                if branch not in sub.by_value:
+                    raise ManifestError(
+                        f"field '{path}.{sub.discriminant}' must be one of "
+                        f"{list(sub.by_value)}, got {branch!r}"
+                    )
+                sub = sub.by_value[branch]
+            else:
+                sub = sub.if_absent
         if isinstance(sub, dict):
             if not isinstance(value, dict):
                 raise ManifestError(f"field '{path}' must be an object, got {value!r}")

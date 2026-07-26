@@ -233,9 +233,29 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    2026-07-26: both artifacts generated + hash-pinned (`label_coincidence`
    0.0145%), `permute_labels` (V5.64), trainer train-loss stopping mode
    (V5.65/V5.66), launcher wiring, runs-index + manifest `lifecycle`
-   metadata (spec 00 §2). Remaining: run configs, `gates.py` external
-   prompt-file support for no-val dose runs, dose grid + launches (owner
-   go-ahead + `--confirm-cost`).
+   metadata (spec 00 §2).
+
+   **Built out the same day** (decisions.md "new phase built out";
+   operational detail in `notes/phase2-runbook.md`). Owner set the dose grid
+   at **n ∈ {1, 2, 4, 8, 16}**, so the phase is **twelve runs**: 5 dose
+   installers (`evt-p2-armA-dose{n}`, prefix-nested doses), 1 teach shape
+   installer (`evt-p2-armB-instperm`), and **one target per installer** —
+   5 + 1 EDL measurements on the identical frozen 1M order as runs 7/8, with
+   `snapshots.n: 0` (≈$0.08 each at the ceiling runs 7/8 printed). Landed:
+   all twelve configs (`configs/p2_*` + `configs/p2/` overlays),
+   `launch_phase2.sh` (three resumable stages, guards before spend, and the
+   teach-arm leak bar), `gates.py g4 --prompt-config` for no-val runs
+   (verified end-to-end), launcher-side **step-0 recording** for every SFT
+   run, the fp32 phase pin, and a `train_loss` branch in the spec-00
+   stopping union (V0.7, dispatching on the metric *value*).
+
+   Remaining before launch: (a) rerun the n=16 calibration pilot to its floor
+   and **pin the dose ε/k** — a coarse rule was measured to fire at 99.08% of
+   descent at n=1 but 93.70% at n=16, so it is not inheritable; the config
+   holds a null ε and every launch path refuses until it is set; (b) publish
+   `D_inst_perm`/`D_dose_mult` to the hub (owner-held) or copy them to the
+   box; (c) the runs themselves. Compute policy (owner 2026-07-26): the phase
+   runs on a rented GPU box over SSH, not on the laptop.
 
 ## 7. Budget
 

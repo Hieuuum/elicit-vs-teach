@@ -22,7 +22,11 @@ the random-label installer must not have taught real add/sub. **G4**
 (runs 3-4) re-scores the installers' in-loop stopping metric (spec 02 §6):
 format validity on the same seeded 512-prompt sample of the installer
 config's val split, ``geode.arith.format_valid`` on ``"Answer:" +
-completion``, pass at the config's threshold. **G5** (runs 3-6) measures
+completion``, pass at the config's threshold. ``--prompt-config`` (2026-07-26)
+switches the prompt source to a FIXED slice of a frozen external eval file
+for runs that carve no val split (the new-phase dose installers, spec 02 §6):
+the run's own parquet is never read, ``--threshold`` carries the phase's
+shared bar, and the recorded protocol names the file, hash and row range. **G5** (runs 3-6) measures
 zero- and 16-shot exact match on operator add/sub — recorded evidence, no
 pass bar: spec 02 §8 states expectations (A ~2%/12%, B 0%/0%), not
 thresholds. Its data is the frozen shared eval file (``D_target_eval``,
@@ -44,6 +48,8 @@ Usage:
     python3 gates.py g2 --run evt-run3-sweep-lr3e-4 --config configs/run2_algo.yaml
     python3 gates.py g3 --run evt-run4-armB-inst --config configs/run2_algo.yaml
     python3 gates.py g4 --run evt-run3-sweep-lr3e-4 --config configs/run3_inst.yaml
+    python3 gates.py g4 --run evt-p2-armA-dose1 --config configs/p2_armA_dose.yaml \
+        --prompt-config configs/eval_target_data.yaml --threshold 0.90
     python3 gates.py g5 --run evt-run3-armA-inst --config configs/eval_target_data.yaml
 """
 
@@ -189,18 +195,65 @@ def run_g4(args: argparse.Namespace) -> int:
     model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
 
     s = cfg["train"]["stopping"]
-    if s.get("metric") != "format_validity":
-        raise SystemExit(
-            "[evt] G4 needs an installer config with a behavioral stopping block "
-            "(e.g. run3_inst.yaml) — it re-scores the in-loop metric"
+    threshold = args.threshold
+    if threshold is None:
+        if s.get("metric") != "format_validity":
+            raise SystemExit(
+                "[evt] G4: this run's config stops on the loss plateau, so it carries no "
+                "format-validity threshold — pass --threshold explicitly (the phase's "
+                "shared G4 bar; 0.90 for the 2026-07-26 new phase)"
+            )
+        threshold = s["threshold"]
+
+    if args.prompt_config is None:
+        if s.get("metric") != "format_validity":
+            raise SystemExit(
+                "[evt] G4 needs an installer config with a behavioral stopping block "
+                "(e.g. run3_inst.yaml) — it re-scores the in-loop metric. A run with no "
+                "val split (dose runs, 2026-07-26) scores an external frozen prompt file "
+                "instead: --prompt-config configs/eval_target_data.yaml"
+            )
+        df = load_frozen_parquet(cfg)
+        _, val_idx = split_indices(len(df), cfg["data"]["val_fraction"], cfg["data"]["seed"])
+        # Identical prompt set to the in-loop stopping eval (train_sft.py): the
+        # seeded sample is over val-split *positions*, so re-deriving it here and
+        # indexing into val_idx selects the same questions the trainer scored.
+        picks = random.Random(s["prompt_seed"]).sample(range(len(val_idx)), s["n_prompts"])
+        rows = df.iloc[[val_idx[i] for i in picks]]
+        n_prompts = s["n_prompts"]
+        source = {"prompt_seed": s["prompt_seed"]}
+        protocol = (
+            "token-prefix prompts, greedy EOS-stopped, in-loop stopping sample "
+            "(seeded over val-split positions), format_valid"
         )
-    df = load_frozen_parquet(cfg)
-    _, val_idx = split_indices(len(df), cfg["data"]["val_fraction"], cfg["data"]["seed"])
-    # Identical prompt set to the in-loop stopping eval (train_sft.py): the
-    # seeded sample is over val-split *positions*, so re-deriving it here and
-    # indexing into val_idx selects the same questions the trainer scored.
-    picks = random.Random(s["prompt_seed"]).sample(range(len(val_idx)), s["n_prompts"])
-    rows = df.iloc[[val_idx[i] for i in picks]]
+    else:
+        # No-val runs (dose installers): prompts come from a frozen external
+        # eval file, hash-verified through its own config pin. The run's own
+        # parquet is never loaded — a dose config points at an artifact that
+        # may not be published, and the questions it trained on are exactly
+        # what a format check must not use. FIXED slice after the target runs'
+        # in-loop stopping block: no sampling, so every run scores the
+        # identical prompts.
+        pcfg = load_config(args.prompt_config, None)
+        pdf = load_frozen_parquet(pcfg)
+        n_prompts = args.n_prompts
+        stop, end = EVAL_STOP_ROWS, EVAL_STOP_ROWS + n_prompts
+        if len(pdf) < end:
+            raise SystemExit(
+                f"[evt] G4: --n-prompts {n_prompts} needs {end} rows, "
+                f"{pcfg['data']['file']} has {len(pdf)}"
+            )
+        rows = pdf.iloc[stop:end]
+        source = {
+            "prompt_file": pcfg["data"]["file"],
+            "prompt_order_hash": pcfg["data"]["order_hash"],
+            "prompt_rows": [stop, end],
+        }
+        protocol = (
+            f"token-prefix prompts, greedy EOS-stopped, FIXED rows [{stop}:{end}] of the "
+            f"frozen external {pcfg['data']['file']} (no sampling, identical for every "
+            "run; skips the target runs' in-loop stopping block), format_valid"
+        )
     texts = rows["full_text"].tolist()
     char_spans = list(
         zip(rows["answer_char_start"].astype(int), rows["answer_char_end"].astype(int))
@@ -212,23 +265,20 @@ def run_g4(args: argparse.Namespace) -> int:
         model, tokenizer, prompt_ids, device=args.device, batch_size=args.batch_size
     )
     rate = sum(format_valid("Answer:" + c) for c in completions) / len(completions)
-    passed = rate >= s["threshold"]
+    passed = rate >= threshold
     print(
-        f"[evt] G4 format_validity {rate:.4f} on n={s['n_prompts']} -> "
-        f"{'PASS' if passed else 'FAIL'} (threshold {s['threshold']})"
+        f"[evt] G4 format_validity {rate:.4f} on n={n_prompts} -> "
+        f"{'PASS' if passed else 'FAIL'} (threshold {threshold})"
     )
 
     manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G4"] = {
         "pass": passed,
         "format_validity": rate,
-        "n": s["n_prompts"],
-        "threshold": s["threshold"],
-        "prompt_seed": s["prompt_seed"],
+        "n": n_prompts,
+        "threshold": threshold,
+        **source,
         "checkpoint": str(checkpoint),
-        "protocol": (
-            "token-prefix prompts, greedy EOS-stopped, in-loop stopping sample "
-            "(seeded over val-split positions), format_valid"
-        ),
+        "protocol": protocol,
     }
     manifest.save(store / "runs" / args.run / "manifest.json")
     print(f"[evt] G4 verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")
@@ -400,6 +450,22 @@ def main() -> int:
 
     g4 = sub.add_parser("g4", help="format validity, in-loop metric re-scored (runs 3-4)")
     common_args(g4)
+    g4.add_argument(
+        "--prompt-config",
+        type=Path,
+        default=None,
+        help="eval-data YAML supplying prompts from a frozen external file "
+        "(e.g. eval_target_data.yaml) — required for a run with no val split",
+    )
+    g4.add_argument(
+        "--n-prompts", type=int, default=512, help="--prompt-config only; in-loop default 512"
+    )
+    g4.add_argument(
+        "--threshold",
+        type=float,
+        default=None,
+        help="default: the run config's stopping threshold; required when it has none",
+    )
     g4.set_defaults(func=run_g4)
 
     g5 = sub.add_parser(

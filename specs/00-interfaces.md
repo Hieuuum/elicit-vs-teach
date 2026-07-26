@@ -94,7 +94,9 @@ Required fields. Unknown extra fields are permitted and preserved.
     "stopping": {"eps_nats": "float|null", "k": "int|null",
                   "min_steps": "int|null"}
                 | {"metric": "format_validity", "threshold": "float",
-                   "k": "int", "n_prompts": "int", "prompt_seed": "int"},
+                   "k": "int", "n_prompts": "int", "prompt_seed": "int"}
+                | {"metric": "train_loss", "eps_nats": "float",
+                   "k": "int", "min_steps": "int|null"},
     "epochs_total": "int",
     "seed": "int"
   },
@@ -138,6 +140,12 @@ written before this change were backfilled from their
 `training_meta.json`. `stopping` is a union (2026-07-21): loss-stopped
 runs record the ε/k rule; the behavior-stopped format installers (runs
 3–4, spec 02 §6) record the in-loop format-validity rule instead.
+Extended 2026-07-26 to dispatch on the `metric` *value*, adding a
+`train_loss` branch for the new-phase dose installers (spec 02 §6): the
+same ε/k fields, but labelled, because the metric is the full-dose
+**training** loss and not a held-out one — an unlabelled ε/k record would
+read as a val curve. A `metric` value outside the listed branches is a
+validation error, so the discriminant stays closed.
 
 ## 3. Prequential log (`prequential.jsonl`)
 
@@ -264,10 +272,12 @@ not a contract.
   `status` is not `"complete"`, any recorded `experiment.gates` entry lacks
   `pass: true`, or a caller-required gate has no recorded verdict. Gate
   records are objects with at least a boolean `pass` field.
-- **V0.7** `training.stopping` union (2026-07-21): an object with `metric`
-  present validates against the behavioral field set only; one without it
-  validates against the loss ε/k field set only. Neither branch demands the
-  other's fields.
+- **V0.7** `training.stopping` union (2026-07-21, extended 2026-07-26): an
+  object without `metric` validates against the val-loss ε/k field set only;
+  one with `metric` validates against the branch that value selects
+  (`format_validity` behavioral, `train_loss` full-dose ε/k) and against no
+  other. No branch demands another's fields, and an unlisted `metric` value
+  is a validation error.
 - **V0.8** Checkpoint resolution (2026-07-21 flat-layout migration):
   `geode.zoo.checkpoint_dir(run_id)` returns `runs/{run_id}/model` when it
   contains `model.safetensors`, else the single legacy `{phase}/model`

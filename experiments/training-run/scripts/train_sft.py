@@ -30,7 +30,14 @@ import yaml
 
 from geode.arith import format_valid, greedy_completions, order_hash, tokenize_with_spans
 from geode.edl.masking import TaskFormat, masking_config_hash
-from geode.train import BehavioralStoppingRule, StoppingRule, apply_lora, split_indices, train_sft
+from geode.train import (
+    BehavioralStoppingRule,
+    StoppingRule,
+    apply_lora,
+    evaluate_sft_nll_nats,
+    split_indices,
+    train_sft,
+)
 from geode.zoo import register_run, require_parent_ready, tokenizer_hash
 from train import REPO_ROOT, git_commit, load_config, phase
 
@@ -42,12 +49,24 @@ def load_frozen_parquet(cfg: dict):
     gating, via ``gates.py``) on the wrong file, a truncated download, or a
     re-generated dataset: the config pins the hash recorded in the frozen
     report.json.
+
+    ``data.local_path`` (repo-root-relative, or absolute) skips the download
+    but never the hash check — the same escape hatch ``train_target.py`` has,
+    needed by the 2026-07-26 new-phase artifacts while their HF publish is
+    owner-held. Resolving against ``REPO_ROOT`` (not the cwd, as
+    train_target.py does) keeps one spelling valid from any working
+    directory.
     """
     import pandas as pd
-    from huggingface_hub import hf_hub_download
 
     d = cfg["data"]
-    path = hf_hub_download(d["hf_id"], d["file"], repo_type="dataset")
+    if d.get("local_path"):
+        path = Path(d["local_path"])
+        path = path if path.is_absolute() else REPO_ROOT / path
+    else:
+        from huggingface_hub import hf_hub_download
+
+        path = hf_hub_download(d["hf_id"], d["file"], repo_type="dataset")
     df = pd.read_parquet(path)
     got = order_hash(df.to_dict("records"))
     if got != d["order_hash"]:
@@ -92,6 +111,7 @@ def manifest_fields(
     *,
     precision: str,
     lora_cfg: dict | None,
+    step0: dict[str, float],
 ) -> dict[str, Any]:
     t = cfg["train"]
     parent = cfg["experiment"]["parent_run_id"]
@@ -183,6 +203,12 @@ def manifest_fields(
             "init_from": str(init_from),
             "masking_config_hash": mask_hash,
             "data_order_hash": cfg["data"]["order_hash"],
+            # What the stopping rule read BEFORE the first update (phase-0
+            # lesson, 2026-07-26): runs 3/4 stopped at the k×eval_every floor
+            # with G4 already 1.0000 on the Arm A parent, and no eval log
+            # started before step 250, so "the rule fired" and "the rule
+            # measured nothing" were indistinguishable for weeks.
+            "step0": step0,
         },
     }
 
@@ -208,6 +234,18 @@ def main() -> int:
             "[evt] train.lr is null — pin it from the installer LR sweep (or pass a sweep "
             "--override) before a canonical launch; a placeholder-lr run is a redo "
             "(run-2 incident, 2026-07-21). Exiting."
+        )
+        return 1
+    if cfg["train"].get("max_steps") is None:
+        print("[evt] train.max_steps is null — the cost ceiling must be pinned. Exiting.")
+        return 1
+    if cfg["train"]["stopping"].get("metric") == "train_loss" and (
+        cfg["train"]["stopping"].get("eps_nats") is None
+    ):
+        print(
+            "[evt] train.stopping.eps_nats is null — the dose rule's eps/k is pinned at "
+            "config time from the calibration pilots (decisions.md 2026-07-26), never "
+            "inherited from the target-stage rule by default. Exiting."
         )
         return 1
     lora_cfg = own_lora_block(cfg, args.config, args.override)
@@ -309,28 +347,10 @@ def main() -> int:
         print("[evt] --confirm-cost not given; refusing to train (budget rule). Exiting.")
         return 1
 
-    phase(5, "train — progress lands in eval_log.jsonl; stopping is automatic")
+    phase(5, "stopping rule + step-0 baseline (what the rule reads before any update)")
     task_format = TaskFormat(name=cfg["task"]["name"], format_version=cfg["task"]["format_version"])
     mask_hash = masking_config_hash(task_format, tokenizer_hash(tokenizer))
     precision = t.get("precision", "bf16") if args.device != "cpu" else "fp32"
-    manifest = register_run(
-        manifest_fields(
-            cfg,
-            n_trainable,
-            n_rows,
-            est_usd,
-            args.init_from,
-            mask_hash,
-            precision=precision,
-            lora_cfg=lora_cfg,
-        )
-    )
-    # Flat run layout (spec 00 §1, 2026-07-21): logs + training_meta.json at
-    # the run root, checkpoint at runs/<id>/model. Pre-migration runs keep an
-    # sft/ phase dir; readers accept both, migrate_store_layout.py converts
-    # explicitly.
-    out_dir = store / "runs" / cfg["run_id"]
-    print(f"[evt] store={store}", flush=True)
 
     s = t["stopping"]
     if s.get("metric") == "format_validity":
@@ -365,6 +385,44 @@ def main() -> int:
                 flush=True,
             )
 
+    # Step 0, always recorded (2026-07-26): the metric the stopping rule is
+    # about to read, measured before the first update, so "the rule fired"
+    # can be told apart from "the rule was already satisfied" (phase 0).
+    model.to(args.device)
+    step0: dict[str, float] = {}
+    if s.get("metric") == "train_loss":
+        step0["dose_loss_nats"] = evaluate_sft_nll_nats(
+            model, train_examples, task_format, batch_size=t["batch_size"], device=args.device
+        )
+    else:
+        step0["val_loss_nats"] = evaluate_sft_nll_nats(
+            model, val_examples, task_format, batch_size=t["batch_size"], device=args.device
+        )
+    if behavioral_eval is not None:
+        step0["format_validity"] = float(behavioral_eval())
+    print(f"[evt] step 0 (before any update): {step0}", flush=True)
+
+    manifest = register_run(
+        manifest_fields(
+            cfg,
+            n_trainable,
+            n_rows,
+            est_usd,
+            args.init_from,
+            mask_hash,
+            precision=precision,
+            lora_cfg=lora_cfg,
+            step0=step0,
+        )
+    )
+    # Flat run layout (spec 00 §1, 2026-07-21): logs + training_meta.json at
+    # the run root, checkpoint at runs/<id>/model. Pre-migration runs keep an
+    # sft/ phase dir; readers accept both, migrate_store_layout.py converts
+    # explicitly.
+    out_dir = store / "runs" / cfg["run_id"]
+    print(f"[evt] store={store}", flush=True)
+
+    phase(6, "train — progress lands in eval_log.jsonl; stopping is automatic")
     result = train_sft(
         model,
         train_examples,
@@ -386,7 +444,7 @@ def main() -> int:
         stopping_metric=("train_loss" if s.get("metric") == "train_loss" else "val_loss"),
     )
 
-    phase(6, "finalize — manifest + checkpoint")
+    phase(7, "finalize — manifest + checkpoint")
     manifest.data["status"] = "complete"
     manifest.data["experiment"]["sft_result"] = {
         "final_step": result.final_step,

@@ -5,8 +5,9 @@ Archive policy: nothing is deleted; lifecycle lives in each manifest
 
 Relay = HF `mhieuuu/geode-store` (private), mirroring `runs/<run_id>/…`.
 Residency hub-verified 2026-07-26. Artifacts column: **both** = local
-store + relay; **relay** = relay only (no local run dir); **lost** = no
-run dir anywhere (results survive in decisions.md / EXPERIMENTS.md).
+store + relay; **relay** = relay only (no local run dir); **local** =
+local store only, not yet pushed (new-phase runs, 2026-07-26); **lost** =
+no run dir anywhere (results survive in decisions.md / EXPERIMENTS.md).
 For rows with no locally edited manifest, the lifecycle shown is
 index-only (the manifest, if any, predates the field; absent ⇒ canonical
 per spec 00 §2).
@@ -66,3 +67,5 @@ per spec 00 §2).
 | evt-run10-sweep-lr1e-3 | Llama sweep 1e-3 slot; final table scored the incumbent run 10-v2 instead | pilot | lost | decisions.md 2026-07-25 "Llama target LR sweep" |
 | evt-run10-sweep-lr3e-4 | Llama sweep winner (0.00118; stage 2 not launched) | pilot | both | decisions.md 2026-07-25 "Llama target LR sweep" |
 | evt-run10-sweep-lr1e-4 | Llama sweep point (max_steps cap, still descending) | pilot | both | decisions.md 2026-07-25 "Llama target LR sweep" |
+| evt-p2-cal-dose1 | new-phase dose ε/k calibration pilot, n=1 (eps 0.0; 8.9963 → 0.00026 nats, stopped by hand at 1065 of 3000) | pilot | local — logs only, no checkpoint | decisions.md 2026-07-26 "dose stopping-rule calibration" |
+| evt-p2-cal-dose16 | new-phase dose ε/k calibration pilot, n=16 (eps 0.0; 15.9081 → 0.0709, killed at step 948 by a shell teardown, still descending — RERUN on the box before ε/k is pinned) | pilot | local — logs only, no checkpoint | decisions.md 2026-07-26 "dose stopping-rule calibration" |

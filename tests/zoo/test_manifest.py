@@ -442,13 +442,46 @@ def test_behavioral_stopping_fields_required_and_non_null(tmp_path: Path, field:
 
 
 def test_behavioral_stopping_unknown_metric_rejected(tmp_path: Path) -> None:
-    """V0.7: "metric" is a closed enum — only "format_validity" exists."""
+    """V0.7: "metric" is a closed enum — only the listed branches exist."""
     fields = make_manifest()
     fields["training"]["stopping"] = make_behavioral_stopping()
     fields["training"]["stopping"]["metric"] = "accuracy"
     with pytest.raises(ManifestError) as excinfo:
         _load_and_validate(tmp_path, fields)
     assert "training.stopping.metric" in str(excinfo.value)
+
+
+def make_dose_stopping() -> dict:
+    """The exact stopping shape train_sft.py records for a dose installer."""
+    return {"metric": "train_loss", "eps_nats": 0.002, "k": 5, "min_steps": 0}
+
+
+def test_train_loss_stopping_validates_without_behavioral_fields(tmp_path: Path) -> None:
+    """V0.7 (2026-07-26): the train_loss branch must not be asked for
+    threshold/n_prompts/prompt_seed.
+
+    Regression: the first dose-calibration launch died at register_run with
+    "training.stopping.metric must be one of ['format_validity']" — the union
+    discriminated on the *presence* of metric, not its value.
+    """
+    fields = make_manifest()
+    fields["training"]["stopping"] = make_dose_stopping()
+    _load_and_validate(tmp_path, fields)  # must not raise
+
+
+@pytest.mark.parametrize("field", ["metric", "eps_nats", "k"])
+def test_train_loss_stopping_fields_required_and_non_null(tmp_path: Path, field: str) -> None:
+    """V0.7 + OQ-3 on the train_loss branch: a null eps/k must not validate.
+
+    A dose run's ε/k is pinned from the calibration pilots (spec 02 §6); a
+    null riding through registration is the placeholder-value incident class.
+    """
+    fields = make_manifest()
+    fields["training"]["stopping"] = make_dose_stopping()
+    _set_field(fields, f"training.stopping.{field}", None)
+    with pytest.raises(ManifestError) as excinfo:
+        _load_and_validate(tmp_path, fields)
+    assert f"training.stopping.{field}" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------

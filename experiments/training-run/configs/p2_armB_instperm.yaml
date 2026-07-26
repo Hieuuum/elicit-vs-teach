@@ -1,0 +1,133 @@
+# NEW PHASE (2026-07-26) — Arm B "teach" shape installer: operator-notation
+# add/sub with PERMUTED labels. Full FT from the run-1 base checkpoint (no
+# algo pre-teach — that absence IS the arm difference), via
+# scripts/train_sft.py. Design ratified by the owner 2026-07-26, pre-
+# registered in decisions.md and spec 02 §5/§6; runs alongside run 4, which
+# stands as recorded.
+#
+# WHY PERMUTED INSTEAD OF RANDOM MULT LABELS. Run 4's installer was
+# random-label mult, chosen identical to run 3's so the arms differed only in
+# the parent. Phase 0b (2026-07-25) measured what that costs: mult-shaped
+# random labels corrupt the add/sub answer-length prior BY CONSTRUCTION (a
+# 4x4 mult answer has up to 8 digits, an add/sub answer at most 5), so the
+# installer that was supposed to install only format also installed a WRONG
+# answer shape. Permuting true add/sub labels across examples fixes exactly
+# that: the marginal answer distribution is preserved EXACTLY (it is the same
+# multiset, reordered — geode.arith.permute_labels, V5.64), while the
+# question->answer mapping carries no signal. So this installer installs
+# format + the true shape prior and teaches no arithmetic.
+#
+# The matching asymmetry is the point (decision 2): each arm gets the
+# installer that is non-destructive for ITS state. Arm A already holds the
+# capability and the shape prior, so it gets a small dose of correct-label
+# mult (p2_armA_dose.yaml); Arm B holds neither and gets the shape prior it
+# lacks. Matching by role, not by data identity.
+#
+# LEAK RISK AND HOW IT IS CHECKED. Unlike run 4's mult, this installer trains
+# on the target task's own surface form (operator add/sub). Two structural
+# protections: the questions are disjoint from D_target ∪ D_algo ∪ probe ∪
+# D_target_eval (no target question is ever seen with a wrong label), and the
+# labels are independent of the questions by construction (label_coincidence
+# 0.0145% at seed 20260717 — the rate at which a shuffle happens to return an
+# example its own answer). The OPERATIVE leak measure is therefore **G5
+# zero-shot on D_target_eval**: matched notation, matched op, disjoint
+# questions. G3 (spec 02 §8) scores NL add/sub, a DIFFERENT notation, so a
+# G3 pass alone would prove little here — it is recorded for continuity with
+# run 4, not relied on. A leak would deflate this arm's target EDL and
+# inflate the headline elicit/teach ratio, so the bar is enforced at launch
+# by launch_phase2.sh (G5 zero-shot <= 0.02), not left to a reading.
+#
+# STOPPING (decision 3). G4 >= 0.90, k=3, evaluated EVERY STEP. The 0.99/k=3
+# rule at eval_every=250 gave runs 3/4 a hidden 750-step floor, and phase 0
+# showed Arm A's parent was already at G4 1.0000 — the "identical rule"
+# measured nothing in one arm. Per-step eval drops the floor to 3 steps
+# (batch 128, so 384 examples) and the launcher records step 0 always, so
+# "the rule fired" and "the rule was already satisfied" stay
+# distinguishable. Each eval costs 512 greedy decodes + the val-loss pass:
+# budget ~1-1.5 s/step at this scale, i.e. tens of minutes over a run that
+# is expected to stop in the low hundreds of steps (run 4 crossed 0.99 by
+# step 750 from this same parent).
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run1-base-v3-ext must be complete (launcher enforces, V0.6); run 1
+#      has no required gates.
+#   2. train.lr 3e-6 is INHERITED from the installer retention sweep — but
+#      the pin's CONTEXT changed: that sweep measured retention of real
+#      arithmetic under random-label mult, and this installer trains wrong
+#      answers on the target task's own form. There is no capability here to
+#      retain (this arm never learned add/sub), so the re-validation is the
+#      leak side: G3 + G5 zero-shot must both come back at chance
+#      (decision 4).
+#   3. After completion, all three gates before the target launches:
+#        gates.py g4 --run evt-p2-armB-instperm \
+#            --config ../configs/p2_armB_instperm.yaml
+#        gates.py g3 --run evt-p2-armB-instperm --config ../configs/run2_algo.yaml
+#        gates.py g5 --run evt-p2-armB-instperm \
+#            --config ../configs/eval_target_data.yaml
+#   4. The paired target run is configs/p2_armB_target_perm.yaml.
+run_id: evt-p2-armB-instperm
+experiment:
+  name: training-run
+  arm: B
+  role: format_install
+  parent_run_id: evt-run1-base-v3-ext  # floor-1 base (min_val_nats 1.0718)
+  parent_required_gates: []            # run 1: complete is the only bar
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-8
+
+task:
+  name: arith_op_addsub        # operator-notation add/sub — the SAME TaskFormat
+  format_version: v1           # as D_target (this installer's questions share
+                               # the target task's surface form; only the
+                               # labels are permuted)
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_inst_perm.parquet    # 200K op-notation add/sub, PERMUTED labels,
+                               # seed 20260717
+  # Pinned from data/full/report.json (generated 2026-07-26). disjoint_from
+  # there records the four question-disjointness pins (D_target, D_algo,
+  # D_target_eval, probe); the launcher recomputes this hash over the whole
+  # file and refuses on mismatch.
+  order_hash: 5247139cf283574f181a59a0dbe98fa09be843204dd6a3a73f2bb53672219fce
+  # The HF publish of this artifact is owner-held (2026-07-26), so the file is
+  # read locally — repo-root-relative, hash still verified. Delete this line
+  # once the artifact is on the hub.
+  local_path: experiments/training-run/data/full/D_inst_perm.parquet
+  val_fraction: 0.005          # 1,000 held-out (>= the 512 stopping prompts);
+                               # questions unique, no leak
+  seed: 316                    # single-seed convention (spec 02 §13)
+
+train:
+  lr: 3.0e-6                   # installer pin; re-validated by G3 + G5 here
+  batch_size: 128              # the chain's installer batch (runs 3/4/9)
+  eval_every: 1                # EVERY STEP (decision 3): kills the 750-step
+                               # floor that made runs 3/4's stop uninformative
+  max_steps: 3109              # pure ceiling = 2 epochs of 1,554 steps
+                               # ((200,000 − 1,000) // 128 drop-last). Repeat
+                               # epochs over permuted labels invite mapping
+                               # memorization, which is exactly the leak this
+                               # arm must not have. stop_reason=max_steps
+                               # means the format never installed:
+                               # investigate, don't ship
+  stopping:
+    metric: format_validity    # owner 2026-07-26: G4 alone at 0.90, NOT the
+    threshold: 0.90            # two-part shape criterion. The 0.90 bar is the
+    k: 3                       # phase's shared bar — the dose runs' G4 is
+    n_prompts: 512             # scored against it too, so both arms' targets
+    prompt_seed: 316           # launch behind the same format requirement
+  precision: fp32              # new-phase pin: matched across BOTH arms and
+                               # both stages (the target harness is fp32), so
+                               # nothing in this phase carries an
+                               # arm-asymmetric precision
+  seed: 316
+  epochs_total_planned: 2      # ceiling metadata; the behavioral stop is
+                               # expected in the low hundreds of steps
+
+cost:
+  assumed_epochs_for_estimate: 2  # quote the ceiling (worst case)

@@ -357,6 +357,22 @@ the 2026-07-18 downscale):
   the change shrinks teach's EDL — conservative for the elicit-vs-teach
   ratio. `max_steps` stays a pure cost ceiling; a ceiling exit means
   investigate, don't ship.
+  **Built out 2026-07-26** (configs `p2_*`, decisions.md "new phase built
+  out"): the dose grid is **n ∈ {1, 2, 4, 8, 16}**, each dose a prefix of
+  the frozen `D_dose_mult` order (so the doses nest), and **each installer
+  gets its own target run** — five dose targets plus one teach target, all
+  on the identical frozen 1M `D_target` order, rule and ceiling as runs
+  7/8, with `snapshots.n: 0`. The dose rule's **ε/k is pinned from
+  calibration pilots** run at both ends of the grid with `eps_nats: 0.0`
+  and replayed through `ConvergenceTracker`
+  (`analysis/dose_stop_calibration.py`), never inherited from the target
+  stage: a coarse rule was measured to fire at 99.08% of descent at n=1
+  but 93.70% at n=16, which would have made the dose-response curve partly
+  a measurement of its own stopping rule. Until the pin is set the config
+  carries a null ε and both the launcher and `launch_phase2.sh` refuse.
+  The phase runs **fp32 in both arms and both stages** (the target harness
+  already is), and **step 0 is recorded for every run**
+  (`experiment.step0`) — the phase-0 defect fixed at its source.
 - Stopping (runs 5–6, target runs — owner 2026-07-22): the canonical
   loss rule at short-run cadence — **ε=0.002 nats, k=5, eval_every 500,
   min_steps 0**. The canonical min_steps=5000 grace and eval_every 1000

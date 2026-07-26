@@ -1,0 +1,14 @@
+# New-phase Arm A target behind the dose-8 installer — overlay on
+# p2_armA_target_dose.yaml (the dose-1 target, which carries the design notes
+# and is this phase's G7 anchor). Differs only in run_id, the parent, and the
+# G7 pin: every target in the phase trains the identical frozen 1M order with
+# the identical rule and ceiling, so a difference between them is a difference
+# between their PARENTS and nothing else.
+#
+#   python3 train_target.py --config ../configs/p2_armA_target_dose.yaml \
+#       --override ../configs/p2/target_dose8.yaml \
+#       --init-from $GEODE_STORE/runs/evt-p2-armA-dose8/model --confirm-cost
+run_id: evt-p2-armA-target-dose8
+experiment:
+  parent_run_id: evt-p2-armA-dose8
+  match_data_order_with: evt-p2-armA-target-dose1   # G7, enforced at launch

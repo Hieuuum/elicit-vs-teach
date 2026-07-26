@@ -15,7 +15,15 @@
 # at the capped epoch does not justify a ~3x Arm-A floor inflation.
 lr: 1.0e-3
 pinned: 2026-07-24
-applies_to: [run7, run8, run10]   # TARGET stage only — see scope note below
+applies_to: [run7, run8, run10, p2-targets]   # TARGET stage only — see scope
+                                  # note below. p2-targets (2026-07-26) = the
+                                  # new phase's six target runs: same stage,
+                                  # same task, same frozen D_target order and
+                                  # the same prequential harness as runs 7/8,
+                                  # so the pin transfers by ROLE and not by
+                                  # convenience. Their installers take
+                                  # installer_lr, and launch_phase2.sh refuses
+                                  # if the two ever coincide.
 
 # SCOPE (2026-07-25): run9 was REMOVED from applies_to. Every number above
 # was measured on D_target through the prequential harness — target-stage

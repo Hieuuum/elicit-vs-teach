@@ -1,0 +1,110 @@
+# NEW PHASE (2026-07-26) — Arm A "elicit" dose installer. THIS FILE IS THE
+# DOSE-1 RUN; doses 2/4/8/16 are the overlays in configs/p2/ (they differ
+# only in run_id, data.max_rows and train.batch_size). Design ratified by the
+# owner 2026-07-26, pre-registered in decisions.md ("new-phase installer
+# redesign") and spec 02 §5/§6; runs alongside the closed chains — nothing
+# here supersedes runs 3/4 or 7/8.
+#
+# WHY A DOSE INSTEAD OF AN INSTALLER. Phase 0 (2026-07-25) measured all four
+# installer-stage checkpoints at step 0 and found Arm A's parent already at
+# G4 1.0000 with the true add/sub answer-shape prior — so run 3's 1M
+# random-label mult installer could only destroy structure (mean answer
+# digits 3.726 -> 4.889, zero-shot EM 10.2% -> 1.2%), and its behavioral
+# stopping rule was satisfied before the first update. The role-matched
+# replacement for an arm that already holds the capability is the smallest
+# real intervention the elicitation literature uses: a DOSE of correct-label
+# examples. Mult keeps the op disjoint from the target task, so the dose
+# cannot leak add/sub mapping; correct labels keep it from burying the shape
+# prior the parent already has.
+#
+# STOPPING (decision 3). G4 is saturated at step 0 for this arm and can never
+# be its stop, so the rule is an eps/k plateau on the FULL-DOSE TRAINING LOSS
+# ("the dose is absorbed"): batch == n_train, so each step's own loss is the
+# exact full-dose masked CE — no val split exists at n=1, and none is carved
+# at any dose (V5.65/V5.66). eps/k below is PINNED FROM THE CALIBRATION
+# PILOTS (configs/pilot/p2_dose_cal_n*.yaml, decisions.md 2026-07-26), not
+# inherited from the target-stage 0.002/5: that number was calibrated on 1M
+# val losses at eval_every=500, and an eps that fires at a different fraction
+# of descent for n=1 than for n=16 would make the dose-response curve a
+# measurement of the stopping rule. The launcher refuses a null eps_nats.
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run2-armA-algo must be complete with G1 recorded PASS — the
+#      launcher enforces both (parent_required_gates, V0.6). Same parent as
+#      run 3: the dose replaces the installer, not the pre-teach stage.
+#   2. train.lr 3e-6 is INHERITED from the installer retention sweep, and
+#      G2 (retention >= 0.95 on D_algo) GATES it rather than being assumed —
+#      scope re-validation by gate, the run-9 lesson (decision 4). If G2
+#      fails, extend the LR downward as the run-9 fix did; do not proceed.
+#   3. After completion, per dose: G4 (external prompts — this run carves no
+#      val split), G2 (retention, the LR gate), G5 (evidence):
+#        gates.py g4 --run <id> --config ../configs/p2_armA_dose.yaml \
+#            --prompt-config ../configs/eval_target_data.yaml --threshold 0.90
+#        gates.py g2 --run <id> --config ../configs/run2_algo.yaml
+#        gates.py g5 --run <id> --config ../configs/eval_target_data.yaml
+#      G4's 0.90 bar is the phase's shared bar (the teach arm's stop), so
+#      both arms' targets launch behind the same format requirement.
+#   4. The paired target run is configs/p2_armA_target_dose.yaml (+ overlay).
+run_id: evt-p2-armA-dose1
+experiment:
+  name: training-run
+  arm: A
+  role: format_install         # the dose occupies the installer slot in the DAG
+  parent_run_id: evt-run2-armA-algo   # the elicit parent (G1 0.9961, lr 3e-4 pin)
+  parent_required_gates: [G1]
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-8
+
+task:
+  name: arith_op_mult          # operator-notation mult (D_dose_mult); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_dose_mult.parquet    # 16 op-notation mult, CORRECT labels, seed 20260717
+  # Pinned from data/full/report.json (generated 2026-07-26, one question per
+  # occupied digit cell, disjoint from D_inst); the launcher recomputes the
+  # hash over the WHOLE file before the dose prefix is taken.
+  order_hash: 8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024
+  # The HF publish of this artifact is owner-held (2026-07-26), so the file is
+  # read locally — repo-root-relative, hash still verified. Delete this line
+  # once the artifact is on the hub.
+  local_path: experiments/training-run/data/full/D_dose_mult.parquet
+  max_rows: 1                  # THE DOSE: prefix of the frozen order, so
+                               # dose 1 ⊂ dose 2 ⊂ ... ⊂ dose 16
+  seed: 316                    # single-seed convention (spec 02 §13)
+  # No val_fraction: a dose run carves no val split (V5.66). Gates score
+  # external frozen prompts instead.
+
+train:
+  lr: 3.0e-6                   # installer pin (2026-07-21 retention sweep),
+                               # G2-gated here rather than assumed
+  batch_size: 1                # == the dose (V5.65 refuses batch != n_train)
+  eval_every: 1                # per-step: the step's own loss IS the metric,
+                               # so the cadence costs no extra forward pass
+  max_steps: 4000              # pure cost ceiling = 4000 epochs of the dose
+                               # (batch == n_train). Pinned from the n=1
+                               # calibration pilot, which is the slowest dose
+                               # to absorb. stop_reason=max_steps means the
+                               # dose was never absorbed: investigate, don't
+                               # ship
+  stopping:
+    metric: train_loss         # full-dose plateau (V5.65/V5.66)
+    eps_nats: null             # PIN FROM THE CALIBRATION PILOTS before launch
+    k: null                    # (launcher refuses null eps_nats)
+    min_steps: 0
+  precision: fp32              # new-phase pin: matched across BOTH arms and
+                               # both stages (the target harness is fp32), so
+                               # a dose run on CPU and the teach installer on
+                               # a GPU box are numerically comparable and the
+                               # phase carries no arm-asymmetric precision
+  seed: 316
+  epochs_total_planned: 4000   # batch == n_train, so 1 step = 1 epoch
+
+cost:
+  assumed_epochs_for_estimate: 1  # <=16 examples: the estimate is ~$0
