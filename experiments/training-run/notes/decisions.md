@@ -3151,3 +3151,56 @@ floor), arm B 0.00285 (~18%). This sweep discriminates weakly by construction
 -init luck. First bracket point: arm A at 3e-3 reaches 0.00563 at step 5500 vs
 1e-3's 0.00258/0.00283 at 3500 — 2.2x the floor and 57% more steps, losing on
 both coordinates and tripping the rule-2 plateau flag.
+
+**SWEEP RESULT (2026-07-26) — 8/8 points read, the pin STAYS at 1e-3.** The
+arms genuinely disagree, so rule 11's fallback did real work and the owner's
+second clause ("if not, then choose the one that's better for teaching") is
+the clause that decided it.
+
+| lr | arm A (elicit) min_val @ step / conv | arm B (teach) |
+|---|---|---|
+| 3e-4 | **0.00214** @4000 / 5500 | 0.02290 @19000 / 21500 |
+| 1e-3 s317 | 0.00258 @3249 / 3500 | **0.01619** @11186 / 12000 |
+| 1e-3 s318 | 0.00283 @2853 / 3500 | 0.01904 @11556 / 12000 |
+| 3e-3 | 0.00563 @2762 / 5500 PLATEAU | 0.03454 @5648 / 8000 PLATEAU |
+
+Noise handles: arm A 0.00025 nats, arm B 0.00285; steps band floored at the
+500-step eval tick in both arms (the twins stopped at the same step).
+
+- **Arm A accepts NOTHING.** 3e-4 wins the floor by 0.00043 > 0.00025 noise
+  but converges in 5500 steps vs 3500 (> the 4000 band); 1e-3 is fastest but
+  its floor is 0.00258 > 0.00239. No LR is near-optimal on both coordinates.
+- **Arm B accepts {1e-3}** — best floor *and*, among eligible points, fewest
+  steps. 3e-4 loses on both (+0.00671, 21500 steps); 3e-3 is a rule-2 plateau.
+- Intersection empty ⇒ **rule 8 ⇒ arm B's optimum ⇒ 1e-3**, which is the
+  incumbent. Rule 10 does not fire: `lr_pin.yaml` already scopes 1e-3 to
+  `p2-targets`, so nothing is edited and phase 2 stays comparable with runs
+  7/8, which executed under the same value.
+
+**What the pin is and is NOT claimed to do.** It closes the failure mode rule
+8 exists to prevent: teach runs at its own optimum on both coordinates, so
+EDL_B — the *numerator* of the teach/elicit ratio — is not inflated by a bad
+schedule and the ratio is not flattered upward through arm B. It is **not**
+two-sided conservatism. Arm A sits off its best floor (1.20x) but *at* its
+best on steps, and EDL is an area whose subtrahend `N*L_test(theta_T)` moves
+with the floor, so a faster descent to a worse floor changes both terms: the
+sign of the pin's effect on EDL_A is **undetermined by this sweep**. Rule 11's
+own premise — floor alone misleads because EDL is an area — forbids calling it
+conservative in either direction. The one-sided confound that remains is the
+3.12-nat state gap: an elicit win survives it, a teach win or a tie is
+confounded by it.
+
+**Arm A's optimum is unbracketed** (3e-4 is the grid edge), so its 0.00043
+margin over the incumbent is a lower bound. No grid extension is owed: under
+rule 9 the pin is shared and is never read off one arm's verdict, and arm B's
+optimum is interior with 3e-4 losing on both coordinates, so 1e-4 cannot be
+arm B's optimum either. Rule 6's per-arm print now says this instead of
+demanding an extension it cannot need; the binding rule-6 check is the one
+against the actual pin.
+
+*Reader fixes made in the same commit, both found while reading the result:*
+the cost report had arm A labelled the ratio's numerator and arm B the
+denominator — backwards, since `learning_curves.py` prints teach/elicit as
+"ratio B/A"; and the rule-8 block asserted the ratio "falls on both counts",
+which was never established for arm A. The described *effects* were right
+throughout; the labels and the arm-A claim were not.

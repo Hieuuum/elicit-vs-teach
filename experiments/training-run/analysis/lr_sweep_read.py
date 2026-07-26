@@ -230,9 +230,16 @@ def main() -> int:
             )
             lrs = sorted({p["lr"] for p in arm_points})
             if best["lr"] in (lrs[0], lrs[-1]):
+                # Rule 6 says "pin only from a non-edge winner". Under rule 9 the
+                # pin is SHARED, so it is never read off one arm's verdict line —
+                # this flag is owed a grid extension only if this arm's winner is
+                # what the pin ends up being. The cross-arm block below re-checks
+                # rule 6 against the actual pin; that check is the binding one.
                 print(
-                    f"  ! rule 6: {best['lr']:.1e} is a GRID EDGE — extend the grid "
-                    f"({'add 1e-4' if best['lr'] == lrs[0] else 'add 1e-2'}) before pinning."
+                    f"  ! rule 6: {best['lr']:.1e} is a GRID EDGE — this arm's optimum is\n"
+                    f"    UNBRACKETED, so its margin over the incumbent is a LOWER bound "
+                    f"({'add 1e-4' if best['lr'] == lrs[0] else 'add 1e-2'} to close it).\n"
+                    "    Extend the grid only if this LR becomes the shared pin (rule 9)."
                 )
             verdict = best["lr"]
 
@@ -328,17 +335,18 @@ def main() -> int:
         print(
             "RULE 11 finds NO LR acceptable to both arms — falling through to rule 8.\n"
             f"Rule 8 (owner 2026-07-26, fixed before any point scored): take ARM B's optimum\n"
-            f"=> pin {lr:.1e} for BOTH arms. A better LR lowers that arm's EDL (it shrinks the\n"
-            "excess area above the asymptote in EDL = MDL - N*L_test), so under a shared LR\n"
-            "this runs teach at its best and elicit off its best — the teach/elicit ratio\n"
-            "falls on both counts. CONSERVATIVE for elicit, and it reverses the 2026-07-24\n"
-            "precedent deliberately (see rule 8)."
+            f"=> pin {lr:.1e} for BOTH arms. This closes the failure mode rule 8 exists to\n"
+            "prevent: teach runs at its own optimum, so EDL_B — the teach/elicit ratio's\n"
+            "NUMERATOR — is not inflated by a bad schedule, and the ratio is not flattered\n"
+            "upward. What the pin does to arm A is reported below and is NOT claimed to be\n"
+            "conservative: see the per-arm cost lines."
         )
 
     _report_cost(arms, lr)
     print(
-        "REPORT WITH IT: an elicit win survives this choice; a teach win or a tie is\n"
-        "confounded by it, and by the 3.12-nat state gap, which cuts the same way."
+        "REPORT WITH IT: the 3.12-nat state gap is one-sided — an elicit win survives it,\n"
+        "a teach win or a tie is confounded by it. The LR pin adds no guarantee beyond the\n"
+        "per-arm cost lines above: rule 8 closes the arm-B/numerator route only."
     )
     if lr == INCUMBENT_LR:
         print(
@@ -375,10 +383,13 @@ def main() -> int:
 def _report_cost(arms: dict[str, dict], lr: float) -> None:
     """What the shared pin costs EACH arm, on both coordinates.
 
-    Two-sided on purpose. Arm A off its best inflates the ratio's numerator —
-    the 2026-07-24 worry. Arm B off its best inflates the denominator, which
-    RAISES the ratio and flatters elicit — the direction rule 8 exists to
-    prevent, and which a floor-only, arm-A-only check would miss entirely.
+    Two-sided on purpose. The headline ratio is teach/elicit = EDL_B / EDL_A
+    (``learning_curves.py`` prints it as "ratio B/A"), so arm B is the
+    NUMERATOR and arm A the DENOMINATOR. Arm A off its best inflates the
+    denominator and LOWERS the ratio — the 2026-07-24 worry, conservative for
+    elicit. Arm B off its best inflates the numerator, RAISES the ratio and
+    flatters elicit — the direction rule 8 exists to prevent, and which a
+    floor-only, arm-A-only check would miss entirely.
     """
     for arm, d in sorted(arms.items()):
         r = d["rep"].get(lr)
@@ -387,12 +398,30 @@ def _report_cost(arms: dict[str, dict], lr: float) -> None:
             continue
         floor_x = r["score"] / d["best_score"]
         steps_x = r["final_step"] / d["best_steps"]
-        who = "numerator" if arm == "A" else "denominator"
+        who = "denominator" if arm == "A" else "numerator"
         print(
             f"  cost to arm {arm} ({who}): floor {floor_x:.2f}x its own best "
             f"({r['score']:.5f} vs {d['best_score']:.5f}), steps {steps_x:.2f}x "
             f"({r['final_step']} vs {d['best_steps']})"
         )
+        if lr not in d["acceptable"]:
+            print(
+                f"    ! the pin is OUTSIDE arm {arm}'s own band — not merely {floor_x:.2f}x its\n"
+                f"      best. Arm {arm} accepts "
+                f"{'nothing' if not d['acceptable'] else ', '.join(f'{x:.1e}' for x in d['acceptable'])}."
+            )
+        # A split verdict (worse on one coordinate, best on the other) has NO
+        # determined sign on this arm's EDL: EDL is an area whose subtrahend
+        # N*L_test(theta_T) moves with the floor, so a faster descent to a
+        # worse floor changes both terms. Rule 11's own premise — floor alone
+        # misleads because EDL is an area — forbids calling this conservative.
+        if (floor_x > 1.0) != (steps_x > 1.0):
+            better, worse = ("steps", "floor") if floor_x > 1.0 else ("floor", "steps")
+            print(
+                f"    arm {arm} is off its best on {worse} but AT its best on {better}: the sign\n"
+                f"      of the pin's effect on EDL_{arm} is UNDETERMINED by this sweep. Do not\n"
+                f"      report it as conservative in either direction."
+            )
         for coord, x in (("floor", floor_x), ("steps", steps_x)):
             if x > 3.0:
                 print(
