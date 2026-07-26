@@ -3427,11 +3427,20 @@ the same token:
 The operator-notation subtraction sign IS the NL negative-answer sign. Run 2
 trained that token 250,110 times, always immediately followed by digits,
 always in an arithmetic context. The addition operator token `'+'` received
-**zero** gradient in run 2 (there is no `'Ġ+'` merge in the 10k vocab, so it
-is the bare byte token), and run 1's corpus is TinyStories, where it is
-vanishingly rare. So "subtraction notation transferred" overstates it: the
-parent did not port a capability across notations, it re-used a token it
-already knew. Addition had no such bridge.
+**zero** gradient in run 2. The 10k vocab itself measures how marginal it was
+in run 1's TinyStories corpus: `-` earned three tokens (`'-'`, `'Ġ-'`, `'--'`)
+while `+` earned exactly one, the bare byte — BPE only forms a merge for a
+frequent pair, so the absence of a `'Ġ+'` merge is the rarity measurement, and
+it means the operator arrives split as `'Ġ'` + `'+'`. So "subtraction notation
+transferred" overstates it: the parent did not port a capability across
+notations, it re-used a token it already knew. Addition had no such bridge.
+
+**Scope: this mechanism is about the from-scratch model only** — run-1 base on
+the 10k TinyStories BPE. It says nothing about the Llama arm (runs 9/10),
+whose pretrained tokenizer saw `+` in pretraining and segments both operators
+differently, and it does **not** speak to the open NL-sign-convention
+hypothesis for Llama. Do not reuse it there without re-running section D
+against that tokenizer.
 
 Consistent with that, and sharper than the previous entry's framing: **the
 operator glyph gates the sign and nothing else.** Sign is correct 508/508 on
@@ -3466,9 +3475,22 @@ on those exact questions in NL notation — overlap would advantage A
 asymmetrically") and never to the target training stream itself. This is
 **forced, not a bug**: both files draw 1M via the same capacity-capped
 water-fill over the same 16 cells, and observed / expected-under-independence
-= **1.002**. Seven cells are 100% pre-exposed because the frozen sets consume
-their question space whole; the four `58%`-of-space cells (1x4, 2x3, 3x2, 4x1)
-each land near 58.5%.
+= **1.002**. Six cells are 100% pre-exposed because the frozen sets consume
+their question space whole — 1x1, 1x2, 2x1, 1x3, 3x1, 2x2, exactly the six
+that spec 02 §5 already names as fully consumed (`x_digits + y_digits ≤ 4`),
+an internal consistency check on the "forced" reading. The four
+`58%`-of-space cells (1x4, 2x3, 3x2, 4x1) each land near 58.5%.
+
+**The counterweight, which points the other way.** `D_inst_perm` is add/sub in
+**operator** notation, and the teach installer consumed 15,488 of its rows
+(121 steps × 128): **7,678 carried the `+` glyph**, in the target notation, at
+the target's own scaffold. So Arm B's parent enters the target stage having
+trained the `+` operator token 7,678 times while Arm A's parent has trained it
+zero times — the same glyph asymmetry documented above, now as a starting-line
+advantage for **B**. Net direction is not obvious and should not be guessed:
+A carries 29% item pre-exposure (favors A), B carries the only `+`-token
+exposure either arm has (favors B), and the arms already enter 3.1 nats apart
+(favors A). Quote all three together or none.
 
 Regenerating is not the remedy — disjoint sets would change what Arm A's
 parent means. The remedy is to **measure it**: dump per-example target loss
