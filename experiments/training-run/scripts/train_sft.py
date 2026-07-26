@@ -112,6 +112,7 @@ def manifest_fields(
     precision: str,
     lora_cfg: dict | None,
     step0: dict[str, float],
+    device: str,
 ) -> dict[str, Any]:
     t = cfg["train"]
     parent = cfg["experiment"]["parent_run_id"]
@@ -209,6 +210,11 @@ def manifest_fields(
             # started before step 250, so "the rule fired" and "the rule
             # measured nothing" were indistinguishable for weeks.
             "step0": step0,
+            # The dose rule's eps/k is calibrated from a recorded loss
+            # trajectory, and a trajectory is only reproducible on the device
+            # that produced it. Recording the device makes a mixed-device dose
+            # curve visible in the manifests instead of silent (2026-07-26).
+            "device": device,
         },
     }
 
@@ -413,6 +419,7 @@ def main() -> int:
             precision=precision,
             lora_cfg=lora_cfg,
             step0=step0,
+            device=args.device,
         )
     )
     # Flat run layout (spec 00 §1, 2026-07-21): logs + training_meta.json at

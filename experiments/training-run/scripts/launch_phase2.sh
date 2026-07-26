@@ -56,6 +56,13 @@ export REPO_ROOT                 # the guard below resolves data.local_path
                                  # look for the parquets in the wrong tree
 export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 DOSES=(1 2 4 8 16)
+# The dose rule's eps/k is calibrated by replaying a RECORDED loss trajectory,
+# and a trajectory reproduces only on the device that produced it. train_sft.py
+# defaults to cuda-if-available, so on a GPU box the calibration pilots (run by
+# hand) and these installers would silently land on different devices and the
+# pin would no longer describe the curve it is applied to. Pin it here, run the
+# pilots with the same value, and refuse a resume that would mix devices.
+DOSE_DEVICE=${DOSE_DEVICE:-cpu}
 # SKIP_TEST_LOSS=1 drops G5's shared-set NLL for the DOSE stage only: it is a
 # forward pass over the eval file's whole 98K-row reporting block, ~40 min per
 # run on a laptop CPU versus seconds on a box. The accuracies still record;
@@ -80,6 +87,17 @@ from pathlib import Path
 
 p = Path(os.environ["GEODE_STORE"]) / "runs" / sys.argv[1] / "manifest.json"
 print(json.loads(p.read_text())["status"] if p.is_file() else "missing")
+PY
+}
+
+device_of() { # run_id -> recorded training device, or "" if unrecorded/missing
+  python3 - "$1" <<'PY'
+import json, os, sys
+from pathlib import Path
+
+p = Path(os.environ["GEODE_STORE"]) / "runs" / sys.argv[1] / "manifest.json"
+if p.is_file():
+    print(json.loads(p.read_text()).get("experiment", {}).get("device", ""))
 PY
 }
 
@@ -189,13 +207,16 @@ if [[ $STAGE == all || $STAGE == doses ]]; then
     ST=$(status_of "$RID")
     if [[ $ST == complete ]]; then
       echo "[p2] $RID already complete — skipping"
+      DEV=$(device_of "$RID")
+      [[ -z $DEV || $DEV == "$DOSE_DEVICE" ]] ||
+        fail "$RID was trained on '$DEV' but this stage is pinned to '$DOSE_DEVICE' — a mixed-device dose curve is not a dose curve (set DOSE_DEVICE=$DEV or re-run the dose)"
     else
       [[ $ST == missing ]] || fail "$RID has status '$ST' — resolve it (see register_run) first"
-      echo "[p2] === dose $n: training ==="
+      echo "[p2] === dose $n: training on $DOSE_DEVICE ==="
       OVR=()
       [[ $n != 1 ]] && OVR=(--override ../configs/p2/dose$n.yaml)
       python3 train_sft.py --config ../configs/p2_armA_dose.yaml "${OVR[@]}" \
-        --init-from "$CKPT" --confirm-cost || fail "$RID training"
+        --init-from "$CKPT" --device "$DOSE_DEVICE" --confirm-cost || fail "$RID training"
       notify "phase2: $RID trained"
     fi
     # G4 on EXTERNAL prompts (this run carves no val split); 0.90 is the
