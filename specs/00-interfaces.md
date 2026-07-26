@@ -106,6 +106,19 @@ Required fields. Unknown extra fields are permitted and preserved.
 }
 ```
 
+Optional lifecycle metadata (2026-07-26) — two extra fields may follow
+`status`:
+
+- `lifecycle`: `"canonical | superseded | pilot | invalid"` — the
+  scientific standing of a completed run, orthogonal to `status` (which
+  records process completion and stays load-bearing for parent gating).
+  Absent ⇒ treat as canonical.
+- `superseded_by`: `run_id` of the replacement; present only when
+  `lifecycle` is `superseded` or `invalid`.
+
+Both are advisory archive metadata for humans and analysis scripts; zoo
+gating never consults them.
+
 Rationale: `regime` is recorded at creation from experimental design, so
 analysis code can group runs without re-deriving it. `snapshot_steps` is
 declared up front — the checkpoint schedule is designed before training
