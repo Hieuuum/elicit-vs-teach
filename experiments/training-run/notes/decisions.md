@@ -3306,3 +3306,57 @@ step 4,000 against a ~0.03 trend) — consistent with the stop-wobble caveat
 already recorded for the run-5/6 pair. Cross-run caution: the Llama curve is
 on a different tokenizer (2.93 vs 4.93 label tokens/example), so its per-token
 nats are not comparable in level with the two arms, only in shape.
+
+**DOSE 0 vs DOSE 1, PER EXAMPLE (2026-07-26) — the damage is precision, and
+the parent's operator transfer is subtraction-only.** Owner asked to see the
+actual predictions behind the dose curve's first two rows.
+`scripts/dump_g5_predictions.py` (new) re-runs G5's zero-shot arm verbatim —
+same fixed slice of the frozen `D_target_eval` reporting block, same
+token-prefix prompts, same greedy EOS-stopped decode, same parser — for
+`evt-run2-armA-algo` (n=0) and `evt-p2-armA-dose1` (n=1), and writes one row
+per question with both completions side by side
+(`analysis/figures/g5_predictions_n0_n1.csv`, gitignored, regenerable).
+`--expect` is the protocol-drift check and it passed: both runs reproduced
+their recorded G5 zero-shot accuracy to the last digit (0.1016 / 0.0840), so
+these rows explain the recorded numbers rather than a differently-built eval.
+`prompt_text` and the decoded token prefix agree on all 1,024 rows — no trace
+of the 2026-07-21 sign-drop tokenization failure, which matters because 274 of
+these questions carry negative answers.
+
+Paired outcome on the identical questions: **80 both correct, 24 n=0 only, 6
+n=1 only, 914 neither** — the dose loses 24 and gains 6, net −18 questions
+(104 → 86). It is not a wholesale collapse: **604 of 1,024 rows get the
+identical answer from both models**. What the discordant rows show is
+single-digit slips inside otherwise-correct answers (`6 - 2896` → −2890 vs
+−2800; `110 - 7158` → −7048 vs −7047; `84 - 3610` → −2526 vs −3526, where the
+dose model is the one that is right). Format validity is 1.0000 for both and
+no addition answer is emitted with a sign, so the dose degrades **arithmetic
+precision, not the answer format or the shape prior** — consistent with G4
+staying at 1.0000 across the whole grid.
+
+Incidental but worth recording, since G5 never stored a by-op split: the
+parent's ~10% zero-shot operator accuracy is **almost entirely subtraction**.
+
+| op | smaller operand | n | n=0 | n=1 |
+|---|---|---|---|---|
+| + | any | 508 | 0.0039 | 0.0059 |
+| − | any | 516 | 0.1977 | 0.1609 |
+| − | 1 digit | 96 | 0.5833 | 0.4479 |
+| − | 2 digits | 213 | 0.1737 | 0.1596 |
+| − | 3 digits | 158 | 0.0570 | 0.0380 |
+| − | 4 digits | 49 | 0.0000 | 0.0000 |
+
+Addition transfers at 2/508 for the parent; subtraction transfers at 58% when
+one operand is a single digit and decays to zero by four digits. So the G5
+zero-shot number is best read as "copy the large operand and adjust the low
+digits", not as general operator-notation arithmetic — and the dose shifts
+every cell of that surface down rather than removing a capability class. This
+does not bear on G1/G2, which measure the parent on NL notation at 0.9961;
+G5 measures cross-format transfer, where spec 02 §8 expected ~2% anyway.
+
+Caveat on weight: exact match at ~10% is a thresholded, noisy readout on 1,024
+questions. The load-bearing evidence for dose damage remains the test-loss gap
+(5.1935 → 5.5502 nats over 97,952 rows); these examples illustrate its shape,
+they do not carry the conclusion. The dose-1 TARGET run
+(`evt-p2-armA-target-dose1`) remains unlaunched and still awaits an owner
+decision.
