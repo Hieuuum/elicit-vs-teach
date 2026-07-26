@@ -3381,3 +3381,100 @@ questions. The load-bearing evidence for dose damage remains the test-loss gap
 they do not carry the conclusion. The dose-1 TARGET run
 (`evt-p2-armA-target-dose1`) remains unlaunched and still awaits an owner
 decision.
+
+### 2026-07-26 — dataset audit: no contamination behind the +/− gap; the '+' glyph was never trained, and Arm A's parent has seen 29% of the target stream
+
+Owner asked whether the parent's operator-notation profile (subtraction
+0.1977, addition 0.0039, previous entry) is a data problem — contamination or
+a defect in D_algo / D_target / D_target_eval. Audited all seven frozen
+parquets; `analysis/dataset_audit.py` re-derives every number below on CPU in
+under a minute.
+
+**The generation is clean.** Zero duplicate questions in any file; every
+`true_answer` equals `a op b`; `prompt_text + answer_text == full_text` and
+the char span is exact on all 3.3M rows; correct-label sets have
+`shown == true` everywhere. Every disjointness the spec claims holds on disk:
+`D_target_eval ∩ (D_target ∪ D_algo ∪ probe) = 0`, `D_inst_perm ∩ (D_target ∪
+D_target_eval ∪ D_algo ∪ probe) = 0`, `probe ∩ (D_target ∪ D_algo) = 0`,
+`D_dose_mult ∩ D_inst = 0`. `D_inst_perm` label coincidence 0.0145% as pinned.
+
+**The contamination that does exist points the wrong way for the hypothesis.**
+Spec 02 §5 / V5.1 deliberately does not exclude the commuted twin `(b, op, a)`,
+justified by "both arms train on the identical target set, so overlap inflates
+both equally". That is true for A-vs-B and false for +/−: for `+` the twin
+carries the **identical** answer, for `−` only the negated one. In the G5
+slice, 122 of 508 `+` questions (24.02%) have their twin in D_algo — the parent has
+literally seen those sums, in NL — and addition still scores 0.0039. Addition
+is the *more* leaked operator and it is the one at the floor. Contamination
+cannot explain the gap; it makes the gap harder to explain. (After the target
+stage the twin rate rises to ~36% for both ops; quote the D_algo-only figure
+for anything about the parent, which never saw D_target. The probe set, which
+carries the internals evidence, sits at ~50% twin-in-D_algo.)
+
+**What does explain it is a glyph asymmetry baked into D_algo's phrasing.**
+D_algo renders add as "the sum of a and b" and sub as "the difference between
+a and b", so across 1,000,000 rows the '+' character occurs **0** times while
+'-' occurs **250,110** times — as the sign of a negative answer, never in a
+prompt. Under the frozen tokenizer this is not a surface coincidence, it is
+the same token:
+
+| string | tokens |
+|---|---|
+| `Question: 6 - 2896` | … `'6'`, **`'Ġ-'`** (id 1854), `'2','8','9','6'` |
+| `Answer: -2890` | … `':'`, **`'Ġ-'`** (id 1854), `'2','8','9','0'` |
+| `Question: 719 + 80` | … `'9'`, `'Ġ'`, **`'+'`** (id 12), `'Ġ'`, `'8','0'` |
+
+The operator-notation subtraction sign IS the NL negative-answer sign. Run 2
+trained that token 250,110 times, always immediately followed by digits,
+always in an arithmetic context. The addition operator token `'+'` received
+**zero** gradient in run 2 (there is no `'Ġ+'` merge in the 10k vocab, so it
+is the bare byte token), and run 1's corpus is TinyStories, where it is
+vanishingly rare. So "subtraction notation transferred" overstates it: the
+parent did not port a capability across notations, it re-used a token it
+already knew. Addition had no such bridge.
+
+Consistent with that, and sharper than the previous entry's framing: **the
+operator glyph gates the sign and nothing else.** Sign is correct 508/508 on
+`+` and 516/516 on `−`. Of the 189 `+` questions where `x_digits < y_digits`
+(so `a − b` is necessarily negative), the parent emitted a negative **0**
+times — it is not blindly computing `a − b`. But the magnitude it emits is
+subtraction-shaped: on `+` rows the best-fitting closed form is `|a − b|` at
+7.28% against `a + b` at 0.39%, a 19x margin. Calibration: ~92% of `+`
+predictions match none of `{a+b, a−b, b−a, |a−b|, a, b}`, so `|a−b|` is the
+modal identifiable rule, not a description of what the model does.
+
+Two corrections to the previous entry, neither changing its conclusion:
+
+- Its "matched easiest cell" control is not matched difficulty. The six cells
+  with `x_digits + y_digits ≤ 4` are empty in D_target_eval by construction
+  (spec 02 §5), so the only single-digit-operand cells in the G5 slice are
+  **1x4 and 4x1** — the other operand is always 4 digits. The conclusion
+  survives on the full per-cell table (`+` is at 0.0000 in 9 of 10 cells),
+  not on that control.
+- "395 of 508 are smaller than the larger operand" does not isolate addition:
+  the same statistic is 443/516 (0.859) on subtraction, i.e. stronger. The
+  load-bearing addition fact is the 19x `|a−b|`-over-`a+b` margin, not this.
+  Note also that `−`'s 0.1977 is itself cell-concentrated (4x1 0.767, 1x4
+  0.434, 4x2/4x3/4x4/3x2 all 0.000) on ~50 rows per cell.
+
+**The finding that bears on the headline is not about +/− at all.**
+`D_algo ∩ D_target = 291,796` ordered triples — **29.18%** of the target
+training stream, 40.06% including commuted twins — while the teach installer
+parent (`D_inst_perm`) has seen **0**. Spec 02 §5 applied exactly this
+reasoning to the eval set ("D_algo included because Arm A's pre-teach trained
+on those exact questions in NL notation — overlap would advantage A
+asymmetrically") and never to the target training stream itself. This is
+**forced, not a bug**: both files draw 1M via the same capacity-capped
+water-fill over the same 16 cells, and observed / expected-under-independence
+= **1.002**. Seven cells are 100% pre-exposed because the frozen sets consume
+their question space whole; the four `58%`-of-space cells (1x4, 2x3, 3x2, 4x1)
+each land near 58.5%.
+
+Regenerating is not the remedy — disjoint sets would change what Arm A's
+parent means. The remedy is to **measure it**: dump per-example target loss
+for run 7 split by membership in D_algo. Concentrated on the seen 29% ⇒ part
+of the 12x (and the 19.5x) is item-level recall of specific answers rather
+than notation transfer; flat ⇒ the elicitation reading stands as stated.
+`geode-store/results/` has no per-example loss artifact and run 7 stores only
+aggregate `eval/test_loss.json`, so this is a box job, not a laptop one.
+OPEN — not launched, no owner decision requested yet.
