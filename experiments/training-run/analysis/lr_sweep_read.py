@@ -16,6 +16,14 @@ more curve-eval draws, so this script reports the stopping-eval-only min
 alongside and REFUSES to declare a winner if the two streams disagree on the
 per-arm ranking — that would make the verdict an artifact of which stream was
 scored.
+
+Rule 11 (owner 2026-07-26, added mid-sweep) selects the SHARED pin: prefer an
+LR that is acceptable to both arms, and only fall back to rule 8's arm-B
+optimum if no such LR exists. "Acceptable" is a TWO-COORDINATE band — floor
+AND steps-to-convergence — because EDL is the area between the curve and its
+floor, so an LR that reaches the same floor in twice the steps costs real EDL
+while looking free on the floor alone. Both coordinates get their noise handle
+from the same seed twin.
 """
 
 from __future__ import annotations
@@ -66,7 +74,19 @@ def load_point(run_dir: Path) -> dict | None:
         "final_step": res["final_step"],
         "n_evals": len(recs),
         "final_k_descent": descent,
+        "eval_cadence": _cadence(stop_recs),
     }
+
+
+def _cadence(stop_recs: list[dict]) -> int:
+    """The eps/k eval interval, read off the log rather than the config.
+
+    Convergence can only be observed on an eval tick, so two runs stopping one
+    tick apart are indistinguishable in steps. This sets the floor on rule 11's
+    steps band.
+    """
+    gaps = [b["step"] - a["step"] for a, b in zip(stop_recs, stop_recs[1:])]
+    return min(gaps) if gaps else 0
 
 
 def rank_arm(points: list[dict]) -> tuple[list[dict], list[str]]:
@@ -98,6 +118,19 @@ def rank_arm(points: list[dict]) -> tuple[list[dict], list[str]]:
     return points, notes
 
 
+def representative_per_lr(points) -> dict[float, dict]:
+    """One run per LR: the lowest-scoring seed, kept whole (rule 5's convention).
+
+    Whole, rather than a per-coordinate min across seeds, so that the reported
+    ``final_step`` is the one that actually produced the reported ``score``.
+    """
+    rep: dict[float, dict] = {}
+    for p in points:
+        if p["lr"] not in rep or p["score"] < rep[p["lr"]]["score"]:
+            rep[p["lr"]] = p
+    return rep
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--store", type=Path, default=None)
@@ -113,7 +146,8 @@ def main() -> int:
         print(f"no completed sweep points under {store}/runs/evt-p2-sweep-arm*")
         return 1
 
-    verdicts = {}
+    arms: dict[str, dict] = {}
+    stream_conflict = False
     for arm in sorted({p["arm"] for p in points}):
         arm_points = sorted(
             (p for p in points if p["arm"] == arm), key=lambda p: (p["lr"], p["seed"])
@@ -144,11 +178,21 @@ def main() -> int:
             )
             continue
         noise = abs(twins[0]["score"] - twins[1]["score"])
+        # Floored at one eval tick: the twins routinely stop at the identical
+        # step, and a zero-width band would call an unresolvable difference
+        # real. Widening the band keeps the incumbent more often, which is the
+        # mildly elicit-flattering direction — bounded here at exactly one tick.
+        cadence = max(p["eval_cadence"] for p in arm_points)
+        noise_steps = max(abs(twins[0]["final_step"] - twins[1]["final_step"]), cadence)
         incumbent = min(t["score"] for t in twins)
         print(
             f"  noise floor (rule 5): |{twins[0]['score']:.5f} - {twins[1]['score']:.5f}| = "
             f"{noise:.5f} nats between seeds {twins[0]['seed']}/{twins[1]['seed']} at the "
             f"incumbent LR"
+        )
+        print(
+            f"  noise steps (rule 11): |{twins[0]['final_step']} - {twins[1]['final_step']}| "
+            f"floored at the {cadence}-step eval tick = {noise_steps} steps"
         )
 
         eligible = [
@@ -168,7 +212,7 @@ def main() -> int:
                     f"{incumbent - best['score']:.5f}, inside the {noise:.5f} noise floor"
                 )
             print(f"  VERDICT arm {arm}: incumbent {INCUMBENT_LR:.0e} STANDS — {why} (rule 5).")
-            verdicts[arm] = INCUMBENT_LR
+            verdict = INCUMBENT_LR
         else:
             print(
                 f"  VERDICT arm {arm}: {best['lr']:.1e} beats the incumbent by "
@@ -180,66 +224,155 @@ def main() -> int:
                     f"  ! rule 6: {best['lr']:.1e} is a GRID EDGE — extend the grid "
                     f"({'add 1e-4' if best['lr'] == lrs[0] else 'add 1e-2'}) before pinning."
                 )
-            verdicts[arm] = best["lr"]
+            verdict = best["lr"]
 
         # Rule 1 guard: would the other scoring stream flip this arm's ranking?
         by_all = [p["run_id"] for p in sorted(eligible, key=lambda p: p["score"])]
         by_stop = [p["run_id"] for p in sorted(eligible, key=lambda p: p["score_stopping_only"])]
         if by_all != by_stop:
+            stream_conflict = True
             print(
                 "  ! rule 1: the all-evals and stopping-evals-only streams RANK THIS ARM "
                 "DIFFERENTLY — the verdict would be an artifact of which stream was scored. "
                 "Report both and do not pin."
             )
 
+        # Rule 11: which LRs this arm would accept. One representative run per
+        # LR (the lower-scoring seed, rule 5's convention, kept as a REAL run so
+        # its final_step belongs to the same run as its score). An LR is
+        # acceptable if it is within the seed twin's spread of this arm's best
+        # on BOTH coordinates — floor and steps-to-convergence.
+        rep = representative_per_lr(
+            q for q in arm_points if not q["excluded"] and not q.get("plateau")
+        )
+        best_score = min(r["score"] for r in rep.values())
+        best_steps = min(r["final_step"] for r in rep.values())
+        acceptable = sorted(
+            lr
+            for lr, r in rep.items()
+            if r["score"] <= best_score + noise and r["final_step"] <= best_steps + noise_steps
+        )
+        print(
+            f"  accepts (rule 11): {', '.join(f'{x:.1e}' for x in acceptable) or 'nothing'} "
+            f"— within {noise:.5f} nats of {best_score:.5f} AND {noise_steps} steps of {best_steps}"
+        )
+        arms[arm] = {
+            "verdict": verdict,
+            "rep": rep,
+            "acceptable": acceptable,
+            "best_score": best_score,
+            "best_steps": best_steps,
+        }
+
     print("\n" + "=" * 66)
-    if len(set(verdicts.values())) == 1 and verdicts:
-        lr = next(iter(verdicts.values()))
-        print(f"ARMS AGREE on {lr:.1e}.")
-        if lr == INCUMBENT_LR:
+    if set(arms) != {"A", "B"}:
+        print(f"the shared pin needs both arms; resolved: {sorted(arms) or 'none'} — do not pin.")
+        return 1
+    if stream_conflict:
+        print("rule 1: an arm's two scoring streams rank it differently — DO NOT PIN (above).")
+        return 1
+
+    print(
+        "per-arm verdicts (rule 5): "
+        + ", ".join(f"{a}->{d['verdict']:.1e}" for a, d in sorted(arms.items()))
+    )
+    shared = [lr for lr in arms["A"]["acceptable"] if lr in arms["B"]["acceptable"]]
+
+    if shared:
+        # Rule 11, first clause. Inside the band the arms cannot tell these LRs
+        # apart, so the choice among them is made by pre-registered DIRECTION,
+        # not by the numbers: take the one arm B scores lowest.
+        lr = min(shared, key=lambda x: arms["B"]["rep"][x]["score"])
+        print(
+            f"RULE 11 — {', '.join(f'{x:.1e}' for x in shared)} "
+            f"{'is' if len(shared) == 1 else 'are all'} acceptable to BOTH arms "
+            f"(within each arm's own seed-twin spread of its best, on floor AND steps)."
+        )
+        if len(shared) > 1:
             print(
-                "The 1e-3 pin is re-validated on this phase's two parents. Launch the "
-                "production targets unchanged (rule 7: no sweep number is reported)."
+                f"=> pin {lr:.1e}: among LRs the arms cannot distinguish, the tie breaks toward "
+                "TEACH\n   (owner's second clause), so no residual is left pointing the elicit "
+                "hypothesis' way."
             )
         else:
-            print(
-                f"Re-run BOTH production targets at {lr:.1e} with the production seed 316 under "
-                "the existing run_ids, and scope the new pin in lr_pin.yaml rather than "
-                "overwriting the shared `lr:` key that runs 7/8 executed under (rules 7, 10)."
-            )
+            print(f"=> pin {lr:.1e}: the only LR that serves both arms.")
     else:
-        print(f"ARMS DISAGREE: {', '.join(f'{a}->{lr:.1e}' for a, lr in sorted(verdicts.items()))}")
-        if "B" not in verdicts:
-            print("Rule 8 needs arm B's verdict and arm B did not resolve — escalate, do not pin.")
+        # "Arm B's optimum" means optimum on the SAME two coordinates rule 11
+        # judges on. Reading it off rule 5's floor-only verdict would let an LR
+        # that rule 11 just rejected for being slow in arm B come back as the
+        # pin — inflating EDL_B, raising the ratio, flattering elicit.
+        if not arms["B"]["acceptable"]:
+            print("rule 8 needs arm B's optimum and arm B accepts nothing — escalate, do not pin.")
             return 1
-        lr = verdicts["B"]
+        lr = min(arms["B"]["acceptable"], key=lambda x: arms["B"]["rep"][x]["score"])
+        if lr != arms["B"]["verdict"]:
+            print(
+                f"note: arm B's rule-5 verdict was {arms['B']['verdict']:.1e} on the floor alone; "
+                f"on floor AND steps its optimum is {lr:.1e}."
+            )
         print(
+            "RULE 11 finds NO LR acceptable to both arms — falling through to rule 8.\n"
             f"Rule 8 (owner 2026-07-26, fixed before any point scored): take ARM B's optimum\n"
             f"=> pin {lr:.1e} for BOTH arms. A better LR lowers that arm's EDL (it shrinks the\n"
             "excess area above the asymptote in EDL = MDL - N*L_test), so under a shared LR\n"
             "this runs teach at its best and elicit off its best — the teach/elicit ratio\n"
             "falls on both counts. CONSERVATIVE for elicit, and it reverses the 2026-07-24\n"
-            "precedent deliberately (see rule 8).\n"
-            "REPORT WITH IT: an elicit win survives this choice; a teach win or a tie is\n"
-            "confounded by it, and by the 3.12-nat state gap, which cuts the same way."
+            "precedent deliberately (see rule 8)."
         )
-        inflation = _floor_inflation(points, lr)
-        if inflation is not None and inflation > 3.0:
+
+    _report_cost(arms, lr)
+    print(
+        "REPORT WITH IT: an elicit win survives this choice; a teach win or a tie is\n"
+        "confounded by it, and by the 3.12-nat state gap, which cuts the same way."
+    )
+    if lr == INCUMBENT_LR:
+        print(
+            "The 1e-3 pin is re-validated on this phase's two parents. Launch the production\n"
+            "targets unchanged (rule 7: no sweep number is reported)."
+        )
+    else:
+        grid = sorted(arms["A"]["rep"] | arms["B"]["rep"])
+        if lr in (grid[0], grid[-1]):
             print(
-                f"! Arm A's floor inflates {inflation:.1f}x at this LR vs its own optimum — more\n"
-                f"  than the ~3x the 2026-07-24 precedent refused. Rule 8 says pin anyway, but\n"
-                f"  say this in the write-up rather than quietly re-deciding."
+                f"! rule 6: {lr:.1e} is a GRID EDGE — extend the grid "
+                f"({'add 1e-4' if lr == grid[0] else 'add 1e-2'}) before pinning."
             )
+        print(
+            f"Re-run BOTH production targets at {lr:.1e} with the production seed 316 under the\n"
+            "existing run_ids, and scope the new pin in lr_pin.yaml rather than overwriting the\n"
+            "shared `lr:` key that runs 7/8 executed under (rules 7, 10)."
+        )
     return 0
 
 
-def _floor_inflation(points: list[dict], lr: float) -> float | None:
-    """How much worse arm A's floor is at `lr` than at arm A's own best LR."""
-    a = [p for p in points if p["arm"] == "A" and not p["excluded"] and not p.get("plateau")]
-    at_lr = [p["score"] for p in a if p["lr"] == lr]
-    if not a or not at_lr:
-        return None
-    return min(at_lr) / min(p["score"] for p in a)
+def _report_cost(arms: dict[str, dict], lr: float) -> None:
+    """What the shared pin costs EACH arm, on both coordinates.
+
+    Two-sided on purpose. Arm A off its best inflates the ratio's numerator —
+    the 2026-07-24 worry. Arm B off its best inflates the denominator, which
+    RAISES the ratio and flatters elicit — the direction rule 8 exists to
+    prevent, and which a floor-only, arm-A-only check would miss entirely.
+    """
+    for arm, d in sorted(arms.items()):
+        r = d["rep"].get(lr)
+        if r is None:
+            print(f"! arm {arm} has no eligible point at {lr:.1e} — the pin is unmeasured there.")
+            continue
+        floor_x = r["score"] / d["best_score"]
+        steps_x = r["final_step"] / d["best_steps"]
+        who = "numerator" if arm == "A" else "denominator"
+        print(
+            f"  cost to arm {arm} ({who}): floor {floor_x:.2f}x its own best "
+            f"({r['score']:.5f} vs {d['best_score']:.5f}), steps {steps_x:.2f}x "
+            f"({r['final_step']} vs {d['best_steps']})"
+        )
+        for coord, x in (("floor", floor_x), ("steps", steps_x)):
+            if x > 3.0:
+                print(
+                    f"  ! arm {arm}'s {coord} inflates {x:.1f}x — past the ~3x the 2026-07-24\n"
+                    f"    precedent refused. The rule says pin anyway; say this in the write-up\n"
+                    f"    rather than quietly re-deciding."
+                )
 
 
 if __name__ == "__main__":

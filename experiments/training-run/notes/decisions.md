@@ -3038,3 +3038,56 @@ eval-log min **0.00258 nats**. Run 7 — the same arm, same LR, but behind run
 3's installer — took 6000 steps to 0.00273. The no-installer parent converges
 **faster to a slightly lower floor**, which is the direction the "n = 0 lowers
 Arm A's EDL, so it is generous to elicit" prediction called for.
+
+**CALL 3 — prefer an LR that serves BOTH arms; rule 8 becomes the fallback
+(owner, 2026-07-26, mid-sweep).** Verbatim: *"try to pick a seed that benefits
+both runs. if not, then choose the one that's better for teaching."* Read as
+the **LR, not the seed** — the second clause is CALL 2's subject, and no seed
+choice is on the table: 317/318 exist only as the noise handle and rule 7
+forbids promoting either. Nothing was selected on seed.
+
+*Known when written*, so the rule can be audited against the data it decides:
+points 1 and 2 complete, **both at the incumbent 1e-3** (arm A 0.00258 nats,
+converged step 3500; arm B 0.01619, step 12000). No seed twin had finished, so
+**no noise floor existed in either arm**; no 3e-4 or 3e-3 point had run, so
+neither arm's optimum was known — nor whether the arms disagree at all.
+
+The band is **two-coordinate: floor AND steps-to-convergence**, and that is
+not decoration. CALL 2's own derivation routes the LR's effect on EDL through
+descent *speed* — EDL is the area between the curve and its asymptote — so an
+LR reaching an indistinguishable floor in twice the steps costs real EDL while
+looking free on the floor alone. At this grid's scale (arm A converges near
+3,500 steps, arm B near 12,000) a floor-only band would let a 2×-slower arm-B
+point pass as "acceptable", inflate EDL_B, **raise** the ratio and flatter
+elicit — exactly what CALL 2 exists to prevent, arriving through the back
+door. Caught in synthetic testing: the first fallback implementation read arm
+B's optimum off rule 5's floor-only verdict and re-pinned the very LR the
+two-coordinate band had just rejected. Fixed — "arm B's optimum" now means
+optimum on the same two coordinates.
+
+Ties inside the band break toward **teach**: within the band the differences
+are by construction not separable from run-to-run noise, so the tie is
+resolved by pre-registered *direction*, not by the numbers. For the shared pin
+only, this supersedes rule 1's ties→incumbent and rule 5's incumbent-stands
+default; both still govern each arm's own verdict line.
+
+**Direction, stated plainly:** rule 11 can keep a pin CALL 2 alone would have
+moved, which is marginally **elicit-flattering** — bounded on both coordinates
+by the seed twin's spread. Same for the steps band's one-eval-tick floor (the
+twins routinely stop at the *same* step, so the measured spread is often 0 and
+a zero-width band would treat an unresolvable difference as evidence). Both
+are bounded and both are declared. The cost of the shared pin is now reported
+for **both arms on both coordinates** — arm A off its best inflates the
+ratio's numerator (the 2026-07-24 worry), arm B off its best inflates the
+denominator and flatters elicit, and the old check watched only the former.
+
+**Landed:** rule 11 in `configs/pilot/p2_sweep_armA_lr1e-3.yaml` (rule 8
+carries a dated `[AMENDED]` marker; its text is unchanged), the two-coordinate
+band + two-sided cost report in `analysis/lr_sweep_read.py`, exercised on
+three synthetic stores — floors-tie-but-2×-slower, several-LRs-acceptable, and
+both-arms-prefer-the-incumbent.
+
+**Seed twin in (arm A).** `evt-p2-sweep-armA-lr1e-3-s318` **0.00283** nats vs
+seed 317's 0.00258, both converged at step 3500 ⇒ arm A's **noise floor
+0.00025 nats, steps spread 0**. For scale: 0.00025 is ~10% of the floor
+itself, so any arm-A challenger winning by less than that is noise.

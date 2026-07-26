@@ -98,6 +98,8 @@
 #      choice made in the elicit hypothesis' favour. If the loser's floor
 #      inflates by more than the ~3x that precedent refused, say so in the
 #      write-up rather than quietly re-deciding.
+#      [AMENDED 2026-07-26 by rule 11: rule 8 now fires only when NO LR is
+#      acceptable to both arms. The text above is unchanged.]
 #   9. SHARED LR, NOT PER-ARM (owner 2026-07-26, same answer as rule 8).
 #      spec 02 §6 pre-registers that the target runs' "training schedule is
 #      part of the metric", and launch_phase2.sh refuses unless BOTH target
@@ -111,6 +113,54 @@
 #      retroactively relabels two complete runs. Add a p2-scoped pin with its
 #      own provenance, mirroring how that file already scopes installer_lr
 #      away from run 9.
+#  11. IS THERE ONE LR THAT SERVES BOTH ARMS? PREFER IT (owner, 2026-07-26,
+#      added mid-sweep). Verbatim: "try to pick a seed that benefits both
+#      runs. if not, then choose the one that's better for teaching." Read
+#      as the LR, not the seed: the second clause is rule 8's subject, and
+#      no seed choice is on the table — 317/318 exist only as the noise
+#      handle and rule 7 forbids promoting either.
+#      KNOWN WHEN WRITTEN, so the rule can be audited against the data it
+#      decides: points 1 and 2 complete, both at the incumbent 1e-3 (arm A
+#      0.00258 nats, converged step 3500; arm B 0.01619, step 12000). No
+#      seed twin had finished, so NO noise floor existed in either arm; no
+#      3e-4 or 3e-3 point had run, so neither arm's optimum was known — nor,
+#      therefore, whether the arms disagree at all.
+#      THE RULE: prefer an LR ACCEPTABLE TO BOTH arms; rule 8 fires only if
+#      no such LR exists. Acceptable = within that arm's own seed-twin
+#      spread of that arm's best, on BOTH coordinates — the floor (min
+#      val_loss_nats) AND steps-to-convergence.
+#      WHY TWO COORDINATES. Rule 8's own derivation routes the LR's effect
+#      on EDL through descent SPEED, not the floor: EDL is the area between
+#      the curve and its asymptote. So an LR that reaches an
+#      indistinguishable floor in twice the steps costs real EDL while
+#      looking free on the floor alone. This is not hypothetical at this
+#      grid's scale — arm A converges near 3,500 steps and arm B near
+#      12,000. A floor-only band would let a 2x-slower arm-B point pass as
+#      "acceptable", inflate EDL_B, RAISE the teach/elicit ratio and flatter
+#      elicit: precisely what rule 8 exists to prevent, arriving through the
+#      back door.
+#      TIE INSIDE THE BAND -> the member arm B scores lowest. Inside the
+#      band the differences are by construction not separable from run-to-
+#      run noise, so the tie is broken by pre-registered DIRECTION rather
+#      than by the numbers, and the direction is the owner's second clause.
+#      FOR THE SHARED PIN ONLY this supersedes rule 1's ties->incumbent and
+#      rule 5's incumbent-stands default; both still govern each arm's own
+#      verdict line.
+#      STEPS BAND FLOOR: the twins routinely stop at the SAME step (eps/k
+#      can only fire on an eval tick), so the measured steps-spread is often
+#      0. The band is floored at one eval tick, read off the log rather than
+#      the config — a difference the stopping rule cannot resolve is not
+#      evidence. This widens the band, which keeps the incumbent more often
+#      and is therefore the mildly elicit-flattering direction; it is
+#      bounded at exactly one tick and is a resolution limit, not a
+#      preference.
+#      DIRECTION, STATED PLAINLY: rule 11 can keep a pin that rule 8 alone
+#      would have moved, and that is marginally ELICIT-FLATTERING — bounded,
+#      on both coordinates, by the seed twin's spread. Report the band's
+#      width next to the pin. And the cost of the shared pin is reported for
+#      BOTH arms on BOTH coordinates, not arm A's floor alone: arm A off its
+#      best inflates the ratio's numerator (the 2026-07-24 worry), arm B off
+#      its best inflates the denominator and flatters elicit.
 #
 # LAUNCH: scripts/launch_p2_lr_sweep.sh --confirm-cost  (resumable; skips
 # completed points, deletes each checkpoint once its min_val is read, keeps
