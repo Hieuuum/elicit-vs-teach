@@ -382,6 +382,15 @@ def run_g5(args: argparse.Namespace) -> int:
         test_n = len(rep_examples)
         print(f"[evt] G5 shared-set test loss {test_loss:.4f} nats over n={test_n}")
 
+    if args.no_record:
+        # Baseline mode, same rationale as G4's: score a SHARED parent without
+        # writing to its manifest. For the new phase's dose curve this is the
+        # n=0 intercept — the elicit arm's parent measured on the identical
+        # eval file and protocol as every dose, which is what makes "the dose
+        # changed X" a statement rather than an assumption.
+        print("[evt] --no-record: nothing written to any manifest")
+        return 0
+
     manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G5"] = {
         # Always true: G5 is recorded evidence with no pass bar (spec 02 §8
         # gives expectations, not thresholds), and require_parent_ready
@@ -489,6 +498,12 @@ def main() -> int:
     )
     common_args(g5)
     g5.add_argument("--n", type=int, default=1024)
+    g5.add_argument(
+        "--no-record",
+        action="store_true",
+        help="print the numbers but write no evidence — for scoring a shared "
+        "parent as the dose curve's n=0 baseline",
+    )
     g5.add_argument(
         "--skip-test-loss",
         action="store_true",
