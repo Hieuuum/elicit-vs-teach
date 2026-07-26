@@ -73,8 +73,10 @@
 #      the existing run_ids (evt-p2-armA-target-noinst /
 #      evt-p2-armB-target-perm), and THOSE runs' numbers are what get
 #      reported.
-#   8. IF THE TWO ARMS DISAGREE, DO NOT AUTO-RESOLVE — ESCALATE. Derivation,
-#      written down before the data exists so it cannot be chosen to fit:
+#   8. IF THE TWO ARMS DISAGREE, TAKE ARM B's OPTIMUM — owner, 2026-07-26,
+#      answered while the first point was still training and NO score
+#      existed, which is what makes this a rule rather than a preference.
+#      Derivation, likewise written down before the data exists:
 #      EDL = MDL - N*L_test is the excess code length above the converged
 #      model's asymptote, i.e. the area between the learning curve and its
 #      floor. A better LR descends faster and so SHRINKS that area => a
@@ -82,19 +84,28 @@
 #      ratio (runs 5/6: 19.2x), which supports the elicit hypothesis when it
 #      is LARGE. Therefore: lowering Arm A's EDL RAISES the ratio and
 #      FLATTERS ELICIT; lowering Arm B's EDL lowers the ratio and is
-#      CONSERVATIVE for elicit. Picking each arm's own argmin is therefore
-#      not neutral, and neither is picking one arm's. The 2026-07-24
-#      precedent (lr_pin.yaml lines 13-15) went the elicit-flattering way on
-#      a DIFFERENT rationale — that an inflated Arm-A floor is a measurement
-#      artifact in the ratio's numerator, not a property of elicitation.
-#      Which consideration dominates is an owner call, not this file's:
-#      report both arms at both LRs, state the direction, and stop.
-#   9. SHARED LR IS THE DEFAULT READING. spec 02 §6 pre-registers that the
-#      target runs' "training schedule is part of the metric", and
-#      launch_phase2.sh refuses unless BOTH target yamls carry one shared lr
-#      equal to lr_pin.yaml. Per-arm LRs would need a launcher-guard edit, a
-#      spec 02 edit and an owner decision on the matched-arms design — three
-#      things this sweep does not get to make on its own.
+#      CONSERVATIVE for elicit. Under a SHARED LR the two effects COMPOUND:
+#      taking Arm B's optimum runs teach at its best (EDL_B down) AND elicit
+#      off its best (EDL_A up), so the ratio falls on both counts. That is
+#      the direction chosen. An elicit win under it survives the choice; a
+#      teach win or a tie is confounded by it and must be reported as such,
+#      alongside the 3.12-nat state gap that already cuts the same way.
+#      Note this REVERSES the 2026-07-24 precedent (lr_pin.yaml lines 13-15),
+#      which took Arm A's optimum on a different rationale — that an inflated
+#      Arm-A floor is a measurement artifact in the ratio's numerator rather
+#      than a property of elicitation. That rationale still holds; it is
+#      simply outranked here by not wanting the headline to depend on a
+#      choice made in the elicit hypothesis' favour. If the loser's floor
+#      inflates by more than the ~3x that precedent refused, say so in the
+#      write-up rather than quietly re-deciding.
+#   9. SHARED LR, NOT PER-ARM (owner 2026-07-26, same answer as rule 8).
+#      spec 02 §6 pre-registers that the target runs' "training schedule is
+#      part of the metric", and launch_phase2.sh refuses unless BOTH target
+#      yamls carry one shared lr equal to lr_pin.yaml. Both stand unedited.
+#      Per-arm LRs would also make each arm's numerator a selected minimum
+#      biased low by a different, unmeasured amount — the ratio of two
+#      independently-optimised minima is not the ratio the phase set out to
+#      measure.
 #  10. IF THE PIN MOVES, SCOPE IT — do not overwrite lr_pin.yaml's `lr:` key.
 #      Runs 7/8 are executed evidence under 1e-3; rewriting the shared key
 #      retroactively relabels two complete runs. Add a p2-scoped pin with its

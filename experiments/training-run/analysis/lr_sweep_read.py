@@ -209,14 +209,37 @@ def main() -> int:
             )
     else:
         print(f"ARMS DISAGREE: {', '.join(f'{a}->{lr:.1e}' for a, lr in sorted(verdicts.items()))}")
+        if "B" not in verdicts:
+            print("Rule 8 needs arm B's verdict and arm B did not resolve — escalate, do not pin.")
+            return 1
+        lr = verdicts["B"]
         print(
-            "Rule 8: DO NOT auto-resolve. A better LR lowers that arm's EDL (it shrinks the\n"
-            "excess area above the asymptote in EDL = MDL - N*L_test). So adopting arm A's\n"
-            "argmin RAISES the teach/elicit ratio and FLATTERS ELICIT; adopting arm B's\n"
-            "LOWERS the ratio and is CONSERVATIVE for elicit. Report both arms at both LRs\n"
-            "and escalate to the owner — this script does not pick."
+            f"Rule 8 (owner 2026-07-26, fixed before any point scored): take ARM B's optimum\n"
+            f"=> pin {lr:.1e} for BOTH arms. A better LR lowers that arm's EDL (it shrinks the\n"
+            "excess area above the asymptote in EDL = MDL - N*L_test), so under a shared LR\n"
+            "this runs teach at its best and elicit off its best — the teach/elicit ratio\n"
+            "falls on both counts. CONSERVATIVE for elicit, and it reverses the 2026-07-24\n"
+            "precedent deliberately (see rule 8).\n"
+            "REPORT WITH IT: an elicit win survives this choice; a teach win or a tie is\n"
+            "confounded by it, and by the 3.12-nat state gap, which cuts the same way."
         )
+        inflation = _floor_inflation(points, lr)
+        if inflation is not None and inflation > 3.0:
+            print(
+                f"! Arm A's floor inflates {inflation:.1f}x at this LR vs its own optimum — more\n"
+                f"  than the ~3x the 2026-07-24 precedent refused. Rule 8 says pin anyway, but\n"
+                f"  say this in the write-up rather than quietly re-deciding."
+            )
     return 0
+
+
+def _floor_inflation(points: list[dict], lr: float) -> float | None:
+    """How much worse arm A's floor is at `lr` than at arm A's own best LR."""
+    a = [p for p in points if p["arm"] == "A" and not p["excluded"] and not p.get("plateau")]
+    at_lr = [p["score"] for p in a if p["lr"] == lr]
+    if not a or not at_lr:
+        return None
+    return min(at_lr) / min(p["score"] for p in a)
 
 
 if __name__ == "__main__":

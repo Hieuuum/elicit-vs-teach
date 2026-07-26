@@ -2949,3 +2949,92 @@ measured to be monotone damage, which is why this phase exists.
 
 Still not launched: both target runs. Nothing in the owner's instruction
 authorized the EDL measurements.
+
+---
+
+### 2026-07-26 — phase-2 target LR sweep launched, with the tie-break fixed before any point scored
+
+Owner: *"Now run lr sweeps for both run, see what works best, and do a target
+run for each arm."* This entry records the design and the two pre-registered
+calls; the result lands in a later entry.
+
+**Why sweep at all, when 1e-3 is already a target-stage pin.** `lr_pin.yaml`
+measured 1e-3 at this stage, on this model, through this harness — but on
+parents this phase no longer has. Its Arm-A evidence is the 100K pilot pair
+behind **run 3's installer**; its Arm-B evidence is the 1M sweep behind **run
+4's**. This phase's Arm A has **no installer at all** (owner, same day) and
+its Arm B sits behind the new permuted-label one, and the two enter the target
+stage **3.12 nats apart**. An LR validated on one init is not thereby
+validated on another — that is the whole content of *scope-check pins before
+reuse*, and it is the same class of error that destroyed run 9. So the pin is
+re-measured on the parents that will actually be used. The sweep can vindicate
+the pin or move it; it changes nothing else about the phase.
+
+**Design.** 8 points: {3e-4, 1e-3, 3e-3} × {A, B}, plus a **seed-318 twin at
+1e-3 in each arm**. `train.seed` drives only the LoRA A-matrix init
+(`geode/train/lora.py`, bit-identical per seed) while `data.seed` stays 316 and
+the batch order is the frozen `D_target` order — so the twin pair differs in
+nothing but init, its spread is that arm's run-to-run noise floor, and across
+the grid the LR is the only thing that varies. Full 1M and the production
+ceiling 46878, both inherited unchanged: **no capped-epoch budget**, whose
+recorded lesson (38.7M sweep) is that it flatters high LRs and punishes slow
+ones — 3e-3 "won" a capped epoch and the at-convergence pilot overturned it.
+~2–3 GPU-h, ~$1.2. Cost was not a constraint on any of these choices.
+
+**Ten reading rules fixed in `configs/pilot/p2_sweep_armA_lr1e-3.yaml` before
+the first launch**, most carried over from the llama10 sweep where they
+already exist: plateau-not-floor (ε/k fires on any flat stretch — the 1e-2
+point once "converged" at 1.867 nats), `max_steps` **excluded** rather than
+ranked last, the final-k descent recorded to tell those two apart. The load
+-bearing one is **rule 7: no sweep point is promoted and no sweep number is
+reported.** Every point runs at seed 317/318 and is marked `lifecycle: pilot`,
+because min_val sets θ_T hence L_test hence EDL = MDL − N·L_test, and a
+selected minimum is biased low by construction. If the pin moves, production
+re-runs at seed 316 under the existing target run_ids. Rule 10: scope any new
+pin in `lr_pin.yaml` rather than overwriting the shared `lr:` key — runs 7/8
+are executed evidence under 1e-3 and rewriting that key would retroactively
+relabel two complete runs.
+
+**CALL 1 — shared LR, not per-arm (owner).** spec 02 §6 pre-registers that the
+target runs' *"training schedule is part of the metric"*, and
+`launch_phase2.sh` refuses unless both target yamls carry one shared `lr`
+equal to the pin. Both stand unedited. Per-arm LRs would additionally make
+each arm's numerator a **selected minimum biased low by a different,
+unmeasured amount** — the ratio of two independently-optimised minima is not
+the ratio this phase set out to measure.
+
+**CALL 2 — if the arms disagree, take ARM B's optimum (owner).** Answered
+while the first point was still training and **no score existed**, which is
+what keeps it a rule rather than a preference. Derivation, also written down
+before the data: EDL = MDL − N·L_test is the excess code length above the
+converged model's asymptote — the area between the learning curve and its
+floor — so a better LR descends faster, shrinks that area, and **lowers that
+arm's EDL**. The headline teach/elicit ratio (runs 5/6: 19.2×) supports the
+elicit hypothesis when it is *large*. Under a shared LR the two effects
+**compound**: taking Arm B's optimum runs teach at its best (EDL_B ↓) and
+elicit off its best (EDL_A ↑), so the ratio falls on both counts. **An elicit
+win survives this choice; a teach win or a tie is confounded by it** — and by
+the 3.12-nat state gap, which cuts the same way. This deliberately **reverses
+the 2026-07-24 precedent** (`lr_pin.yaml` lines 13–15), which took Arm A's
+optimum on the grounds that an inflated Arm-A floor is a measurement artifact
+in the ratio's numerator. That rationale still holds and is not refuted; it is
+outranked here by not wanting the headline to depend on a choice made in the
+elicit hypothesis' favour. If the shared LR inflates Arm A's floor by more
+than the ~3× that precedent refused, `lr_sweep_read.py` prints it and it goes
+in the write-up — it does not get quietly re-decided.
+
+**Landed** (commit `8a361cc` + this entry): 8 overlay configs;
+`scripts/launch_p2_lr_sweep.sh`, resumable, guarding before any spend that
+every point carries a sweep-only run_id, never seed 316, `match_data_order_with`
+nulled, snapshots off, never the installer LR, that the grid brackets the
+incumbent on **both** sides in **both** arms, and that the production targets
+are still untouched — all three refusal paths negative-tested;
+`analysis/lr_sweep_read.py`, which applies rules 1–6 mechanically, reports the
+stopping-eval-only min beside the all-evals min and refuses to pin if the two
+streams rank an arm differently.
+
+**First point in.** `evt-p2-sweep-armA-lr1e-3` converged at **step 3500**,
+eval-log min **0.00258 nats**. Run 7 — the same arm, same LR, but behind run
+3's installer — took 6000 steps to 0.00273. The no-installer parent converges
+**faster to a slightly lower floor**, which is the direction the "n = 0 lowers
+Arm A's EDL, so it is generous to elicit" prediction called for.
