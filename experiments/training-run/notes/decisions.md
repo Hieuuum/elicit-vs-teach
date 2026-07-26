@@ -3204,3 +3204,43 @@ denominator — backwards, since `learning_curves.py` prints teach/elicit as
 "ratio B/A"; and the rule-8 block asserted the ratio "falls on both counts",
 which was never established for arm A. The described *effects* were right
 throughout; the labels and the arm-A claim were not.
+
+**TARGETS DONE (2026-07-26) — teach/elicit EDL = 12.1x at matched n.** Both
+production targets ran at the sweep-confirmed pin (lr 1e-3, seed 316), same
+frozen 1M order (G7 verified), leak bar 0.0000 <= 0.02, both `converged`:
+
+| | stop | min_val | L_test (97,952) | G5 0-shot |
+|---|---|---|---|---|
+| A `evt-p2-armA-target-noinst` (elicit) | 4,500 | 0.00225 | 0.0024 nats | 0.9971 |
+| B `evt-p2-armB-target-perm` (teach) | 12,000 | 0.01959 | 0.0159 nats | 0.9697 |
+
+At matched n = 576,000 (arm A's epoch-1 end), in bits: EDL/token A 0.03399 vs
+B 0.41215; EDL/example A 0.16766 vs B 2.03280. Both give **12.1x**, as they
+must — the arms share a tokenizer (4.93 label tokens/example), so per-token
+and per-example differ only by that constant. Canonical test-floored
+endpoints sit at each run's own n and are NOT matched: A 0.03378 @576K, B
+0.30038 @1M.
+
+**Both known confounds cut against this result.** (1) The 3.12-nat state gap
+favours teach — arm B's installer ran, arm A's was cut to n=0 — and the plot
+shows it directly: arm B starts at ~0.22 bits/token while arm A peaks at 3.46
+at n=1,536, i.e. arm B begins already fitting the labels. It still ends 12x
+worse. (2) The LR pin is arm B's optimum on both coordinates, so EDL_B — the
+ratio's numerator — is not inflated by a bad schedule. Neither confound
+manufactures the gap; an elicit win survives both.
+
+**Do not read the 16-shot 0.0000/0.0020 as a defect of these runs.** 16-shot
+EM is ~0 everywhere in this project including the 1.24B Llama, and is already
+recorded as a collapsed metric (EXPERIMENTS.md §G5). Zero-shot is the live
+number.
+
+**Comparison numbers, with their caveats.** Runs 7/8 gave 19.3x at matched n
+under the ORIGINAL design (both installers ran); this phase gives 12.1x under
+the redesign (elicit installer n=0). The two are not a like-for-like
+before/after: the arms' entry states differ by construction between the
+designs. The third curve in the figure, `evt-run10-sweep-lr3e-4` (Llama-1B,
+2.93 label tokens/example), is a **sweep point**, so its floor is a selected
+minimum biased low and its EDL is correspondingly optimistic — it is plotted
+for shape, and per-token it is not tokenizer-comparable with A/B (per example
+it lands at 0.16920, essentially arm A's 0.16766). The pending stage-2 Llama
+run at 3e-4 is what would make that arm quotable.

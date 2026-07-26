@@ -257,6 +257,31 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    box; (c) the runs themselves. Compute policy (owner 2026-07-26): the phase
    runs on a rented GPU box over SSH, not on the laptop.
 
+   **BOTH TARGETS DONE 2026-07-26** — after the owner cut Arm A's installer
+   to n=0 the phase is **two** target runs, not six, and both have now run at
+   the sweep-confirmed pin **lr 1e-3, seed 316**, on the identical frozen 1M
+   order (G7 verified), leak bar 0.0000 ≤ 0.02:
+
+   | run | stop | min_val | L_test (97,952) | G5 0-shot |
+   |---|---|---|---|---|
+   | `evt-p2-armA-target-noinst` (elicit) | converged @ **4,500** | 0.00225 | **0.0024** nats | 0.9971 |
+   | `evt-p2-armB-target-perm` (teach) | converged @ **12,000** | 0.01959 | **0.0159** nats | 0.9697 |
+
+   **Headline: teach/elicit EDL = 12.1× at matched n = 576,000** (per label
+   token 0.41215 / 0.03399 bits; per example 2.03280 / 0.16766 — the two
+   agree because both arms share a tokenizer at 4.93 label tokens/example).
+   Figure: `analysis/figures/edl_per_token_p2.png`. Both confounds cut
+   AGAINST this result, not for it: arm B entered 3.12 nats ahead (its
+   installer ran, arm A's did not), and it still needed 12× the excess code
+   length. LR-pin caveat and the arm-A/undetermined-sign note: decisions.md
+   2026-07-26.
+
+   Preceded by the **8-point LR sweep** (both arms × {3e-4, 1e-3, 3e-3} +
+   seed twins at 1e-3). The arms disagree — arm A's optimum is 3e-4, arm B's
+   is 1e-3 — so rule 11's shared-LR band is empty and rule 8 takes arm B's
+   optimum. The pin therefore does not move, and phase 2 stays comparable
+   with runs 7/8, which executed under the same value.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
