@@ -1,3 +1,13 @@
+# ============================ RETIRED 2026-07-26 ============================
+# NEVER LAUNCHED. The dose grid it was to measure was retired by its own
+# result (the mult dose is monotone damage; decisions.md 2026-07-26), and the
+# elicit arm now has NO installer: its target is
+# configs/p2_armA_target_noinst.yaml, which inits from evt-run2-armA-algo and
+# is the phase's G7 anchor in this file's place. Kept for the record only —
+# its four overlays (configs/p2/target_dose{2,4,8,16}.yaml) are retired with
+# it, and launch_phase2.sh references none of them.
+# ============================================================================
+#
 # NEW PHASE (2026-07-26) — Arm A target run behind the DOSE-1 installer.
 # THIS FILE IS THE DOSE-1 TARGET and the phase's G7 ANCHOR; the doses 2/4/8/16
 # targets are the overlays in configs/p2/ (run_id + parent + the G7 pin only).

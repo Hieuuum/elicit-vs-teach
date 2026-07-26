@@ -1,3 +1,17 @@
+# ============================ RETIRED 2026-07-26 ============================
+# This config and its four overlays (configs/p2/dose{2,4,8,16}.yaml) RAN, and
+# the result retired the design: the mult dose is monotone damage at every
+# size (target zero-shot 0.1016 -> 0.0068, test loss 5.1935 -> 6.8277, G2
+# retention breaking at n=16), so the owner dropped the elicit installer
+# entirely. The elicit arm now trains its target straight from
+# evt-run2-armA-algo — see configs/p2_armA_target_noinst.yaml and
+# decisions.md 2026-07-26 ("dose grid RUN" then "no elicit installer").
+# KEPT, NOT DELETED: the five evt-p2-armA-dose* runs are the negative control
+# that licenses n=0, their manifests cite this file, and analysis/
+# dose_curve.py reads them. launch_phase2.sh no longer references it — do not
+# re-wire it back in without an owner decision.
+# ============================================================================
+#
 # NEW PHASE (2026-07-26) — Arm A "elicit" dose installer. THIS FILE IS THE
 # DOSE-1 RUN; doses 2/4/8/16 are the overlays in configs/p2/ (they differ
 # only in run_id, data.max_rows and train.batch_size). Design ratified by the

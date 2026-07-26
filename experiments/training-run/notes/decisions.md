@@ -2781,3 +2781,104 @@ a memory for. Options for the owner, none taken:
 diff is a new flag defaulting to false, with the early return inside
 `if args.no_record`, so it is a provable no-op for the path those runs took —
 but the commits differ and that is worth knowing when reading the manifests.
+
+---
+
+### 2026-07-26 — NO ELICIT INSTALLER (owner): the phase is one installer and two targets
+
+Owner call after reading the dose grid: *"Now do not do a format installer for
+arm a the elicit model. Do format install on the teach model with low random
+labels on additions and subtraction in operator notation."* This closes the
+three options left open by the entry above — none of (1) lower the installer
+LR, (2) cap the grid at passing doses, (3) redesign the elicit installer was
+taken. The answer is **n = 0**: the elicit arm gets no installer at all.
+
+**The evidence is the dose curve's own shape.** It is monotone from n = 0
+across the whole grid — zero-shot 0.1016 → 0.0068, test loss 5.1935 → 6.8277,
+retention 0.9961 → 0.8467. There is no dose at which the intervention is
+neutral and none at which it helps, so the curve has no interior optimum and
+its argmax is the intercept. Two further facts make this a design conclusion
+rather than a preference:
+
+- **Arm A has never had a non-damaging installer.** Run 3's 1M random-label
+  mult buried EM 10.2% → 1.2% (phase 0b). This is the second independent
+  installer design failing the same way on the same parent, which points at
+  *intervening on an already-format-ready parent* rather than at either
+  design's parameters.
+- **The dose never bought the parallelism it existed for.** 16 examples
+  against the teach arm's 200K was never exposure-matching. It paid a real
+  retention cost for a symmetry it did not deliver.
+
+**Why n = 0 is legitimate, not merely cheaper.** What the two arms must share
+is the **state** at the start of the target stage — format-valid, holding the
+true answer-shape prior, carrying no target mapping — not the **procedure** of
+having had an installer stage. Decision 5 (mapping-only EDL) requires exactly
+that state and nothing about how it was reached. Arm A's parent is measured to
+be in it: G4 **1.0000** on the external `D_target_eval` prompts (launcher
+baseline, this file above) and mean answer digits **3.726** against a true
+3.746 with 99.5% in range (phase 0b). It is format + shape without training.
+Arm B's parent is not (G4 0.0039, and it holds neither), which is why that arm
+still takes `D_inst_perm`. Matching by role means matching each arm's state;
+an installer that only damages a parent already in that state installs
+nothing.
+
+**Stated plainly, because it cuts against the elicit hypothesis' convenience:
+dropping the dose LOWERS Arm A's target EDL** (better init ⇒ lower early
+losses ⇒ lower MDL), so n = 0 is *generous* to elicit, not conservative. It is
+not defended on conservatism. It is defended on the dose's handicap being an
+artifact of a broken intervention rather than a property of elicitation —
+injecting arbitrary damage into one arm does not buy rigour. The decision was
+taken and written **before either target ran**, which is the only thing that
+keeps it a design choice instead of a post-hoc one.
+
+**The residual asymmetry is exposure, it got bigger, and it runs the other
+way.** The gap is now 100%: Arm B is warmed up on the target task's own
+surface form and Arm A is not, and under mapping-only EDL those examples are
+unbilled. That direction favours **teach** — it can only shrink teach's EDL
+and the elicit/teach ratio with it — so it cannot manufacture the elicit
+result. It is documented, not fixed with another dose.
+
+**"Low random labels" resolved.** *Random* here means what `D_inst_perm`
+already is — labels carrying no question→answer signal. It does **not** mean
+reverting to sampled-random labels: decision 2 chose permutation *over* random
+precisely because phase 0b measured random labels corrupting the answer-shape
+prior this installer exists to install. The artifact is unchanged. *Low* means
+minimum exposure, and the config already implements the only thing that can
+deliver it: the run stops at the **first** step format is installed (G4 ≥
+0.90, k = 3, `eval_every: 1` ⇒ a 3-step / 384-example floor). The 200K file is
+a **pool** and `max_steps` a cost ceiling; neither is a budget. Nobody has
+measured where G4 actually crosses 0.90 from `evt-run1-base-v3-ext` — run 4's
+step 750 was the old `eval_every: 250` floor, not a crossing — so the
+exposure is an **output of the run**, printed by the teach stage as
+`final_step × batch_size` and copied here. If it comes back large the lever is
+`batch_size` (finer than the 384-example floor), never `max_rows`: starving
+the pool risks the format never installing, which fires
+`stop_reason=max_steps` as a bug signal and measures nothing.
+
+**What changed in the repo** (one commit, spec included per CLAUDE.md):
+`specs/02-training-run.md` §6 gains the revision bullet and the superseded
+dose text is marked as such; `configs/p2_armA_target_noinst.yaml` is new —
+`parent_run_id: evt-run2-armA-algo`, `parent_required_gates: [G1]`, and it is
+the phase's **G7 anchor** in place of the dose-1 target;
+`p2_armB_target_perm.yaml` repoints `match_data_order_with` to it;
+`p2_armB_instperm.yaml` gains the exposure and terminology notes (data, LR and
+stop rule unchanged); `launch_phase2.sh` drops the `doses` stage and its two
+dose-only guards, takes `--stage teach|targets|all`, refuses `--stage doses`
+with a pointer here, and prints the teach installer's examples-seen. The
+runbook is rewritten around three runs.
+
+**Nothing is deleted.** `p2_armA_dose.yaml` + `configs/p2/dose*.yaml` (which
+ran) and `p2_armA_target_dose.yaml` + `configs/p2/target_dose*.yaml` (which
+never launched) keep their files and gain RETIRED banners; the five
+`evt-p2-armA-dose*` runs stay on the relay; `analysis/dose_curve.py` still
+reproduces the curve. The grid is not a wasted stage — it is **the control
+experiment showing that intervening on a capable parent is monotone damage**,
+which is what licenses dropping the installer instead of asserting it.
+
+**Still open, and deliberately not settled here.** The dose⊥steps confound
+from the entry above is now moot for the phase (there is no dose), but it is
+also therefore *unresolved as science*: whether the damage was mult, or
+over-training a tiny set at 3e-6, is not known. Anyone citing the dose grid as
+evidence about *doses* rather than about *interventions on this parent* has to
+run the step-matched control first (n=16 held to 413 steps, or n=1 run to
+1281 — minutes of CPU).

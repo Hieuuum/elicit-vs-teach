@@ -373,6 +373,31 @@ the 2026-07-18 downscale):
   The phase runs **fp32 in both arms and both stages** (the target harness
   already is), and **step 0 is recorded for every run**
   (`experiment.step0`) — the phase-0 defect fixed at its source.
+  **The dose grid RAN and its result retired it — see the next bullet
+  before acting on any of the elicit-dose text above.**
+- Installers, owner revision (2026-07-26, after the dose grid ran):
+  **the elicit arm gets no installer at all.** The dose grid measured the
+  mult dose to be monotone damage at every size (target zero-shot 0.1016
+  → 0.0068, test loss 5.1935 → 6.8277, G2 retention breaking at n=16);
+  there is no dose at which the intervention is neutral, so n=0 is the
+  elicit arm's installer. What the two arms must share is the **state**
+  at the start of the target stage — format-valid and holding the true
+  answer-shape prior, with no target mapping — not the *procedure* of
+  having had an installer stage. Arm A's parent (`evt-run2-armA-algo`)
+  measures that state directly: G4 1.0000 and mean answer digits 3.726
+  against a true 3.746 (phase 0b), so it satisfies decision 5's
+  mapping-only precondition without training. Arm B's parent does not
+  (G4 0.0039), which is exactly why it still takes `D_inst_perm`.
+  Consequences: the phase is **two runs**, one target per arm, sharing
+  the frozen 1M `D_target` order (G7 anchor = the Arm A target); the
+  elicit target inits from `evt-run2-armA-algo` with `G1` as its only
+  parent gate; the teach installer's rule, data and LR are unchanged.
+  The residual asymmetry is now **exposure**, and it runs the other way:
+  Arm B sees its installer's examples unbilled under mapping-only EDL
+  while Arm A sees none, which favours teach and so cannot manufacture
+  the elicit result. It is bounded by the teach installer's own stop
+  (G4 ≥ 0.90, k=3, per step) and **reported as examples seen**
+  (`final_step` × batch), not assumed small.
 - Stopping (runs 5–6, target runs — owner 2026-07-22): the canonical
   loss rule at short-run cadence — **ε=0.002 nats, k=5, eval_every 500,
   min_steps 0**. The canonical min_steps=5000 grace and eval_every 1000

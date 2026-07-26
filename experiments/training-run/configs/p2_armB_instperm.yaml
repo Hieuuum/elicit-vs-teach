@@ -16,12 +16,39 @@
 # multiset, reordered — geode.arith.permute_labels, V5.64), while the
 # question->answer mapping carries no signal. So this installer installs
 # format + the true shape prior and teaches no arithmetic.
+# TERMINOLOGY: the owner's 2026-07-26 instruction says "random labels", and
+# that is what PERMUTED means here — labels carrying no question->answer
+# signal. It does NOT mean reverting to sampled-random labels: decision 2
+# chose permutation OVER random precisely because phase 0b measured random
+# labels corrupting the answer-shape prior this installer exists to install.
+# The artifact stays D_inst_perm.
 #
-# The matching asymmetry is the point (decision 2): each arm gets the
-# installer that is non-destructive for ITS state. Arm A already holds the
-# capability and the shape prior, so it gets a small dose of correct-label
-# mult (p2_armA_dose.yaml); Arm B holds neither and gets the shape prior it
-# lacks. Matching by role, not by data identity.
+# THE MATCHING ASYMMETRY IS THE POINT (decision 2), and after the owner's
+# 2026-07-26 revision it is total: THIS IS THE PHASE'S ONLY INSTALLER. Each
+# arm gets the installer that is non-destructive for ITS state, and for Arm A
+# that turned out to be none at all — the dose grid measured every dose of
+# correct-label mult to be monotone damage, so the elicit arm now trains its
+# target straight from evt-run2-armA-algo, which already measures G4 1.0000
+# and the true answer-shape prior. Arm B's parent measures G4 0.0039 and holds
+# neither, so it still needs the shape prior installed here. Matching by role
+# means matching each arm's STATE at the start of the target stage — format +
+# shape, no target mapping — not the procedure of having had an installer.
+#
+# KEEP THE EXPOSURE LOW, AND REPORT IT (owner 2026-07-26: "low random labels
+# on additions and subtraction in operator notation"). With Arm A at zero
+# installer examples, everything this run sees is unbilled warm-up on the
+# target task's own surface form, so the amount matters and must not be left
+# implicit. The 200K file is a POOL and max_steps a cost ceiling, not a
+# budget: the run stops at the FIRST step format is installed (G4 >= 0.90,
+# k=3, eval_every 1 => a 3-step floor, 384 examples), which is the smallest
+# exposure that still does the job. What that costs is an OUTPUT of the run,
+# not an input — record `final_step` x `batch_size` as examples seen in
+# decisions.md when it completes. If it comes back large, the lever is
+# batch_size (finer than the 384-example floor), never max_rows: starving the
+# pool risks the format never installing, which fires stop_reason=max_steps as
+# a bug signal and measures nothing. The direction of this asymmetry favours
+# TEACH (unbilled warm-up can only shrink its EDL and the elicit/teach ratio
+# with it), so it cannot manufacture the elicit result.
 #
 # LEAK RISK AND HOW IT IS CHECKED. Unlike run 4's mult, this installer trains
 # on the target task's own surface form (operator add/sub). Two structural
