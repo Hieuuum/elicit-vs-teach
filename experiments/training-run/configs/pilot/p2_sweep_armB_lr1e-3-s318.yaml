@@ -1,0 +1,15 @@
+# Phase-2 target LR sweep — arm B @ 1.0e-3. SEED TWIN of the arm-B incumbent
+# point — identical but for the LoRA A-matrix init, giving this arm's run-
+# to-run noise floor (rule 5).
+#
+# See p2_sweep_armA_lr1e-3.yaml for the sweep design, the ten reading rules
+# and the launch command; this file differs from it only in run_id, train.lr
+# and train.seed.
+run_id: evt-p2-sweep-armB-lr1e-3-s318
+experiment:
+  match_data_order_with: null    # sweep points anchor nothing (G7 skipped)
+train:
+  lr: 1.0e-3
+  seed: 318                      # LoRA init only; data.seed stays 316
+  snapshots:
+    n: 0                         # disposable point, EDL curve only
