@@ -87,16 +87,41 @@ train:
   batch_size: 1                # == the dose (V5.65 refuses batch != n_train)
   eval_every: 1                # per-step: the step's own loss IS the metric,
                                # so the cadence costs no extra forward pass
-  max_steps: 4000              # pure cost ceiling = 4000 epochs of the dose
-                               # (batch == n_train). Pinned from the n=1
-                               # calibration pilot, which is the slowest dose
-                               # to absorb. stop_reason=max_steps means the
-                               # dose was never absorbed: investigate, don't
-                               # ship
+  max_steps: 6000              # pure cost ceiling = 6000 epochs of the dose
+                               # (batch == n_train). n=16 is the SLOWEST dose
+                               # to absorb, not n=1 (measured: 1281 vs 413
+                               # steps to the pinned rule), so the ceiling is
+                               # set off n=16 at 4.7x its expected stop —
+                               # stop_reason=max_steps stays a bug signal
+                               # ("the dose was never absorbed"), never a
+                               # budget outcome
   stopping:
     metric: train_loss         # full-dose plateau (V5.65/V5.66)
-    eps_nats: null             # PIN FROM THE CALIBRATION PILOTS before launch
-    k: null                    # (launcher refuses null eps_nats)
+    # PINNED 2026-07-26 from both calibration pilots, rerun on ONE device
+    # (box CPU, OMP_NUM_THREADS=16) because a trajectory reproduces only on
+    # the device that produced it. Replay of the candidate grid over the
+    # recorded curves (analysis/dose_stop_calibration.py), as %descent at the
+    # two ENDS of the grid — the number that has to match, since an eps
+    # firing at a different fraction of descent per dose would make the
+    # dose-response curve a measurement of its own stopping rule:
+    #
+    #     eps      k    dose 1            dose 16           gap
+    #     0.02     5    270  99.08%       540  93.70%      5.38pp   <- the
+    #     0.002    5    324  99.84%       964  99.59%      0.25pp   target
+    #     0.002   10    351  99.91%      1104  99.85%      0.06pp   stage's
+    #     0.0002   5    413  99.96%      1281  99.95%      0.01pp   <- PINNED
+    #     2e-05    5    624  99.99%      1737  99.99%      0.00pp
+    #
+    # Selection rule (stated before reading the table): take the FINEST
+    # candidate — most of the dose actually absorbed, which is what "absorbed"
+    # means (decision 3) — that still leaves max_steps >= 3x its slowest-dose
+    # stop, so a ceiling hit remains diagnostic. 2e-05 fires at 1737 (2.3x
+    # under the old 4000 ceiling) and buys 0.01pp; 0.0002 fires at 1281.
+    # NOT inherited from the target stage's 0.002/5: that was calibrated on 1M
+    # held-out losses at eval_every=500, and here it splits the two ends by
+    # 25x more than the pinned rule does.
+    eps_nats: 0.0002
+    k: 5
     min_steps: 0
   precision: fp32              # new-phase pin: matched across BOTH arms and
                                # both stages (the target harness is fp32), so
@@ -104,7 +129,7 @@ train:
                                # a GPU box are numerically comparable and the
                                # phase carries no arm-asymmetric precision
   seed: 316
-  epochs_total_planned: 4000   # batch == n_train, so 1 step = 1 epoch
+  epochs_total_planned: 6000   # batch == n_train, so 1 step = 1 epoch
 
 cost:
   assumed_epochs_for_estimate: 1  # <=16 examples: the estimate is ~$0

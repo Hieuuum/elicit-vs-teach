@@ -11,7 +11,7 @@ sequence below is a decision left to launch time.
 
 | run_id | stage | data | stop rule | where |
 |---|---|---|---|---|
-| `evt-p2-armA-dose{1,2,4,8,16}` | elicit installer | `D_dose_mult` prefix (n) | ε/k on full-dose train loss | CPU is enough |
+| `evt-p2-armA-dose{1,2,4,8,16}` | elicit installer | `D_dose_mult` prefix (n) | ε/k 0.0002/5 on full-dose train loss | CPU, pinned |
 | `evt-p2-armB-instperm` | teach installer | `D_inst_perm` (200K) | G4 ≥ 0.90, k=3, per step | GPU |
 | `evt-p2-armA-target-dose{1,2,4,8,16}` | EDL measurement | `D_target` 1M | ε/k 0.002/5 on the stopping block | GPU |
 | `evt-p2-armB-target-perm` | EDL measurement | `D_target` 1M | same | GPU |
@@ -75,7 +75,10 @@ equals the committed pin and differs from the installer LR.
   arm-asymmetric precision (the dose runs are CPU-run, the teach installer
   GPU-run) and makes the two numerically comparable.
 - **`stop_reason=max_steps` on any run in this phase is a bug signal**, not a
-  budget outcome: every ceiling here is ≥ 4× the expected stop.
+  budget outcome: every ceiling here is ≥ 4× the expected stop (dose ceiling
+  6000 vs the n=16 stop at 1281). The sole exception is the two `eps_nats: 0.0`
+  calibration pilots, which are *designed* to run to their ceiling so the whole
+  trajectory gets recorded.
 - **A dose run's `sft_result.min_val_nats` is NOT a val loss.** The trainer
   reuses that field name for whatever metric drove the stop, and a dose run
   has no val split at all — the number is the minimum **full-dose training**
@@ -92,20 +95,26 @@ equals the committed pin and differs from the installer LR.
   This is the phase-0 lesson: without it, "the rule fired" and "the rule was
   already satisfied before training" are indistinguishable.
 
-## Two things to do first, on the box
+## Two things to do first, on the box — BOTH DONE 2026-07-26
 
-1. **Pin the dose ε/k.** Rerun *both* calibration pilots there —
-   `--override configs/pilot/p2_dose_cal_n1.yaml` and `…_n16.yaml` — then
-   `analysis/dose_stop_calibration.py`, and write the winning ε/k into
-   `configs/p2_armA_dose.yaml`. Both ends must come from the same hardware:
-   a rerun reproduces a trajectory only on the same device and backend, and
-   this is a comparability test between the two ends. Every launch path
-   refuses while ε is null, so this cannot be skipped by accident.
-2. **Record the parent's G4 baseline.** `launch_phase2.sh` does it
-   automatically at the start of the doses stage (`gates.py g4 --no-record`
-   on `evt-run2-armA-algo`); copy the printed number into decisions.md. The
-   dose runs are gated on G4 but never evaluate it in-loop, so without the
-   before-any-dose number a low dose G4 cannot be attributed.
+1. **Pin the dose ε/k.** DONE: **ε 0.0002, k 5**, from both pilots rerun on
+   one device (box CPU, `OMP_NUM_THREADS=16`). Table and selection rule in
+   decisions.md. Both ends agree to 0.01pp of descent; the inherited 0.002/5
+   would have split them by 25× more. `max_steps` went 4000 → 6000 in the same
+   pass, because the measurement showed n=16 (not n=1) is the slowest dose to
+   absorb. Every launch path refuses while ε is null, so this could not have
+   been skipped by accident.
+2. **Record the parent's G4 baseline.** DONE: **1.0000** on
+   `evt-run2-armA-algo`, n=512 external prompts, `--no-record`. The launcher
+   re-runs it at the start of the doses stage. Read every dose G4 against it:
+   the parent is already saturated, so for this arm G4 detects damage only.
+
+**Device is part of the pin.** `DOSE_DEVICE` (default `cpu`) drives every dose
+training call and `experiment.device` is recorded in every manifest; a resume
+that would mix devices fails loudly. `train_sft.py` defaults to cuda-when-
+present, so on a GPU box an unpinned dose stage would silently have run the
+production installers on a different device from the pilots that calibrated
+their stopping rule.
 
 ## Post-run check the dose curve needs
 

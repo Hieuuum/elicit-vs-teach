@@ -2619,3 +2619,62 @@ rerun, the five dose runs, the teach installer, the six targets — belongs on
 the box. `launch_phase2.sh --stage doses|teach|targets` exists so the phase can
 be split across machines and resumed; every stage skips what is already
 complete.
+
+---
+
+### 2026-07-26 — dose ε/k PINNED at 0.0002/5 from both pilots on one device
+
+The calibration above is now closed. Both pilots were rerun on the rented box
+(`vast 50.173.30.254`, CPU, `OMP_NUM_THREADS=16`, fp32) so the two ends of the
+grid come from one device and one thread count — a CPU reduction order depends
+on both, and this is a comparability test, not two independent measurements.
+Cross-device agreement at step 0 was exact to 4+ decimals against the laptop
+pilots (8.99633 at n=1, 15.90815 at n=16), which is the expected signature of
+a pure forward pass in fp32.
+
+Both pilots ran to their ceilings (`stop_reason=max_steps`) **by design**: at
+`eps_nats: 0.0` a strict-improvement rule never trips on a monotone full-batch
+descent, so `max_steps` bounds the run and the whole trajectory is recorded.
+This is the one place in the phase where `max_steps` is not a bug signal.
+
+Full replay of the pre-registered candidate grid over the recorded curves
+(n=1: 4000 steps, 8.9963 → 1.3e-5; n=16: 2000 steps, 15.9081 → 1.3e-3):
+
+| ε | k | dose 1 | %descent | dose 16 | %descent | gap |
+|---|---|---|---|---|---|---|
+| 0.02 | 5 | step 270, 0.0827 | 99.08% | step 540, 1.0026 | 93.70% | 5.38pp |
+| 0.002 | 5 | step 324, 0.0142 | 99.84% | step 964, 0.0645 | 99.59% | 0.25pp |
+| 0.002 | 10 | step 351, 0.0081 | 99.91% | step 1104, 0.0236 | 99.85% | 0.06pp |
+| **0.0002** | **5** | **step 413, 0.0035** | **99.96%** | **step 1281, 0.0084** | **99.95%** | **0.01pp** |
+| 2e-05 | 5 | step 624, 0.0009 | 99.99% | step 1737, 0.0020 | 99.99% | 0.00pp |
+
+**PINNED: ε = 0.0002 nats, k = 5.** Selection rule, fixed before reading the
+table: take the finest candidate — most of the dose actually absorbed, which
+is what "absorbed" was defined to mean (decision 3) — subject to `max_steps`
+remaining ≥ 3× the slowest dose's stop, so a ceiling hit stays diagnostic.
+2e-05 fires at 1737 and would have sat 2.3× under the old ceiling while buying
+0.01pp. The inherited target-stage 0.002/5 splits the two ends by 25× more
+than the pinned rule.
+
+Two things the measurement corrected in the config:
+
+- **n=16 is the slowest dose to absorb, not n=1** (1281 vs 413 steps). The
+  ceiling comment claimed the opposite and was pinned off the wrong end.
+- `max_steps` 4000 → **6000**, and `epochs_total_planned` with it: 4.7× the
+  n=16 stop. The ceiling is a pure cost bound, never a stopping rule, so
+  raising it only sharpens `stop_reason=max_steps` as a bug signal.
+
+**Device is now pinned and recorded.** `train_sft.py` defaults to
+`--device cuda` whenever a GPU is visible and `launch_phase2.sh` passed no
+`--device` at all, so on a GPU box the hand-run pilots (CPU) and the five
+production installers (CUDA) would have landed on different devices with
+nothing raising an error — the pin would have described a curve it was never
+measured against. `DOSE_DEVICE` (default `cpu`) now drives every dose training
+call, a resume whose completed run recorded a different device fails loudly,
+and every SFT run records `experiment.device` (commit 71d0358).
+
+**Parent G4 baseline, before any dose: 1.0000** (`evt-run2-armA-algo`, n=512
+external `D_target_eval` prompts, `--no-record`). Matches the phase-0 value on
+`D_inst` prompts. The consequence is worth stating plainly: for the elicit arm
+G4 can only ever detect *damage*, never progress — a dose G4 of 1.0000 is not
+evidence the dose did anything, and only a drop below 0.90 carries information.
