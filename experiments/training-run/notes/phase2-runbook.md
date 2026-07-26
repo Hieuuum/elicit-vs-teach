@@ -1,5 +1,15 @@
 # New-phase runbook — role-matched installers + the elicit dose curve
 
+> **STATUS 2026-07-26: the doses stage RAN and the phase is HALTED.** All five
+> dose installers converged and were gated; `launch_phase2.sh` then stopped at
+> dose 16 on G2 retention 0.8467 < 0.95, as written. The mult dose turned out
+> to be monotone damage at every size (target zero-shot 0.1016 → 0.0068). The
+> teach installer and all six targets were **never launched** and must not be,
+> pending an owner call on the elicit installer's LR — per decision 4 a G2
+> failure is stop-and-report, never retune. Numbers, options and the
+> dose/steps confound: decisions.md, entry "dose grid RUN". Do not run
+> `--stage teach` or `--stage targets` until that is resolved.
+
 Design ratified by the owner 2026-07-26; rationale and the five numbered
 decisions live in `notes/decisions.md` (entry "new-phase installer redesign
 ratified"), the rules in `specs/02-training-run.md` §5/§6. This file is the
