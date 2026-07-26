@@ -3272,3 +3272,37 @@ minimum biased low and its EDL is correspondingly optimistic — it is plotted
 for shape, and per-token it is not tokenizer-comparable with A/B (per example
 it lands at 0.16920, essentially arm A's 0.16766). The pending stage-2 Llama
 run at 3e-4 is what would make that arm quotable.
+
+**LOSS CURVES (2026-07-26) — the teach plateau, and what makes arm B's EDL
+hump.** `analysis/figures/losses_p2.png` (`plot_losses.py`, same three runs as
+the EDL figure; train faint, val bold, both in nats).
+
+| step | A elicit | B teach |
+|---|---|---|
+| 1 | 5.0046 | 2.0421 |
+| 50 | 0.4432 | 1.5297 |
+| 500 | **0.0080** | 1.0432 |
+| 885 | 0.0088 | 0.8592 |
+| 1,185 | 0.0071 | 0.3105 |
+| 2,000 | 0.0032 | 0.1424 |
+
+The state gap is visible at step 1 — arm A opens 2.96 nats WORSE (5.00 vs
+2.04), the target-stage form of the 3.12-nat entry gap — and is gone by step
+~15, where the curves cross. By step 500 arm A is at 0.0080 while arm B is
+still at 1.0432: a **130x** gap, with arm A essentially converged and arm B
+having covered barely half its descent. Arm B does not fall off its plateau
+until ~step 900, then drops an order of magnitude in ~600 steps.
+
+**That cliff is what produces arm B's EDL hump at n=151,680 (step 1,185).**
+The running EDL subtracts the CURRENT step's val loss (plot caveat 1), so when
+the val curve crashes the subtrahend collapses and the running EDL jumps; the
+hump is the plateau-then-cliff shape seen through that definition, not a
+separate phenomenon. Arm A's much larger early peak (3.46 bits at step 12) is
+the same mechanism at its own steep descent. Canonical endpoints use
+`eval/test_loss.json` and are unaffected.
+
+Arm B's val curve is also visibly noisier post-cliff (spikes to ~0.26 around
+step 4,000 against a ~0.03 trend) — consistent with the stop-wobble caveat
+already recorded for the run-5/6 pair. Cross-run caution: the Llama curve is
+on a different tokenizer (2.93 vs 4.93 label tokens/example), so its per-token
+nats are not comparable in level with the two arms, only in shape.
