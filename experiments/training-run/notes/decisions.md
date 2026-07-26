@@ -2882,3 +2882,70 @@ over-training a tiny set at 3e-6, is not known. Anyone citing the dose grid as
 evidence about *doses* rather than about *interventions on this parent* has to
 run the step-matched control first (n=16 held to 413 steps, or n=1 run to
 1281 — minutes of CPU).
+
+---
+
+### 2026-07-26 — teach installer RAN: 15,488 examples, all gates pass, and a 3.1-nat state gap
+
+`evt-p2-armB-instperm` trained on the box (RTX 4090, cuda, fp32) against the
+revised phase — the phase's only installer. It stopped on **behavior at step
+121**: G4 crossed 0.90 for k=3 consecutive per-step evals, well inside the
+3109-step ceiling, so `stop_reason` is not the bug signal.
+
+**Exposure: 121 steps × batch 128 = 15,488 examples seen** — 7.7% of the 200K
+`D_inst_perm` pool, against Arm A's 0. That is what the owner's "low" resolved
+to, and it is measured rather than configured: the pool and `max_steps` are
+bounds, the behavioral stop is what set it.
+
+**The installer measured something in this arm, which is the whole point of
+role-matching.** Step 0 format validity **0.0078** rising to 0.9551 — the
+opposite of Arm A's parent, which sat at 1.0000 before any training and made
+the "shared" rule uninformative (phase 0). The rule that was vacuous in the
+elicit arm is load-bearing here.
+
+| gate | value | bar | verdict |
+|---|---|---|---|
+| G4 format validity | 0.9551 | ≥ 0.90 | PASS |
+| G3 NL add/sub leak | 0.0000 (+: 0.0, −: 0.0) | ≤ 0.02 | PASS |
+| **G5 zero-shot (the leak bar)** | **0.0000** | ≤ 0.02 | **PASS** |
+| G5 16-shot | 0.0000 | — | evidence |
+| G5 shared-set test loss | 2.0728 nats | — | evidence |
+
+The operative leak measure is G5 zero-shot, matched notation and op
+(`p2_armB_instperm.yaml` header), and it came back at exactly 0.0000: the
+permutation destroyed the mapping as designed and this installer taught no
+real operator add/sub. G3 agrees cross-notation. Relay-verified, 7 files, on
+`mhieuuu/geode-store`.
+
+**THE NUMBER THAT NEEDS AN OWNER'S EYES — the two arms do not start the
+target stage from the same place, and the gap is 3.1 nats in teach's favour.**
+
+| entering the target stage | G4 | 0-shot | 16-shot | test loss (nats) |
+|---|---|---|---|---|
+| Arm A — `evt-run2-armA-algo`, no installer | 1.0000 | **0.1016** | 0.0000 | **5.1935** |
+| Arm B — `evt-p2-armB-instperm`, 15,488 ex | 0.9551 | 0.0000 | 0.0000 | **2.0728** |
+
+Arm B enters with a **3.12-nat lower** masked NLL on the identical reporting
+block while getting **zero** questions right; Arm A enters 3.12 nats worse and
+already answers 10.2% correctly. The two arms hold different *kinds* of
+knowledge — Arm B the marginal, Arm A the mapping — and this is the same
+"the installer's D_target loss drop is entropy, not shape" effect phase 0b
+measured on run 3 (D_target 2.2961 there, 2.0728 here: any installer buys
+~3 nats of entropy reduction, and Arm A has now forgone it).
+
+**Direction, and the asymmetric risk it creates.** Those 3.1 nats are unbilled
+under mapping-only EDL (decision 5), so they lower Arm B's prequential
+codelength and therefore its EDL. That favours **teach** — exactly as decision
+5 pre-registered ("teach's EDL shrinks... the ratio can only get smaller") —
+so an elicit win would hold *despite* a 3.1-nat head start given to the other
+arm, which is the strong form of the result. But the conservatism is
+one-sided and must not be quoted as if it were symmetric: **if teach wins or
+the arms tie, this gap is a live confound** and the result cannot distinguish
+"teaching is cheap" from "teach got 15,488 unbilled examples of the target's
+surface form." Report both arms' prequential curves and their step-0 losses
+alongside any EDL number so the head start is visible rather than folded into
+a ratio. Do not fix it by re-introducing an installer for Arm A — that was
+measured to be monotone damage, which is why this phase exists.
+
+Still not launched: both target runs. Nothing in the owner's instruction
+authorized the EDL measurements.
