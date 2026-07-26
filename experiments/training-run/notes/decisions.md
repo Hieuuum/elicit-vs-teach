@@ -2678,3 +2678,106 @@ external `D_target_eval` prompts, `--no-record`). Matches the phase-0 value on
 `D_inst` prompts. The consequence is worth stating plainly: for the elicit arm
 G4 can only ever detect *damage*, never progress — a dose G4 of 1.0000 is not
 evidence the dose did anything, and only a drop below 0.90 carries information.
+
+---
+
+### 2026-07-26 — dose grid RUN: the mult dose is monotone damage, and n=16 fails G2
+
+All five dose installers ran on the box (CPU, `OMP_NUM_THREADS=16`, fp32,
+`DOSE_DEVICE=cpu`) against the pinned ε/k. **The stage stopped at dose 16 on a
+G2 retention failure**, exactly where `launch_phase2.sh` is written to stop
+("do NOT proceed"). No target run has been launched.
+
+**The stopping rule behaved.** Every dose converged; none hit the ceiling. The
+n=1 and n=16 runs stopped at steps 413 and 1281 — the exact steps the
+calibration replay predicted, which validates the replay as faithful rather
+than merely plausible.
+
+| dose | steps | L0 | L_stop | %descent |
+|---|---|---|---|---|
+| 1 | 413 | 8.9963 | 0.003502 | 99.96% |
+| 2 | 516 | 11.5270 | 0.005090 | 99.96% |
+| 4 | 622 | 13.4952 | 0.005925 | 99.96% |
+| 8 | 1069 | 15.0212 | 0.008040 | 99.95% |
+| 16 | 1281 | 15.9081 | 0.008386 | 99.95% |
+
+Spread 0.015pp. The middle doses, which inherit a rule calibrated only at the
+two ends, were treated exactly alike — so the curve below measures the dose and
+not its stopping rule (`analysis/dose_curve.py`).
+
+**The curve, with the parent as the n=0 intercept** (scored `--no-record` on
+the identical eval file and protocol; `gates.py g5` gained that flag for this):
+
+| dose | G4 | G2 retention | 0-shot | 16-shot | test loss (nats) |
+|---|---|---|---|---|---|
+| **0 (parent)** | 1.0000 | 0.9961 (G1) | **0.1016** | 0.0000 | **5.1935** |
+| 1 | 1.0000 | 0.9951 | 0.0840 | 0.0000 | 5.5502 |
+| 2 | 1.0000 | 0.9941 | 0.0762 | 0.0000 | 5.5915 |
+| 4 | 0.9961 | 0.9941 | 0.0547 | 0.0000 | 5.9555 |
+| 8 | 1.0000 | 0.9639 | 0.0254 | 0.0000 | 6.1994 |
+| 16 | 0.9961 | **0.8467 FAIL** | **0.0068** | 0.0010 | **6.8277** |
+
+The n=0 retention cell is the parent's G1, which carries a byte-identical
+`protocol` string, the same `sample_seed` 316, the same n=1024 and the same
+0.95 threshold as every G2 above it — the same measurement under the other
+gate's name, so the column is comparable end to end. Dose 16's G5 was recorded
+after the fact: the launcher exited on the G2 failure before reaching it, and
+the endpoint of the finding should not be the one row that cannot be quoted.
+Recording it cannot unblock anything — G2 sits at `pass: false`, so
+`require_parent_ready` refuses the dose-16 target whatever G5 says.
+
+**The finding: every dose is damage, monotonically in n.** Target zero-shot
+falls 0.1016 → 0.0068 (15× worse than the parent) and target test loss rises
+5.1935 → 6.8277 across the grid, from the very first example. Retention holds
+to ~3 significant figures through dose 4, bends at 8, and breaks at 16. There
+is no dose at which the intervention is neutral, and no dose at which it helps.
+
+**Dose and optimizer steps co-vary by construction, and this grid cannot
+separate them.** The stop rule is "absorb the dose", so absorbing more examples
+takes more steps: 413 at n=1 rising to 1281 at n=16. "Retention degrades with
+dose" and "retention degrades with steps at lr 3e-6" are therefore the same
+curve measured once. This is not a caveat to note and move past — it decides
+which remediation can work. Lowering the installer LR (the pre-registered
+response) makes absorption take *more* steps, so if steps are the mechanism it
+may not help at all, and could hurt. Separating the two needs a control this
+grid does not contain: e.g. n=16 trained for 413 steps (dose held, steps
+matched to n=1), or n=1 trained for 1281 (steps held, dose matched to n=16).
+Either is minutes of CPU and either would settle it.
+
+This falsifies the premise the dose arm was built on. `p2_armA_dose.yaml`
+argues that correct-label mult is the role-matched minimal intervention
+because "mult keeps the op disjoint from the target task, so the dose cannot
+leak add/sub mapping; correct labels keep it from burying the shape prior the
+parent already has." The first half held — no add/sub mapping was given. The
+second half did not: 16 mult examples trained to convergence at lr 3e-6 bury
+enough of the prior to cost 15pp of D_algo retention. Note what "absorbed"
+costs here — at n=1 that is 413 steps on a *single* example, so the damage
+may be over-training on a tiny set rather than anything about mult; the two
+are not separated by this grid.
+
+**G4 measured nothing, as predicted.** Parent 1.0000 before any dose; every
+dose 0.9961–1.0000. For this arm G4 can only detect damage and never did.
+
+**Per decision 4 this is stop-and-report, not retune.** The G2 failure means
+the inherited 3e-6 installer LR does not survive this dose at n=16, and the
+pre-registered response is to extend the LR downward as the run-9 fix did —
+an owner call. Re-tuning the intervention until the gate passes would be
+tuning a measurement post-hoc, the failure class this project already carries
+a memory for. Options for the owner, none taken:
+
+1. **Lower the installer LR** for the dose arm and re-run the grid (the
+   pre-registered response). Cost is minutes of CPU — but see the step/dose
+   confound above: a lower LR lengthens absorption, so this is the option most
+   likely to be undermined by the mechanism it is meant to fix. Worth running
+   the step-matched control first.
+2. **Cap the grid at the doses that pass** (n ≤ 8, or n ≤ 4 for untouched
+   retention) and report the dose-response over that range.
+3. **Treat the result as the finding** — that a role-matched elicit dose big
+   enough to matter cannot be given to this parent without teaching-like
+   damage — and redesign the elicit installer.
+
+**Provenance wrinkle.** Doses 1/2 recorded `git_commit` 411593a and doses
+4/8/16 recorded ce91713: `gates.py` gained `g5 --no-record` mid-stage. The
+diff is a new flag defaulting to false, with the early return inside
+`if args.no_record`, so it is a provable no-op for the path those runs took —
+but the commits differ and that is worth knowing when reading the manifests.
