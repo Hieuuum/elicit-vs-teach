@@ -3346,13 +3346,34 @@ parent's ~10% zero-shot operator accuracy is **almost entirely subtraction**.
 | − | 3 digits | 158 | 0.0570 | 0.0380 |
 | − | 4 digits | 49 | 0.0000 | 0.0000 |
 
-Addition transfers at 2/508 for the parent; subtraction transfers at 58% when
-one operand is a single digit and decays to zero by four digits. So the G5
-zero-shot number is best read as "copy the large operand and adjust the low
-digits", not as general operator-notation arithmetic — and the dose shifts
-every cell of that surface down rather than removing a capability class. This
-does not bear on G1/G2, which measure the parent on NL notation at 0.9961;
-G5 measures cross-format transfer, where spec 02 §8 expected ~2% anyway.
+The gap is NOT "addition items are harder at the same digit budget". In the
+matched easiest cell (smaller operand = 1 digit) the parent scores 0.0106 on
+`+` against 0.5833 on `−`, a 55x gap at an identical digit budget. The two
+operators fail in categorically different ways:
+
+- **`−` transferred, with limited precision.** Sign is correct on **516/516**
+  subtraction items for the parent — every negative answer is emitted
+  negative, every positive one positive — so the operator's direction is
+  understood. Only the low digits are unreliable, and that unreliability
+  grows with operand length (58% → 0% across the digit rows above). Half its
+  misses (49.8%) land within half the required distance of the larger
+  operand: copy-and-adjust, adjusted imprecisely.
+- **`+` did not transfer.** **395 of 508** addition answers (77.8%) are
+  *smaller than the larger operand* — impossible for a sum of two positives.
+  The parent is not doing imprecise addition; on operator notation it applies
+  something subtraction-shaped to `+`.
+
+So the dose shifts the subtraction surface down (its real effect) while
+addition was already at floor and stays there. Note the dose slightly
+*reduces* the impossible-sum rate (0.778 → 0.657) and nudges `+` from 2/508
+to 3/508 — three questions, noise, but directionally consistent with the
+phase-0b finding that mult labels inflate the answer-length prior.
+
+None of this bears on G1/G2, which measure this same parent on **NL** add/sub
+at 0.9961 — the capability is present, and it is present for both operators.
+G5 measures *cross-format* transfer, where spec 02 §8 expected ~2% in the
+first place; what these rows add is that the ~10% actually observed is
+one-operator transfer, not uniform partial transfer.
 
 Caveat on weight: exact match at ~10% is a thresholded, noisy readout on 1,024
 questions. The load-bearing evidence for dose damage remains the test-loss gap
