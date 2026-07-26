@@ -139,13 +139,21 @@
 #      "acceptable", inflate EDL_B, RAISE the teach/elicit ratio and flatter
 #      elicit: precisely what rule 8 exists to prevent, arriving through the
 #      back door.
-#      TIE INSIDE THE BAND -> the member arm B scores lowest. Inside the
-#      band the differences are by construction not separable from run-to-
-#      run noise, so the tie is broken by pre-registered DIRECTION rather
-#      than by the numbers, and the direction is the owner's second clause.
-#      FOR THE SHARED PIN ONLY this supersedes rule 1's ties->incumbent and
-#      rule 5's incumbent-stands default; both still govern each arm's own
-#      verdict line.
+#      TIE INSIDE THE BAND -> the INCUMBENT if it is in the band; arm B's
+#      score only picks among non-incumbent members. The owner's second
+#      clause is conditioned on "if not" — on no shared value EXISTING —
+#      which is rule 8's trigger, not a within-band tie-break. Inside the
+#      band the first clause is already satisfied and the incumbent is
+#      itself a value that serves both arms, so rules 1 (ties->incumbent)
+#      and 10 (don't move the pin) stand unchanged. REVERSED 2026-07-26,
+#      same day, after synthetic testing: the first version preferred arm
+#      B's within-band member and pinned a GRID EDGE on a 0.00019-nat arm-B
+#      difference rule 5 had already called unmeasurable, which then tripped
+#      rule 6 and demanded a grid extension — a tie-break manufacturing work
+#      out of noise. Preferring the incumbent is NOT a choice made in
+#      elicit's favour: it is the pre-existing pin, fixed before this
+#      question arose, and the residual is bounded by the band by
+#      construction and reported on both coordinates for both arms.
 #      STEPS BAND FLOOR: the twins routinely stop at the SAME step (eps/k
 #      can only fire on an eval tick), so the measured steps-spread is often
 #      0. The band is floored at one eval tick, read off the log rather than

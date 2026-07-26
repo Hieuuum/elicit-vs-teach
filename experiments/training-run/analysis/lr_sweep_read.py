@@ -177,6 +177,16 @@ def main() -> int:
                 "the noise floor is unmeasured and rule 5 cannot be applied"
             )
             continue
+        if any(t["excluded"] or t.get("plateau") for t in twins):
+            # Both the noise handle and rule 5's "incumbent stands" default are
+            # read off the twins. If rules 2/3 disqualified them, every number
+            # downstream would be measured on runs already thrown out.
+            print(
+                f"  ! arm {arm}: the incumbent {INCUMBENT_LR:.0e} is ITSELF disqualified "
+                "(excluded or plateau) — the noise handle would be read off runs rules 2/3 "
+                "just threw out. Rules 5 and 11 cannot be applied to this arm; escalate."
+            )
+            continue
         noise = abs(twins[0]["score"] - twins[1]["score"])
         # Floored at one eval tick: the twins routinely stop at the identical
         # step, and a zero-width band would call an unresolvable difference
@@ -279,23 +289,34 @@ def main() -> int:
     shared = [lr for lr in arms["A"]["acceptable"] if lr in arms["B"]["acceptable"]]
 
     if shared:
-        # Rule 11, first clause. Inside the band the arms cannot tell these LRs
-        # apart, so the choice among them is made by pre-registered DIRECTION,
-        # not by the numbers: take the one arm B scores lowest.
-        lr = min(shared, key=lambda x: arms["B"]["rep"][x]["score"])
+        # Rule 11, first clause. The owner's second clause is conditioned on no
+        # shared value existing, so it does NOT break ties here — inside the
+        # band the incumbent is itself a value that serves both arms, and rules
+        # 1 (ties -> incumbent) and 10 (don't move the pin) apply unchanged.
+        # Arm B's score only picks among non-incumbent members.
+        lr = (
+            INCUMBENT_LR
+            if INCUMBENT_LR in shared
+            else min(shared, key=lambda x: arms["B"]["rep"][x]["score"])
+        )
         print(
             f"RULE 11 — {', '.join(f'{x:.1e}' for x in shared)} "
             f"{'is' if len(shared) == 1 else 'are all'} acceptable to BOTH arms "
             f"(within each arm's own seed-twin spread of its best, on floor AND steps)."
         )
-        if len(shared) > 1:
+        if len(shared) == 1:
+            print(f"=> pin {lr:.1e}: the only LR that serves both arms.")
+        elif lr == INCUMBENT_LR:
             print(
-                f"=> pin {lr:.1e}: among LRs the arms cannot distinguish, the tie breaks toward "
-                "TEACH\n   (owner's second clause), so no residual is left pointing the elicit "
-                "hypothesis' way."
+                f"=> pin {lr:.1e}: among LRs the arms cannot distinguish, the incumbent holds "
+                "(rules 1, 10).\n   The owner's second clause is conditioned on no shared value "
+                "existing — that is rule 8."
             )
         else:
-            print(f"=> pin {lr:.1e}: the only LR that serves both arms.")
+            print(
+                f"=> pin {lr:.1e}: the incumbent is NOT in the band, so among the LRs that are, "
+                "the\n   one arm B scores lowest."
+            )
     else:
         # "Arm B's optimum" means optimum on the SAME two coordinates rule 11
         # judges on. Reading it off rule 5's floor-only verdict would let an LR

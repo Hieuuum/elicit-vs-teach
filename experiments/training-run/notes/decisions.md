@@ -3091,3 +3091,33 @@ both-arms-prefer-the-incumbent.
 seed 317's 0.00258, both converged at step 3500 ⇒ arm A's **noise floor
 0.00025 nats, steps spread 0**. For scale: 0.00025 is ~10% of the floor
 itself, so any arm-A challenger winning by less than that is noise.
+
+**CALL 3, amended same day — the within-band tie goes to the INCUMBENT, not
+to teach.** The first version of rule 11 broke within-band ties toward arm B.
+Synthetic testing killed it: with `{1e-3, 3e-3}` both acceptable to both arms,
+it pinned **3e-3 — a grid edge** — on a 0.00019-nat arm-B difference that rule
+5 had already declared unmeasurable, which then tripped rule 6 and demanded a
+grid extension. A tie-break that manufactures work out of noise, and it is the
+*common* case: with three grid points and a band admitting two, the
+lowest-arm-B member is frequently an edge.
+
+The re-reading is also the more faithful one. *"…if not, then choose the one
+that's better for teaching"* conditions the second clause on **no shared value
+existing** — that is rule 8's trigger. Inside the band the first clause is
+already satisfied, and the incumbent is itself a value that serves both arms.
+Preferring it is **not** a choice made in elicit's favour: it is the
+pre-existing pin, fixed before this question arose, and rules 1
+(ties→incumbent) and 10 (don't move the pin) both point the same way. The
+residual is bounded by the band by construction and is reported on both
+coordinates for both arms. Arm B's score now picks only among non-incumbent
+band members.
+
+**Also fixed:** if the incumbent is *itself* disqualified in an arm (rule 2
+plateau or rule 3 ceiling exit), the noise handle and rule 5's
+incumbent-stands default would both be read off runs that were just thrown
+out. The reader now refuses that arm outright and declines to pin. Reachable:
+it needs only some other LR to land below half the incumbent's floor.
+
+Four synthetic stores now cover the branches — floors-tie-but-2×-slower,
+several-LRs-acceptable, both-arms-prefer-the-incumbent, and
+incumbent-is-a-plateau.
