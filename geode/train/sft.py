@@ -182,6 +182,7 @@ def train_sft(
     out_dir: Path,
     precision: Literal["fp32", "bf16"] = "fp32",
     behavioral_eval: Callable[[], float] | None = None,
+    stopping_metric: Literal["val_loss", "train_loss"] = "val_loss",
 ) -> TrainResult:
     """Label-masked SFT: ``train_full``'s contract, loss on label tokens only.
 
@@ -198,6 +199,16 @@ def train_sft(
     records ``task_format``. A ``BehavioralStoppingRule`` (with its paired
     ``behavioral_eval``) switches the stop decision to the in-loop behavioral
     metric — module docstring, specs/02 §6.
+
+    ``stopping_metric="train_loss"`` (2026-07-26, specs/02 §6 new-phase dose
+    installers): the ε/k plateau rule consumes the step's own training loss
+    instead of a val eval — "the dose is absorbed". Requires
+    ``batch_size == n_train`` (every step consumes the whole set, so the
+    per-step loss is the exact full-dose loss, not a subsample; V5.65) and a
+    plain ``StoppingRule``. ``val_examples`` may be empty in this mode — the
+    only mode where it may (V5.66); if provided, val loss is still evaluated
+    and logged for the record. ``best_val_nats``/``min_val_nats`` then carry
+    the stopping metric (train loss).
     """
     n_train = len(train_examples)
     if n_train < batch_size:
@@ -210,6 +221,27 @@ def train_sft(
         raise ValueError(
             "train_sft: BehavioralStoppingRule and behavioral_eval must be passed together "
             "(specs/02 §6: the installers stop on the in-loop behavioral eval, nothing else)"
+        )
+    if stopping_metric not in ("val_loss", "train_loss"):
+        raise ValueError(f"train_sft: unknown stopping_metric {stopping_metric!r}")
+    train_loss_stop = stopping_metric == "train_loss"
+    if train_loss_stop:
+        if behavioral:
+            raise ValueError(
+                "train_sft: stopping_metric='train_loss' requires a StoppingRule — dose "
+                "runs stop on the loss plateau, never the behavioral metric (specs/02 §6)"
+            )
+        if batch_size != n_train:
+            raise ValueError(
+                f"train_sft: stopping_metric='train_loss' requires batch_size == n_train "
+                f"(got batch_size={batch_size}, n_train={n_train}) — the per-step training "
+                "loss is the full-dose loss only when every step consumes the whole set; a "
+                "subsampled batch would plateau on batch noise (V5.65)"
+            )
+    elif not val_examples:
+        raise ValueError(
+            "train_sft: val_examples is empty — only stopping_metric='train_loss' runs "
+            "without a validation split (V5.66)"
         )
     # Validate both splits before any training or disk write (V5.31).
     input_ids_all, mask_all = _padded_inputs_and_mask(train_examples, task_format)
@@ -262,6 +294,28 @@ def train_sft(
             is_periodic = step % eval_every == 0
             is_capped_final = max_steps is not None and step == max_steps
             if is_periodic or is_capped_final:
+                if train_loss_stop:
+                    # batch == whole set, so the step's own loss IS the exact
+                    # full-dose masked CE — no separate eval forward needed.
+                    metric_nats = float(loss.item())
+                    eval_record = {
+                        "step": step,
+                        "train_loss_nats": metric_nats,
+                        "time_unix": time.time(),
+                    }
+                    if val_examples:
+                        eval_record["val_loss_nats"] = evaluate_sft_nll_nats(
+                            model, val_examples, task_format, batch_size=batch_size, device=device
+                        )
+                    if tracker.update(metric_nats, step=step):
+                        stop_reason = "converged"
+                    elif is_capped_final:
+                        stop_reason = "max_steps"
+                    eval_f.write(json.dumps(eval_record) + "\n")
+                    eval_f.flush()
+                    if stop_reason is not None:
+                        break
+                    continue
                 val_loss_nats = evaluate_sft_nll_nats(
                     model, val_examples, task_format, batch_size=batch_size, device=device
                 )
@@ -314,6 +368,7 @@ def train_sft(
             "betas": betas,
             "seed": seed,
             "precision": precision,
+            "stopping_metric": stopping_metric,
             "stopping": (
                 {"threshold": stopping.threshold, "k": stopping.k}
                 if behavioral

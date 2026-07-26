@@ -221,6 +221,22 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    points. Quote the per-layer contrast and the persistent thresholds,
    not the raw step ratios.
 
+8. **New phase — role-matched installers + dose runs (design ratified
+   2026-07-26, decisions.md; NOT LAUNCHED).** Runs *alongside* the closed
+   chains — nothing supersedes runs 7/8 or 9-v2/10-v2 (owner). Design:
+   teach installer = `D_inst_perm` (permuted add/sub; correct marginals
+   install the true shape prior), stop G4 ≥ 0.90, k=3, per-step eval,
+   step-0 recorded; elicit installer = dose from `D_dose_mult` (1 real
+   mult example at the smallest dose), ε/k plateau on the full-dose
+   training loss; LR 3e-6 both with G2 retention gating; target EDL
+   redefined **mapping-only** (spec 02 §5/§6, edited same commit). Landed
+   2026-07-26: both artifacts generated + hash-pinned (`label_coincidence`
+   0.0145%), `permute_labels` (V5.64), trainer train-loss stopping mode
+   (V5.65/V5.66), launcher wiring, runs-index + manifest `lifecycle`
+   metadata (spec 00 §2). Remaining: run configs, `gates.py` external
+   prompt-file support for no-val dose runs, dose grid + launches (owner
+   go-ahead + `--confirm-cost`).
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

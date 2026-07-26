@@ -156,6 +156,14 @@ def manifest_fields(
                 }
                 if t["stopping"].get("metric") == "format_validity"
                 else {
+                    # "train_loss" (dose runs, 2026-07-26) records its metric;
+                    # the legacy val-loss rule stays keyless for byte-stable
+                    # re-registration of existing configs.
+                    **(
+                        {"metric": "train_loss"}
+                        if t["stopping"].get("metric") == "train_loss"
+                        else {}
+                    ),
                     "eps_nats": t["stopping"]["eps_nats"],
                     "k": t["stopping"]["k"],
                     "min_steps": t["stopping"].get("min_steps", 0),
@@ -223,9 +231,15 @@ def main() -> int:
     max_len = max(len(ex.input_ids) for ex in examples)
     print(f"[evt] tokenized: max {max_len} tokens/example (expected ≈34 incl. EOS)", flush=True)
     d = cfg["data"]
-    train_idx, val_idx = split_indices(n_rows, d["val_fraction"], d["seed"])
-    train_examples = [examples[i] for i in train_idx]
-    val_examples = [examples[i] for i in val_idx]
+    if cfg["train"]["stopping"].get("metric") == "train_loss":
+        # Dose runs (spec 02 §6, 2026-07-26): the whole tiny set trains; the
+        # ε/k rule reads the full-dose training loss, so no val carve exists
+        # (split_indices would refuse n=1 anyway). Gates score externally.
+        train_examples, val_examples = list(examples), []
+    else:
+        train_idx, val_idx = split_indices(n_rows, d["val_fraction"], d["seed"])
+        train_examples = [examples[i] for i in train_idx]
+        val_examples = [examples[i] for i in val_idx]
 
     phase(3, "model — warm start from parent checkpoint")
     print(f"[evt] loading init checkpoint {args.init_from} ...", flush=True)
@@ -344,6 +358,12 @@ def main() -> int:
             k=s["k"],
             min_steps=s.get("min_steps", 0),
         )
+        if s.get("metric") == "train_loss":
+            print(
+                f"[evt] dose stop: eps/k plateau on the full-dose training loss "
+                f"(eps {s['eps_nats']} nats, k={s['k']}, eval every {t['eval_every']} steps)",
+                flush=True,
+            )
 
     result = train_sft(
         model,
@@ -363,6 +383,7 @@ def main() -> int:
         seed=t["seed"],
         out_dir=out_dir,
         precision=precision,
+        stopping_metric=("train_loss" if s.get("metric") == "train_loss" else "val_loss"),
     )
 
     phase(6, "finalize — manifest + checkpoint")

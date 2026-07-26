@@ -10,11 +10,13 @@ Three distinct training datasets + one probe set + one eval set:
 
 | file          | runs      | op(s)   | format   | labels  |
 |---------------|-----------|---------|----------|---------|
-| D_algo        | 2         | + -     | nl       | correct |
-| D_inst        | 3, 4      | *       | operator | random  |
-| D_target      | 5, 6      | + -     | operator | correct |
-| probe         | analysis  | + -     | operator | correct |
-| D_target_eval | eval only | + -     | operator | correct |
+| D_algo        | 2         | + -     | nl       | correct  |
+| D_inst        | 3, 4      | *       | operator | random   |
+| D_target      | 5, 6      | + -     | operator | correct  |
+| probe         | analysis  | + -     | operator | correct  |
+| D_target_eval | eval only | + -     | operator | correct  |
+| D_inst_perm   | new-phase teach installer  | + - | operator | permuted |
+| D_dose_mult   | new-phase elicit installer | *   | operator | correct  |
 
 ``D_target_eval`` (``--eval-set``, owner 2026-07-22) is generated after the
 frozen training sets, question-disjoint from D_target ∪ D_algo ∪ probe, so
@@ -26,6 +28,15 @@ records the resulting cell counts.
 
 Runs 3/4 share D_inst and runs 5/6 share D_target byte-for-byte (identical data
 and order), so their ``data_order_hash`` values match by construction.
+
+``--installer-set`` (owner 2026-07-26, spec 02 §5/§6 new-phase installers)
+generates the role-matched installer artifacts against the frozen files in
+``--out``: ``D_inst_perm`` — add/sub, permuted labels (the true answers
+shuffled across examples: marginally exact, individually wrong), question-
+disjoint from D_target ∪ D_algo ∪ probe ∪ D_target_eval so no target question
+is ever seen with a wrong label — and ``D_dose_mult`` — correct-label mult
+examples, one per cell, disjoint from D_inst, the elicit arm's dose pool.
+Both append to report.json; the frozen entries are never touched.
 
 Uniqueness is the **question**: every training row is a distinct ordered triple
 ``(a, op, b)`` — no repeats anywhere. Probe exclusion is question-level and
@@ -60,6 +71,7 @@ from geode.arith import (
     cell_counts,
     digits,
     order_hash,
+    permute_labels,
     probe_leakage,
     random_label,
     render,
@@ -79,7 +91,7 @@ class DatasetSpec:
     name: str
     ops: tuple[str, ...]
     fmt: str
-    label_mode: str  # "correct" | "random"
+    label_mode: str  # "correct" | "random" | "permuted"
 
 
 DATASETS = (
@@ -95,6 +107,15 @@ DATASETS = (
 EVAL_SPEC = DatasetSpec("D_target_eval", ("+", "-"), "operator", "correct")
 EVAL_SIZE = 100_000
 EVAL_EXCLUDES = ("D_target", "D_algo", "probe")
+
+# --installer-set: role-matched new-phase installer artifacts (owner
+# 2026-07-26). Same generation path; the modes differ per artifact.
+INST_PERM_SPEC = DatasetSpec("D_inst_perm", ("+", "-"), "operator", "permuted")
+INST_PERM_SIZE = 200_000
+INST_PERM_EXCLUDES = ("D_target", "D_algo", "probe", "D_target_eval")
+DOSE_SPEC = DatasetSpec("D_dose_mult", ("*",), "operator", "correct")
+DOSE_SIZE = 16
+DOSE_EXCLUDES = ("D_inst",)
 
 Triple = tuple[int, str, int]
 
@@ -240,9 +261,26 @@ def build_dataset(
             )
             for a, b in pairs:
                 ta = true_answer(a, b, op)
-                shown = ta if spec.label_mode == "correct" else random_label(ta, label_seed, idx)
+                # "permuted" uses ta as a placeholder, replaced wholesale below.
+                shown = random_label(ta, label_seed, idx) if spec.label_mode == "random" else ta
                 records.append(_record(idx, a, b, op, shown, spec.name, spec.fmt, spec.label_mode))
                 idx += 1
+    if spec.label_mode == "permuted":
+        # The true answers shuffled across generation-order positions
+        # (geode.arith.permute_labels, V5.64): marginally exact, mapping
+        # destroyed. Applied before the order shuffle, where the other modes
+        # decide their labels.
+        shuffled = permute_labels([r["true_answer"] for r in records], label_seed)
+        for rec, shown in zip(records, shuffled):
+            full, (cs, ce) = render(rec["a"], rec["b"], rec["op"], shown, spec.fmt)
+            rec.update(
+                shown_answer=shown,
+                prompt_text=full[:cs],
+                answer_text=full[cs:ce],
+                full_text=full,
+                answer_char_start=cs,
+                answer_char_end=ce,
+            )
     rng = random.Random(_seed_int(f"{spec.name}-order:{seed}"))
     rng.shuffle(records)
     for i, r in enumerate(records):
@@ -347,6 +385,81 @@ def make_eval_set(args: argparse.Namespace) -> int:
     return 0
 
 
+def _frozen_triples(out_dir: Path, names: tuple[str, ...], report: dict) -> set[Triple]:
+    """Hash-verify each frozen parquet on disk; return the union of its triples.
+
+    Same guard as ``make_eval_set``: the disjointness claim is only as good
+    as "these files are the frozen artifacts", so each file is re-hashed
+    against its report.json pin before its questions enter the exclusion.
+    """
+    excluded: set[Triple] = set()
+    for name in names:
+        pin = (
+            report["probe"]["probe_set_hash"]
+            if name == "probe"
+            else report["datasets"][name]["order_hash"]
+        )
+        df = pd.read_parquet(out_dir / f"{name}.parquet")
+        got = order_hash(df.to_dict("records"))
+        if got != pin:
+            raise AssertionError(
+                f"{name}.parquet order_hash {got} != frozen pin {pin} — not the frozen "
+                "artifact; refusing to define disjointness against it"
+            )
+        excluded |= set(zip(df["a"].tolist(), df["op"].tolist(), df["b"].tolist()))
+    return excluded
+
+
+def make_installer_sets(args: argparse.Namespace) -> int:
+    """Generate D_inst_perm + D_dose_mult against the frozen artifacts in --out."""
+    report_path = args.out / "report.json"
+    report = json.loads(report_path.read_text())
+
+    excluded = _frozen_triples(args.out, INST_PERM_EXCLUDES, report)
+    print(f"[evt] D_inst_perm exclusion union: {len(excluded)} triples from {INST_PERM_EXCLUDES}")
+    dose_excluded = _frozen_triples(args.out, DOSE_EXCLUDES, report)
+    print(f"[evt] D_dose_mult exclusion union: {len(dose_excluded)} triples from {DOSE_EXCLUDES}")
+    if args.dry_run:
+        print(
+            f"[evt] --dry-run: would generate D_inst_perm n={args.installer_n} and "
+            f"D_dose_mult n={args.dose_n}; nothing written."
+        )
+        return 0
+
+    records, plan = build_dataset(INST_PERM_SPEC, args.installer_n, excluded, args.seed)
+    rep = validate(records, excluded, plan)
+    # Permuted-mode integrity at artifact scale (V5.64): the shown-label
+    # multiset must equal the true-answer multiset exactly.
+    if sorted(r["shown_answer"] for r in records) != sorted(r["true_answer"] for r in records):
+        raise AssertionError("D_inst_perm: shown-label multiset != true-answer multiset")
+    rep["label_coincidence"] = sum(r["shown_answer"] == r["true_answer"] for r in records) / len(
+        records
+    )
+    rep["disjoint_from"] = {
+        n: report["datasets"][n]["order_hash"] for n in INST_PERM_EXCLUDES if n != "probe"
+    }
+    rep["disjoint_from"]["probe"] = report["probe"]["probe_set_hash"]
+    pd.DataFrame(records).to_parquet(args.out / f"{INST_PERM_SPEC.name}.parquet", index=False)
+    report["datasets"][INST_PERM_SPEC.name] = rep
+    print(
+        f"[evt]   wrote {INST_PERM_SPEC.name}.parquet  n={rep['n']}  "
+        f"order_hash={rep['order_hash'][:12]}…  label_coincidence={rep['label_coincidence']:.4%}"
+    )
+
+    d_records, d_plan = build_dataset(DOSE_SPEC, args.dose_n, dose_excluded, args.seed)
+    d_rep = validate(d_records, dose_excluded, d_plan)
+    d_rep["disjoint_from"] = {n: report["datasets"][n]["order_hash"] for n in DOSE_EXCLUDES}
+    pd.DataFrame(d_records).to_parquet(args.out / f"{DOSE_SPEC.name}.parquet", index=False)
+    report["datasets"][DOSE_SPEC.name] = d_rep
+    print(
+        f"[evt]   wrote {DOSE_SPEC.name}.parquet  n={d_rep['n']}  "
+        f"order_hash={d_rep['order_hash'][:12]}…  unique+disjoint ✓"
+    )
+    report_path.write_text(json.dumps(report, indent=2))
+    print(f"[evt] report -> {report_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scale", choices=("pilot", "full"), default="pilot")
@@ -360,10 +473,20 @@ def main() -> int:
         "(requires their parquets + report.json; touches nothing else)",
     )
     parser.add_argument("--eval-n", type=int, default=EVAL_SIZE)
+    parser.add_argument(
+        "--installer-set",
+        action="store_true",
+        help="generate D_inst_perm + D_dose_mult against the frozen artifacts in "
+        "--out (new-phase installers, owner 2026-07-26; touches nothing else)",
+    )
+    parser.add_argument("--installer-n", type=int, default=INST_PERM_SIZE)
+    parser.add_argument("--dose-n", type=int, default=DOSE_SIZE)
     args = parser.parse_args()
 
     if args.eval_set:
         return make_eval_set(args)
+    if args.installer_set:
+        return make_installer_sets(args)
 
     n_total = SIZES[args.scale]
     print(f"[evt] scale={args.scale} n_total/dataset={n_total} probe={PROBE_SIZE} seed={args.seed}")

@@ -20,7 +20,7 @@ from __future__ import annotations
 from geode.arith.decode import greedy_completions
 from geode.arith.evals import exact_match, few_shot_prompt, format_valid, parse_answer
 from geode.arith.formats import OPS, digits, render, true_answer
-from geode.arith.labels import random_label
+from geode.arith.labels import permute_labels, random_label
 from geode.arith.spans import SftExample, token_label_span, tokenize_with_spans
 from geode.arith.stratify import DIGIT_BAND_SIZES, allocate, capacity
 from geode.arith.validate import cell_counts, order_hash, probe_leakage, uniqueness_by_cell
@@ -39,6 +39,7 @@ __all__ = [
     "greedy_completions",
     "order_hash",
     "parse_answer",
+    "permute_labels",
     "probe_leakage",
     "random_label",
     "render",

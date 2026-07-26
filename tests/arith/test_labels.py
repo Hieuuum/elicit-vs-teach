@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections import Counter
 
 from geode.arith.formats import digits, true_answer
-from geode.arith.labels import random_label
+from geode.arith.labels import permute_labels, random_label
 
 
 def test_v5_6_label_matches_true_answer_digit_count_and_sign():
@@ -47,3 +47,28 @@ def test_v5_6_distribution_roughly_uniform_over_digit_band():
     # Coverage of the hundreds bucket is broad (weak, deterministic sanity).
     buckets = Counter(v // 100 for v in labels)
     assert len(buckets) == 9  # buckets 1..9 all hit
+
+
+def test_v5_64_permuted_labels_preserve_marginal_exactly():
+    # Duplicates and negatives included: the shown-label multiset must equal
+    # the true-answer multiset exactly (the shape prior is preserved by
+    # construction, not approximately).
+    answers = [7, 84, -3, 500, 500, -22, 9999, 100, -100, 7]
+    out = permute_labels(answers, seed=11)
+    assert sorted(out) == sorted(answers)
+
+
+def test_v5_64_permutation_deterministic_and_seed_sensitive():
+    answers = list(range(-100, 100))
+    assert permute_labels(answers, seed=4) == permute_labels(answers, seed=4)
+    assert permute_labels(answers, seed=4) != permute_labels(answers, seed=5)
+
+
+def test_v5_64_mapping_destroyed_on_distinct_answers():
+    # With all-distinct answers, a label is correct only at a fixed point of
+    # the permutation. E[fixed points] = 1 for a uniform shuffle; 25 would
+    # mean a broken rng, not bad luck (seeded, deterministic).
+    answers = list(range(1, 501))
+    out = permute_labels(answers, seed=5)
+    assert sorted(out) == sorted(answers)
+    assert sum(a == o for a, o in zip(answers, out)) < 25

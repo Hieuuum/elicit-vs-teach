@@ -168,7 +168,12 @@ closed 2026-07-18: max 33 tokens, see OPEN(5)): operator body `a op b`
 (e.g. `Question: 23 + 45` then `Answer: 68`),
 NL body `What is the sum of a and b?` / `What is the difference between a and
 b?` (add/sub only). Label modes:
-correct | random. Random-label sampling distribution OPEN(6) (default:
+correct | random | permuted (2026-07-26, new-phase teach installer: the true
+answers shuffled across examples via `geode.arith.permute_labels` — each label
+individually wrong up to chance collisions while the marginal label
+distribution is exact by construction, so the answer-shape prior installs and
+the mapping carries no signal; §6 new-phase block, V5.64). Random-label
+sampling distribution OPEN(6) (default:
 uniform over answers with digit-count distribution matched to true
 answers). Subtraction negatives OPEN(7) (default: allowed). Datasets are
 generated **once** by `datagen/make_data.py` and frozen to files (not
@@ -218,6 +223,18 @@ touches the rows that drove the stop decision. The launcher pins it as
 `data.val_fraction` is retired for target runs — the training prefix
 trains whole.
 
+**New-phase installer sets (owner 2026-07-26).** `make_data.py
+--installer-set` generates the role-matched installer artifacts against the
+frozen files: `D_inst_perm` — 200K add/sub operator-notation examples with
+**permuted** labels, question-disjoint from D_target ∪ D_algo ∪ probe ∪
+D_target_eval (a target question ever seen with a wrong label would
+contaminate the prequential first-sight assumption) — and `D_dose_mult` —
+16 correct-label mult examples, one per `(x_digits, y_digits)` cell,
+disjoint from D_inst; an elicit dose of size n is a prefix of this file's
+frozen order. Both are hash-pinned in report.json; the permuted set records
+its `label_coincidence` (0.0145% at the frozen seed 20260717 — below even
+D_inst's accepted 0.07%).
+
 **Evals.** Answer parser + exact-match accuracy (negatives included),
 format-validity check (output parses as a number in the expected slot),
 zero/16-shot prompt builder for G5.
@@ -237,6 +254,11 @@ zero/16-shot prompt builder for G5.
 - V5.6 random-label mode: labels statistically independent of operands.
 - V5.7 parser/exact-match correct on constructed outputs incl. negatives
   and malformed strings.
+- V5.64 permuted-label mode (2026-07-26): `permute_labels` returns exactly
+  the input multiset (marginal preservation — duplicates and negatives
+  included), deterministically in `seed`; different seeds give different
+  permutations; on all-distinct inputs the fixed-point count stays at
+  chance level (the mapping is destroyed).
 
 ## 6. Training runs — per-run needs
 
@@ -305,6 +327,36 @@ the 2026-07-18 downscale):
   itself — their training schedule is part of the metric; the ε/k rule
   is ratified below (2026-07-22); n=500K pinned (OPEN(2) closed
   2026-07-22, §12), snapshot schedule pinned (OPEN(4) closed same day).
+- Stopping (new-phase installers, owner 2026-07-26 — the dose phase;
+  executed runs 3/4/9 keep the rule their manifests record): installers
+  are **role-matched, not identical** — each arm gets the installer that
+  is non-destructive for its state, replacing the identical-installer
+  design. Motivation (step-0 measurement 2026-07-25, decisions.md
+  2026-07-26): Arm A's G4 criterion was saturated before training began
+  (1.0000 at step 0), so the "shared" rule only ever measured Arm B, and
+  the mult-shaped random labels corrupt the add/sub length prior by
+  construction. **Teach**: `D_inst_perm` (permuted add/sub — correct
+  marginals install the true answer-shape prior), stop at the k-th
+  consecutive G4 eval ≥ **0.90** with **k=3, eval every step** (batch 128
+  ⇒ a 3-step floor in place of the old 750-step one; a tiny-dose config
+  at batch 1 makes the cadence literally per-example); the step-0 value
+  is recorded always. **Elicit**: the dose — a prefix of `D_dose_mult`,
+  1 real correct-label mult example at the smallest dose — stops on the
+  ε/k plateau of the **full-dose training loss**
+  (`stopping_metric: train_loss`, batch = dose; V5.65/V5.66): G4 is
+  saturated at step 0 for this arm and can never be its stop, and "the
+  dose is absorbed" is the convergence-policy-consistent stop. LR 3e-6
+  inherited from the installer retention sweep for both arms, and **G2
+  retention gates it** — scope re-validation by gate, not assumption
+  (the run-9 lesson). **EDL accounting, same decision:** the installer
+  now deliberately installs format **and answer-shape**, so the new
+  phase's target EDL is **mapping-only** — conditional on format+shape,
+  billing only the question→answer mapping. This deliberately reverses
+  the digit-count-leak anti-goal above *for the new phase*: matched,
+  correct shape priors across arms replace the shape-naive start, and
+  the change shrinks teach's EDL — conservative for the elicit-vs-teach
+  ratio. `max_steps` stays a pure cost ceiling; a ceiling exit means
+  investigate, don't ship.
 - Stopping (runs 5–6, target runs — owner 2026-07-22): the canonical
   loss rule at short-run cadence — **ε=0.002 nats, k=5, eval_every 500,
   min_steps 0**. The canonical min_steps=5000 grace and eval_every 1000
@@ -526,7 +578,8 @@ def train_sft(model, train_examples: Sequence[SpanExample],
               stopping,  # StoppingRule | BehavioralStoppingRule
               eval_every, max_steps,
               grad_clip, weight_decay, betas, device, seed, out_dir,
-              precision="fp32", behavioral_eval=None) -> TrainResult
+              precision="fp32", behavioral_eval=None,
+              stopping_metric="val_loss") -> TrainResult
 ```
 
 - Examples are span-carrying (`input_ids` + half-open `label_span`, spec 00
@@ -571,6 +624,18 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   restores `model.train()` after each call. `best_val_nats` and
   `min_val_nats` both report the exact running min (no eps gate is in
   play); the meta's `stopping` echo is `{threshold, k}`.
+- **Train-loss stopping mode** (2026-07-26, new-phase dose installers,
+  §6): `stopping_metric="train_loss"` makes the ε/k `ConvergenceTracker`
+  consume the step's own training loss — exact, because the mode
+  requires `batch_size == n_train` (every step consumes the whole dose;
+  upfront `ValueError` otherwise) and a plain `StoppingRule` (upfront
+  `ValueError` with a behavioral rule). The only mode that runs with
+  empty `val_examples` — the other modes now refuse an empty val upfront
+  instead of dividing by zero at the first eval; when a val set is
+  provided it is still evaluated and logged for the record. Eval records
+  carry `train_loss_nats` (plus `val_loss_nats` when val is present);
+  `best_val_nats`/`min_val_nats` carry the stopping metric. The config
+  echo gains `stopping_metric` (recorded in every mode).
 
 **Validation properties (tests derive from these):**
 
@@ -772,6 +837,18 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   a same-seed fp32 run's; all artifacts stay complete and finite. An unknown
   precision string raises. Runs 5–8 ship fp32; only the Llama chain sets
   `train.precision: bf16`.
+- V5.65 full-dose batch guard (2026-07-26, §6): `stopping_metric=
+  "train_loss"` with `batch_size != n_train`, or with a
+  `BehavioralStoppingRule`, raises `ValueError` before any training or
+  disk write — a subsampled per-step loss would plateau on batch noise,
+  not on dose absorption.
+- V5.66 train-loss plateau (2026-07-26, §6): in train-loss mode the run
+  stops `converged` at exactly the k-th stale eval of the logged
+  per-step training loss with no val split anywhere; the eval log's
+  `train_loss_nats` equals the train log's value at the same step
+  exactly; `min_val_nats` propagates the metric's true min; empty
+  `val_examples` in any other mode raises upfront; a 1-example dose
+  memorizes and stops `converged` before a generous ceiling.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

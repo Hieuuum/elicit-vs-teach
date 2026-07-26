@@ -441,3 +441,106 @@ def test_v5_45_rule_and_callback_must_pair(tiny_llama, copy_token_task, tmp_path
         )
     assert not (tmp_path / "a").exists()
     assert not (tmp_path / "b").exists()
+
+
+# --------------------------------------------------------------------------
+# V5.65 / V5.66 — train-loss stopping (new-phase dose installers, 2026-07-26)
+# --------------------------------------------------------------------------
+def test_v5_65_train_loss_stop_requires_full_dose_batch(tiny_llama, tmp_path):
+    # V5.65: batch_size != n_train raises upfront — a subsampled per-step
+    # loss would plateau on batch noise, not on dose absorption.
+    model = tiny_llama(seed=0)
+    rng = random.Random(0)
+    examples = [_example(rng, 3, 2) for _ in range(4)]
+    with pytest.raises(ValueError, match="batch_size == n_train"):
+        _train(
+            model,
+            examples,
+            [],
+            tmp_path,
+            batch_size=2,
+            stopping=StoppingRule(eps_nats=0.0, k=3),
+            stopping_metric="train_loss",
+        )
+    assert not (tmp_path / "train_log.jsonl").exists()
+
+
+def test_v5_65_train_loss_stop_rejects_behavioral_rule(tiny_llama, tmp_path):
+    model = tiny_llama(seed=0)
+    rng = random.Random(0)
+    examples = [_example(rng, 3, 2) for _ in range(2)]
+    with pytest.raises(ValueError, match="train_loss"):
+        _train(
+            model,
+            examples,
+            examples,
+            tmp_path,
+            batch_size=2,
+            stopping=BehavioralStoppingRule(threshold=0.9, k=3),
+            behavioral_eval=lambda: 1.0,
+            stopping_metric="train_loss",
+        )
+
+
+def test_v5_66_empty_val_requires_train_loss_metric(tiny_llama, tmp_path):
+    # V5.66: only the train-loss mode runs without a validation split; the
+    # legacy modes refuse an empty val upfront instead of dividing by zero
+    # at the first eval.
+    model = tiny_llama(seed=0)
+    rng = random.Random(0)
+    examples = [_example(rng, 3, 2) for _ in range(4)]
+    with pytest.raises(ValueError, match="val_examples is empty"):
+        _train(model, examples, [], tmp_path)
+
+
+def test_v5_66_train_loss_plateau_stops_without_val(tiny_llama, tmp_path):
+    # V5.66: eps so large that every post-first eval is non-improving — with
+    # eval_every=1 and k=3 the run stops at exactly step 4 (one improving
+    # eval from +inf, then three stale), converged, no val split anywhere.
+    model = tiny_llama(seed=0)
+    rng = random.Random(0)
+    examples = [_example(rng, 3, 2) for _ in range(2)]
+    result = _train(
+        model,
+        examples,
+        [],
+        tmp_path,
+        batch_size=2,
+        eval_every=1,
+        max_steps=50,
+        stopping=StoppingRule(eps_nats=100.0, k=3),
+        stopping_metric="train_loss",
+    )
+    assert result.stop_reason == "converged"
+    assert result.final_step == 4
+    evals = _read_jsonl(tmp_path / "eval_log.jsonl")
+    assert [e["step"] for e in evals] == [1, 2, 3, 4]
+    assert all("train_loss_nats" in e and "val_loss_nats" not in e for e in evals)
+    # The logged stopping metric is the step's own training loss, exactly.
+    trains = _read_jsonl(tmp_path / "train_log.jsonl")
+    for ev, tr in zip(evals, trains):
+        assert ev["train_loss_nats"] == tr["train_loss_nats"]
+    assert result.min_val_nats == min(e["train_loss_nats"] for e in evals)
+
+
+def test_v5_66_train_loss_converges_on_memorizable_dose(tiny_llama, tmp_path):
+    # V5.66: a 1-example dose memorizes — training loss falls and the plateau
+    # rule ends the run before a generous ceiling ("the dose is absorbed").
+    model = tiny_llama(seed=1)
+    examples = [TaskExample(input_ids=[2, 4, 5, 6, 7, 8], label_span=(4, 6))]
+    result = _train(
+        model,
+        examples,
+        [],
+        tmp_path,
+        lr=1e-2,
+        batch_size=1,
+        eval_every=1,
+        max_steps=400,
+        stopping=StoppingRule(eps_nats=0.002, k=5),
+        stopping_metric="train_loss",
+    )
+    assert result.stop_reason == "converged"
+    assert result.final_step < 400
+    trains = _read_jsonl(tmp_path / "train_log.jsonl")
+    assert trains[-1]["train_loss_nats"] < trains[0]["train_loss_nats"]

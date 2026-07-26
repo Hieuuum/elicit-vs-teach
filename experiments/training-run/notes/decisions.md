@@ -2365,3 +2365,116 @@ on the kept-alive box). Artifacts: eval_log + manifest + logs per point on
 the box, pulled to the laptop store, and relay-pushed (18 files under
 `runs/evt-run10-sweep-lr*`, hub-verified); checkpoints deleted per design;
 figure `analysis/figures/losses_llama_lr_sweep.png` (local).
+
+## 2026-07-26 — new-phase installer redesign ratified (owner): role-matched installers, mapping-only EDL
+
+Four owner decisions, taken after the 2026-07-25 step-0 measurements
+("phase 0", run on the laptop by `phase0.py` with two exact-loss harness
+controls; recorded here because this file had no record of them). All four
+apply to a NEW phase run alongside the closed chains; nothing supersedes
+runs 7/8 or 9-v2/10-v2, and executed runs keep the rules their manifests
+record.
+
+**The evidence.** All four installer-stage checkpoints measured at step 0
+(installer eval logs start at step 250, so none of this was previously
+visible):
+
+| checkpoint (step 0) | G4 | D_inst nats | D_target nats | zero-shot EM |
+|---|---|---|---|---|
+| run1-base-v3-ext (B parent) | 0.0039 | 4.8462 | 4.9892 | 0.0000 |
+| run2-armA-algo (A parent) | **1.0000** | 13.8909 | 5.1262 | **0.1016** |
+| run3-armA-inst (A installed) | 1.0000 | 2.1361 | 2.2961 | 0.0117 |
+| run4-armB-inst (B installed) | 1.0000 | 2.0106 | 3.7529 | 0.0000 |
+
+Two defects follow. (1) **Arm A's behavioral stopping criterion was
+saturated before training began** — runs 3/4 stopped at 750 only because
+k=3 × eval_every=250 is the rule's floor; the "identical pre-registered
+rule" measured something in one arm only, so the §6 duration-as-mediator
+argument's premise fails. (2) **The installer's D_target loss drop is
+entropy, not shape** (phase0b, n=1024): the A parent already had the true
+add/sub length prior (mean answer digits 3.726 vs true 3.746, 99.5%
+in-range, 1st-token entropy 0.227 nats) and run 3 destroyed it (4.889
+digits, 41.3% in-range, entropy 1.929, 6–7-digit answers impossible for
+4-digit add/sub) — structural, because D_inst is mult: the disjoint op
+that prevents arithmetic leakage corrupts the shape it installs. EM buried
+10.2% → 1.2%. Direction of the net EDL effect stays OPEN — do NOT claim
+the installer inflates Arm A's EDL; only a target re-run resolves it.
+
+**Decision 1 — scope: new phase alongside.** The redesigned installers
+apply only to the upcoming dose runs. Existing results stand as recorded.
+
+**Decision 2 — role-matched installers, replacing identical ones.** Each
+arm gets the installer that is non-destructive for its state. Teach:
+`D_inst_perm` — add/sub with PERMUTED labels (true answers shuffled across
+examples, `geode.arith.permute_labels`, V5.64): individually wrong,
+marginally exact, so the true answer-shape prior installs and the mapping
+carries no signal. Question-disjoint from D_target ∪ D_algo ∪ probe ∪
+D_target_eval (no target question is ever seen with a wrong label);
+`label_coincidence` 0.0145% at seed 20260717. Elicit: a dose from
+`D_dose_mult` (16 correct-label mult questions, one per cell, disjoint
+from D_inst; a dose of n is a prefix of the frozen order) — 1 real example
+at the smallest dose, per the elicitation literature. Permuted add/sub
+would train the elicit arm's real capability on wrong labels (the burial
+measured above); the teach arm has nothing to bury and needs the shape
+prior. Asymmetry is the point: matching by role, not by data identity.
+
+**Decision 3 — stopping.** Teach: G4 ≥ 0.90 (owner: G4 alone, not the
+two-part shape criterion), k=3, eval EVERY STEP — the intent is killing
+the hidden 750-step floor; at batch 128 the floor becomes 3 steps, and a
+batch-1 dose config makes the cadence literally per-example. Step-0 value
+recorded always (the phase-0 lesson). Elicit: G4 is saturated at step 0
+for this arm and can never be its stop — instead ε/k plateau on the
+FULL-DOSE training loss (`stopping_metric: train_loss`, batch = dose,
+V5.65/V5.66): "the dose is absorbed", consistent with the
+run-until-convergence policy; works at n=1 where no val split exists.
+ε/k calibration for the dose rule is pinned at config time (starting
+point: the canonical 0.002/5 at per-step cadence; recorded in the run
+config before launch).
+
+**Decision 4 — LR and its gate.** 3e-6 inherited for both installers from
+the installer retention sweep — but the pin's context has changed
+(permuted add/sub trains wrong answers on the retention task itself), so
+G2 RETENTION GATES IT rather than being assumed: scope re-validation by
+gate, the run-9 lesson. If G2 fails, extend the LR downward exactly as the
+run-9 fix did.
+
+**Decision 5 — EDL is mapping-only for the new phase.** The installer now
+deliberately installs format AND answer-shape; the target run's EDL is
+conditional on both and bills only the question→answer mapping. This
+reverses spec 02 §6's digit-count-leak anti-goal for the new phase (spec
+edited in the same commit). Conservative: teach's EDL shrinks (its shape
+bits move into the unbilled installer), so the elicit-vs-teach ratio can
+only get smaller.
+
+**Landed with this entry** (suite green, 2026-07-26): `permute_labels` +
+V5.64 tests; `make_data.py --installer-set` (generated + hash-pinned both
+artifacts into `data/full/report.json` — report.json is gitignored, so the
+pins are also recorded here: `D_inst_perm` order_hash `5247139cf283…`
+n=200000, `D_dose_mult` order_hash `8ddda6d64683…` n=16; run configs must
+pin the full hashes from report.json before launch); `train_sft`
+`stopping_metric="train_loss"` + V5.65/V5.66 tests; launcher wiring
+(no-val dose path, manifest stopping echo). NOT landed: run configs, dose
+grid, `gates.py` prompt-file support for no-val dose runs, launches —
+launches wait for owner go-ahead (`--confirm-cost`), per the owner's
+2026-07-26 instruction to hold.
+
+## 2026-07-26 — run archival: lifecycle metadata + runs index (owner-delegated)
+
+Nothing is deleted, ever — invalidated runs are negative controls and
+methodology history (run 9-v1 is the defect record; runs 5/6's surviving
+logs are why their result is still quotable). Archive = metadata, not
+relocation (manifests hard-code lineage paths; the relay layout is
+load-bearing). Landed: optional `lifecycle`
+("canonical | superseded | pilot | invalid") + `superseded_by` manifest
+fields, codified in spec 00 §2 (advisory, never consulted by zoo gating;
+`status` untouched — it stays the process-completion field parent gating
+reads); all 22 local manifests stamped and re-validated;
+`notes/runs-index.md` created — 53 rows, every run id local or hub-side,
+with role, lifecycle, artifact residency (hub-verified), and a pointer to
+the dated decision that closed it. Relay corrections found during the
+audit: the three `evt-run10-sweep-lr*` runs were already relay-pushed
+(2026-07-25 entry stands); `evt-run1-base`/`-v1` are metrics-only history
+with no relay entry (deliberate, 2026-07-22); `evt-run3-sweep-lr3e-4` and
+the five `evt-run9-sweep-lr*` ARE on the relay. `evt-run9-llama1b-inst-v2`
+(parent of the valid Llama chain) pulled to the laptop store
+(`--no-weights`: manifest + logs), so the laptop is no longer blind to it.
