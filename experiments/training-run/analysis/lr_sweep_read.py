@@ -289,16 +289,14 @@ def main() -> int:
     shared = [lr for lr in arms["A"]["acceptable"] if lr in arms["B"]["acceptable"]]
 
     if shared:
-        # Rule 11, first clause. The owner's second clause is conditioned on no
-        # shared value existing, so it does NOT break ties here — inside the
-        # band the incumbent is itself a value that serves both arms, and rules
-        # 1 (ties -> incumbent) and 10 (don't move the pin) apply unchanged.
-        # Arm B's score only picks among non-incumbent members.
-        lr = (
-            INCUMBENT_LR
-            if INCUMBENT_LR in shared
-            else min(shared, key=lambda x: arms["B"]["rep"][x]["score"])
-        )
+        # Rule 11, first clause. Inside the band the arms cannot tell these LRs
+        # apart, so the choice among them is made by pre-registered DIRECTION,
+        # not by the numbers: take the one arm B scores lowest (owner, twice).
+        lr = min(shared, key=lambda x: arms["B"]["rep"][x]["score"])
+        # A pick made by tie-break claims NO superiority, so rule 6's question
+        # ("is something better hiding past this edge?") does not arise — see
+        # the rule-6 call below.
+        by_tiebreak = len(shared) > 1 and INCUMBENT_LR in shared and lr != INCUMBENT_LR
         print(
             f"RULE 11 — {', '.join(f'{x:.1e}' for x in shared)} "
             f"{'is' if len(shared) == 1 else 'are all'} acceptable to BOTH arms "
@@ -306,16 +304,11 @@ def main() -> int:
         )
         if len(shared) == 1:
             print(f"=> pin {lr:.1e}: the only LR that serves both arms.")
-        elif lr == INCUMBENT_LR:
-            print(
-                f"=> pin {lr:.1e}: among LRs the arms cannot distinguish, the incumbent holds "
-                "(rules 1, 10).\n   The owner's second clause is conditioned on no shared value "
-                "existing — that is rule 8."
-            )
         else:
             print(
-                f"=> pin {lr:.1e}: the incumbent is NOT in the band, so among the LRs that are, "
-                "the\n   one arm B scores lowest."
+                f"=> pin {lr:.1e}: among LRs the arms cannot distinguish, the tie breaks toward "
+                "TEACH\n   (owner's second clause), so no residual is left pointing the elicit "
+                "hypothesis' way."
             )
     else:
         # "Arm B's optimum" means optimum on the SAME two coordinates rule 11
@@ -326,6 +319,7 @@ def main() -> int:
             print("rule 8 needs arm B's optimum and arm B accepts nothing — escalate, do not pin.")
             return 1
         lr = min(arms["B"]["acceptable"], key=lambda x: arms["B"]["rep"][x]["score"])
+        by_tiebreak = False  # rule 8's pick asserts arm B's optimum; rule 6 applies
         if lr != arms["B"]["verdict"]:
             print(
                 f"note: arm B's rule-5 verdict was {arms['B']['verdict']:.1e} on the floor alone; "
@@ -354,10 +348,22 @@ def main() -> int:
     else:
         grid = sorted(arms["A"]["rep"] | arms["B"]["rep"])
         if lr in (grid[0], grid[-1]):
-            print(
-                f"! rule 6: {lr:.1e} is a GRID EDGE — extend the grid "
-                f"({'add 1e-4' if lr == grid[0] else 'add 1e-2'}) before pinning."
-            )
+            if by_tiebreak:
+                # Rule 6 exists to stop us pinning an edge we CLAIM is better
+                # without knowing what lies past it. A within-band tie-break
+                # claims no such thing — the band says this LR and the
+                # incumbent are indistinguishable — so "is it a peak?" is moot
+                # and no grid extension is owed.
+                print(
+                    f"note: {lr:.1e} is a grid edge, but it was chosen by tie-break, not by "
+                    "beating\n  anything — rule 6 does NOT fire (it guards claims of "
+                    "superiority, and none is made)."
+                )
+            else:
+                print(
+                    f"! rule 6: {lr:.1e} is a GRID EDGE — extend the grid "
+                    f"({'add 1e-4' if lr == grid[0] else 'add 1e-2'}) before pinning."
+                )
         print(
             f"Re-run BOTH production targets at {lr:.1e} with the production seed 316 under the\n"
             "existing run_ids, and scope the new pin in lr_pin.yaml rather than overwriting the\n"

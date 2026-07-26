@@ -3121,3 +3121,33 @@ it needs only some other LR to land below half the incumbent's floor.
 Four synthetic stores now cover the branches — floors-tie-but-2×-slower,
 several-LRs-acceptable, both-arms-prefer-the-incumbent, and
 incumbent-is-a-plateau.
+
+**CALL 3, settled — the within-band tie goes to TEACH (owner, stated twice).**
+*"choose the best lr for both runs and if they tie then choose the one that's
+better for teach."* This overrules the intermediate incumbent-preferring
+version recorded above; that version was my call made against the owner's
+first statement, and it is withdrawn. Direction is now consistent from the
+band through to rule 8's fallback: wherever the numbers cannot decide, the
+choice goes the way that cannot flatter the elicit hypothesis.
+
+**The objection that motivated the intermediate version does not survive the
+overrule, and is now fixed rather than argued.** It was: a tie-break toward
+arm B can pin a grid edge on a difference rule 5 already called unmeasurable,
+tripping rule 6 and demanding a grid extension. But **rule 6 guards claims of
+superiority** — it exists to stop us pinning an edge we assert is *better*
+without knowing what lies past it. A within-band tie-break asserts no such
+thing; the band's whole content is that these LRs are indistinguishable. So
+rule 6 is now **suppressed for tie-break picks** and fires only on a genuine
+win (incumbent outside the band, or the rule-8 fallback, where arm B's optimum
+*is* asserted). No grid extension is owed, and the cost is gone. Verified on
+the same four synthetic stores: the tie-break case pins 3e-3 with rule 6
+silent and a printed note saying why; the genuine-edge-win case still fires
+rule 6.
+
+**Sweep, 5 of 8 points.** Both noise handles measured, and both are wide
+relative to the floors they police: arm A 0.00025 nats (~10% of its own
+floor), arm B 0.00285 (~18%). This sweep discriminates weakly by construction
+— a challenger must clear ~18% of arm B's floor to be separable from adapter
+-init luck. First bracket point: arm A at 3e-3 reaches 0.00563 at step 5500 vs
+1e-3's 0.00258/0.00283 at 3500 — 2.2x the floor and 57% more steps, losing on
+both coordinates and tripping the rule-2 plateau flag.
