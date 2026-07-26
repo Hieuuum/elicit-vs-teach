@@ -271,6 +271,15 @@ def run_g4(args: argparse.Namespace) -> int:
         f"{'PASS' if passed else 'FAIL'} (threshold {threshold})"
     )
 
+    if args.no_record:
+        # Baseline mode (2026-07-26): score a checkpoint WITHOUT writing a
+        # verdict. The new phase needs the dose parent's G4 before the dose
+        # runs, and recording it on that parent's manifest would be unsafe —
+        # a sub-threshold verdict there makes require_parent_ready refuse
+        # every existing child of it (V0.6).
+        print("[evt] --no-record: nothing written to any manifest")
+        return 0 if passed else 1
+
     manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G4"] = {
         "pass": passed,
         "format_validity": rate,
@@ -465,6 +474,12 @@ def main() -> int:
         type=float,
         default=None,
         help="default: the run config's stopping threshold; required when it has none",
+    )
+    g4.add_argument(
+        "--no-record",
+        action="store_true",
+        help="print the rate but write no verdict — for scoring a shared parent "
+        "checkpoint as a baseline (a recorded failure there would block its children)",
     )
     g4.set_defaults(func=run_g4)
 

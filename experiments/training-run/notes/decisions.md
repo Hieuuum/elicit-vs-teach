@@ -2584,11 +2584,28 @@ where a pilot was stopped.
 The first row is why this calibration was worth running: the inherited-style
 coarse rule fires at 99.08% of descent at n=1 but 93.70% at n=16, leaving 12×
 more residual loss at the large dose — the stop rule would have been part of
-what the dose-response curve measured. **Remaining: rerun the n=16 pilot to
-its floor (~750 more steps) and pin ε/k from the completed table.** Until
-then `p2_armA_dose.yaml` carries `eps_nats: null` and both `train_sft.py` and
-`launch_phase2.sh` refuse to launch — the placeholder-value incident class,
-guarded rather than trusted.
+what the dose-response curve measured.
+
+**Remaining: rerun BOTH pilots on the box and pin ε/k from that pair.** Not
+just n=16: a rerun reproduces a trajectory only on the same device and
+backend, so pinning a comparability test whose two ends were measured on
+different hardware (n=1 on a laptop CPU, n=16 on a GPU) would compare curves
+that differ in float reduction order as well as in dose. Both are cheap there
+(n=1 is ~1065 steps at batch 1). Until the pin is set, `p2_armA_dose.yaml`
+carries `eps_nats: null` and both `train_sft.py` and `launch_phase2.sh` refuse
+to launch — the placeholder-value incident class, guarded rather than trusted.
+
+**Parent baseline for the dose arm's G4.** The dose runs are gated on G4 ≥
+0.90 but never evaluate it in-loop (they stop on the loss plateau), so a
+sub-threshold dose G4 would be uninterpretable in exactly the phase-0 way:
+caused by the dose, or already true of the parent? `launch_phase2.sh` scores
+G4 on `evt-run2-armA-algo` **before any dose is given**, using
+`gates.py g4 --no-record` (2026-07-26): writing a verdict onto that shared
+parent would gate every existing child of it via `require_parent_ready`
+(V0.6). The printed number goes here when the stage runs. Phase 0 measured
+1.0000 on `D_inst` prompts; this baseline is the same metric on the external
+`D_target_eval` prompts the dose gates use, so it is the directly comparable
+one.
 
 Also measured: "absorbed" means trained to convergence ON the dose, so at n=1
 it is memorisation of a single example (~600 steps at lr 3e-6). The dose is a

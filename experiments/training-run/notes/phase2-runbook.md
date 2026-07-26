@@ -92,6 +92,21 @@ equals the committed pin and differs from the installer LR.
   This is the phase-0 lesson: without it, "the rule fired" and "the rule was
   already satisfied before training" are indistinguishable.
 
+## Two things to do first, on the box
+
+1. **Pin the dose ε/k.** Rerun *both* calibration pilots there —
+   `--override configs/pilot/p2_dose_cal_n1.yaml` and `…_n16.yaml` — then
+   `analysis/dose_stop_calibration.py`, and write the winning ε/k into
+   `configs/p2_armA_dose.yaml`. Both ends must come from the same hardware:
+   a rerun reproduces a trajectory only on the same device and backend, and
+   this is a comparability test between the two ends. Every launch path
+   refuses while ε is null, so this cannot be skipped by accident.
+2. **Record the parent's G4 baseline.** `launch_phase2.sh` does it
+   automatically at the start of the doses stage (`gates.py g4 --no-record`
+   on `evt-run2-armA-algo`); copy the printed number into decisions.md. The
+   dose runs are gated on G4 but never evaluate it in-loop, so without the
+   before-any-dose number a low dose G4 cannot be attributed.
+
 ## Post-run check the dose curve needs
 
 ε/k is calibrated at the two ENDS of the grid (n=1 and n=16, the

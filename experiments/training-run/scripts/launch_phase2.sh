@@ -49,6 +49,11 @@ case $STAGE in all | doses | teach | targets) ;; *)
 esac
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
+export REPO_ROOT                 # the guard below resolves data.local_path
+                                 # against THIS, never against the store's
+                                 # parent: a box with GEODE_STORE elsewhere
+                                 # (e.g. /workspace/store) would otherwise
+                                 # look for the parquets in the wrong tree
 export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 DOSES=(1 2 4 8 16)
 # SKIP_TEST_LOSS=1 drops G5's shared-set NLL for the DOSE stage only: it is a
@@ -104,7 +109,7 @@ import yaml
 from geode.arith import order_hash
 
 cfg = Path("../configs")
-repo_root = Path(os.environ["GEODE_STORE"]).parent
+repo_root = Path(os.environ["REPO_ROOT"])
 # 1. Artifacts: present, and hashing to what the configs pin. The launchers
 #    re-verify per run; doing it once up front turns a mid-phase abort into a
 #    refusal to start.
@@ -168,6 +173,17 @@ parent_ckpt() { # run_id -> checkpoint dir, or empty
 if [[ $STAGE == all || $STAGE == doses ]]; then
   CKPT=$(parent_ckpt evt-run2-armA-algo) || true
   [[ -n ${CKPT:-} ]] || fail "no checkpoint for evt-run2-armA-algo (the dose parent)"
+  # PARENT BASELINE first: the same G4 the dose runs will be gated on, scored
+  # on the parent before any dose is given. Without it a dose G4 of, say, 0.88
+  # cannot be attributed — it is the phase-0 ambiguity ("the rule fired" vs
+  # "the rule was already satisfied") in the arm that has no in-loop G4 at
+  # all. --no-record because writing a verdict onto this shared parent would
+  # gate every existing child of it (V0.6). COPY THE NUMBER INTO decisions.md.
+  echo "[p2] === dose parent baseline: G4 on evt-run2-armA-algo, before any dose ==="
+  python3 gates.py g4 --run evt-run2-armA-algo --no-record \
+    --config ../configs/p2_armA_dose.yaml \
+    --prompt-config ../configs/eval_target_data.yaml --threshold 0.90 ||
+    echo "[p2] parent baseline is BELOW 0.90 — record it and read every dose G4 against it"
   for n in "${DOSES[@]}"; do
     RID=evt-p2-armA-dose$n
     ST=$(status_of "$RID")
