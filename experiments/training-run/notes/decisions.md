@@ -3234,11 +3234,39 @@ EM is ~0 everywhere in this project including the 1.24B Llama, and is already
 recorded as a collapsed metric (EXPERIMENTS.md §G5). Zero-shot is the live
 number.
 
-**Comparison numbers, with their caveats.** Runs 7/8 gave 19.3x at matched n
-under the ORIGINAL design (both installers ran); this phase gives 12.1x under
-the redesign (elicit installer n=0). The two are not a like-for-like
-before/after: the arms' entry states differ by construction between the
-designs. The third curve in the figure, `evt-run10-sweep-lr3e-4` (Llama-1B,
+**MDL IS TRUNCATED AT THE EPOCH BOUNDARY, AND ONLY FOR ARM B.** Arm A
+converged at step 4,500, inside epoch 1. Arm B converged at 12,000 = 1.54
+epochs, and MDL counts epoch-1 records only (paper footnote 1: re-encoding
+the same labels is no longer an MDL). So arm B's EDL stops accumulating at
+step 7,813 while the run trained 4,187 steps further, and it was NOT
+converged at that boundary — val 0.03074 at step 7,570 against its eventual
+0.01959 floor (min 0.01598). This is the metric as defined, not a bug, but it
+means 12.1x compares FIRST-PASS cost between an arm that had converged by
+then and one that had not. Partly self-cancelling: the subtrahend uses
+L_test(theta_T) from the final step 12,000 model, which is lower and so
+inflates EDL_B. Net direction not resolved here; flag it rather than claim it.
+
+**Comparison numbers, RE-READ AT MATCHED n.** The first version of this entry
+compared this phase's 12.1x (n=576,000) against runs 7/8's 19.3x (n=768,000)
+and attributed the difference to the design change. Those are two different
+points on two still-descending curves, so the comparison was not sound.
+Recomputed at the SAME n = 576,000, in bits/token:
+
+| at n = 576,000 | elicit | teach | ratio |
+|---|---|---|---|
+| runs 7/8 (original design, both installers ran) | 0.02285 | 0.44480 | **19.5x** |
+| this phase (elicit installer n=0) | 0.03399 | 0.41215 | **12.1x** |
+
+So the drop is real and not an artifact of where the marker fell, and it is
+almost entirely an ARM A effect: teach moved -7% (0.44480 -> 0.41215) while
+elicit rose +49% (0.02285 -> 0.03399). Attribution is bounded, though — BOTH
+arms' parent chains differ between the designs (phase-2 arm A hangs directly
+off `evt-run2-armA-algo` with no installer; arm B off the permutation-shape
+installer rather than run 4), so "arm A lost its installer" is the plausible
+driver but is not isolated by these two points alone. Note also that "n=0 is
+generous to elicit" was established against the DOSE grid — every dose n>0
+damaged arm A — and does not mean n=0 is generous relative to run 3's algo
+installer, which is what runs 7/8's arm A had. The third curve in the figure, `evt-run10-sweep-lr3e-4` (Llama-1B,
 2.93 label tokens/example), is a **sweep point**, so its floor is a selected
 minimum biased low and its EDL is correspondingly optimistic — it is plotted
 for shape, and per-token it is not tokenizer-comparable with A/B (per example

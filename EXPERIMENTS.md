@@ -276,6 +276,16 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    length. LR-pin caveat and the arm-A/undetermined-sign note: decisions.md
    2026-07-26.
 
+   **vs runs 7/8, at the same n = 576,000** (recomputed — the two ratios must
+   be read at one n, since both curves are still descending): runs 7/8 give
+   0.02285 / 0.44480 = **19.5×**, this phase **12.1×**. The drop is real, not
+   a marker artifact, and is an arm-A effect: teach moved −7%, elicit rose
+   **+49%** (0.02285 → 0.03399). Both arms' parent chains differ between the
+   designs, so this bounds rather than isolates the installer's contribution.
+   Caveat: arm B converged at 1.54 epochs, so its MDL — epoch-1 only, by
+   footnote 1 — stops accumulating while it is still descending (val 0.03074
+   at the boundary vs its 0.01959 floor). See decisions.md.
+
    Preceded by the **8-point LR sweep** (both arms × {3e-4, 1e-3, 3e-3} +
    seed twins at 1e-3). The arms disagree — arm A's optimum is 3e-4, arm B's
    is 1e-3 — so rule 11's shared-LR band is empty and rule 8 takes arm B's
