@@ -26,13 +26,28 @@ Either outcome is decisive, which is why this runs before any dataset redesign.
 Two subcommands:
 
 ``provenance``  No model, no GPU: reads the run-1 and run-2 embedding matrices
-    from safetensors and reports per-row L2 movement grouped by whether the
-    token occurs in D_algo. NOTE the tie (below) means '+' is NOT expected to
-    be bit-identical between run 1 and run 2 — while tied, row 12 was also the
-    *unembedding* row for '+', so masked SFT pushed its logit down at every
-    answer position. The prediction is that '+' sits inside the
-    zero-occurrence group and far below the trained group: movement from
-    suppression only, none from reading.
+    from safetensors and reports per-row movement grouped by whether the token
+    occurs in D_algo. Measured 2026-07-27, and it does not go the obvious way:
+    D_algo's token support is only **30 of 10,000** rows, and the 9,970 absent
+    rows moved *more* (median L2 1.78) than the 30 present ones (0.66). '+'
+    moved 2.11 — above ``Ġ-``'s 0.62 — with its off-axis component at the
+    98.2nd percentile of the absent group.
+
+    None of that is evidence of reading, and the norm cannot be read as if it
+    were. Under the tie, row 12 was also the *unembedding* row for '+', and a
+    token that is never a correct label receives only the monotone push-down
+    from the softmax denominator, so its row drifts far; a frequent label is
+    pulled up as often as pushed down and settles near an equilibrium. The
+    off-axis component just says that push-down was weighted by where the model
+    thought '+' was likely, which is token-specific in *direction* while still
+    being pure suppression.
+
+    The decisive fact needs no statistics: '+' occurs **0 times** in D_algo's
+    1M rows, so the gradient into its *input* embedding is exactly zero by
+    construction. Every bit of row 12's movement came through the tied
+    unembedding. Keep this subcommand for the record — it quantifies the
+    starting point the unlock experiment departs from, and it stops anyone
+    (including a future me) from claiming row 12 was pristine.
 
 ``unlock``  The experiment. For each (row, lr, k) cell: restore the embedding,
     train that one row on k addition examples, re-run G5's zero-shot arm, and
@@ -117,10 +132,20 @@ from train_target import EVAL_STOP_ROWS
 # loudly instead of silently training the wrong row).
 DEFAULT_ROWS = "+,uest,:"
 EXPECTED_IDS = {"+": 12, "uest": 6204, ":": 27, "Ġ-": 1854}
+# Each operator's own token — present only in that operator's prompts, which
+# is what makes it a *conditional* handle. 'Ġ-' is to subtraction what '+' is
+# to addition (and is also the NL negative-answer sign; see the module docs).
+OP_ROW = {"+": 12, "-": 1854}
 
 
 def resolve_row(tokenizer, token: str) -> int:
-    """Vocabulary id for a literal token string, with the pinned-id check."""
+    """Vocabulary id for a literal token string, with the pinned-id check.
+
+    ``id:N`` selects a row directly — the escape hatch for tokens whose literal
+    spelling does not survive a shell round-trip (``Ġ-`` is id 1854).
+    """
+    if token.startswith("id:"):
+        return int(token[3:])
     row = tokenizer.convert_tokens_to_ids(token)
     if row is None or row == getattr(tokenizer, "unk_token_id", None):
         raise SystemExit(f"token {token!r} is not in this tokenizer's vocabulary")
@@ -313,7 +338,16 @@ def main() -> int:
     )
     parser.add_argument("--train-config", type=Path, default=Path("../configs/run7_target_1m.yaml"))
     parser.add_argument("--algo-config", type=Path, default=Path("../configs/run2_algo.yaml"))
-    parser.add_argument("--rows", default=DEFAULT_ROWS, help="comma-separated token strings")
+    parser.add_argument(
+        "--rows", default=DEFAULT_ROWS, help="comma-separated token strings, or 'id:N'"
+    )
+    parser.add_argument(
+        "--train-op",
+        default="+",
+        choices=("+", "-"),
+        help="operator to train on. The mirror run (--train-op -) is the bracket: "
+        "'id:1854' (Ġ-) is to subtraction what '+' is to addition",
+    )
     parser.add_argument("--lr-grid", default="1e-2,1e-1,1.0")
     parser.add_argument("--k-grid", default="32,512")
     parser.add_argument("--steps", type=int, default=200)
@@ -363,7 +397,7 @@ def main() -> int:
     plus_idx = [i for i, o in enumerate(ops) if o == "+"]
     minus_idx = [i for i, o in enumerate(ops) if o == "-"]
 
-    # ---- training pool: D_target '+' rows the parent has never seen ------
+    # ---- training pool: D_target rows of --train-op the parent never saw -
     tgt = load_frozen_parquet(load_config(args.train_config, None))
     algo = load_frozen_parquet(load_config(args.algo_config, None))
 
@@ -374,17 +408,17 @@ def main() -> int:
     # Direct triples and commuted twins: for '+' the twin carries the identical
     # answer, so it is pre-exposure just as much as the direct question is.
     seen = np.unique(np.concatenate([qkey(algo.a, algo.b, algo.op), qkey(algo.b, algo.a, algo.op)]))
-    pool = tgt[tgt.op == "+"]
+    pool = tgt[tgt.op == args.train_op]
     keep = ~np.isin(qkey(pool.a, pool.b, pool.op), seen)
     print(
-        f"[evt] D_target '+' rows {len(pool)}; unseen by the parent "
+        f"[evt] D_target '{args.train_op}' rows {len(pool)}; unseen by the parent "
         f"(direct or commuted) {int(keep.sum())} ({keep.mean():.2%}) — training draws from these"
     )
     pool = pool[keep]
     rng = np.random.default_rng(args.seed)
     max_k = max(k_grid)
     if len(pool) < max_k:
-        raise SystemExit(f"pool has {len(pool)} unseen '+' rows, need {max_k}")
+        raise SystemExit(f"pool has {len(pool)} unseen '{args.train_op}' rows, need {max_k}")
     draw = pool.iloc[rng.choice(len(pool), size=max_k, replace=False)]
     tr_spans = list(zip(draw["answer_char_start"].astype(int), draw["answer_char_end"].astype(int)))
     # append_eos=True: V5.43 — masked SFT trains no stop unless EOS is inside
@@ -460,15 +494,22 @@ def main() -> int:
             "acc_add": sum(hits[i] for i in plus_idx) / max(1, len(plus_idx)),
             "acc_sub": sum(hits[i] for i in minus_idx) / max(1, len(minus_idx)),
         }
-        rec.update(shape_table([ab[i] for i in plus_idx], [parsed[i] for i in plus_idx]))
+        # Shapes follow --train-op so the forward and mirror runs carry the
+        # same columns: it is always the trained operator's questions that are
+        # asked "did the predictions move toward the right closed form?".
+        tidx = plus_idx if args.train_op == "+" else minus_idx
+        rec.update(shape_table([ab[i] for i in tidx], [parsed[i] for i in tidx]))
         return rec
 
+    # The closed form a correct prediction takes for the trained operator, and
+    # the one the parent defaults to instead (the audit's 19:1 |a-b| margin).
+    right = "a+b" if args.train_op == "+" else "a-b"
     print("[evt] baseline (untouched parent) ...", flush=True)
     baseline = evaluate()
     print(
         f"[evt] baseline overall {baseline['acc_overall']:.4f}  "
         f"add {baseline['acc_add']:.4f}  sub {baseline['acc_sub']:.4f}  "
-        f"| a+b {baseline['shape_a+b']:.4f}  |a-b| {baseline['shape_|a-b|']:.4f}"
+        f"| {right} {baseline['shape_' + right]:.4f}  |a-b| {baseline['shape_|a-b|']:.4f}"
     )
     if args.expect:
         tol = 0.5 / args.n
@@ -486,7 +527,17 @@ def main() -> int:
             return 1
         print("[evt] --expect: baseline reproduces the recorded G5 zero-shot accuracies")
 
-    results = [{"arm": "baseline", "row_token": "", "row_id": "", "lr": "", "k": 0, **baseline}]
+    results = [
+        {
+            "arm": "baseline",
+            "train_op": args.train_op,
+            "row_token": "",
+            "row_id": "",
+            "lr": "",
+            "k": 0,
+            **baseline,
+        }
+    ]
 
     for token, row_id in zip(args.rows.split(","), rows_to_train):
         for k in k_grid:
@@ -525,7 +576,11 @@ def main() -> int:
                 moved = (
                     ((emb.detach() - orig_emb).abs().sum(dim=1) > 0).nonzero().flatten().tolist()
                 )
-                if moved != [row_id]:
+                # Empty is legal and is itself a result: a token absent from the
+                # trained operator's prompts receives exactly zero input-side
+                # gradient, so its row cannot move. Anything *other* than the
+                # requested row moving is a leak.
+                if set(moved) - {row_id}:
                     raise SystemExit(
                         f"expected only row {row_id} to move, got {len(moved)} rows {moved[:5]} — "
                         "the gradient mask or weight decay leaked"
@@ -540,13 +595,23 @@ def main() -> int:
                     f"[evt] row={token!r}({row_id}) k={k:<5d} lr={lr:<6g} "
                     f"loss={last:.4f} |drow|={delta:.4f} -> "
                     f"add {rec['acc_add']:.4f} (base {baseline['acc_add']:.4f})  "
-                    f"sub {rec['acc_sub']:.4f}  a+b {rec['shape_a+b']:.4f}  "
-                    f"|a-b| {rec['shape_|a-b|']:.4f}",
+                    f"sub {rec['acc_sub']:.4f} (base {baseline['acc_sub']:.4f})  "
+                    f"{right} {rec['shape_' + right]:.4f}  |a-b| {rec['shape_|a-b|']:.4f}",
                     flush=True,
                 )
                 results.append(
                     {
-                        "arm": "treatment" if token == "+" else "null",
+                        # The discriminating variable turned out to be scope,
+                        # not semantics: an operator token appears only in its
+                        # own op's prompts, a prompt-general one in both, and
+                        # the *other* operator's token in neither (delta == 0,
+                        # no input-side gradient exists for it to receive).
+                        "arm": (
+                            "operator"
+                            if row_id == OP_ROW[args.train_op]
+                            else ("absent" if delta == 0.0 else "prompt_general")
+                        ),
+                        "train_op": args.train_op,
                         "row_token": token,
                         "row_id": row_id,
                         "lr": lr,
@@ -560,7 +625,16 @@ def main() -> int:
 
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
-        lead = ["arm", "row_token", "row_id", "lr", "k", "train_loss_nats", "row_delta_l2"]
+        lead = [
+            "arm",
+            "train_op",
+            "row_token",
+            "row_id",
+            "lr",
+            "k",
+            "train_loss_nats",
+            "row_delta_l2",
+        ]
         fields = lead + [k for k in results[0] if k not in lead]
         with args.out.open("w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=fields)
@@ -578,7 +652,10 @@ def main() -> int:
                     "steps": args.steps,
                     "n_eval": args.n,
                     "seed": args.seed,
-                    "train_pool": "D_target op='+' minus D_algo (direct and commuted)",
+                    "train_op": args.train_op,
+                    "train_pool": (
+                        f"D_target op='{args.train_op}' minus D_algo (direct and commuted)"
+                    ),
                     "baseline": baseline,
                 },
                 indent=2,
