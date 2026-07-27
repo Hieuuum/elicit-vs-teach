@@ -271,11 +271,25 @@ PY
   fi
 
   # Record the branch: which parent the EDL measurement actually ran from is a
-  # fact about the result, and it is decided at run time.
+  # fact about the result, and it is decided at run time. The pre-exposure
+  # figures ride along so the run directory carries its own caveat — anyone
+  # reading a low elicit EDL asks "how much of that is recall?" first, and the
+  # answer should not live three files away in decisions.md.
   mkdir -p "$GEODE_STORE/runs/$TARGET_RID"
   python3 - "$G4_RATE" "$NEED_INSTALL" "$TARGET_PARENT" <<'PY'
 import json, os, sys
 from pathlib import Path
+
+import yaml
+
+repo_root = Path(os.environ["REPO_ROOT"])
+data_dir = (
+    repo_root
+    / yaml.safe_load((Path("../configs") / "p3_elicit_target.yaml").read_text())["data"][
+        "local_path"
+    ]
+).parent
+exposure = json.loads((data_dir / "report.json").read_text())["pre_exposure"]
 
 path = Path(os.environ["GEODE_STORE"]) / "runs" / "evt-p3-elicit-target" / "install_decision.json"
 path.write_text(
@@ -290,11 +304,27 @@ path.write_text(
                 "fixed rows [2048:2560] of the frozen D_p3_nl_eval, token-prefix prompts, "
                 "greedy EOS-stopped, format_valid"
             ),
+            "pre_exposure": {
+                "frac_of_target_direct": exposure["frac_of_target_direct"],
+                "frac_of_target_incl_twin": exposure["frac_of_target_incl_twin"],
+                "note": (
+                    "The pre-intervention set and this target are NOT disjoint (V5.1, exact "
+                    "ordered triple only; commuted twins allowed). For ADDITION the twin "
+                    "carries the identical answer, so frac_of_target_incl_twin is the figure "
+                    "that bounds item recall — roughly 1 in 6 target questions is "
+                    "answer-known to the parent, concentrated in the small digit cells where "
+                    "it has seen everything. Quote both or neither; per-cell in report.json."
+                ),
+            },
         },
         indent=2,
     )
 )
-print(f"[p3] branch recorded -> {path}")
+print(
+    f"[p3] branch recorded -> {path}  "
+    f"(pre-exposure {exposure['frac_of_target_direct']:.2%} direct, "
+    f"{exposure['frac_of_target_incl_twin']:.2%} incl twin)"
+)
 PY
 
   ST=$(status_of "$TARGET_RID")

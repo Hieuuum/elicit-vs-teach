@@ -85,13 +85,20 @@ def load_frozen_parquet(d: dict):
     (wrong file, truncated download, or a re-generated dataset all refuse);
     the ``data.n_examples`` prefix is taken by the caller afterwards, so the
     recorded hash always names the frozen artifact, not a slice.
-    ``local_path`` (smoke/CI escape hatch) skips the download but never the
-    hash check.
+    ``local_path`` skips the download but never the hash check. It is resolved
+    against ``REPO_ROOT`` when relative (2026-07-27) — it used to be taken raw,
+    i.e. relative to the *cwd*, which differs from ``train_sft.py``'s handling
+    of the identical key. Every launcher ``cd``s to ``scripts/``, so a
+    repo-root-relative spelling that ``train_sft.py`` accepts would raise
+    FileNotFoundError here, and only after the earlier stages had already spent
+    GPU time. No pre-2026-07-27 config fed this path a ``local_path``, so the
+    change is a no-op for runs 5-10 and phase 2; phase 3 is the first caller.
     """
     import pandas as pd
 
     if d.get("local_path"):
-        path = d["local_path"]
+        path = Path(d["local_path"])
+        path = path if path.is_absolute() else REPO_ROOT / path
     else:
         from huggingface_hub import hf_hub_download
 

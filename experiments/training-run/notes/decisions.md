@@ -3793,6 +3793,24 @@ pin; pre-intervention LR = target pin; corrupted hash; missing artifact), plus
 a passing control. The conditional's rate parsing was tested at the 0.9000
 boundary and on two crash modes.
 
+### Two things to know before reading a phase-3 gate
+
+**G4's decision slice overlaps G5's.** The conditional reads rows
+[2048:2560] of `D_p3_nl_eval`; G5's 16 shots are rows 2048-2063 and its
+questions start at 2064. So the format-validity decision and G5 are **not
+independent measurements** of the same parent. This is inherited from
+`eval_target_data.yaml` and is pre-existing practice, harmless where G4 is
+reported evidence — but here G4 gates a *branch*, so do not later cite the two
+as corroborating each other.
+
+**`train_target.py` took `data.local_path` raw** — i.e. cwd-relative — while
+`train_sft.py` resolved the identical key against `REPO_ROOT`. Every launcher
+`cd`s to `scripts/`, so phase 3's repo-root-relative pins would have raised
+FileNotFoundError in the target stage, *after* the pre-intervention stage had
+already spent GPU time. Phase 3 is the first config to feed a `local_path` to
+`train_target.py`, which is why runs 5-10 and phase 2 never hit it. Fixed
+2026-07-27 to match `train_sft.py`; a no-op for every pre-existing run.
+
 **Status: nothing launched.** Datasets frozen and verified; configs, overlay and
 launcher written and guard-tested; no GPU exists. The teach arm is not built —
 `D_p3_nl_add`/`D_p3_nl_eval` are arm-agnostic, so it needs a permuted-label NL
