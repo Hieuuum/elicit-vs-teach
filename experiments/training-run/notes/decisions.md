@@ -4018,3 +4018,115 @@ monotone. It does not block the launch — it bounds what may be claimed
 afterwards. The discriminators phase 3 is actually built to move are the level
 at matched n and the size of the early addressing spike (3.46 bits at n=1,536
 for p2 elicit, against 0.98 and 1.05).
+
+### Launch, 2026-07-27: the parent, and the two config bugs that cost a box round-trip each
+
+**The parent converged.** `evt-p3-elicit-parent`, `stop_reason: converged` at
+step 6000 (1.54 epochs, **10.3% of the 58,290 ceiling**), val 4.2075 → **0.0190
+nats** min, G1 **0.9717** on n=1024 → PASS at 0.95, recorded. Wall clock **5.0
+min at 19.88 steps/s**. Checkpoint pushed to the relay
+(`mhieuuu/geode-store`, `model.safetensors` sha256 `677ba316…`) — this project
+lost weights once to a deleted box (2026-07-24), and it was the only unbacked
+artifact in the chain.
+
+**G4 on the parent: 0.9902 → the installer did NOT run.** The conditional was
+built expecting this (the p2 elicit parent scored 1.0000 under the same
+one-scaffold argument), and it means the elicit arm reaches the target stage
+with **no installer at all** — no exposure to add, no retention risk to check,
+nothing to subtract. `evt-p3-elicit-inst` never existed.
+
+#### Two bugs, one class, both found only on a paid GPU
+
+1. **`epochs_total_planned` missing** from both phase-3 full-FT configs.
+   `train_sft.py:194` reads it as a bare subscript inside `manifest_fields`,
+   which runs *after* config parse, 500K rows tokenized, checkpoint on the GPU,
+   `--confirm-cost` given, and step-0 val printed. Nothing was recorded —
+   `manifest_fields` raises before `register_run`, so the store was clean and
+   the relaunch was a retry, not a resume. `p3_elicit_inst.yaml` had the same
+   gap. Fixed `9d90b32`, guarded by `tests/scripts/test_config_completeness.py`.
+2. **Both G4 call sites omitted `--config`.** `gates.py` reads the tokenizer
+   path and `cfg["train"]["stopping"]` from it before it looks at
+   `--prompt-config`, so it is required even when the prompts come from a frozen
+   external file. argparse exited 2. Fixed `fbe1c10`, guarded by
+   `tests/scripts/test_launcher_gate_args.py` (12 invocations across 5
+   launchers, run through `gates.py`'s own parser).
+
+The launcher's design held in case 2 and is worth keeping: because it parses the
+printed rate instead of trusting the exit code, it refused to read an argparse
+error as a format-validity score, said so, and halted **without recording
+anything on the shared parent**. Had it trusted the exit code it would have
+recorded a sub-threshold G4 on `evt-p3-elicit-parent` and V0.6 would then have
+refused every child of it.
+
+The class both belong to: *a launcher/config incompleteness that fails loudly
+but only after the box is already spending.* Pre-launch guard-testing covered
+values — hashes, LR pins, checkpoint presence — and nothing covered whether the
+config had the keys and the CLI had the flags. Both tests are justified on the
+CLAUDE.md promotion rule's **cost** clause, not its silence clause.
+
+#### The GPU question, measured rather than argued
+
+Owner: *"would we benefit from either renting more RTX 4090? will we benefit
+from renting stronger GPUs?"*
+
+**Measured: 20.51 steps/s = 24.37 TFLOP/s = 29.5% MFU** of the 4090's 82.6
+TFLOPS fp32 peak (`6·N·B·T·steps/s`, N=38,683,136, B=128, T=40). Run 1 hit 29.6%
+of the bf16 peak on a completely different shape. **This corrects the earlier
+"overhead-bound at this size" reasoning in the section above: the run is
+compute-bound at a perfectly normal MFU**, and a faster card would therefore
+scale roughly proportionally.
+
+The answer is still no, for a different reason: **there is nothing left to buy.**
+The parent converged in 5.0 minutes for about $0.04. More 4090s remains a
+non-lever independently — phase 3 is a strict serial chain and `geode/` has no
+data-parallel path. bf16 would double the peak, but it falls to the same
+objection as TF32 above and that reasoning is unchanged.
+
+**Side finding — the cost estimator is 2.37× optimistic on every fp32 run.**
+`common.yaml` carries only `tflops_bf16: 165.0`, and `train_sft.py:344` divides
+by it regardless of `train.precision`. This run is `precision: fp32`, whose peak
+is exactly half. Decomposition: 2.00× (fp32 vs bf16 peak) × 1.19× (29.5% actual
+vs 35% assumed MFU) = 2.37×, against the observed 0.79 h ceiling vs the printed
+0.33 h — an exact match, which also says the 35% MFU guess is *well* calibrated
+and the entire error is the hardcoded peak. It understates cost, which is the
+wrong direction for a budget rule. Deliberately **not** patched mid-chain: the
+box is pinned to a commit and the target runs through the same trainer path.
+Fix as its own commit after the chain closes.
+
+#### G1's 2.83% miss is not a width ceiling (so the header's sweep trigger does not fire on width)
+
+`p3_elicit_parent.yaml` pre-committed: *"If this run's G1 lands materially below
+run 2's 0.9961, sweep before reading anything downstream."* 0.9717 vs 0.9961 is
+a **cross-task ratio** and cannot answer that — run 2 was 4-digit add/sub, this
+is 1–8 digit addition with ~75% of rows carrying a 5+ digit operand. That is the
+same bar transplant `feedback-gate-thresholds-are-task-scoped` exists for, one
+level up. Sweeping *toward* 0.9961 after seeing 0.9717 would also be exactly the
+post-hoc tuning `feedback-scope-check-pins-before-reuse` names.
+
+So it was measured instead: whole 2,500-row val split, G1's exact decode path
+(`tokenize_with_spans` → token-prefix prompts → `greedy_completions` →
+`exact_match`), grouped by digit band. Overall 0.9648 on n=2500.
+
+    by WIDER operand:  2:0.974(39)  3:0.919(211)  4:0.979(287)  5:0.983(347)
+                       6:0.973(449) 7:0.961(518)  8:0.960(649)
+
+**No width cliff.** The widest buckets (7, 8) sit at 0.961/0.960, within a point
+of the 0.9648 mean; the *worst* bucket is 3 digits. At ~39 rows per 8×8 cell the
+cell-level spread (0.836 at (2,3), 0.880 at (8,8)) is consistent with binomial
+noise. This **rules out** a capacity ceiling at 38.7M params; it does **not**
+rule in an optimization shortfall, and those are different claims.
+
+One trap worth recording: the first pass reported n=211 / 0.9194 for *both*
+"max digits == 3" and "carry-out == True". Two partitions landing on the same
+(n, accuracy) pair implies opposite conclusions — width ceiling vs carry
+propagation — so it was cross-tabbed rather than guessed. They are genuinely
+different sets (max-digits-3 contains 179 no-carry rows; carry-out spans every
+width) and the collision is coincidence. Carry-out rows do score worse
+(0.9194 vs 0.9690) but on n=211 spread over seven widths.
+
+**OPEN(1): whether to sweep the phase-3 parent LR.** Not resolved here. The
+measurement removes the width explanation but the pre-commitment was written
+against a number that turned out not to be comparable. Proceeding to the target
+was chosen because it is cheap to redo (the parent checkpoint is preserved and
+relay-backed, and a swept parent would simply take a new run id), not because
+the question is closed. Owner's call.
