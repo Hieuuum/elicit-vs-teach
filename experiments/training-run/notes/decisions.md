@@ -3895,3 +3895,30 @@ and is very unlikely to have been drawn. **Still quote both or neither.**
    `tests/datagen` pins streaming == in-memory on **both** grids, since `cells`
    is threaded through the two paths separately and a divergence there would be
    silent.
+
+**6. G1 is now scored before it is recorded** (found reviewing the above, same
+commit). `gates.py g1` defaults to `EXACT_MATCH_THRESHOLD = 0.95`, calibrated
+on run 2's 4-digit add/sub, which scored 0.9961. This parent learns 1–8 digit
+addition — a materially harder task — and G1 had no `--no-record`, so the
+launcher's `gates.py g1 … || fail` would have written a FAIL into the parent's
+manifest, at which point `require_parent_ready` (V0.6) refuses every child and
+the only fix is hand-editing a manifest *after* the parent run is already paid
+for. `--no-record` added to g1/g2/g3 with the same semantics g4/g5 already had;
+`launch_phase3.sh` scores unrecorded, parses the printed accuracy (absence of
+the line = crash = hard failure, not a low score), and commits the verdict only
+on a pass. On a miss it stops with the checkpoint still usable and names the two
+readings — unswept role-inherited LR vs a bar set for a different task —
+explicitly refusing to choose between them after the fact. All three branches
+(pass / below-bar / crash) negative-tested.
+
+Two further checks that came back clean and are recorded so they are not
+re-derived: the cost estimate needs no adjustment, because `train_sft.py`
+computes it from `len(train_examples) * max_len` over the actually-tokenized
+data, so both the 2.5× row count and the 1.4× sequence length are already in
+it (`assumed_epochs_for_estimate: 15` still names the real ceiling). And the
+char-span → token-span conversion holds at the new widths: `_grid()` in
+`tests/arith/test_spans.py` gained the 5–8 digit corners including the
+99,999,999 + 99,999,999 carry into nine digits, plus
+`test_v5_38_prompt_prefix_is_the_prompt_at_8_digits`, which asserts the eval
+prompt is a token-prefix of the training tokenization at those widths — the
+2026-07-21 G1=0 failure mode, which reads as zero accuracy rather than raising.

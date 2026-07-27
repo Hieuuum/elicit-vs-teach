@@ -82,6 +82,18 @@ def _grid():
             for fmt in ("nl", "operator"):
                 cases.append((a, b, op, true_answer(a, b, op), fmt))
     cases.append((12, 34, "*", 408, "operator"))  # installer format
+    # Phase 3 (2026-07-27) runs 1-8 digit operands, addition only, positive.
+    # These are the longest strings this pipeline renders — 9-digit answers,
+    # and the mixed-width pairs the 64-cell grid is mostly made of.
+    for a, b in [
+        (99999999, 99999999),  # the carry into 9 digits
+        (10000000, 1),  # widest x narrowest
+        (1, 10000000),
+        (12345, 678901),
+        (9999999, 90000000),
+    ]:
+        for fmt in ("nl", "operator"):
+            cases.append((a, b, "+", a + b, fmt))
     return cases
 
 
@@ -98,6 +110,28 @@ def test_v5_38_frozen_tokenizer_spans_decode_to_answer(frozen_tokenizer):
         # leading space (`` -`` / `` 8`` byte-level tokens).
         assert decoded.lstrip(" ") == full[cs:ce]
         assert 1 <= start < end <= len(ex.input_ids)  # V5.31-compatible span
+
+
+def test_v5_38_prompt_prefix_is_the_prompt_at_8_digits(frozen_tokenizer):
+    """The eval prompt is ``input_ids[:label_span[0]]`` — it must BE the prompt.
+
+    Phase 3's operands run to 8 digits and its answers to 9, the longest strings
+    this pipeline renders. The failure this guards is the 2026-07-21 G1=0
+    incident: a prompt that is not a token-prefix of the training tokenization
+    decodes to something the model was never trained to continue, and every
+    accuracy silently reads zero rather than raising.
+    """
+    cases = [c for c in _grid() if max(len(str(c[0])), len(str(c[1]))) >= 5]
+    assert cases, "the 5-8 digit corner of the grid disappeared"
+    rendered = [render(a, b, op, ans, fmt) for a, b, op, ans, fmt in cases]
+    examples = tokenize_with_spans(
+        [f for f, _ in rendered], [s for _, s in rendered], frozen_tokenizer
+    )
+    for (full, (cs, _)), ex in zip(rendered, examples):
+        prompt = frozen_tokenizer.decode(ex.input_ids[: ex.label_span[0]])
+        # Byte-level BPE may merge the answer's leading space into the first
+        # label token, so the prompt is the rendered prompt up to that space.
+        assert full[:cs].rstrip(" ") == prompt.rstrip(" ")
 
 
 def test_v5_38_length_mismatch_raises(frozen_tokenizer):

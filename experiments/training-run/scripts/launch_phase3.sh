@@ -198,8 +198,32 @@ if [[ $STAGE == all || $STAGE == parent ]]; then
     python3 train_sft.py --config ../configs/p3_elicit_parent.yaml \
       --init-from "$CKPT" --confirm-cost || fail "$PARENT_RID training"
   fi
-  gate_done "$PARENT_RID" G1 || python3 gates.py g1 --run "$PARENT_RID" \
-    --config ../configs/p3_elicit_parent.yaml || fail "$PARENT_RID G1"
+  # G1 IS SCORED BEFORE IT IS RECORDED. The default bar is 0.95 exact match,
+  # calibrated on run 2's 4-digit add/sub (which scored 0.9961). This parent
+  # learns 1-8 digit addition, ~75% of it with an operand of 5+ digits — a
+  # harder task, so a miss here is as likely to mean "the bar was set for a
+  # different task" as "the run is bad". A recorded FAIL on this checkpoint
+  # would make require_parent_ready (V0.6) refuse every child of it and could
+  # only be undone by hand, so the scoring pass runs --no-record and the
+  # verdict is committed only once it passes.
+  if ! gate_done "$PARENT_RID" G1; then
+    echo "[p3] === G1 (scoring pass, nothing recorded) ==="
+    G1_OUT=$(python3 gates.py g1 --run "$PARENT_RID" \
+      --config ../configs/p3_elicit_parent.yaml --no-record 2>&1) || true
+    echo "$G1_OUT"
+    G1_ACC=$(sed -n 's/.*G1 accuracy \([0-9.]*\) on n=.*/\1/p' <<<"$G1_OUT" | head -1)
+    [[ -n $G1_ACC ]] ||
+      fail "the G1 scoring pass printed no accuracy — it errored rather than scored low"
+    grep -q "G1 accuracy .* -> PASS" <<<"$G1_OUT" || fail \
+      "$PARENT_RID G1 scored $G1_ACC, below the bar — NOT recorded, so the checkpoint
+   is still usable. Decide before re-running: (a) the LR is role-inherited from
+   run 2 and never swept on this data (p3_elicit_parent.yaml header) — sweep it;
+   or (b) 0.95 is run 2's 4-digit bar and this is 8-digit addition — set the
+   phase's own threshold explicitly and record that choice in decisions.md.
+   Do not lower the bar after seeing the number without writing down that you did."
+    python3 gates.py g1 --run "$PARENT_RID" \
+      --config ../configs/p3_elicit_parent.yaml || fail "$PARENT_RID G1 (recording pass)"
+  fi
 fi
 
 # ---- stage: the conditional install decision, then the target -----------

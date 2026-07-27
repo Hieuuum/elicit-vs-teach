@@ -163,6 +163,14 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = Fal
     )
     if invert:
         protocol += "; pass = accuracy <= threshold: random labels didn't leak"
+    if getattr(args, "no_record", False):
+        # Same reason G4/G5 have this: a recorded sub-threshold verdict on a
+        # shared parent makes require_parent_ready (V0.6) refuse every child of
+        # it, and un-recording is manual surgery on a manifest. Scoring first
+        # and recording second lets a launcher stop on a bad number instead of
+        # poisoning the checkpoint with it.
+        print("[evt] --no-record: nothing written to any manifest")
+        return 0 if passed else 1
     manifest.data.setdefault("experiment", {}).setdefault("gates", {})[gate] = {
         "pass": passed,
         "accuracy": accuracy,
@@ -458,6 +466,13 @@ def main() -> int:
         p.add_argument("--n", type=int, default=1024)
         p.add_argument("--sample-seed", type=int, default=316)
         p.add_argument("--threshold", type=float, default=threshold)
+        p.add_argument(
+            "--no-record",
+            action="store_true",
+            help="print the accuracy but write no verdict — score a shared parent "
+            "before committing a pass/fail to its manifest (a recorded failure "
+            "there would block every child)",
+        )
         p.add_argument(
             "--dump",
             type=int,

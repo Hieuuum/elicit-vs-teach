@@ -70,6 +70,16 @@ data:
   # Pinned from data/phase3/report.json; op-disjoint from every other phase-3
   # artifact by construction (they are all '+', this is all '*', and the
   # leakage rule keys on the ordered triple).
+  #
+  # OPERANDS ARE 1-4 DIGITS HERE while the rest of phase 3 runs 1-8. Multiplying
+  # 8-digit operands gives 16-digit answers, which would install a length prior
+  # twice anything addition produces, on a parent that already knows addition —
+  # the phase-0b failure. At 1-4 digits the products reach 8 digits, within one
+  # of this phase's 9-digit ceiling. The cost, stated: G4 after this installer
+  # is scored on an eval that is ~75% 5+ digit operands, a width this pool never
+  # showed. Format validity is a scaffold property (`Question:`/`Answer:`, one
+  # integer in the slot), not a width property, so the mismatch should not bite
+  # — and this installer is expected never to fire at all.
   order_hash: 8c2494503629a2d4139ea34f0e98efac1aa870a8c02db06fa3e6b8f9f05a4ee9
   local_path: experiments/training-run/data/phase3/D_p3_nl_mult.parquet
   val_fraction: 0.005          # 1,000 held-out (>= the 512 stopping prompts)
