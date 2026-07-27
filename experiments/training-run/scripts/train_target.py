@@ -465,6 +465,7 @@ def main() -> int:
                         state["stop_reason"] = "max_steps"
             return state["stop_reason"] is not None
 
+        train_started = time.time()
         train_prequential(
             model,
             {"train": train_examples, "test": test_examples, "tokenizer_hash": tok_hash},
@@ -472,9 +473,18 @@ def main() -> int:
             manifest,
             device=args.device,
             seed=t["seed"],
+            # Default 1 = every step, the behaviour of every run before
+            # 2026-07-27. _gradstat calls .item() once per trainable tensor
+            # (112 of them at LoRA r=128 over 8 layers), and each is a
+            # device->host sync inside the inner loop, so on a model this small
+            # it is a real share of step time. Runs that do not read
+            # gradstats.jsonl can raise the stride; step 0 is always logged
+            # (0 % N == 0), so the spec 00 §4 artifact stays non-empty.
+            gradstats_stride=t.get("gradstats_stride", 1),
             store=store,
             step_callback=step_callback,
         )
+        train_wall_s = time.time() - train_started
 
     phase(6, "finalize — checkpoint + manifest (emergent snapshot truncation)")
     # Final checkpoint at runs/<id>/model (flat layout, spec 00 §1): the
@@ -503,6 +513,16 @@ def main() -> int:
         f"[evt] {cfg['run_id']} done: {stop_reason} at step {state['final_step']}, "
         f"min val {tracker.min_nats:.4f} nats (eps-gated best {tracker.best_nats:.4f}); "
         f"snapshots taken {len(taken)}/{len(schedule)}. Checkpoint: {out_dir / 'model'}"
+    )
+    # Printed, not stored: no run in this project has ever recorded wall clock,
+    # so "would a faster GPU help?" has never been answerable. steps/s against
+    # the FLOP estimate above is what says whether the run is compute-bound or
+    # overhead-bound on a model this small.
+    steps_per_s = state["final_step"] / train_wall_s if train_wall_s > 0 else float("nan")
+    print(
+        f"[evt] wall clock: {train_wall_s / 60:.1f} min of training "
+        f"({steps_per_s:.2f} steps/s over {state['final_step']} steps, "
+        f"batch {batch_size}, eval_every {eval_every})"
     )
     print(json.dumps(manifest.data["experiment"], indent=2))
     return 0

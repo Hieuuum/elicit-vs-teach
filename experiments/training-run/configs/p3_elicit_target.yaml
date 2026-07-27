@@ -106,7 +106,19 @@ train:
     k: 5                       # (owner 2026-07-22, spec 02 §6), unchanged so
     min_steps: 0               # EDL is not stop-rule confounded across phases
   snapshots:
-    n: 0                       # EDL only, no internals (header)
+    n: 0                       # EDL only, no internals (header). The FINAL
+                               # LoRA state is still written unconditionally to
+                               # runs/<id>/model (train_target.py, save_pretrained)
+                               # — n: 0 suppresses the intermediate snapshots,
+                               # not the end state.
+  gradstats_stride: 500        # owner 2026-07-27: no gradient analysis is
+                               # planned for this phase, and logging per-module
+                               # grad norms every step costs 112 device syncs
+                               # inside the inner loop. At 500 (= eval_every)
+                               # gradstats.jsonl still gets step 0 and a coarse
+                               # trace. Raise to max_steps+1 for step 0 only;
+                               # runs 1-10 all ran at the default 1, so their
+                               # logs are unaffected and remain the dense ones.
   seed: 316
                                # No train.precision: the harness default is
                                # fp32, which is also this phase's stage pin.

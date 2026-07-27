@@ -22,6 +22,7 @@ import json
 import os
 import random
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -430,6 +431,7 @@ def main() -> int:
     print(f"[evt] store={store}", flush=True)
 
     phase(6, "train — progress lands in eval_log.jsonl; stopping is automatic")
+    train_started = time.time()
     result = train_sft(
         model,
         train_examples,
@@ -450,6 +452,7 @@ def main() -> int:
         precision=precision,
         stopping_metric=("train_loss" if s.get("metric") == "train_loss" else "val_loss"),
     )
+    train_wall_s = time.time() - train_started
 
     phase(7, "finalize — manifest + checkpoint")
     manifest.data["status"] = "complete"
@@ -464,6 +467,15 @@ def main() -> int:
         f"[evt] {cfg['run_id']} done: {result.stop_reason} at step {result.final_step}, "
         f"min val {result.min_val_nats:.4f} nats "
         f"(eps-gated best {result.best_val_nats:.4f}). Checkpoint: {result.checkpoint_dir}"
+    )
+    # See train_target.py: no run in this project has recorded wall clock, so
+    # whether these runs are compute-bound has never been checkable. Compare
+    # steps/s against the FLOP-derived estimate printed in phase 4.
+    steps_per_s = result.final_step / train_wall_s if train_wall_s > 0 else float("nan")
+    print(
+        f"[evt] wall clock: {train_wall_s / 60:.1f} min of training "
+        f"({steps_per_s:.2f} steps/s over {result.final_step} steps, "
+        f"batch {t['batch_size']}, eval_every {t['eval_every']})"
     )
     print(json.dumps(manifest.data["experiment"], indent=2))
     return 0

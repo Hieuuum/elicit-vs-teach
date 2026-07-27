@@ -3922,3 +3922,87 @@ char-span → token-span conversion holds at the new widths: `_grid()` in
 `test_v5_38_prompt_prefix_is_the_prompt_at_8_digits`, which asserts the eval
 prompt is a token-prefix of the training tokenization at those widths — the
 2026-07-21 G1=0 failure mode, which reads as zero accuracy rather than raising.
+
+### Cost of the run, and what "faster" can and cannot buy (owner, same day)
+
+Owner asked for the training run to be faster and whether more or stronger GPUs
+would help. Three findings, all measured against what is in the repo rather than
+guessed.
+
+**1. The ceiling is not the run.** Every target this project has ever launched
+converged at 10–25% of its `max_steps`: p2 arm A at 4,500 of 46,878, p2 arm B at
+12,000, runs 7/8 at 6,000 and 11,000, runs 5/6 at 6,000 and 12,500, run 10-v2 at
+5,500. The pre-training analogue (run 2, `pre_teach`) stopped at 19,000 of
+116,595. Phase 3's ceilings — parent 58,290, target 23,442 — are cost caps under
+the owner's run-until-convergence policy and should not be used for planning.
+Expect roughly 20K–40K parent steps (harder task, half the rows) and 5K–13K
+target steps. **The parent is the long pole by a factor of three or four**, which
+is where any real speed work has to land.
+
+**2. `gradstats` ran every step and nothing reads it.** `train_target.py` never
+passed `gradstats_stride`, so `geode.edl.loop._gradstat` fired on every update.
+It calls `.item()` once per trainable tensor — 112 of them at LoRA r=128 across
+8 layers, 7 projections, A and B — and every one is a device→host sync inside
+the inner loop. On a 39M-param model at batch 128 the step's own GPU work is
+small enough that this is a real share of wall clock. Nothing in
+`experiments/*/analysis/` consumes `gradstats.jsonl`; the file exists for
+spec 00 §4. The kwarg is now read from `train.gradstats_stride` (default 1, so
+runs 1–10 are bit-identical and remain the dense-log ones) and phase 3's target
+sets 500. Step 0 is always logged because `0 % N == 0`, so the artifact contract
+holds without a spec edit. **This helps the target stage only — `train_sft.py`
+does ~3 syncs per step, so the parent gains nothing.**
+
+**3. Two levers that look real and are not.**
+- *Dynamic (per-batch) padding.* 38.2% of positions in the target's batches are
+  padding, which invites the fix. It buys almost nothing: with the frozen
+  shuffled order, 73.2% of the 3,906 batches already contain a maximum-width
+  row, so per-batch-max padding drops the waste to 37.3% — 0.9 points, against a
+  change to the batching of the run that IS the measurement. Length-bucketing
+  would recover it and would break the frozen data order EDL depends on.
+- *More GPUs.* Phase 3 is a strict serial chain (parent → conditional installer
+  → target) and nothing in `geode/` is data-parallel; every trainer takes a
+  single `device`. A second box can only absorb work that is not in this chain
+  (the unbuilt teach arm, the dose-grid control).
+
+**On stronger GPUs, and the reason this is inference rather than measurement.**
+A batch here is 128 × ~25 label-bearing positions on a 39M-param model, which is
+far too little work to saturate a 4090; the run is very likely overhead-bound,
+not FLOP-bound, and `precision: fp32` means tensor cores go mostly unused, so an
+H100's advantage is largely unreachable. But that is an argument, not a number,
+because **no run in this project has ever recorded wall clock** — the manifests
+carry `est_usd` and no elapsed time. Both trainers now print minutes and steps/s
+at the end, so after the first phase-3 parent this becomes arithmetic against
+the FLOP estimate already printed in phase 4 rather than a judgement call. Note
+also that the printed estimate (165 TFLOPS × 0.35 utilization, `common.yaml`)
+is far too optimistic at this size — it is why the p2 target's full ceiling
+priced at $0.084 — and must not be used to plan wall clock.
+
+**TF32 is the one large lever, and it is the owner's call, not a default.**
+`torch.backends.cuda.matmul.allow_tf32` is False by default in current PyTorch
+and is set nowhere in this repo, so fp32 matmuls run at the true FP32 rate.
+Enabling it is plausibly a multiple, not a percentage. The reason not to do it
+silently: the stopping rule is `eps_nats: 0.002`, and TF32's numerical noise is
+of that order, so it would change where runs stop — a measurement change wearing
+an optimization's clothes, and phase 3's ε/k is inherited by citation from runs
+5–8 precisely so EDL is not stop-rule confounded across phases.
+
+**The snapshot and monotonicity asks needed no change.** Owner: *"only save that
+snapshot for the last run of the LoRA adapter... no need to run the activation
+gradients or anything. We just want to make sure that the EDL per token label
+for the last run is decreasing monotonically."* `snapshots.n: 0` was already the
+pin, and it suppresses only the intermediate snapshots —
+`train_target.py` writes the final LoRA state to `runs/<id>/model` via
+`save_pretrained` unconditionally, so the last adapter is kept either way. No
+activation or probe extraction appears anywhere in `launch_phase3.sh`. The
+gradient logging that *was* running is item 2 above, now strided.
+
+The monotonicity goal itself is the one from 2026-07-27 that this project has
+already retired: under `plot_edl_per_token.py --floor val` the moving floor
+makes monotonicity impossible for **every** run, and under `--floor test` (the
+paper's Eq. 3, fixed floor) nearly every run is monotone including the ones the
+elicit arm is supposed to differ from. It is therefore a plotting-flag outcome,
+costs zero GPU time, and no training-config choice makes phase 3 more or less
+monotone. It does not block the launch — it bounds what may be claimed
+afterwards. The discriminators phase 3 is actually built to move are the level
+at matched n and the size of the early addressing spike (3.46 bits at n=1,536
+for p2 elicit, against 0.98 and 1.05).
