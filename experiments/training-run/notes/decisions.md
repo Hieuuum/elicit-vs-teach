@@ -3544,10 +3544,10 @@ gap.
 **Result 3 — the mechanism is token SCOPE, not token semantics**, and it holds
 in both directions:
 
-| trained row | scope | trained op | the *other* op |
+| trained row | scope | trained op (range over 12 cells) | the *other* op |
 |---|---|---|---|
-| `+` (12) on '+' | that op's prompts only | 0.0039 → 0.1083 | sub **fixed at 0.1977**, all 12 cells |
-| `Ġ-` (1854) on '−' | that op's prompts only | 0.1977 → 0.5078 | add **fixed at 0.0039**, all 12 cells |
+| `+` (12) on '+' | that op's prompts only | 0.0177 → 0.1083; **above baseline in 12 of 12** | sub **fixed at 0.1977**, all 12 cells |
+| `Ġ-` (1854) on '−' | that op's prompts only | 0.1318 → 0.5078; **below baseline in 6 of 12** | add **fixed at 0.0039**, all 12 cells |
 | `:` (27), `uest` (6204) | every prompt | up to 0.3976 / 0.6647 | collapses to ≈0 |
 | `+` (12) on '−' | absent from those prompts | — | **row never moved**, both accuracies bit-identical |
 
@@ -3555,17 +3555,31 @@ An operator token is a *conditional* handle: it moves its own operator and
 leaves the other bit-identical to four decimal places across every LR,
 including cells where the row moved 285 L2 units. A prompt-general token is an
 *unconditional* mode switch: bigger gain on the trained operator, paid for by
-destroying the other. The last row is the degenerate control — a token absent
+destroying the other. The fourth row is the degenerate control — a token absent
 from the trained operator's prompts receives exactly zero input-side gradient,
 so nothing moves at all, which is what the gradient path predicts.
 
-**Result 4 — a real asymmetry survives the unlock, so the glyph story was
-never going to be the whole explanation.** Under matched interventions
-subtraction always beats addition: 0.5078 vs 0.1083 conditional (4.7×), 0.6647
-vs 0.3976 unconditional (1.7×). Token addressing closes most of the 50×
-baseline ratio but not all of it. Whether the residue is capability or deeper
-addressing is **not** settled here — 250,110 `Ġ-` exposures plausibly trained
-the pathway as well as the row.
+**The two operator rows are NOT symmetric in headroom, and the direction of
+that asymmetry supports the glyph history.** The never-trained `+` row improves
+addition in every single cell, from k=32 up. The 250,110-times-trained `Ġ-` row
+*degrades* subtraction in all four k=32 cells (0.1318–0.1899 vs a 0.1977
+baseline) and only overtakes baseline from k=128; it can be made worse before
+it can be made better. That is what a row already sitting near an optimum looks
+like. Do not quote this table as if both rows behaved alike.
+
+**Result 4 — a subtraction-favouring gap survives the unlock, so the glyph
+story was never going to be the whole explanation.** Under matched
+interventions subtraction ends higher than addition in both the conditional and
+the unconditional arm. **No ratio is quoted, deliberately.** Four of the five
+peaks (`+` 0.1083, `:` 0.3976, `Ġ-` 0.5078, `:` 0.6647) sit at the **corner of
+the grid**, lr=1.0 × k=512 — the surface has not turned over, so each is a
+*lower bound* and neither operator's ceiling is known. Comparing best cell to
+best cell at a grid edge would break this entry's own "whole surface reported,
+no best-cell quoting" commitment. The qualitative ordering is what this
+experiment supports; the size of the gap is not. Whether the residue is
+capability or deeper addressing is **not** settled either — 250,110 `Ġ-`
+exposures plausibly trained the pathway as well as the row. Extending the grid
+past the turnover is the cheap follow-up if the number ever needs to be quoted.
 
 **Correction to the 2026-07-26 entry.** Its claim that the +/− gap "is a
 tokenizer glyph asymmetry" is too strong and should be read as superseded by
