@@ -38,7 +38,12 @@ eval file's reporting block), putting every run's loss on identical data.
 Few-shot prompts are composed as exemplars + the *complete* query (true
 answer filled in), then token-prefix sliced from a training-style
 tokenization of the composed text — never a re-tokenized char slice (same
-trailing-space incident as above).
+trailing-space incident as above). **G6** (phase-3 translation bridge) scores
+text exact match in the answer slot over the entire frozen held-out bridge
+eval. It requires both directions to clear the same threshold and records the
+aggregate plus per-direction rates. G4/G5 reject ``arith_translate`` configs:
+their integer parser and arithmetic reporting protocol do not apply to text
+answers.
 
 CPU-only friendly and no ``--confirm-cost``: evaluation, not training.
 
@@ -70,6 +75,7 @@ from geode.arith import (
     format_valid,
     greedy_completions,
     parse_answer,
+    text_exact_match,
     tokenize_with_spans,
 )
 from geode.edl.masking import TaskFormat
@@ -82,6 +88,9 @@ from train_target import EVAL_STOP_ROWS
 # G1 and G2 share the bar: 0.95 is the committed definition of "capability
 # present", no separate installer δ (owner 2026-07-21, spec 02 §8).
 EXACT_MATCH_THRESHOLD = 0.95
+# G6 uses the same "capability present" bar, applied independently to both
+# translation directions so one cannot mask a weak reverse direction.
+G6_THRESHOLD = 0.95
 # G3 inverts the bar (spec 02 §8): Arm B's random-label installer must NOT
 # have taught real add/sub — pass iff accuracy <= chance + margin. Exact match
 # on signed multi-digit integers has ~0 chance rate; 0.02 is the margin.
@@ -186,8 +195,21 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = Fal
     return 0 if passed else 1
 
 
+def _reject_translate_config(cfg: dict, gate: str) -> None:
+    if cfg["task"]["name"] == "arith_translate":
+        raise SystemExit(
+            f"[evt] {gate}: arith_translate has text answers; this gate uses the integer "
+            "answer protocol. Use g6 for the held-out translation check."
+        )
+
+
 def run_g4(args: argparse.Namespace) -> int:
     cfg = load_config(args.config, None)
+    _reject_translate_config(cfg, "G4")
+    pcfg = None
+    if args.prompt_config is not None:
+        pcfg = load_config(args.prompt_config, None)
+        _reject_translate_config(pcfg, "G4")
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
     manifest = load_run(args.run, store=store)
@@ -242,7 +264,7 @@ def run_g4(args: argparse.Namespace) -> int:
         # what a format check must not use. FIXED slice after the target runs'
         # in-loop stopping block: no sampling, so every run scores the
         # identical prompts.
-        pcfg = load_config(args.prompt_config, None)
+        assert pcfg is not None
         pdf = load_frozen_parquet(pcfg)
         n_prompts = args.n_prompts
         stop, end = EVAL_STOP_ROWS, EVAL_STOP_ROWS + n_prompts
@@ -304,6 +326,7 @@ def run_g4(args: argparse.Namespace) -> int:
 
 def run_g5(args: argparse.Namespace) -> int:
     cfg = load_config(args.config, None)
+    _reject_translate_config(cfg, "G5")
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
     manifest = load_run(args.run, store=store)
@@ -429,6 +452,109 @@ def run_g5(args: argparse.Namespace) -> int:
     return 0
 
 
+def _translation_rates(
+    completions: list[str], answers: list[str], directions: list[str]
+) -> tuple[float, dict[str, float]]:
+    if not (len(completions) == len(answers) == len(directions)):
+        raise ValueError("G6 completions, answers, and directions must have equal lengths")
+    if set(directions) != {"to_op", "to_nl"}:
+        raise ValueError(
+            f"G6 eval file must contain both directions, got {sorted(set(directions))}"
+        )
+    hits = [text_exact_match("Answer:" + c, a) for c, a in zip(completions, answers)]
+    by_direction = {
+        direction: sum(h for h, d in zip(hits, directions) if d == direction)
+        / directions.count(direction)
+        for direction in sorted(set(directions))
+    }
+    return sum(hits) / len(hits), by_direction
+
+
+def run_g6(args: argparse.Namespace) -> int:
+    """Held-out bidirectional exact match for the phase-3 translation bridge."""
+    cfg = load_config(args.config, None)
+    if cfg["task"]["name"] != "arith_translate":
+        raise SystemExit(
+            f"[evt] G6 needs task.name=arith_translate, got {cfg['task']['name']!r}"
+        )
+    os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
+    store = Path(os.environ["GEODE_STORE"])
+    manifest = load_run(args.run, store=store)
+
+    from transformers import AutoTokenizer
+
+    local = (args.config.parent / cfg["tokenizer"]["path"]).resolve()
+    tokenizer = AutoTokenizer.from_pretrained(local if local.is_dir() else cfg["tokenizer"]["path"])
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
+    print(f"[evt] G6: loading checkpoint {checkpoint} ...", flush=True)
+    model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
+
+    df = load_frozen_parquet(cfg)
+    required = {"full_text", "answer_char_start", "answer_char_end", "answer_text", "direction"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"G6 eval file lacks required columns: {sorted(missing)}")
+    directions = df["direction"].astype(str).tolist()
+
+    texts = df["full_text"].tolist()
+    char_spans = list(
+        zip(df["answer_char_start"].astype(int), df["answer_char_end"].astype(int))
+    )
+    examples = tokenize_with_spans(texts, char_spans, tokenizer)
+    prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
+    completions = greedy_completions(
+        model,
+        tokenizer,
+        prompt_ids,
+        device=args.device,
+        batch_size=args.batch_size,
+        max_new_tokens=args.max_new_tokens,
+    )
+    answers = df["answer_text"].astype(str).tolist()
+    accuracy, by_direction = _translation_rates(completions, answers, directions)
+    passed = accuracy >= args.threshold and all(v >= args.threshold for v in by_direction.values())
+    print(
+        f"[evt] G6 translation exact_match {accuracy:.4f} on n={len(df)} "
+        f"(by direction: {by_direction}) -> {'PASS' if passed else 'FAIL'} "
+        f"(each >= {args.threshold})"
+    )
+    if args.dump:
+        misses = [
+            i
+            for i, (completion, answer) in enumerate(zip(completions, answers))
+            if not text_exact_match("Answer:" + completion, answer)
+        ]
+        for i in misses[: args.dump]:
+            print(
+                f"  {df.iloc[i]['direction']}: {tokenizer.decode(prompt_ids[i])!r} -> "
+                f"{completions[i]!r} (want {answers[i]!r})"
+            )
+
+    if args.no_record:
+        print("[evt] --no-record: nothing written to any manifest")
+        return 0 if passed else 1
+    manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G6"] = {
+        "pass": passed,
+        "accuracy": accuracy,
+        "accuracy_by_direction": by_direction,
+        "n": len(df),
+        "threshold": args.threshold,
+        "eval_file": cfg["data"]["file"],
+        "eval_order_hash": cfg["data"]["order_hash"],
+        "checkpoint": str(checkpoint),
+        "protocol": (
+            "token-prefix prompts from the frozen held-out translation corpus, greedy "
+            "EOS-stopped first-line decode, exact text match in the answer slot after "
+            "surrounding-whitespace trim; aggregate and both directions must clear threshold"
+        ),
+    }
+    manifest.save(store / "runs" / args.run / "manifest.json")
+    print(f"[evt] G6 verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")
+    return 0 if passed else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Split out of ``main`` so the launcher shells' invocations can be checked
     at parse level without running a gate (tests/scripts/test_launcher_gate_args.py)."""
@@ -443,7 +569,7 @@ def build_parser() -> argparse.ArgumentParser:
             required=True,
             help=(
                 "eval-data YAML: the D_algo run YAML for g1/g2/g3, the installer "
-                "YAML for g4, eval_target_data.yaml for g5"
+                "YAML for g4, eval_target_data.yaml for g5, bridge-eval YAML for g6"
             ),
         )
         p.add_argument(
@@ -527,6 +653,36 @@ def build_parser() -> argparse.ArgumentParser:
         help="skip the reporting-block NLL (CPU smoke); accuracies still record",
     )
     g5.set_defaults(func=run_g5)
+
+    g6 = sub.add_parser(
+        "g6",
+        help="bidirectional exact text match on the frozen phase-3 bridge eval",
+    )
+    common_args(g6)
+    g6.add_argument(
+        "--threshold",
+        type=float,
+        default=G6_THRESHOLD,
+        help=f"minimum aggregate and per-direction exact-match rate (default: {G6_THRESHOLD})",
+    )
+    g6.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=32,
+        help="decode ceiling; bridge answers use up to 26 answer tokens plus EOS",
+    )
+    g6.add_argument(
+        "--no-record",
+        action="store_true",
+        help="print the rates but write no verdict",
+    )
+    g6.add_argument(
+        "--dump",
+        type=int,
+        default=0,
+        help="print up to N misses (prompt -> completion) for failure diagnosis",
+    )
+    g6.set_defaults(func=run_g6)
     return parser
 
 

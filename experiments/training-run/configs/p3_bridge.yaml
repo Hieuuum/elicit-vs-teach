@@ -1,0 +1,66 @@
+# PHASE 3 (owner 2026-07-27) — ANSWER-FREE bidirectional notation bridge.
+#
+# This is a full-FT FORMAT stage from evt-p3-elicit-parent. It teaches only
+# translation between the two question bodies:
+#
+#   NL addition question -> operator addition question
+#   operator addition question -> NL addition question
+#
+# No row contains the computed sum. The bridge therefore installs access to the
+# target notation without rehearsing target answers. D_p3_bridge was frozen now
+# for reuse by a future teach arm, but this config and launch path are elicit-only.
+#
+# The no-bridge control remains evt-p3-elicit-target, starting directly from
+# evt-p3-elicit-parent. The bridged target is a separate run and differs only in
+# its parent checkpoint; its overlay changes no target-data or stopping field.
+#
+# AFTER TRAINING, all three gates are required before the bridged target:
+#   G2  parent operator-addition retention
+#   G4  integer format validity on frozen NL-addition prompts
+#   G6  exact text match on every held-out bidirectional translation row
+# G4/G5 must never consume this config: arith_translate has text answer slots,
+# and gates.py rejects that misuse before loading a model.
+run_id: evt-p3-elicit-bridge
+experiment:
+  name: training-run
+  arm: A
+  role: format_install
+  parent_run_id: evt-p3-elicit-parent
+  parent_required_gates: [G1]
+
+model:
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_translate
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_p3_bridge.parquet
+  order_hash: d68ec2d0d0bdd6b1ebf2656bd225b64930f9e54cd2df6add731350010d454997
+  local_path: experiments/training-run/data/phase3/D_p3_bridge.parquet
+  val_fraction: 0.005          # loss-only validation; G6 uses a separate frozen file
+  seed: 316
+
+train:
+  lr: 3.0e-6                  # installer-stage pin; never the target's 1e-3
+  batch_size: 128
+  eval_every: 200             # ~7.8 evals/epoch, matching run 2's loss-rule
+                              # cadence by epoch fraction (1000/7773)
+  max_steps: 3108             # two-epoch cost ceiling: (200000-1000)//128 = 1554
+                              # steps/epoch; stop_reason=max_steps is a bug signal
+  epochs_total_planned: 2
+  stopping:
+    eps_nats: 0.002           # canonical loss-based epsilon/k rule
+    k: 5
+    min_steps: 0
+  precision: fp32
+  seed: 316
+
+cost:
+  assumed_epochs_for_estimate: 2

@@ -89,3 +89,30 @@ def test_v5_40_order_hash_numpy_scalars_hash_like_builtins():
         for r in rows
     ]
     assert order_hash(coerced) == order_hash(rows)
+
+
+def test_v5_40_order_hash_int_path_is_pinned():
+    # The int-answer payload is frozen: this exact digest is what the string-
+    # shown_answer generalization must not perturb, or every report.json pin
+    # (D_p3_on_add, D_p3_nl_add, D_algo, ...) would silently invalidate.
+    assert order_hash(_rows()) == "00c3cdbca6d9d127de0ed4044281a2f5a7dde7b635842cbac407660d8443e0c8"
+
+
+def test_v5_40_order_hash_accepts_string_shown_answer():
+    # The arith_translate bridge stores the answer TEXT (a rewritten question);
+    # order_hash must hash it as a string, deterministically and sensitively.
+    rows = [
+        {"a": 23, "b": 45, "op": "+", "shown_answer": "23 + 45", "format": "translate_to_op", "label_mode": "correct"},
+        {"a": 23, "b": 45, "op": "+", "shown_answer": "What is the sum of 23 and 45?", "format": "translate_to_nl", "label_mode": "correct"},
+    ]
+    assert order_hash(rows) == order_hash([dict(r) for r in rows])  # deterministic
+    assert order_hash(rows) != order_hash(list(reversed(rows)))  # order counts
+    changed = [dict(r) for r in rows]
+    changed[0]["shown_answer"] = "45 + 23"
+    assert order_hash(rows) != order_hash(changed)  # content counts
+    # A string answer is not silently coerced to an int and collided with one.
+    numeric = [dict(r) for r in rows]
+    numeric[0]["shown_answer"] = "8"
+    int_variant = [dict(r) for r in rows]
+    int_variant[0]["shown_answer"] = 8
+    assert order_hash(numeric) != order_hash(int_variant)  # "8" (str) != 8 (int)

@@ -6,7 +6,13 @@ malformed strings, under the shared ``Question:/Answer:`` scaffold.
 
 from __future__ import annotations
 
-from geode.arith.evals import exact_match, few_shot_prompt, format_valid, parse_answer
+from geode.arith.evals import (
+    exact_match,
+    few_shot_prompt,
+    format_valid,
+    parse_answer,
+    text_exact_match,
+)
 from geode.arith.formats import render
 
 
@@ -37,6 +43,15 @@ def test_v5_7_exact_match_and_format_valid():
     assert not exact_match("Question: 23 + 45\nAnswer: 67", 68)
     assert format_valid("Question: 23 - 45\nAnswer: -22")
     assert not format_valid("Question: 23 + 45\nAnswer: ?")
+
+
+def test_v5_67_text_exact_match_for_translation_answers():
+    output = "Question: Rewrite in words: 23 + 45\nAnswer: What is the sum of 23 and 45?"
+    assert text_exact_match(output, "What is the sum of 23 and 45?")
+    assert text_exact_match("Answer:  23 + 45  ", "23 + 45")
+    assert not text_exact_match(output, "What is the sum of 45 and 23?")
+    assert not text_exact_match(output, "What is the sum of 23 and 45")
+    assert not text_exact_match("What is the sum of 23 and 45?", "What is the sum of 23 and 45?")
 
 
 def test_v5_7_roundtrip_with_render():

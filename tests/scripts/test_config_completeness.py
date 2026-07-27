@@ -54,10 +54,12 @@ FULL_FT = [
     "run9_llama1b_inst.yaml",
     "p3_elicit_parent.yaml",
     "p3_elicit_inst.yaml",
+    "p3_bridge.yaml",
 ]
 LORA_TARGET = [
-    "run10_llama1b_target.yaml",
-    "p3_elicit_target.yaml",
+    ("run10_llama1b_target.yaml", None),
+    ("p3_elicit_target.yaml", None),
+    ("p3_elicit_target.yaml", "p3/target_after_bridge.yaml"),
 ]
 
 
@@ -81,12 +83,13 @@ def test_full_ft_configs_build_a_manifest(config: str) -> None:
     )
 
 
-@pytest.mark.parametrize("config", LORA_TARGET)
-def test_lora_target_configs_build_a_manifest(config: str) -> None:
+@pytest.mark.parametrize(("config", "override"), LORA_TARGET)
+def test_lora_target_configs_build_a_manifest(config: str, override: str | None) -> None:
     train_target = _load("train_target")
     from train import load_config  # noqa: PLC0415
 
-    cfg = load_config(CONFIGS / config, None)
+    override_path = CONFIGS / override if override is not None else None
+    cfg = load_config(CONFIGS / config, override_path)
     train_target.manifest_fields(
         cfg,
         n_train=1,

@@ -4,10 +4,15 @@ These guard the verification gates (§8): a broken parser silently reports the
 wrong accuracy, a gate passes on garbage, and GPU budget is wasted. Hence
 tested core, not script land.
 
-The parser reads the answer slot the same way ``formats.render`` writes it:
-the trailing signed integer after the final ``"Answer:"`` delimiter, shared by
-both formats since the 2026-07-17 scaffold. Anything that does not parse to
-``-?\\d+`` there is malformed and yields ``None``.
+The integer parser reads the answer slot the same way ``formats.render`` writes
+it: the trailing signed integer after the final ``"Answer:"`` delimiter, shared
+by both arithmetic formats since the 2026-07-17 scaffold. Anything that does
+not parse to ``-?\\d+`` there is malformed and yields ``None``.
+
+``text_exact_match`` serves the phase-3 translation bridge, whose answer slot is
+a rewritten question rather than an integer. It compares that slot after
+stripping only surrounding whitespace; punctuation, word order, and internal
+spacing remain exact.
 """
 
 from __future__ import annotations
@@ -38,6 +43,17 @@ def parse_answer(text: str) -> int | None:
 def exact_match(output: str, answer: int) -> bool:
     """True iff the parsed answer slot equals ``answer`` exactly."""
     return parse_answer(output) == answer
+
+
+def text_exact_match(output: str, answer: str) -> bool:
+    """True iff the final answer slot equals ``answer`` as text.
+
+    Surrounding whitespace is ignored because decoding starts at a token-prefix
+    boundary whose first generated token may carry the answer slot's leading
+    space. Everything inside the slot remains byte-exact.
+    """
+    idx = output.rfind(_ANSWER_MARKER)
+    return idx != -1 and output[idx + len(_ANSWER_MARKER) :].strip() == answer
 
 
 def format_valid(output: str) -> bool:

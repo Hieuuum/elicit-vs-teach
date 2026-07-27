@@ -3,13 +3,17 @@
 # unattended, skipping anything already complete. A crash, a box restart, or a
 # stage split across machines all resume from where they stopped.
 #
-#   ./launch_phase3.sh --confirm-cost [--stage parent|target|all]
+#   ./launch_phase3.sh --confirm-cost [--stage parent|target|bridge|all]
 #
 # Stages (default all, in this order):
 #   parent   Operator-notation ADDITION pre-intervention run + G1. Needs a GPU.
 #   target   The conditional format-install decision, the installer if and only
-#            if it is needed, then the natural-language addition target through
-#            the prequential EDL harness + G5. Needs a GPU.
+#            if it is needed, then the unchanged no-bridge NL-addition target
+#            through the prequential EDL harness + G5. Needs a GPU.
+#   bridge   The answer-free bidirectional translation bridge from the same
+#            operator-addition parent, its G2/G4/G6 gates, then a second target
+#            on the identical frozen data/order/rule as the no-bridge control.
+#            Requires the no-bridge target to exist as G7's data-order anchor.
 #
 # THE CONDITIONAL. Before the target, the parent's format validity is scored on
 # NL ADDITION prompts drawn from the frozen external eval file:
@@ -41,6 +45,9 @@
 # is the only installer in the project that acts on a parent which already has
 # the capability under study, so G2 below EXACT_MATCH_THRESHOLD halts the phase
 # rather than shipping a damaged parent.
+# The bridge's G6 is score-first/record-second: aggregate and both directions
+# must clear 0.95 on the entire frozen held-out translation file. G4/G5 refuse
+# bridge configs because those gates parse integer answer slots.
 # stop_reason=max_steps on ANY run in this phase is a bug signal.
 #
 # ntfy fires on the deliverable and on failure only (owner preference), not at
@@ -58,9 +65,9 @@ for i in "$@"; do
   [[ $PREV == --stage ]] && STAGE=$i
   PREV=$i
 done
-case $STAGE in all | parent | target) ;;
+case $STAGE in all | parent | target | bridge) ;;
 *)
-  echo "launch_phase3.sh: --stage must be all|parent|target, got '$STAGE'" >&2
+  echo "launch_phase3.sh: --stage must be all|parent|target|bridge, got '$STAGE'" >&2
   exit 1
   ;;
 esac
@@ -72,6 +79,8 @@ export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 PARENT_RID=evt-p3-elicit-parent
 INST_RID=evt-p3-elicit-inst
 TARGET_RID=evt-p3-elicit-target
+BRIDGE_RID=evt-p3-elicit-bridge
+BRIDGE_TARGET_RID=evt-p3-elicit-target-bridge
 echo "[p3] repo  $(git log --oneline -1)"
 echo "[p3] store $GEODE_STORE  stage=$STAGE"
 
@@ -112,78 +121,7 @@ parent_ckpt() { # run_id -> checkpoint dir, or empty
 
 # ---- guards (all before any spend) ---------------------------------------
 
-python3 - <<'PY' || exit 1
-import os
-import sys
-from pathlib import Path
-
-import pandas as pd
-import yaml
-
-from geode.arith import order_hash
-
-cfg = Path("../configs")
-repo_root = Path(os.environ["REPO_ROOT"])
-# order_hash reads exactly these six fields, so loading only them is
-# equivalent to hashing the whole frame and about a quarter of the memory —
-# which matters because the two training artifacts are 500K rows each and the
-# full to_dict("records") form of one is ~750 MB.
-HASHED = ["a", "b", "op", "shown_answer", "format", "label_mode"]
-
-# 1. Artifacts present and hashing to what the configs pin. Every launcher
-#    re-verifies per run; doing it once up front turns a mid-phase abort into a
-#    refusal to start. The eval file is checked through its own pin config,
-#    because the target reads it as data.eval_file and G4/G5 read it directly.
-for name, key in (
-    ("p3_elicit_parent.yaml", "local_path"),
-    ("p3_elicit_inst.yaml", "local_path"),
-    ("p3_elicit_target.yaml", "local_path"),
-    ("p3_elicit_target.yaml", "eval_local_path"),
-    ("eval_p3_data.yaml", "local_path"),
-):
-    d = yaml.safe_load((cfg / name).read_text())["data"]
-    local = d.get(key)
-    hash_key = "eval_order_hash" if key.startswith("eval_") else "order_hash"
-    file_key = "eval_file" if key.startswith("eval_") else "file"
-    if not local:
-        print(f"[p3] {name}:{key} unset — the launchers will pull {d[file_key]} from the hub")
-        continue
-    p = Path(local)
-    p = p if p.is_absolute() else repo_root / p
-    if not p.is_file():
-        sys.exit(f"phase3: {name} pins {key} {local}, which does not exist")
-    got = order_hash(pd.read_parquet(p, columns=HASHED).to_dict("records"))
-    if got != d[hash_key]:
-        sys.exit(f"phase3: {local} order_hash {got} != pinned {d[hash_key]}")
-    print(f"[p3] {d[file_key]}: local copy hash-verified ({len(HASHED)} hashed columns)")
-
-# 2. LR pins: the target equals the committed pin, the installer differs from
-#    it. Applying a target LR to an installer is what destroyed run 9 v1.
-pin = yaml.safe_load((cfg / "lr_pin.yaml").read_text())
-t_lr = float(yaml.safe_load((cfg / "p3_elicit_target.yaml").read_text())["train"]["lr"])
-i_lr = float(yaml.safe_load((cfg / "p3_elicit_inst.yaml").read_text())["train"]["lr"])
-if abs(t_lr - float(pin["lr"])) > 1e-12:
-    sys.exit(f"phase3: target pins lr={t_lr} but configs/lr_pin.yaml records {pin['lr']}")
-if abs(i_lr - float(pin["installer_lr"])) > 1e-12:
-    sys.exit(f"phase3: installer pins lr={i_lr}, lr_pin.yaml records {pin['installer_lr']}")
-if abs(i_lr - t_lr) < 1e-12:
-    sys.exit(
-        f"phase3: the installer lr equals the target pin ({t_lr}) — this is the "
-        "2026-07-25 scope leak that destroyed run 9's retention (lr_pin.yaml)"
-    )
-print(f"[p3] lr pins: target {t_lr}, installer {i_lr} (lr_pin.yaml)")
-
-# 3. The parent stage's LR is NOT the target pin either. It is role-inherited
-#    from run 2 and swept on a different dataset (p3_elicit_parent.yaml header);
-#    what this guards is only that nobody has quietly set it to 1e-3.
-p_lr = float(yaml.safe_load((cfg / "p3_elicit_parent.yaml").read_text())["train"]["lr"])
-if abs(p_lr - t_lr) < 1e-12:
-    sys.exit(
-        f"phase3: the pre-intervention stage pins the TARGET lr ({t_lr}). That pin is "
-        "scoped to LoRA target runs; a full-FT stage at that rate is the run-9 failure."
-    )
-print(f"[p3] pre-intervention lr {p_lr} (role-inherited from run 2, see config header)")
-PY
+python3 phase3_guards.py --configs ../configs --repo-root "$REPO_ROOT" || exit 1
 
 # ---- stage: pre-intervention (operator-notation addition) ----------------
 
@@ -372,10 +310,78 @@ PY
   gate_done "$TARGET_RID" G5 || python3 gates.py g5 --run "$TARGET_RID" \
     --config ../configs/eval_p3_data.yaml || fail "$TARGET_RID G5"
 
-  notify "phase3 elicit arm done (installer run: $NEED_INSTALL) — EDL ready to read"
-  echo "[p3] read the curve under BOTH floors:"
+  if [[ $STAGE == target ]]; then
+    notify "phase3 no-bridge control done (installer run: $NEED_INSTALL) — EDL ready to read"
+  fi
+  echo "[p3] read the control curve under BOTH floors:"
   echo "[p3]   python3 ../analysis/plot_edl_per_token.py --run-id $TARGET_RID"
   echo "[p3]   python3 ../analysis/plot_edl_per_token.py --run-id $TARGET_RID --floor test"
+fi
+
+# ---- stage: answer-free bridge, required gates, second target --------------
+
+if [[ $STAGE == all || $STAGE == bridge ]]; then
+  [[ $(status_of "$PARENT_RID") == complete ]] ||
+    fail "$PARENT_RID is not complete — run --stage parent first"
+  [[ $(status_of "$TARGET_RID") == complete ]] ||
+    fail "$TARGET_RID is not complete — run --stage target first (G7 anchor)"
+
+  ST=$(status_of "$BRIDGE_RID")
+  if [[ $ST == complete ]]; then
+    echo "[p3] $BRIDGE_RID already complete — skipping"
+  else
+    [[ $ST == missing ]] || fail "$BRIDGE_RID has status '$ST' — resolve it first"
+    CKPT=$(parent_ckpt "$PARENT_RID") || true
+    [[ -n ${CKPT:-} ]] || fail "no checkpoint for $PARENT_RID"
+    echo "[p3] === answer-free bidirectional translation bridge ==="
+    python3 train_sft.py --config ../configs/p3_bridge.yaml \
+      --init-from "$CKPT" --confirm-cost || fail "$BRIDGE_RID training"
+  fi
+
+  # Score before recording. A recorded false verdict poisons this checkpoint for
+  # every child under V0.6; absence of the printed line is a crash, not a score.
+  if ! gate_done "$BRIDGE_RID" G6; then
+    echo "[p3] === G6 translation exact match (scoring pass, nothing recorded) ==="
+    G6_OUT=$(python3 gates.py g6 --run "$BRIDGE_RID" \
+      --config ../configs/eval_p3_bridge_data.yaml --no-record 2>&1) || true
+    echo "$G6_OUT"
+    G6_RATE=$(sed -n 's/.*G6 translation exact_match \([0-9.]*\) on n=.*/\1/p' \
+      <<<"$G6_OUT" | head -1)
+    [[ -n $G6_RATE ]] ||
+      fail "the G6 scoring pass printed no exact-match rate — it errored rather than scored low"
+    grep -q "G6 translation exact_match .* -> PASS" <<<"$G6_OUT" ||
+      fail "$BRIDGE_RID G6 scored $G6_RATE below the aggregate/per-direction bar; NOT recorded"
+    python3 gates.py g6 --run "$BRIDGE_RID" \
+      --config ../configs/eval_p3_bridge_data.yaml || fail "$BRIDGE_RID G6 recording pass"
+  fi
+  gate_done "$BRIDGE_RID" G2 || python3 gates.py g2 --run "$BRIDGE_RID" \
+    --config ../configs/p3_elicit_parent.yaml || fail "$BRIDGE_RID G2 retention"
+  gate_done "$BRIDGE_RID" G4 || python3 gates.py g4 --run "$BRIDGE_RID" \
+    --config ../configs/p3_elicit_parent.yaml \
+    --prompt-config ../configs/eval_p3_data.yaml --threshold 0.90 ||
+    fail "$BRIDGE_RID G4 format validity"
+
+  ST=$(status_of "$BRIDGE_TARGET_RID")
+  if [[ $ST == complete ]]; then
+    echo "[p3] $BRIDGE_TARGET_RID already complete — skipping"
+  else
+    [[ $ST == missing ]] || fail "$BRIDGE_TARGET_RID has status '$ST' — resolve it first"
+    CKPT=$(parent_ckpt "$BRIDGE_RID") || true
+    [[ -n ${CKPT:-} ]] || fail "no checkpoint for $BRIDGE_RID"
+    echo "[p3] === bridged target: identical NL-addition stream and epsilon/k rule ==="
+    python3 train_target.py --config ../configs/p3_elicit_target.yaml \
+      --override ../configs/p3/target_after_bridge.yaml \
+      --init-from "$CKPT" --confirm-cost || fail "$BRIDGE_TARGET_RID training"
+  fi
+  gate_done "$BRIDGE_TARGET_RID" G5 || python3 gates.py g5 --run "$BRIDGE_TARGET_RID" \
+    --config ../configs/eval_p3_data.yaml || fail "$BRIDGE_TARGET_RID G5"
+
+  notify "phase3 bridge comparison done — control and bridged EDL curves ready"
+  echo "[p3] compare both targets under BOTH floors:"
+  echo "[p3]   python3 ../analysis/plot_edl_per_token.py --run-id $TARGET_RID"
+  echo "[p3]   python3 ../analysis/plot_edl_per_token.py --run-id $BRIDGE_TARGET_RID"
+  echo "[p3]   python3 ../analysis/plot_edl_per_token.py --run-id $TARGET_RID --floor test"
+  echo "[p3]   python3 ../analysis/plot_edl_per_token.py --run-id $BRIDGE_TARGET_RID --floor test"
 fi
 
 echo "[p3] stage '$STAGE' complete"

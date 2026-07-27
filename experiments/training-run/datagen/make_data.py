@@ -75,6 +75,7 @@ from geode.arith import (
     probe_leakage,
     random_label,
     render,
+    render_translate,
     true_answer,
     uniqueness_by_cell,
 )
@@ -179,6 +180,29 @@ P3_INST_SPEC = DatasetSpec("D_p3_nl_mult", ("*",), "nl", "permuted")
 P3_INST_SIZE = 200_000
 P3_PROBE_PER_CELL = 64
 P3_CARVE_DIVISOR = 8
+
+# --phase3-bridge: the operator<->NL translation corpus that sits between the
+# phase-3 parent and a second NL-addition target (owner 2026-07-27). It teaches
+# rewriting in BOTH directions without ever showing a computed sum, so it can
+# install the target format while leaking no answer. Each sampled operand pair
+# emits both directions (to_op, to_nl) -> ~2x bridge-n rows. Addition only,
+# positive operands: it satisfies phase 3's "no '-' anywhere" invariant like
+# every other phase-3 artifact. ``fmt='translate'`` is a label only; bridge rows
+# render via ``render_translate``, never ``render``.
+#
+# The eval split is carved FIRST with a per-cell ceiling (cap // P3_CARVE_DIVISOR,
+# as the phase-3 probe/eval do) so tiny cells keep a held-out remainder; train is
+# drawn from what is left. Both exclude the frozen p3 probe (question-level, a
+# hard V5.1 exclusion) and the frozen target's exact ordered pairs, so the
+# answer-free bridge does not pre-teach target questions. At 1-8 digits over 64
+# cells every cell keeps free pairs after that exclusion, so DIRECT target
+# overlap is driven to 0; the residual pre-exposure is the commuted twin b+a
+# (answer-identical for addition), which an answer-free corpus need not avoid and
+# which is measured, not blocked.
+BRIDGE_SPEC = DatasetSpec("D_p3_bridge", ("+",), "translate", "correct")
+BRIDGE_EVAL_SPEC = DatasetSpec("D_p3_bridge_eval", ("+",), "translate", "correct")
+BRIDGE_SIZE = 100_000  # train pairs; x2 directions => ~200K rows
+BRIDGE_EVAL_PAIRS = 2048  # held-out pairs for G6; x2 directions => ~4096 rows
 
 Triple = tuple[int, str, int]
 
@@ -885,6 +909,318 @@ def make_phase3(args: argparse.Namespace) -> int:
     return 0
 
 
+def _bridge_record(idx: int, a: int, b: int, direction: str, spec_name: str) -> dict:
+    """One translate row. The answer text is a rewritten question, so it is both
+    the shown and the true answer (correct label); the direction lives in a
+    dedicated ``direction`` column and in the ``format`` string."""
+    full, (cs, ce) = render_translate(a, b, direction)
+    answer_text = full[cs:ce]
+    return {
+        "idx": idx,
+        "dataset": spec_name,
+        "a": a,
+        "b": b,
+        "op": "+",
+        "x_digits": digits(a),
+        "y_digits": digits(b),
+        "cell": f"{digits(a)}x{digits(b)}",
+        "format": f"translate_{direction}",
+        "label_mode": "correct",
+        "direction": direction,
+        "true_answer": answer_text,
+        "shown_answer": answer_text,
+        "prompt_text": full[:cs],
+        "answer_text": answer_text,
+        "full_text": full,
+        "answer_char_start": cs,
+        "answer_char_end": ce,
+    }
+
+
+def build_bridge(
+    spec: DatasetSpec,
+    n_pairs: int,
+    blocked: set[Triple],
+    seed: int,
+    *,
+    carve_divisor: int | None = None,
+) -> tuple[list[dict], dict[tuple[int, int], int]]:
+    """Sample ``n_pairs`` addition pairs over ``P3_CELLS`` (same water-fill and
+    per-cell RNG convention as ``build_dataset``), then emit both translation
+    directions per pair. ``blocked`` is the excluded ordered pairs as
+    ``(a, '+', b)`` triples. Returns ``(records, pair_allocation)``."""
+    alloc = plan_allocation(spec, n_pairs, blocked, carve_divisor=carve_divisor, cells=P3_CELLS)
+    by_cell_op = _probe_pairs_by_cell_op(blocked, spec.ops)
+    records: list[dict] = []
+    idx = 0
+    for dx, dy in P3_CELLS:
+        rng = random.Random(_seed_int(f"{spec.name}:{seed}:{dx}:{dy}"))
+        pairs_total = DIGIT_BAND_SIZES[dx] * DIGIT_BAND_SIZES[dy]
+        cell_blocked = by_cell_op.get((dx, dy, "+"), set())
+        pairs = _sample_pairs(
+            DIGIT_BANDS[dx],
+            DIGIT_BANDS[dy],
+            alloc[(dx, dy)],
+            pairs_total - len(cell_blocked),
+            cell_blocked,
+            rng,
+        )
+        for a, b in pairs:
+            for direction in ("to_op", "to_nl"):
+                records.append(_bridge_record(idx, a, b, direction, spec.name))
+                idx += 1
+    random.Random(_seed_int(f"{spec.name}-order:{seed}")).shuffle(records)
+    for i, r in enumerate(records):
+        r["idx"] = i
+    return records, alloc
+
+
+def validate_bridge(
+    records: list[dict], probe_triples: set[Triple], pair_alloc: dict[tuple[int, int], int]
+) -> dict:
+    """Bridge-specific checks; raise on any violation, return a report.
+
+    A translate row's uniqueness identity is ``(a, b, direction)``: the same
+    pair renders two distinct rows, so V5.2's ``(a, op, b)`` key would flag every
+    cell. Probe leakage stays question-level (``(a, '+', b)``, unchanged rule).
+    Also asserts the phase-3 invariants directly: no ``-`` anywhere, no computed
+    sum ``str(a + b)`` in any rendered string, and the answer span slices out
+    exactly the answer text.
+    """
+    triples = [(r["a"], r["op"], r["b"]) for r in records]
+    leaked = probe_leakage(triples, probe_triples)
+    if leaked:
+        raise AssertionError(
+            f"bridge FAIL: {len(leaked)} rows collide with the p3 probe, e.g. {sorted(leaked)[:5]}"
+        )
+
+    cells = [(r["x_digits"], r["y_digits"]) for r in records]
+    keys = [(r["a"], r["b"], r["direction"]) for r in records]
+    dupes = {c: nd for c, nd in uniqueness_by_cell(cells, keys).items() if nd[1] < nd[0]}
+    if dupes:
+        raise AssertionError(f"bridge FAIL: repeated (a, b, direction) in cells {dupes}")
+
+    dirs_by_pair: dict[tuple[int, int], list[str]] = {}
+    for r in records:
+        dirs_by_pair.setdefault((r["a"], r["b"]), []).append(r["direction"])
+    bad = {p: sorted(ds) for p, ds in dirs_by_pair.items() if sorted(ds) != ["to_nl", "to_op"]}
+    if bad:
+        raise AssertionError(
+            f"bridge FAIL: pairs without exactly both directions, e.g. {list(bad.items())[:5]}"
+        )
+
+    counts = cell_counts(cells)
+    mismatch = [
+        (c, counts.get(c, 0), 2 * pair_alloc[c]) for c in pair_alloc if counts.get(c, 0) != 2 * pair_alloc[c]
+    ]
+    if mismatch or set(counts) - set(pair_alloc):
+        raise AssertionError(f"bridge FAIL: row counts != 2 x pair allocation; diff {mismatch[:5]}")
+
+    for r in records:
+        if "-" in r["full_text"]:
+            raise AssertionError(f"bridge FAIL: '-' in rendered text {r['full_text']!r}")
+        if str(r["a"] + r["b"]) in r["full_text"]:
+            raise AssertionError(
+                f"bridge FAIL: computed sum {r['a'] + r['b']} leaks into {r['full_text']!r}"
+            )
+        if r["full_text"][r["answer_char_start"] : r["answer_char_end"]] != r["answer_text"]:
+            raise AssertionError(f"bridge FAIL: answer span mis-slices row {r['idx']}")
+
+    return {
+        "n": len(records),
+        "pairs": len(dirs_by_pair),
+        "leakage": 0,
+        "all_unique": True,
+        "both_directions": True,
+        "no_minus_char": True,
+        "cell_counts": {f"{x}x{y}": counts.get((x, y), 0) for x, y in P3_CELLS},
+        "order_hash": order_hash(records),
+    }
+
+
+def bridge_pre_exposure(
+    bridge_pairs: set[tuple[int, int]],
+    other_pairs: set[tuple[int, int]],
+    *,
+    twin: bool,
+    by_cell: bool,
+) -> dict:
+    """Overlap of the bridge's unique operand pairs with ``other_pairs``, as
+    fractions of bridge pairs. ``twin`` also counts the commuted pair ``b + a``
+    (answer-identical for addition); ``by_cell`` adds a per-cell breakdown."""
+    n = len(bridge_pairs)
+    direct = 0
+    with_twin = 0
+    bc: dict[str, dict] = {}
+    for a, b in bridge_pairs:
+        d = (a, b) in other_pairs
+        t = d or (twin and (b, a) in other_pairs)
+        direct += d
+        with_twin += t
+        if by_cell:
+            c = bc.setdefault(
+                f"{digits(a)}x{digits(b)}", {"bridge_n": 0, "direct": 0, "incl_twin": 0}
+            )
+            c["bridge_n"] += 1
+            c["direct"] += d
+            c["incl_twin"] += t
+    if by_cell:
+        for c in bc.values():
+            c["frac_direct"] = c["direct"] / c["bridge_n"]
+            c["frac_incl_twin"] = c["incl_twin"] / c["bridge_n"]
+    out: dict = {
+        "bridge_pairs": n,
+        "other_pairs": len(other_pairs),
+        "direct": direct,
+        "frac_direct": direct / n if n else 0.0,
+    }
+    if twin:
+        out["incl_commuted_twin"] = with_twin
+        out["frac_incl_twin"] = with_twin / n if n else 0.0
+    if by_cell:
+        out["by_cell"] = bc
+    return out
+
+
+def _bridge_load_pairs(path: Path, pin: str) -> set[tuple[int, int]]:
+    """Hash-verify a frozen phase-3 parquet against its report pin (the guard
+    ``make_eval_set`` / ``_frozen_triples`` use), then return its ``(a, b)``
+    pairs. Doubles as the live proof that ``order_hash`` still reproduces the
+    frozen int-answer pins after the string-``shown_answer`` generalization.
+
+    Read only the six hashed columns: the phase-3 parent and target hold 500K
+    rows each, and materialising their rendered-text columns roughly quadruples
+    the memory required for a check that never reads them.
+    """
+    hashed = ["a", "b", "op", "shown_answer", "format", "label_mode"]
+    df = pd.read_parquet(path, columns=hashed)
+    got = order_hash(df.to_dict("records"))
+    if got != pin:
+        raise AssertionError(
+            f"{path.name} order_hash {got} != frozen pin {pin} — not the frozen "
+            "artifact; refusing to define the bridge against it"
+        )
+    return set(zip(df["a"].tolist(), df["b"].tolist()))
+
+
+def make_phase3_bridge(args: argparse.Namespace) -> int:
+    """Generate the operator<->NL translation bridge against the frozen phase-3
+    artifacts in --out (owner 2026-07-27).
+
+    Reads report.json + the frozen parquets read-only, writes D_p3_bridge and
+    D_p3_bridge_eval, and MERGES a top-level ``bridge`` section into report.json
+    without touching any existing key.
+    """
+    print(f"[evt] phase-3 bridge — operator<->NL rewriting, answer-free, seed={args.seed}")
+    report_path = args.out / "report.json"
+    report = json.loads(report_path.read_text())
+
+    probe_pairs = _bridge_load_pairs(
+        args.out / "D_p3_probe.parquet", report["probe"]["probe_set_hash"]
+    )
+    target_pairs = _bridge_load_pairs(
+        args.out / f"{P3_TARGET_SPEC.name}.parquet",
+        report["datasets"][P3_TARGET_SPEC.name]["order_hash"],
+    )
+    parent_pairs = _bridge_load_pairs(
+        args.out / f"{P3_PARENT_SPEC.name}.parquet",
+        report["datasets"][P3_PARENT_SPEC.name]["order_hash"],
+    )
+    print(
+        f"[evt]   frozen pins verified: probe={len(probe_pairs):,} "
+        f"target={len(target_pairs):,} parent={len(parent_pairs):,}"
+    )
+
+    probe_triples: set[Triple] = {(a, "+", b) for a, b in probe_pairs}
+    # Hard-exclude the probe (question-level) and the target's exact ordered
+    # pairs. Every 1-8 digit cell keeps free pairs after this, so the water-fill
+    # avoids target everywhere and direct overlap -> 0 (see the module block).
+    blocked: set[Triple] = {(a, "+", b) for a, b in probe_pairs | target_pairs}
+
+    _print_distribution(
+        BRIDGE_EVAL_SPEC.name,
+        plan_allocation(
+            BRIDGE_EVAL_SPEC, args.bridge_eval_pairs, blocked, carve_divisor=P3_CARVE_DIVISOR, cells=P3_CELLS
+        ),
+        cell_capacities(BRIDGE_EVAL_SPEC, blocked, carve_divisor=P3_CARVE_DIVISOR, cells=P3_CELLS),
+        P3_CELLS,
+    )
+    _print_distribution(
+        BRIDGE_SPEC.name,
+        plan_allocation(BRIDGE_SPEC, args.bridge_n, blocked, cells=P3_CELLS),
+        cell_capacities(BRIDGE_SPEC, blocked, cells=P3_CELLS),
+        P3_CELLS,
+    )
+    if args.dry_run:
+        print("[evt] --dry-run: nothing written.")
+        return 0
+
+    # Eval carved first; train excludes the eval pairs too.
+    eval_records, eval_alloc = build_bridge(
+        BRIDGE_EVAL_SPEC, args.bridge_eval_pairs, blocked, args.seed, carve_divisor=P3_CARVE_DIVISOR
+    )
+    eval_pairs = {(r["a"], r["b"]) for r in eval_records}
+    blocked_train = blocked | {(a, "+", b) for a, b in eval_pairs}
+    train_records, train_alloc = build_bridge(BRIDGE_SPEC, args.bridge_n, blocked_train, args.seed)
+
+    eval_rep = validate_bridge(eval_records, probe_triples, eval_alloc)
+    train_rep = validate_bridge(train_records, probe_triples, train_alloc)
+    if {(r["a"], r["b"], r["direction"]) for r in eval_records} & {
+        (r["a"], r["b"], r["direction"]) for r in train_records
+    }:
+        raise AssertionError("bridge FAIL: eval rows overlap train rows")
+
+    pd.DataFrame(train_records).to_parquet(args.out / f"{BRIDGE_SPEC.name}.parquet", index=False)
+    pd.DataFrame(eval_records).to_parquet(args.out / f"{BRIDGE_EVAL_SPEC.name}.parquet", index=False)
+    print(
+        f"[evt]   wrote {BRIDGE_SPEC.name}.parquet  n={train_rep['n']} pairs={train_rep['pairs']}  "
+        f"order_hash={train_rep['order_hash'][:12]}…  unique+leak-free+both-dir ✓"
+    )
+    print(
+        f"[evt]   wrote {BRIDGE_EVAL_SPEC.name}.parquet  n={eval_rep['n']} pairs={eval_rep['pairs']}  "
+        f"order_hash={eval_rep['order_hash'][:12]}…  unique+disjoint-from-train ✓"
+    )
+
+    train_pairs = {(r["a"], r["b"]) for r in train_records}
+    vs_target = bridge_pre_exposure(train_pairs, target_pairs, twin=True, by_cell=True)
+    vs_parent = bridge_pre_exposure(train_pairs, parent_pairs, twin=False, by_cell=False)
+
+    probe_pin = report["probe"]["probe_set_hash"]
+    target_pin = report["datasets"][P3_TARGET_SPEC.name]["order_hash"]
+    report["bridge"] = {
+        "seed": args.seed,
+        "eval_pairs": len(eval_pairs),
+        "no_minus_char": True,
+        "datasets": {
+            BRIDGE_SPEC.name: {
+                **train_rep,
+                "disjoint_from": {
+                    "D_p3_probe": probe_pin,
+                    P3_TARGET_SPEC.name: target_pin,
+                    BRIDGE_EVAL_SPEC.name: eval_rep["order_hash"],
+                },
+            },
+            BRIDGE_EVAL_SPEC.name: {
+                **eval_rep,
+                "disjoint_from": {"D_p3_probe": probe_pin, P3_TARGET_SPEC.name: target_pin},
+            },
+        },
+        "pre_exposure_vs_target": vs_target,
+        "pre_exposure_vs_parent": vs_parent,
+    }
+    report_path.write_text(json.dumps(report, indent=2))
+    print(
+        f"[evt] pre-exposure vs target: {vs_target['direct']:,}/{vs_target['bridge_pairs']:,} "
+        f"direct ({vs_target['frac_direct']:.4%}); {vs_target['frac_incl_twin']:.4%} incl commuted twin"
+    )
+    print(
+        f"[evt] pre-exposure vs parent: {vs_parent['direct']:,}/{vs_parent['bridge_pairs']:,} "
+        f"direct ({vs_parent['frac_direct']:.4%})"
+    )
+    print(f"[evt] report -> {report_path}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scale", choices=("pilot", "full"), default="pilot")
@@ -917,6 +1253,15 @@ def main() -> int:
     parser.add_argument("--p3-target-n", type=int, default=P3_TARGET_SIZE)
     parser.add_argument("--p3-eval-n", type=int, default=P3_EVAL_SIZE)
     parser.add_argument("--p3-inst-n", type=int, default=P3_INST_SIZE)
+    parser.add_argument(
+        "--phase3-bridge",
+        action="store_true",
+        help="generate the operator<->NL translation bridge (D_p3_bridge + "
+        "D_p3_bridge_eval) against the frozen phase-3 artifacts in --out; merges a "
+        "'bridge' section into report.json, touches nothing else",
+    )
+    parser.add_argument("--bridge-n", type=int, default=BRIDGE_SIZE, help="bridge train pairs")
+    parser.add_argument("--bridge-eval-pairs", type=int, default=BRIDGE_EVAL_PAIRS)
     args = parser.parse_args()
 
     if args.eval_set:
@@ -925,6 +1270,8 @@ def main() -> int:
         return make_installer_sets(args)
     if args.phase3:
         return make_phase3(args)
+    if args.phase3_bridge:
+        return make_phase3_bridge(args)
 
     n_total = SIZES[args.scale]
     print(f"[evt] scale={args.scale} n_total/dataset={n_total} probe={PROBE_SIZE} seed={args.seed}")

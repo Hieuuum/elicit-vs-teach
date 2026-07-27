@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from geode.arith.formats import render, true_answer
+from geode.arith.formats import render, render_translate, true_answer
 from geode.arith.spans import token_label_span, tokenize_with_spans
 
 FROZEN_TOKENIZER = Path(__file__).resolve().parents[2] / "experiments/training-run/tokenizer"
@@ -182,3 +182,58 @@ def test_v5_43_span_not_at_sequence_end_raises(frozen_tokenizer):
     text = "ab 12 c"
     with pytest.raises(ValueError, match="sequence end"):
         tokenize_with_spans([text], [(3, 5)], frozen_tokenizer, append_eos=True)
+
+
+# --- arith_translate bridge through the same pipeline ---------------------
+
+
+def _translate_grid():
+    """Both directions across the bridge's 1-8 digit operand corners."""
+    cases = []
+    for a, b in [
+        (1, 5),
+        (9, 9),
+        (47, 3),
+        (999, 999),
+        (1000, 9999),
+        (99999999, 99999999),
+        (10000000, 1),
+        (12345, 678901),
+    ]:
+        for direction in ("to_op", "to_nl"):
+            cases.append((a, b, direction))
+    return cases
+
+
+def test_v5_38_translate_spans_decode_to_answer(frozen_tokenizer):
+    """The bridge's char spans convert exactly, and its prompt is a token-prefix.
+
+    The to_nl answer starts with a letter and the to_op answer with a digit;
+    both sit after ``Answer: ``, so the byte-level BPE may merge the leading
+    space into the first label token — the whitespace overhang V5.38 allows.
+    """
+    rendered = [render_translate(a, b, d) for a, b, d in _translate_grid()]
+    texts = [full for full, _ in rendered]
+    char_spans = [span for _, span in rendered]
+    examples = tokenize_with_spans(texts, char_spans, frozen_tokenizer)
+    for (full, (cs, ce)), ex in zip(rendered, examples):
+        start, end = ex.label_span
+        decoded = frozen_tokenizer.decode(ex.input_ids[start:end])
+        assert decoded.lstrip(" ") == full[cs:ce]  # label tokens == the answer text
+        assert 1 <= start < end <= len(ex.input_ids)
+        prompt = frozen_tokenizer.decode(ex.input_ids[:start])
+        assert full[:cs].rstrip(" ") == prompt.rstrip(" ")  # prompt is a token-prefix
+
+
+def test_v5_43_translate_eos_lands_inside_the_label_span(frozen_tokenizer):
+    rendered = [render_translate(a, b, d) for a, b, d in _translate_grid()]
+    texts = [full for full, _ in rendered]
+    char_spans = [span for _, span in rendered]
+    plain = tokenize_with_spans(texts, char_spans, frozen_tokenizer)
+    with_eos = tokenize_with_spans(texts, char_spans, frozen_tokenizer, append_eos=True)
+    eos_id = frozen_tokenizer.eos_token_id
+    for p, e in zip(plain, with_eos):
+        assert e.input_ids == list(p.input_ids) + [eos_id]
+        assert e.label_span == (p.label_span[0], p.label_span[1] + 1)
+        assert e.label_span[1] == len(e.input_ids)  # EOS is the last label token
+        assert e.input_ids[e.label_span[1] - 1] == eos_id

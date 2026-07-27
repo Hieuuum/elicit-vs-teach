@@ -1,0 +1,21 @@
+# PHASE 3 bridge eval-only data pin. G6 consumes the entire frozen file and
+# requires aggregate, NL->operator, and operator->NL exact text match to clear
+# the same threshold. No training run consumes this config.
+#
+# D_p3_bridge_eval was carved before D_p3_bridge, so train/eval operand pairs
+# are disjoint. It is also disjoint from the phase-3 probe and exact target
+# pairs. The answer slot contains rewritten question bodies, not integers;
+# gates.py therefore rejects this config in G4/G5.
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_translate
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_p3_bridge_eval.parquet
+  order_hash: d0ddc0b11e42ff7a882078f046f8a391e8b45c7ea3c4c8c320064a63de7a4719
+  local_path: experiments/training-run/data/phase3/D_p3_bridge_eval.parquet

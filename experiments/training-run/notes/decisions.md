@@ -4217,3 +4217,49 @@ arm runs on the identical phase-3 artifacts.
 **Arm B (teach) is still unbuilt** — it needs a permuted-label NL-addition
 installer pool and two configs. Until it exists phase 3 has one arm and no
 elicit-vs-teach comparison; every number above describes the elicit arm alone.
+
+### 2026-07-27 — phase-3 answer-free translation bridge frozen and wired (unrun)
+
+The elicit arm now has a controlled second path from the same
+`evt-p3-elicit-parent`: a full-FT bidirectional notation bridge followed by a
+second target run. This is a build-only change; no training or gate was launched.
+
+The frozen bridge corpus has 100,000 unique positive-addition operand pairs over
+the same 64 one-to-eight-digit cells, with exactly two rows per pair: NL question
+body to operator question body, and the reverse. The 200,000-row train artifact
+pins `order_hash d68ec2d0d0bdd6b1ebf2656bd225b64930f9e54cd2df6add731350010d454997`;
+the separately carved 4,096-row / 2,048-pair held-out eval pins
+`d0ddc0b11e42ff7a882078f046f8a391e8b45c7ea3c4c8c320064a63de7a4719`.
+Both are probe-clean, eval pairs are train-disjoint, no row contains `-` or the
+computed sum, and exact ordered target pairs are excluded. Measured target
+overlap is **0% direct / 3.441% including commuted twins**; parent direct overlap
+is 0.734%. The corpus is frozen for later teach-arm reuse, but no teach branch is
+built in this change.
+
+`evt-p3-elicit-bridge` is full FT from the operator-addition parent at the
+installer-stage pin (LR 3e-6), fp32, batch 128, seed 316, canonical validation
+loss epsilon/k stopping (0.002/5), and a strict two-epoch ceiling. It must clear:
+
+- G2: retained operator-addition exact match;
+- G4: integer answer-slot format validity on the frozen NL-addition prompts;
+- G6: exact text match on the entire held-out bridge eval, with aggregate,
+  NL->operator, and operator->NL each at least 0.95.
+
+G6 uses token-prefix prompts from the full training-style tokenization, greedy
+EOS-stopped first-line decode, and strips only surrounding whitespace before
+text comparison. Its decode ceiling is 32 new tokens because the frozen
+tokenizer's longest bridge answer is 26 answer tokens plus EOS. G4 and G5 now refuse
+`task.name: arith_translate` before model or data loading, preventing integer
+answer machinery from silently scoring text answers.
+
+The existing `evt-p3-elicit-target` config and launch semantics remain the
+no-bridge control. The bridged sibling `evt-p3-elicit-target-bridge` overlays only
+its run id and parent/gate lineage; every target data, order, LR, seed, LoRA,
+epsilon/k, and ceiling field is inherited from the control. G7 additionally
+requires its frozen `(data_order_hash, n_examples)` to match the completed
+control before cost confirmation. `launch_phase3.sh --stage bridge` is the only
+new launch entry point; the launcher still refuses without `--confirm-cost` and
+hash-verifies all bridge artifacts before any spend.
+
+No multiplication-transfer paper was searched or cited; no citation was
+provided, so no provenance claim was invented.

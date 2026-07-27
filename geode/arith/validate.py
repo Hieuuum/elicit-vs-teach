@@ -25,6 +25,18 @@ from collections.abc import Iterable, Mapping, Sequence
 Triple = tuple[int, str, int]
 
 
+def _hash_answer(v: object) -> int | str:
+    """Coerce ``shown_answer`` for hashing.
+
+    Computed-answer sets store an integer (or a parquet-round-tripped numpy
+    scalar); the arith_translate bridge stores the answer **text** (a rewritten
+    question, never a number). A string is hashed as-is; everything else is
+    coerced to ``int`` — byte-identical to the pre-bridge payload, so every
+    frozen ``report.json`` pin stays valid.
+    """
+    return v if isinstance(v, str) else int(v)
+
+
 def order_hash(records: Sequence[Mapping]) -> str:
     """Content-and-order hash of a materialised dataset (V5.40).
 
@@ -32,16 +44,18 @@ def order_hash(records: Sequence[Mapping]) -> str:
     tuples — the exact payload ``make_data.py`` has hashed since 2026-07-17,
     so hashes recorded in the frozen ``report.json`` files stay valid. Values
     are coerced to built-ins so parquet round-trips (numpy scalars) hash
-    identically to the original in-memory records. Promoted here (2026-07-20)
-    because the SFT launch path re-verifies the frozen files against their
-    pinned hashes before spending GPU budget.
+    identically to the original in-memory records; ``shown_answer`` is an int
+    for computed-answer sets and a str for the translate bridge (see
+    ``_hash_answer``). Promoted here (2026-07-20) because the SFT launch path
+    re-verifies the frozen files against their pinned hashes before spending
+    GPU budget.
     """
     payload = [
         (
             int(r["a"]),
             int(r["b"]),
             str(r["op"]),
-            int(r["shown_answer"]),
+            _hash_answer(r["shown_answer"]),
             str(r["format"]),
             str(r["label_mode"]),
         )

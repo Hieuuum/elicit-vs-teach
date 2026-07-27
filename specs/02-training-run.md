@@ -259,6 +259,13 @@ zero/16-shot prompt builder for G5.
   included), deterministically in `seed`; different seeds give different
   permutations; on all-distinct inputs the fixed-point count stays at
   chance level (the mapping is destroyed).
+- V5.67 translation bridge (phase 3, 2026-07-27): every sampled positive
+  addition pair emits exactly one NL→operator and one operator→NL row under
+  the shared `Question:/Answer:` scaffold; the answer span covers the rewritten
+  question body exactly, and no rendered row contains `-` or the computed sum.
+  Train and held-out translation pairs are disjoint, probe questions and exact
+  target pairs are excluded, and allocation uses the same capacity-capped
+  water-fill over phase 3's 64 operand-length cells.
 
 ## 6. Training runs — per-run needs
 
@@ -1070,8 +1077,8 @@ v2-ext pass) stay recorded in decisions.md and the v2-ext manifest.
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak; ≤ chance + margin) |
 | G4 | runs 3, 4 | Format validity on operator-notation prompts (both arms; ~≥99%). The same metric is the installers' in-loop stopping signal (§6). Same decode protocol as G1: token-prefix prompts, greedy, EOS-stopped (the 2026-07-21 fix predates this tooling) |
 | G5 | runs 3–6 | Zero/16-shot operator add/sub + shared-set test loss. Expectation: A ~2%/12%, B 0%/0% — the only remaining independent regime evidence. Protocol (owner 2026-07-22, second revision — supersedes the same-day eval-reserved-tail draw): data is the frozen `D_target_eval` file (§5), question-disjoint from D_target ∪ D_algo ∪ probe by construction; shots = reporting-block rows [2048, 2064), questions = the next `--n` (default 1024) rows — **fixed slices, the identical set for every run, no sampling**. Also records `test_loss_nats`: masked NLL over the full reporting block (rows 2048+), the same data as the runs-5/6 harness θ_T test loss, so every run's loss lands on identical data. `gates.py g5` refuses a run whose manifest records training on the eval file itself (belt and suspenders — disjointness is a generation-time property). History: the original full-file draw overlapped pilot training prefixes (1.2%–50.6% of eval questions at n10k–n500k; measured accuracy inflation ≤ 0.4 points); the intermediate reserved-tail protocol fixed contamination but capped training at 900k rows |
-| G6 | data gen | V5.1/V5.2 integrity checks run against the *real* generated sets; hashes recorded |
-| G7 | before run 6 | `data_order_hash`(run 5) == `data_order_hash`(run 6), enforced at launch |
+| G6 | phase-3 bridge | Bidirectional translation exact match on the entire frozen held-out `D_p3_bridge_eval`: token-prefix prompts from the training tokenization (V5.38), greedy EOS-stopped first-line decode (V5.43), and exact text comparison of the answer slot after stripping surrounding whitespace only. The aggregate, NL→operator, and operator→NL rates must each be ≥95%; verdict, rates, row count, checkpoint, file, and `order_hash` are recorded. G4/G5 refuse `task.name: arith_translate` before model/data loading because their integer-answer protocol is inapplicable. |
+| G7 | before matched target | `data_order_hash` and `n_examples` match the designated target anchor, enforced at launch |
 
 ## 9. Analysis deliverables
 

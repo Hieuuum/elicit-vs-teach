@@ -1,0 +1,14 @@
+# PHASE 3 — bridged elicit target. Overlay on p3_elicit_target.yaml.
+#
+# This is the experimental sibling of the unchanged no-bridge control
+# evt-p3-elicit-target. Only the run identity and parent checkpoint change.
+# Every target-corpus, optimizer, LoRA, precision, seed, epsilon/k, and ceiling
+# field remains inherited byte-for-byte from p3_elicit_target.yaml.
+#
+# match_data_order_with makes train_target.py enforce identical frozen target
+# hash and prefix against the no-bridge control (G7) before cost confirmation.
+run_id: evt-p3-elicit-target-bridge
+experiment:
+  parent_run_id: evt-p3-elicit-bridge
+  parent_required_gates: [G2, G4, G6]
+  match_data_order_with: evt-p3-elicit-target

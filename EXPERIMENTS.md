@@ -123,6 +123,19 @@ of training now has an operand of 5+ digits, a harder task than any run
 1–10; the parent's G1 gate is what catches that before the target
 spends anything.
 
+**Answer-free elicit bridge (built 2026-07-27, unrun).** From the same
+operator-addition parent, `evt-p3-elicit-bridge` full-FTs on a frozen
+200K-row bidirectional question-rewriting corpus (100K positive addition
+pairs; no computed sums), then must pass operator-add retention (G2), NL
+integer-format validity (G4), and held-out bidirectional translation exact
+match (G6). `evt-p3-elicit-target-bridge` then consumes the same 500K
+natural-language target artifact, order, LR, seed, LoRA settings, epsilon/k
+rule, and ceiling as the unchanged no-bridge `evt-p3-elicit-target`; its
+overlay changes only run identity and parent/gate lineage. The bridge train
+hash is `d68ec2d…4997`, held-out eval hash `d0ddc0b1…4719`; direct overlap
+with target is zero (3.441% including commuted twins). The corpus is frozen
+for a future teach arm, but no teach branch is built here.
+
 ## 4. Gates
 
 Recorded in each run's manifest under `experiment.gates` by
@@ -141,8 +154,8 @@ ungated inspection tool.
 | G3 | run 4 | Arm B ≈ 0% on real add/sub (random labels didn't leak) | **PASS 0.0000** |
 | G4 | runs 3–4 | op-notation format validity ~≥99%, both arms; same metric is the installers' in-loop stopping signal (spec 02 §6) | **PASS 1.0 both arms** |
 | G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. **1M pair: run 7 (A) 0.9971 / 0.0025 vs run 8 (B) 0.9551 / 0.0312 — 12.4× θ_T gap. Llama: run 9 parent 0.0000 / 9.26, run 10 0.9844 / 0.0232 — measured with `eval_target_data_llama.yaml` (an eval's tokenizer must match the model under eval; decisions.md 2026-07-24)**. **Caution (2026-07-25): run 9's 0.0000 was read as "latent as required" — it is not that. It is op-notation after random-label training, not the retention probe. The retention probe is NL add/sub vs a base baseline, and on it run 9 v1 scored 0.0000 against base Llama's 0.3271: the capability was destroyed, not latent. See runs 9-v2/10-v2.** 16-shot ≈ 0 everywhere incl. the 1.24B Llama (collapse — invalidated as a metric; decisions.md) |
-| G6 | data gen | V5.1/V5.2 integrity on the real sets | partial — generation-time evidence in `report.json`; formal re-run when `gates.py` grows the subcommand |
-| G7 | before run 6 | `data_order_hash`(run 5) == (run 6) | enforced at launch |
+| G6 | phase-3 bridge | held-out bidirectional translation exact text match; aggregate and both directions ≥95% | built, unrun (`gates.py g6`; frozen 4,096-row eval) |
+| G7 | before matched target | identical frozen target `data_order_hash` + prefix against its anchor | enforced at launch |
 
 ## 5. Workflow
 
@@ -165,12 +178,12 @@ V1.9/V1.10), `geode.train` (full FT + SFT + `apply_lora`), `geode.zoo`,
 `geode.arith`, `geode.probe` (schedule V5.55–V5.61, extraction
 V5.9–V5.12, analysis metrics V5.13–V5.16 + V5.63 linear CKA) — all
 with property tests; launchers `train_sft.py` + `train_target.py`,
-`gates.py` g1–g5, `scripts/extract.py` (resumable, `--limit` disk
+`gates.py` g1–g6, `scripts/extract.py` (resumable, `--limit` disk
 cap), and ten analysis drivers (`alignment.py`, `drift.py`,
 `adapters.py`, `matching.py`, `cka.py`, `learning_curves.py`,
 `act_rank.py`, `probes.py`, `trajectory.py`, `steering.py` —
 2026-07-24, design notes in decisions.md). Not yet built:
-`export_hf.py`, `gates.py` g6.
+`export_hf.py`.
 
 ## 6. Remaining work, in order
 

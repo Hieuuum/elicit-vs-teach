@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from geode.arith.formats import digits, render, true_answer
+from geode.arith.formats import digits, render, render_translate, true_answer
 
 
 def test_v5_5_operator_answer_char_span_is_exact():
@@ -92,3 +92,84 @@ def test_nl_rejects_unknown_op():
 def test_unknown_format_rejected():
     with pytest.raises(ValueError):
         render(3, 4, "+", 7, "latex")
+
+
+# --- render_translate (arith_translate, phase-3 bridge) ------------------
+
+# A grid of operand pairs spanning single/multi-digit, equal/unequal widths,
+# and the carry corners — the same kinds of pairs the 64-cell bridge draws.
+_TRANSLATE_GRID = [
+    (1, 2),
+    (9, 9),
+    (23, 45),
+    (7, 993),
+    (1000, 7),
+    (99999999, 99999999),
+    (10000000, 1),
+    (12345, 678901),
+]
+
+
+def test_v5_5_translate_to_op_char_span_is_exact():
+    full, (start, end) = render_translate(23, 45, "to_op")
+    assert full == "Question: Rewrite in operator notation: What is the sum of 23 and 45?\nAnswer: 23 + 45"
+    assert full[start:end] == "23 + 45"  # answer slot is the operator body, no sum
+    assert full[:start] == (
+        "Question: Rewrite in operator notation: What is the sum of 23 and 45?\nAnswer: "
+    )
+
+
+def test_v5_5_translate_to_nl_char_span_is_exact():
+    full, (start, end) = render_translate(23, 45, "to_nl")
+    assert full == "Question: Rewrite in words: 23 + 45\nAnswer: What is the sum of 23 and 45?"
+    assert full[start:end] == "What is the sum of 23 and 45?"  # answer slot is the NL question
+
+
+def test_translate_rendering_is_byte_frozen():
+    """The bridge phrasings are pinned bytes, like the add/sub/mult ones.
+
+    ``order_hash`` covers the direction via the ``format`` column but not the
+    rendered text, so a silently changed prefix would not invalidate a pin.
+    """
+    assert render_translate(1000, 7, "to_op")[0] == (
+        "Question: Rewrite in operator notation: What is the sum of 1000 and 7?\nAnswer: 1000 + 7"
+    )
+    assert render_translate(1000, 7, "to_nl")[0] == (
+        "Question: Rewrite in words: 1000 + 7\nAnswer: What is the sum of 1000 and 7?"
+    )
+
+
+def test_translate_no_minus_char_across_grid():
+    # Phase 3's "no '-' anywhere" invariant: addition, positive operands.
+    for a, b in _TRANSLATE_GRID:
+        for direction in ("to_op", "to_nl"):
+            assert "-" not in render_translate(a, b, direction)[0]
+
+
+def test_translate_no_computed_sum_across_grid():
+    # The answer is a rewritten question, never a sum: str(a + b) never appears
+    # (a + b strictly exceeds both operands, and operand digit runs are the only
+    # digit runs, separated by non-digits).
+    for a, b in _TRANSLATE_GRID:
+        for direction in ("to_op", "to_nl"):
+            assert str(a + b) not in render_translate(a, b, direction)[0]
+
+
+def test_translate_directions_are_structural_inverses():
+    # to_op maps NL->operator; to_nl maps operator->NL. The to_op answer (the
+    # operator body) is exactly to_nl's question payload, and the to_nl answer
+    # (the NL question) is exactly to_op's question payload — round-tripping (a, b).
+    for a, b in _TRANSLATE_GRID:
+        op_full, (ops, ope) = render_translate(a, b, "to_op")
+        nl_full, (nls, nle) = render_translate(a, b, "to_nl")
+        op_answer = op_full[ops:ope]
+        nl_answer = nl_full[nls:nle]
+        assert op_answer == f"{a} + {b}"
+        assert nl_answer == f"What is the sum of {a} and {b}?"
+        assert nl_full == f"Question: Rewrite in words: {op_answer}\nAnswer: {nl_answer}"
+        assert op_full == f"Question: Rewrite in operator notation: {nl_answer}\nAnswer: {op_answer}"
+
+
+def test_translate_rejects_unknown_direction():
+    with pytest.raises(ValueError, match="direction"):
+        render_translate(3, 4, "to_latex")
