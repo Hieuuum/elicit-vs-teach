@@ -60,9 +60,33 @@ def test_digits_counts_absolute_value():
     assert digits(9999) == 4
 
 
-def test_nl_rejects_mult():
+def test_v5_5_nl_mult_uses_product_wording():
+    # Added 2026-07-27 for the phase-3 NL format installer: the installer must
+    # be NL-shaped but must not be addition, or it would train wrong answers
+    # into a parent that already knows addition.
+    full, (start, end) = render(23, 45, "*", 1035, "nl")
+    assert full == "Question: What is the product of 23 and 45?\nAnswer: 1035"
+    assert full[start:end] == "1035"
+
+
+def test_nl_add_sub_rendering_is_byte_frozen():
+    """Adding the mult phrasing must not perturb add/sub (every pinned order_hash).
+
+    ``order_hash`` covers only (a, b, op, shown_answer, format, label_mode), so a
+    silently changed template would NOT invalidate a pin — nothing in the launch
+    path would refuse. This test is the guard that check cannot be.
+    """
+    assert render(1, 9540, "-", -9539, "nl")[0] == (
+        "Question: What is the difference between 1 and 9540?\nAnswer: -9539"
+    )
+    assert render(572, 9875, "+", 10447, "nl")[0] == (
+        "Question: What is the sum of 572 and 9875?\nAnswer: 10447"
+    )
+
+
+def test_nl_rejects_unknown_op():
     with pytest.raises(ValueError):
-        render(3, 4, "*", 12, "nl")
+        render(3, 4, "/", 12, "nl")
 
 
 def test_unknown_format_rejected():

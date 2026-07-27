@@ -1,0 +1,98 @@
+# PHASE 3 (owner 2026-07-27) — CONDITIONAL natural-language format installer.
+#
+# THIS RUN MAY NEVER EXECUTE, BY DESIGN. launch_phase3.sh scores the parent's
+# format validity on NL addition prompts first:
+#
+#   gates.py g4 --run evt-p3-elicit-parent \
+#       --prompt-config ../configs/eval_p3_data.yaml \
+#       --threshold 0.90 --n-prompts 512 --no-record
+#
+# and runs this installer ONLY if that comes back below 0.90 (owner 2026-07-27:
+# "if whatever gate is below ninety percent, then format install it. If it
+# doesn't, no need to format install"). --no-record is not optional: writing a
+# sub-threshold G4 verdict onto the shared parent would make
+# require_parent_ready refuse every child of it (V0.6, gates.py:274-281).
+#
+# The gate is expected to PASS, which is why the install is conditional rather
+# than scheduled. Phase 3 keeps one scaffold, `Question: <body>\nAnswer: <int>`,
+# across both notations; the parent trains on that scaffold in operator
+# notation, so an NL question changes the question BODY and nothing else. The
+# p2 elicit parent scored G4 1.0000 on external prompts under exactly this
+# argument (decisions.md 2026-07-26).
+#
+# WHY MULTIPLICATION, NOT ADDITION. Every other installer in this project ran
+# on a parent that knew nothing. This one would run on a parent that already
+# knows addition — the single capability the whole phase exists to elicit.
+# Permuted-label NL *addition* would train wrong sums directly into it; that is
+# the run-9 retention failure verbatim (decisions.md 2026-07-25, base 0.3271 ->
+# 0.0000). NL multiplication installs the same scaffold in the same notation
+# while being an operation the parent has never seen and the target never asks
+# for, so the addition mapping receives no gradient toward a wrong answer. It
+# is the D_inst role exactly: runs 3/4 installed the operator-notation format
+# with mult and passed G4.
+#
+# WHY PERMUTED, NOT RANDOM. permute_labels shuffles the true answers across
+# positions, so the shown-label multiset EQUALS the true-answer multiset (V5.64)
+# — digit counts and value frequencies survive, the mapping does not.
+# random_label only matches digit count and sign. Measured label_coincidence on
+# this artifact: 0.0010%.
+#
+# AFTER IT RUNS (both gates before the target):
+#   gates.py g4 --run evt-p3-elicit-inst \
+#       --prompt-config ../configs/eval_p3_data.yaml --threshold 0.90
+#   gates.py g2 --run evt-p3-elicit-inst --config ../configs/p3_elicit_parent.yaml
+# G2 is the RETENTION check and is the one that matters: it re-scores the
+# parent's own operator-notation addition. An installer that damaged addition
+# invalidates the phase, and the launcher enforces the bar rather than trusting
+# the design argument above.
+run_id: evt-p3-elicit-inst
+experiment:
+  name: training-run
+  arm: A
+  role: format_install
+  parent_run_id: evt-p3-elicit-parent
+  parent_required_gates: [G1]  # the parent's own addition retention
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-10
+
+task:
+  name: arith_nl_mult          # NL multiplication — the target's SCAFFOLD and
+  format_version: v1           # notation, deliberately not its operation
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_p3_nl_mult.parquet   # 200K NL mult, PERMUTED labels, seed 20260727
+  # Pinned from data/phase3/report.json; op-disjoint from every other phase-3
+  # artifact by construction (they are all '+', this is all '*', and the
+  # leakage rule keys on the ordered triple).
+  order_hash: 8c2494503629a2d4139ea34f0e98efac1aa870a8c02db06fa3e6b8f9f05a4ee9
+  local_path: experiments/training-run/data/phase3/D_p3_nl_mult.parquet
+  val_fraction: 0.005          # 1,000 held-out (>= the 512 stopping prompts)
+  seed: 316
+
+train:
+  lr: 3.0e-6                   # INSTALLER pin (configs/lr_pin.yaml). Never the
+                               # target's 1e-3 — that scope error is what
+                               # destroyed run 9 v1 (memory: scope-check pins)
+  batch_size: 128
+  eval_every: 1                # every step: the p2 fix for the 750-step floor
+                               # that made runs 3/4's stop uninformative
+  max_steps: 3108              # pure ceiling = 2 epochs of 1,554 steps
+                               # ((200,000 - 1,000) // 128 drop-last). More
+                               # epochs over permuted labels invite mapping
+                               # memorisation, which is the leak this must not
+                               # have. stop_reason=max_steps means the format
+                               # never installed: investigate, don't ship
+  stopping:
+    metric: format_validity    # the phase's shared bar, same 0.90 as p2
+    threshold: 0.90
+    k: 3
+    n_prompts: 512
+    prompt_seed: 316
+  precision: fp32              # phase pin, matched across every stage
+  seed: 316

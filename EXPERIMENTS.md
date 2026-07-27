@@ -1,6 +1,6 @@
 # EXPERIMENTS.md — live experiment plan
 
-Status: **executing** (updated 2026-07-24). This is the current state
+Status: **executing** (updated 2026-07-27). This is the current state
 and remaining work of the elicit-vs-teach training-run experiment.
 `specs/02-training-run.md` is the detailed design source;
 `experiments/training-run/notes/decisions.md` is the running decision
@@ -87,6 +87,24 @@ exclusion is question-level (the (a, b, op) triple appears in no
 training set, any format). Known + accepted: ~0.07% of `D_inst`'s
 random labels coincide with the true answer (won't-fix, decisions.md
 2026-07-19).
+
+### 3b. Phase-3 datasets — DONE (frozen 2026-07-27, seed 20260727)
+
+`experiments/training-run/data/phase3/`, **not yet published to HF**, so
+the configs read them via `local_path` (hash still verified). Addition
+only, positive operands, so no phase-3 example contains a `-` at all —
+the `'Ġ-'` collision that carried the old +/− asymmetry cannot occur.
+The notation is **reversed**: `D_p3_on_add` (200K, operator) is the
+pre-intervention set and `D_p3_nl_add` (1M, natural language) is the
+target. Plus `D_p3_nl_eval` (100K), `D_p3_nl_mult` (200K, permuted —
+the conditional installer pool) and a 970-row NL probe.
+
+Probe and eval are carved **first** with a per-cell ceiling, because
+addition-only lets the 1M target consume 10 of 16 digit cells whole and
+an eval generated afterwards would have zero rows in all of them.
+Measured pre-exposure of target by parent: **10.16% direct, 15.64%
+including commuted twins** (for addition the twin is answer-identical —
+quote both or neither). Per-cell figures in `data/phase3/report.json`.
 
 ## 4. Gates
 
@@ -291,6 +309,37 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    is 1e-3 — so rule 11's shared-LR band is empty and rule 8 takes arm B's
    optimum. The pin therefore does not move, and phase 2 stays comparable
    with runs 7/8, which executed under the same value.
+
+9. **Phase 3 — the notation swap (owner 2026-07-27). BUILT, NOT LAUNCHED.**
+   Addition only, positive operands; operator notation becomes the
+   pre-intervention task and natural language the target — the reverse of
+   runs 2 and 5–8. Elicit arm only; the teach arm is deferred.
+
+   **Read the metric finding in decisions.md before reading any phase-3
+   curve.** `plot_edl_per_token.py` subtracts a *moving* val-loss floor, so
+   no run can be monotone under it — including run 10-v2, which has the
+   most rising steps of any run in the project. The canonical fixed-test
+   floor (`geode/edl/metrics.py:68`) makes every run monotone or nearly so.
+   **Monotonicity does not discriminate elicit from teach.** The script now
+   takes `--floor {val,test}` (default `val`, existing figures unchanged)
+   and prints `rising k/n` so a shape claim is checkable. What separates the
+   arms is the level at matched n (0.034 vs 0.412 bits/token) and where the
+   information lands (1.5K vs 152K).
+
+   Phase 3's actual aim is narrower than the original ask: shrink the elicit
+   arm's 3.46-bit early spike, which the 2026-07-27 unlock result implicates
+   as an *addressing* cost rather than algorithm acquisition.
+
+   Ready: datasets (§3b), `configs/p3_elicit_{parent,inst,target}.yaml` +
+   `configs/eval_p3_data.yaml` + `configs/p3/target_after_inst.yaml`, and
+   `scripts/launch_phase3.sh --stage parent|target|all` (four refusal paths
+   negative-tested). The format install is **conditional** on G4 format
+   validity < 0.90 zero-shot on NL prompts, and is expected not to fire;
+   when it does fire it uses NL **multiplication**, because permuted-label
+   NL addition would train wrong sums into a parent that already knows
+   addition (the run-9 retention failure).
+
+   Blocked on: a GPU. Nothing here has been run.
 
 ## 7. Budget
 

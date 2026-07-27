@@ -3616,3 +3616,184 @@ away on a 50/50 split.
 
 OPEN, unchanged and still not launched: the per-example run-7 target loss
 split by D_algo membership.
+
+---
+
+## 2026-07-27 — phase 3: the notation swap, and the EDL floor that made the
+## signature unreadable
+
+Owner redesign. Addition only, positive operands; the pre-intervention task
+becomes **operator notation** and the target becomes **natural language** — the
+reverse of runs 2 and 5–8. Elicit arm only for now; the teach arm is deferred.
+No GPU exists (the box was deleted), so this entry covers datasets and
+infrastructure, and nothing in phase 3 has been run.
+
+### The metric finding, which came first and changed the premise
+
+The stated goal was to make the elicit arm's EDL/n curve monotone decreasing
+"like the Llama model's". Replaying the existing logs (CPU, no model) shows
+that goal is unreachable as posed, because `analysis/plot_edl_per_token.py`
+subtracts the **val loss at each step** — a moving floor — while the canonical
+definition in `geode/edl/metrics.py:68` subtracts the **fixed final test
+loss**. Under a moving floor no run can be monotone; under a fixed floor the
+curve is a running mean minus a constant and can rise only on batch noise.
+
+| run | moving-val floor | fixed-test floor |
+|---|---|---|
+| p2 elicit (`evt-p2-armA-target-noinst`) | peak 3.4611 b @ n=1,536 · rising 33/194 | rising **1**/194 |
+| p2 teach (`evt-p2-armB-target-perm`) | peak 0.9793 b @ n=151,680 · rising 115/216 | rising **0**/216 |
+| run 7 elicit | peak @ n=6,912 · rising 58/205 | rising **0**/205 |
+| run 8 teach | peak @ n=512 · rising 90/216 | rising **0**/216 |
+| run 10-v2 Llama | rising **92**/202 | rising 8/202 |
+
+Two consequences. **Monotonicity does not discriminate elicit from teach** — it
+is a property of which floor you subtract. And **Llama is not monotone under
+the script either**; it has the most rising steps of any run, and the "peak at
+n=14,080" the script printed is a local max inside its `--min-examples 1000`
+display window, not the curve's maximum. The shape being matched to was not
+the shape the reference run has.
+
+What *does* separate the arms is unchanged and already strong: EDL/token at
+matched n=576,000 is 0.03399 (elicit) vs 0.41215 (teach) bits, and the
+information lands 100× earlier in the elicit arm.
+
+`plot_edl_per_token.py` now takes `--floor {val,test}`, default `val` so every
+existing figure is byte-identical (verified by md5 across a stash/restore). It
+prints `rising k/n` and `monotone_dec` on the curve it actually plots,
+**unclipped** — clipping to the display window reports armA as 0/187 monotone
+when the full curve is 1/194, i.e. clipping would flatter the claim.
+
+### Why phase 3 is still worth building
+
+The elicit arm's early spike is 3.46 bits against teach's 0.98 and Llama's
+1.05. A spike that large and that early is a fast **addressing** adaptation,
+not algorithm acquisition — consistent with the same day's unlock result, where
+512 parameters moved held-out addition 0.0039 → 0.3976. Phase 3 removes the two
+things that made addressing expensive:
+
+- **The `'Ġ-'` collision.** Under the frozen BPE the operator minus and the NL
+  negative-answer sign are the same token, while `'+'` is a bare byte with no
+  `'Ġ+'` merge. Addition-only with positive operands means no phase-3 example
+  contains `-` at all — asserted over all five artifacts at generation.
+- **The signed-`difference` ambiguity** (2026-07-25), which capped NL evals at
+  0.7383. Addition has no such ambiguity.
+
+And it puts the strong handle on the target side: `sum` tokenizes as
+`Ġs` + `um`, both heavily trained by TinyStories — prompt-general, which the
+unlock measured as the *unconditional* kind. Its one cost there (destroying the
+other operator) cannot bite when there is only one operator.
+
+This is a **redirection of the goal, not a fix for it**: phase 3 should shrink
+the addressing spike, not make the curve monotone.
+
+### Datasets (`make_data.py --phase3`, seed 20260727, `data/phase3/`)
+
+| file | n | op | format | labels | order_hash |
+|---|---|---|---|---|---|
+| `D_p3_probe` | 970 | + | nl | correct | `c4703f2c90fe…` |
+| `D_p3_nl_eval` | 100,000 | + | nl | correct | `137d077919ce…` |
+| `D_p3_on_add` | 200,000 | + | operator | correct | `a33d18cf9a5a…` |
+| `D_p3_nl_add` | 1,000,000 | + | nl | correct | `8b9977507e54…` |
+| `D_p3_nl_mult` | 200,000 | * | nl | permuted | `8c2494503629…` |
+
+Four decisions worth recording:
+
+**1. Probe and eval are carved FIRST, with a per-cell ceiling of `cap // 8`.**
+`--eval-set` generates the eval last, against already-frozen training sets.
+Addition-only halves the question space, so at n=1M the training sets consume
+**10 of 16** digit cells whole and an eval generated afterwards would hold zero
+rows in every one of them — an eval that could never test small operands. The
+ceiling is what stops a 100K eval from swallowing cell 1x1, which contains 81
+addition questions in total.
+
+**2. Sizes: parent 200K, target 1M.** The target matches runs 7/8 and the p2
+targets so EDL is comparable at matched n. The parent size is the pre-exposure
+lever, and it is steep — at 1M/1M the parent would have seen **39.6%** of the
+target, *worse* than the 29.18% that drew the 2026-07-26 criticism, precisely
+because dropping subtraction halves the space.
+
+**3. Pre-exposure: measured, not assumed.** Owner kept the existing V5.1 rule
+(exact ordered triple; commuted twins allowed). Measured at generation: the
+parent has seen **10.16%** of the 1M target questions directly, **15.64%**
+counting the commuted twin. For addition the twin carries the *identical*
+answer, so 15.64% is the figure that bounds item recall — **quote both or
+neither**. It is structural rather than a sampling accident: the six smallest
+cells are 100% pre-exposed because they hold only 63–7,032 addition questions
+in total, while 4x4 sits at 0.02%. Per-cell figures in `report.json` under
+`pre_exposure.by_cell`.
+
+**4. The conditional installer is NL multiplication, not NL addition.** Every
+other installer in this project acted on a parent that knew nothing, so
+retention loss was impossible. This one would act on a parent that already
+holds the capability the phase exists to elicit, and permuted-label NL
+*addition* would train wrong sums straight into it — the run-9 retention
+failure verbatim (base 0.3271 → 0.0000, 2026-07-25). NL mult installs the same
+`Question:/Answer:` scaffold in the same notation while being an operation the
+parent has never seen and the target never asks for. This is the `D_inst` role
+exactly: runs 3/4 installed the operator format with mult and passed G4.
+Permuted rather than random labels (V5.64); measured `label_coincidence`
+0.0010%.
+
+### The conditional gate
+
+Owner: "if whatever gate is below ninety percent, then format install it. If it
+doesn't, no need to format install." Implemented as G4 **format validity**
+(not accuracy), **zero-shot**, on NL addition prompts from the frozen external
+eval file:
+
+```
+gates.py g4 --run evt-p3-elicit-parent \
+    --prompt-config ../configs/eval_p3_data.yaml \
+    --threshold 0.90 --n-prompts 512 --no-record
+```
+
+`--no-record` is not optional: a recorded sub-threshold G4 on the shared parent
+would make `require_parent_ready` refuse every child of it (V0.6).
+
+**The gate is expected to pass**, which is why the install is conditional
+rather than scheduled — phase 3 keeps one scaffold across both notations, so an
+NL question changes only the question body, and the p2 elicit parent scored G4
+1.0000 on external prompts under exactly this argument.
+
+`launch_phase3.sh` parses the decision from the gate's **printed rate**, not its
+exit code: in `--no-record` mode `gates.py` returns 1 both for "below
+threshold" and for any `SystemExit`, so an exit-code branch would read a
+crashed gate as "install needed" and spend the budget on it. A missing rate
+line is a hard failure. The branch is written to
+`runs/evt-p3-elicit-target/install_decision.json` — which parent the EDL
+measurement ran from is a fact about the result and is decided at run time.
+
+If the installer does run, its **G2 retention bar halts the phase** on failure
+rather than warning. A damaged parent would depress the target's EDL and read
+as a *better* elicitation result.
+
+### Other choices
+
+- The pre-intervention LR (3e-4) is **role-inherited** from run 2, not
+  measured: same role, parent, architecture and batch, but swept on a different
+  dataset. Flagged in the config header; sweep if its G1 lands well below run
+  2's 0.9961. `min_steps` is scaled to the same *fraction of an epoch* as run
+  2's (0.64 epochs → 1000 of 1554 steps), not copied as a step count.
+- `geode/arith/formats.py` gained `"*": "What is the product of {a} and {b}?"`.
+  Purely additive — add/sub renders are byte-frozen, so every pinned
+  `order_hash` stays valid, and a new test pins that. This matters because
+  `order_hash` covers only 6 of 17 columns and would *not* catch a changed
+  template.
+- **`build_and_write_streaming`** (new): the in-memory path needs ~2 GB for a
+  1M-row set and the generating laptop had 2 GB free. Rows stay bare triples
+  until the shuffle, then render and flush in 50K batches. Output is identical
+  to `build_dataset` — `tests/datagen/test_streaming_writer.py` pins row-,
+  order- and hash-equality, chunk-size invariance, and the refusal on
+  non-correct-label modes.
+- The launcher's up-front hash guard loads only the six columns `order_hash`
+  actually reads: equivalent, and ~4× lighter on a 1M-row file.
+
+All four launcher refusal paths were negative-tested (installer LR = target
+pin; pre-intervention LR = target pin; corrupted hash; missing artifact), plus
+a passing control. The conditional's rate parsing was tested at the 0.9000
+boundary and on two crash modes.
+
+**Status: nothing launched.** Datasets frozen and verified; configs, overlay and
+launcher written and guard-tested; no GPU exists. The teach arm is not built —
+`D_p3_nl_add`/`D_p3_nl_eval` are arm-agnostic, so it needs a permuted-label NL
+addition installer pool and two configs, nothing more.

@@ -117,6 +117,46 @@ DOSE_SPEC = DatasetSpec("D_dose_mult", ("*",), "operator", "correct")
 DOSE_SIZE = 16
 DOSE_EXCLUDES = ("D_inst",)
 
+# --phase3: the addition-only redesign (owner 2026-07-27). Two changes from
+# everything above, both aimed at confounds the 2026-07-26 audit and the
+# 2026-07-27 unlock diagnostic exposed:
+#
+#   1. Subtraction is dropped and operands stay positive, so every answer is
+#      positive. The ``'Ġ-'`` token — which under the frozen BPE is *both* the
+#      operator minus and the NL negative-answer sign, and which carried the
+#      old design's entire +/- asymmetry — never appears in phase 3.
+#   2. The stages are reversed. The pre-intervention task is now operator
+#      notation and the TARGET is natural language (runs 2 and 5-8 ran it the
+#      other way). The NL handle "sum" tokenizes as ``Ġs`` + ``um``, both
+#      heavily trained by TinyStories — a prompt-general handle, which the
+#      unlock diagnostic measured as the *strong* kind. Its one drawback there
+#      (it destroys the other operator) cannot bite when there is only one.
+#
+# The probe and the eval set are carved out FIRST, before any training set,
+# each with a per-cell ceiling of ``cap // P3_CARVE_DIVISOR``. Generating the
+# eval set last (as ``--eval-set`` does for D_target_eval) would leave it zero
+# rows in every cell the training sets consumed whole — for addition-only at
+# n=1M that is 10 of 16 cells, i.e. an eval that can never test small operands.
+# Carving first buys a stratified eval across all 16 cells; the ceiling is what
+# stops a 100K eval from swallowing cell 1x1, which holds 81 questions total.
+P3_PARENT_SPEC = DatasetSpec("D_p3_on_add", ("+",), "operator", "correct")
+P3_PARENT_SIZE = 200_000
+P3_TARGET_SPEC = DatasetSpec("D_p3_nl_add", ("+",), "nl", "correct")
+P3_TARGET_SIZE = 1_000_000
+P3_EVAL_SPEC = DatasetSpec("D_p3_nl_eval", ("+",), "nl", "correct")
+P3_EVAL_SIZE = 100_000
+# The conditional format installer. NL-shaped so it installs the target
+# format, but MULTIPLICATION so it cannot touch addition: the parent reaches
+# this stage already knowing addition, and permuted-label addition would train
+# wrong sums into the one capability the whole phase exists to elicit (the
+# run-9 retention failure, decisions.md 2026-07-25). Permuted rather than
+# random labels — the shown-label multiset equals the true-answer multiset
+# exactly (V5.64), so the marginal answer distribution survives.
+P3_INST_SPEC = DatasetSpec("D_p3_nl_mult", ("*",), "nl", "permuted")
+P3_INST_SIZE = 200_000
+P3_PROBE_PER_CELL = 64
+P3_CARVE_DIVISOR = 8
+
 Triple = tuple[int, str, int]
 
 
@@ -227,24 +267,44 @@ def build_probe(seed: int) -> tuple[list[dict], set[Triple]]:
     return records, triples
 
 
-def plan_allocation(
-    spec: DatasetSpec, n_total: int, probe_triples: set[Triple]
+def cell_capacities(
+    spec: DatasetSpec, blocked: set[Triple], *, carve_divisor: int | None = None
 ) -> dict[tuple[int, int], int]:
-    """Water-fill ``n_total`` across the 16 cells for this dataset's ops."""
-    by_cell_op = _probe_pairs_by_cell_op(probe_triples, spec.ops)
+    """Per-cell unique-question capacity for this dataset's ops, minus ``blocked``.
+
+    ``carve_divisor`` caps each cell at ``cap // divisor``. Only the carve-out
+    sets (phase-3 probe and eval) pass it: without a ceiling, a water-fill that
+    saturates a small cell takes every question in it, and cell 1x1 holds 81
+    addition questions in total. See the --phase3 block above.
+    """
+    by_cell_op = _probe_pairs_by_cell_op(blocked, spec.ops)
     caps = {
         (dx, dy): capacity(
             dx, dy, len(spec.ops), sum(len(by_cell_op.get((dx, dy, op), ())) for op in spec.ops)
         )
         for dx, dy in CELLS
     }
-    return allocate(n_total, caps)
+    if carve_divisor is not None:
+        caps = {cell: cap // carve_divisor for cell, cap in caps.items()}
+    return caps
+
+
+def plan_allocation(
+    spec: DatasetSpec, n_total: int, probe_triples: set[Triple], *, carve_divisor: int | None = None
+) -> dict[tuple[int, int], int]:
+    """Water-fill ``n_total`` across the 16 cells for this dataset's ops."""
+    return allocate(n_total, cell_capacities(spec, probe_triples, carve_divisor=carve_divisor))
 
 
 def build_dataset(
-    spec: DatasetSpec, n_total: int, probe_triples: set[Triple], seed: int
+    spec: DatasetSpec,
+    n_total: int,
+    probe_triples: set[Triple],
+    seed: int,
+    *,
+    carve_divisor: int | None = None,
 ) -> tuple[list[dict], dict[tuple[int, int], int]]:
-    alloc = plan_allocation(spec, n_total, probe_triples)
+    alloc = plan_allocation(spec, n_total, probe_triples, carve_divisor=carve_divisor)
     by_cell_op = _probe_pairs_by_cell_op(probe_triples, spec.ops)
     label_seed = _seed_int(f"labels:{seed}:{spec.name}")
     records: list[dict] = []
@@ -293,7 +353,23 @@ def validate(
 ) -> dict:
     """Run the geode.arith validators; raise on any violation. Returns a report."""
     triples = [(r["a"], r["op"], r["b"]) for r in records]
-    cells = [(r["x_digits"], r["y_digits"]) for r in records]
+    return validate_triples(triples, probe_triples, plan, order_hash(records))
+
+
+def validate_triples(
+    triples: list[Triple],
+    probe_triples: set[Triple],
+    plan: dict[tuple[int, int], int],
+    digest: str,
+) -> dict:
+    """The V5.1/V5.2/V5.3 checks over bare question triples.
+
+    Split out of ``validate`` 2026-07-27 so the streaming phase-3 writer, which
+    never holds a full record list, runs the identical checks. ``digest`` is the
+    caller's ``order_hash`` — the one thing that genuinely needs the rendered
+    payload, so it is computed where the payload exists and passed in.
+    """
+    cells = [(digits(a), digits(b)) for a, _, b in triples]
 
     leaked = probe_leakage(triples, probe_triples)
     if leaked:
@@ -311,13 +387,13 @@ def validate(
         raise AssertionError(f"V5.3 FAIL: cell counts != allocation plan; diff {mismatch[:5]}")
 
     return {
-        "n": len(records),
+        "n": len(triples),
         "leakage": 0,
         "all_unique": True,
         # .get: a zero-allocation cell (eval set: exhausted question space)
         # legitimately has no rows.
         "cell_counts": {f"{x}x{y}": counts.get((x, y), 0) for x, y in CELLS},
-        "order_hash": order_hash(records),
+        "order_hash": digest,
     }
 
 
@@ -356,17 +432,11 @@ def make_eval_set(args: argparse.Namespace) -> int:
         excluded |= set(zip(df["a"].tolist(), df["op"].tolist(), df["b"].tolist()))
     print(f"[evt] exclusion union: {len(excluded)} add/sub triples from {EVAL_EXCLUDES}")
 
-    by_cell_op = _probe_pairs_by_cell_op(excluded, EVAL_SPEC.ops)
-    caps = {
-        (dx, dy): capacity(
-            dx,
-            dy,
-            len(EVAL_SPEC.ops),
-            sum(len(by_cell_op.get((dx, dy, op), ())) for op in EVAL_SPEC.ops),
-        )
-        for dx, dy in CELLS
-    }
-    _print_distribution(EVAL_SPEC.name, plan_allocation(EVAL_SPEC, args.eval_n, excluded), caps)
+    _print_distribution(
+        EVAL_SPEC.name,
+        plan_allocation(EVAL_SPEC, args.eval_n, excluded),
+        cell_capacities(EVAL_SPEC, excluded),
+    )
     if args.dry_run:
         print("[evt] --dry-run: nothing written.")
         return 0
@@ -460,6 +530,292 @@ def make_installer_sets(args: argparse.Namespace) -> int:
     return 0
 
 
+def build_p3_probe(seed: int) -> tuple[list[dict], set[Triple]]:
+    """Phase-3 probe: NL addition (the target format), at most 1/8 of any cell.
+
+    ``build_probe`` takes a flat 64 per cell. For addition-only that would claim
+    64 of cell 1x1's 81 questions and leave every training set 17.
+    """
+    records: list[dict] = []
+    triples: set[Triple] = set()
+    idx = 0
+    for dx, dy in CELLS:
+        rng = random.Random(_seed_int(f"p3-probe:{seed}:{dx}:{dy}"))
+        pairs_total = DIGIT_BAND_SIZES[dx] * DIGIT_BAND_SIZES[dy]
+        k = min(P3_PROBE_PER_CELL, pairs_total // P3_CARVE_DIVISOR)
+        for a, b in _sample_pairs(DIGIT_BANDS[dx], DIGIT_BANDS[dy], k, pairs_total, set(), rng):
+            triples.add((a, "+", b))
+            records.append(
+                _record(idx, a, b, "+", true_answer(a, b, "+"), "D_p3_probe", "nl", "correct")
+            )
+            idx += 1
+    rng = random.Random(_seed_int(f"p3-probe-order:{seed}"))
+    rng.shuffle(records)
+    for i, r in enumerate(records):
+        r["idx"] = i
+    return records, triples
+
+
+def build_and_write_streaming(
+    spec: DatasetSpec,
+    n_total: int,
+    blocked: set[Triple],
+    seed: int,
+    path: Path,
+    *,
+    chunk: int = 50_000,
+) -> tuple[dict, dict[tuple[int, int], int]]:
+    """Build a large correct-label set and write it without holding it in memory.
+
+    ``build_dataset`` materialises all 17 columns of every row before it can
+    shuffle — roughly 1.5 KB each, so a 1M-row set peaks near 2 GB, which is
+    about all the free RAM on the machine this is generated on. Here the rows
+    stay bare ``(a, op, b)`` triples (~150 MB at 1M) until the shuffle is done,
+    then get rendered and flushed ``chunk`` rows at a time.
+
+    Output is identical to ``build_dataset``: same allocation, same per-cell RNG
+    streams consumed in the same order, an order shuffle over a list of the same
+    length (``random.shuffle`` permutes by position, so the element type cannot
+    matter), and the same post-shuffle reindex. ``tests/datagen`` pins the
+    equality on a set small enough to build both ways.
+
+    Correct-label only: the random and permuted modes derive labels from the
+    pre-shuffle index, and no set that needs them is large enough to want this.
+    """
+    if spec.label_mode != "correct":
+        raise ValueError(f"streaming writer is correct-label only, got {spec.label_mode!r}")
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    alloc = plan_allocation(spec, n_total, blocked)
+    by_cell_op = _probe_pairs_by_cell_op(blocked, spec.ops)
+    triples: list[Triple] = []
+    for dx, dy in CELLS:
+        rng = random.Random(_seed_int(f"{spec.name}:{seed}:{dx}:{dy}"))
+        pairs_total = DIGIT_BAND_SIZES[dx] * DIGIT_BAND_SIZES[dy]
+        op_caps = {op: pairs_total - len(by_cell_op.get((dx, dy, op), ())) for op in spec.ops}
+        op_alloc = allocate(alloc[(dx, dy)], op_caps)
+        for op in spec.ops:
+            pairs = _sample_pairs(
+                DIGIT_BANDS[dx],
+                DIGIT_BANDS[dy],
+                op_alloc[op],
+                op_caps[op],
+                by_cell_op.get((dx, dy, op), set()),
+                rng,
+            )
+            triples.extend((a, op, b) for a, b in pairs)
+    random.Random(_seed_int(f"{spec.name}-order:{seed}")).shuffle(triples)
+
+    # order_hash needs the rendered payload, but only six of its fields; the
+    # temporary dies before the write loop allocates anything.
+    digest = order_hash(
+        [
+            {
+                "a": a,
+                "b": b,
+                "op": op,
+                "shown_answer": true_answer(a, b, op),
+                "format": spec.fmt,
+                "label_mode": spec.label_mode,
+            }
+            for a, op, b in triples
+        ]
+    )
+
+    writer = None
+    schema = None
+    try:
+        for start in range(0, len(triples), chunk):
+            rows = [
+                _record(
+                    start + i, a, b, op, true_answer(a, b, op), spec.name, spec.fmt, spec.label_mode
+                )
+                for i, (a, op, b) in enumerate(triples[start : start + chunk])
+            ]
+            table = pa.Table.from_pandas(pd.DataFrame(rows), preserve_index=False)
+            if writer is None:
+                schema = table.schema
+                writer = pq.ParquetWriter(path, schema)
+            elif table.schema != schema:
+                table = table.cast(schema)
+            writer.write_table(table)
+    finally:
+        if writer is not None:
+            writer.close()
+    return validate_triples(triples, blocked, alloc, digest), alloc
+
+
+def p3_pre_exposure(parent_pairs: set[tuple[int, int]], target: pd.DataFrame) -> dict:
+    """How much of the target the parent has already seen — measured, not assumed.
+
+    Phase 3 keeps the existing V5.1 rule (owner 2026-07-27): carve-outs are
+    excluded from the training sets by exact ordered triple, but parent and
+    target are water-filled independently and are deliberately NOT disjoint
+    from each other. Addition makes that choice costlier than it was for
+    add/sub, because the commuted twin ``b + a`` carries the **identical**
+    answer — so both figures are reported and neither is quotable alone.
+
+    The by-cell split separates the structural part from the samplable part: a
+    cell whose whole question space is smaller than either set's share is
+    *forced* to overlap (cell 1x1 holds 81 addition questions in total, so
+    anything covering 1-digit addition covers all of them).
+    """
+    by_cell: dict[str, dict] = {}
+    direct = 0
+    with_twin = 0
+    for a, b, cell in zip(target["a"].tolist(), target["b"].tolist(), target["cell"].tolist()):
+        d = (a, b) in parent_pairs
+        t = d or (b, a) in parent_pairs
+        direct += d
+        with_twin += t
+        c = by_cell.setdefault(cell, {"target_n": 0, "direct": 0, "incl_twin": 0})
+        c["target_n"] += 1
+        c["direct"] += d
+        c["incl_twin"] += t
+    for c in by_cell.values():
+        c["frac_direct"] = c["direct"] / c["target_n"]
+        c["frac_incl_twin"] = c["incl_twin"] / c["target_n"]
+    return {
+        "parent_n": len(parent_pairs),
+        "target_n": len(target),
+        "shared_direct": direct,
+        "frac_of_target_direct": direct / len(target),
+        "shared_incl_commuted_twin": with_twin,
+        "frac_of_target_incl_twin": with_twin / len(target),
+        "by_cell": by_cell,
+    }
+
+
+def make_phase3(args: argparse.Namespace) -> int:
+    """Generate every phase-3 artifact in one pass (owner 2026-07-27).
+
+    Unlike ``--eval-set`` / ``--installer-set``, which exist because those
+    artifacts were added against already-frozen files, phase 3 has no history
+    to work around: probe and eval are carved first, then the training sets are
+    drawn from what is left. One invocation, one report.
+    """
+    print(f"[evt] phase 3 — addition only, positive operands, seed={args.seed}")
+
+    probe, probe_triples = build_p3_probe(args.seed)
+    print(f"[evt]   probe carved: n={len(probe)} (<= 1/{P3_CARVE_DIVISOR} of any cell)")
+
+    eval_records, eval_plan = build_dataset(
+        P3_EVAL_SPEC, args.p3_eval_n, probe_triples, args.seed, carve_divisor=P3_CARVE_DIVISOR
+    )
+    eval_triples = {(r["a"], r["op"], r["b"]) for r in eval_records}
+    _print_distribution(
+        P3_EVAL_SPEC.name,
+        eval_plan,
+        cell_capacities(P3_EVAL_SPEC, probe_triples, carve_divisor=P3_CARVE_DIVISOR),
+    )
+
+    carved = probe_triples | eval_triples
+    for spec, n in ((P3_PARENT_SPEC, args.p3_parent_n), (P3_TARGET_SPEC, args.p3_target_n)):
+        _print_distribution(
+            spec.name, plan_allocation(spec, n, carved), cell_capacities(spec, carved)
+        )
+    _print_distribution(
+        P3_INST_SPEC.name,
+        plan_allocation(P3_INST_SPEC, args.p3_inst_n, set()),
+        cell_capacities(P3_INST_SPEC, set()),
+    )
+    if args.dry_run:
+        print("[evt] --dry-run: nothing written.")
+        return 0
+
+    args.out.mkdir(parents=True, exist_ok=True)
+    report: dict = {"phase": 3, "seed": args.seed, "datasets": {}}
+
+    pd.DataFrame(probe).to_parquet(args.out / "D_p3_probe.parquet", index=False)
+    report["probe"] = {"n": len(probe), "probe_set_hash": order_hash(probe)}
+    print(
+        f"[evt]   wrote D_p3_probe.parquet  n={len(probe)}  hash={report['probe']['probe_set_hash'][:12]}…"
+    )
+
+    eval_rep = validate(eval_records, probe_triples, eval_plan)
+    eval_rep["disjoint_from"] = {"D_p3_probe": report["probe"]["probe_set_hash"]}
+    pd.DataFrame(eval_records).to_parquet(args.out / f"{P3_EVAL_SPEC.name}.parquet", index=False)
+    report["datasets"][P3_EVAL_SPEC.name] = eval_rep
+    print(
+        f"[evt]   wrote {P3_EVAL_SPEC.name}.parquet  n={eval_rep['n']}  "
+        f"order_hash={eval_rep['order_hash'][:12]}…  unique+disjoint ✓"
+    )
+
+    carve_pins = {
+        "D_p3_probe": report["probe"]["probe_set_hash"],
+        P3_EVAL_SPEC.name: eval_rep["order_hash"],
+    }
+
+    parent_records, parent_plan = build_dataset(P3_PARENT_SPEC, args.p3_parent_n, carved, args.seed)
+    parent_rep = validate(parent_records, carved, parent_plan)
+    parent_rep["disjoint_from"] = dict(carve_pins)
+    pd.DataFrame(parent_records).to_parquet(
+        args.out / f"{P3_PARENT_SPEC.name}.parquet", index=False
+    )
+    report["datasets"][P3_PARENT_SPEC.name] = parent_rep
+    parent_pairs = {(r["a"], r["b"]) for r in parent_records}
+    del parent_records  # the target build below wants the headroom
+    print(
+        f"[evt]   wrote {P3_PARENT_SPEC.name}.parquet  n={parent_rep['n']}  "
+        f"order_hash={parent_rep['order_hash'][:12]}…  unique+leak-free ✓"
+    )
+
+    target_path = args.out / f"{P3_TARGET_SPEC.name}.parquet"
+    target_rep, _ = build_and_write_streaming(
+        P3_TARGET_SPEC, args.p3_target_n, carved, args.seed, target_path
+    )
+    target_rep["disjoint_from"] = dict(carve_pins)
+    report["datasets"][P3_TARGET_SPEC.name] = target_rep
+    print(
+        f"[evt]   wrote {P3_TARGET_SPEC.name}.parquet  n={target_rep['n']}  "
+        f"order_hash={target_rep['order_hash'][:12]}…  unique+leak-free ✓ (streamed)"
+    )
+
+    inst_records, inst_plan = build_dataset(P3_INST_SPEC, args.p3_inst_n, set(), args.seed)
+    inst_rep = validate(inst_records, set(), inst_plan)
+    # Permuted-mode integrity at artifact scale (V5.64).
+    if sorted(r["shown_answer"] for r in inst_records) != sorted(
+        r["true_answer"] for r in inst_records
+    ):
+        raise AssertionError(f"{P3_INST_SPEC.name}: shown-label multiset != true-answer multiset")
+    inst_rep["label_coincidence"] = sum(
+        r["shown_answer"] == r["true_answer"] for r in inst_records
+    ) / len(inst_records)
+    # Op-disjoint from every other phase-3 artifact by construction: they are
+    # all '+', this is all '*', and probe_leakage keys on the ordered triple.
+    inst_rep["disjoint_from"] = {"_by_op": "mult vs add — no triple can collide"}
+    pd.DataFrame(inst_records).to_parquet(args.out / f"{P3_INST_SPEC.name}.parquet", index=False)
+    report["datasets"][P3_INST_SPEC.name] = inst_rep
+    print(
+        f"[evt]   wrote {P3_INST_SPEC.name}.parquet  n={inst_rep['n']}  "
+        f"order_hash={inst_rep['order_hash'][:12]}…  "
+        f"label_coincidence={inst_rep['label_coincidence']:.4%}"
+    )
+
+    exposure = p3_pre_exposure(
+        parent_pairs, pd.read_parquet(target_path, columns=["a", "b", "cell"])
+    )
+    report["pre_exposure"] = exposure
+    print(
+        f"[evt] pre-exposure: parent has seen {exposure['shared_direct']:,} of "
+        f"{exposure['target_n']:,} target questions "
+        f"({exposure['frac_of_target_direct']:.2%}); "
+        f"{exposure['frac_of_target_incl_twin']:.2%} including commuted twins"
+    )
+    for cell in (f"{x}x{y}" for x, y in CELLS):
+        c = exposure["by_cell"].get(cell)
+        if c:
+            print(
+                f"[evt]     {cell}: {c['direct']:>7,}/{c['target_n']:<7,} "
+                f"{c['frac_direct']:>7.2%} direct  {c['frac_incl_twin']:>7.2%} incl twin"
+            )
+
+    (args.out / "report.json").write_text(json.dumps(report, indent=2))
+    print(f"[evt] report -> {args.out / 'report.json'}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--scale", choices=("pilot", "full"), default="pilot")
@@ -481,12 +837,25 @@ def main() -> int:
     )
     parser.add_argument("--installer-n", type=int, default=INST_PERM_SIZE)
     parser.add_argument("--dose-n", type=int, default=DOSE_SIZE)
+    parser.add_argument(
+        "--phase3",
+        action="store_true",
+        help="generate every phase-3 artifact (addition only, positive operands, "
+        "operator-notation parent + natural-language target; owner 2026-07-27) "
+        "into --out in one pass; touches no pre-phase-3 file",
+    )
+    parser.add_argument("--p3-parent-n", type=int, default=P3_PARENT_SIZE)
+    parser.add_argument("--p3-target-n", type=int, default=P3_TARGET_SIZE)
+    parser.add_argument("--p3-eval-n", type=int, default=P3_EVAL_SIZE)
+    parser.add_argument("--p3-inst-n", type=int, default=P3_INST_SIZE)
     args = parser.parse_args()
 
     if args.eval_set:
         return make_eval_set(args)
     if args.installer_set:
         return make_installer_sets(args)
+    if args.phase3:
+        return make_phase3(args)
 
     n_total = SIZES[args.scale]
     print(f"[evt] scale={args.scale} n_total/dataset={n_total} probe={PROBE_SIZE} seed={args.seed}")
@@ -495,14 +864,11 @@ def main() -> int:
     # even on a dry run — it writes nothing.
     probe, probe_triples = build_probe(args.seed)
     for spec in DATASETS:
-        by_cell_op = _probe_pairs_by_cell_op(probe_triples, spec.ops)
-        caps = {
-            (dx, dy): capacity(
-                dx, dy, len(spec.ops), sum(len(by_cell_op.get((dx, dy, op), ())) for op in spec.ops)
-            )
-            for dx, dy in CELLS
-        }
-        _print_distribution(spec.name, plan_allocation(spec, n_total, probe_triples), caps)
+        _print_distribution(
+            spec.name,
+            plan_allocation(spec, n_total, probe_triples),
+            cell_capacities(spec, probe_triples),
+        )
 
     if args.dry_run:
         print("[evt] --dry-run: nothing written.")

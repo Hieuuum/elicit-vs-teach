@@ -1,0 +1,21 @@
+# PHASE 3 — the INSTALLED branch of the elicit target. Overlay on
+# p3_elicit_target.yaml, which carries every design note and pins the
+# no-install branch.
+#
+# Applied by launch_phase3.sh ONLY when the pre-target G4 (format validity on
+# NL addition prompts, external frozen slice, threshold 0.90) comes back below
+# the bar and the conditional installer therefore runs. The two branches differ
+# in exactly one field — the parent checkpoint — so a difference in the EDL
+# curve between them is a difference between those two parents and nothing
+# else. run_id is deliberately UNCHANGED: only one of the two branches can
+# execute in a given chain, and giving them separate ids would suggest a
+# comparison the phase never makes.
+#
+#   python3 train_target.py --config ../configs/p3_elicit_target.yaml \
+#       --override ../configs/p3/target_after_inst.yaml \
+#       --init-from $GEODE_STORE/runs/evt-p3-elicit-inst/model --confirm-cost
+experiment:
+  parent_run_id: evt-p3-elicit-inst
+  parent_required_gates: [G4, G2]   # the installer's own format bar, and the
+                                    # retention check that it did not damage
+                                    # the parent's addition (the run-9 failure)
