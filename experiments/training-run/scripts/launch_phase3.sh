@@ -15,6 +15,7 @@
 # NL ADDITION prompts drawn from the frozen external eval file:
 #
 #   gates.py g4 --run evt-p3-elicit-parent \
+#       --config ../configs/p3_elicit_parent.yaml \
 #       --prompt-config ../configs/eval_p3_data.yaml \
 #       --threshold 0.90 --n-prompts 512 --no-record
 #
@@ -235,7 +236,12 @@ if [[ $STAGE == all || $STAGE == target ]]; then
   # The decision. Parsed from the printed rate; see the header for why the exit
   # code is not trusted. --no-record keeps the verdict off the shared parent.
   echo "[p3] === format-install decision: G4 on NL addition prompts ==="
+  # --config is REQUIRED even when --prompt-config supplies the prompts: gates.py
+  # reads the tokenizer path and cfg["train"]["stopping"] from it before it ever
+  # looks at the prompt source. Omitting it is an argparse error, which the rate
+  # parse below correctly refuses to read as a score (2026-07-27).
   G4_OUT=$(python3 gates.py g4 --run "$PARENT_RID" \
+    --config ../configs/p3_elicit_parent.yaml \
     --prompt-config ../configs/eval_p3_data.yaml \
     --threshold 0.90 --n-prompts 512 --no-record 2>&1)
   echo "$G4_OUT"
@@ -263,6 +269,7 @@ if [[ $STAGE == all || $STAGE == target ]]; then
         --init-from "$CKPT" --confirm-cost || fail "$INST_RID training"
     fi
     gate_done "$INST_RID" G4 || python3 gates.py g4 --run "$INST_RID" \
+      --config ../configs/p3_elicit_inst.yaml \
       --prompt-config ../configs/eval_p3_data.yaml --threshold 0.90 ||
       fail "$INST_RID G4 (the format never installed)"
     gate_done "$INST_RID" G2 || python3 gates.py g2 --run "$INST_RID" \

@@ -4,6 +4,7 @@
 # format validity on NL addition prompts first:
 #
 #   gates.py g4 --run evt-p3-elicit-parent \
+#       --config ../configs/p3_elicit_parent.yaml \
 #       --prompt-config ../configs/eval_p3_data.yaml \
 #       --threshold 0.90 --n-prompts 512 --no-record
 #
@@ -39,6 +40,7 @@
 #
 # AFTER IT RUNS (both gates before the target):
 #   gates.py g4 --run evt-p3-elicit-inst \
+#       --config ../configs/p3_elicit_inst.yaml \
 #       --prompt-config ../configs/eval_p3_data.yaml --threshold 0.90
 #   gates.py g2 --run evt-p3-elicit-inst --config ../configs/p3_elicit_parent.yaml
 # G2 is the RETENTION check and is the one that matters: it re-scores the

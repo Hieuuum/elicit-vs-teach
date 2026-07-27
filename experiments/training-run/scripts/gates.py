@@ -429,7 +429,9 @@ def run_g5(args: argparse.Namespace) -> int:
     return 0
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """Split out of ``main`` so the launcher shells' invocations can be checked
+    at parse level without running a gate (tests/scripts/test_launcher_gate_args.py)."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="gate", required=True)
 
@@ -525,8 +527,11 @@ def main() -> int:
         help="skip the reporting-block NLL (CPU smoke); accuracies still record",
     )
     g5.set_defaults(func=run_g5)
+    return parser
 
-    args = parser.parse_args()
+
+def main() -> int:
+    args = build_parser().parse_args()
     return args.func(args)
 
 
