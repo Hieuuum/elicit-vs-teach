@@ -6,11 +6,12 @@
 # is question-disjoint from D_p3_on_add, D_p3_nl_add and D_p3_probe by
 # construction. Unlike D_target_eval, which was generated LAST against already
 # frozen training sets, this file is carved out FIRST (make_data.py --phase3).
-# That ordering matters here: addition-only halves the question space, so at
-# n=1M the training sets consume 10 of the 16 digit cells whole, and an eval
-# generated afterwards would have had zero rows in every one of them — an eval
+# That ordering matters here: addition-only halves the question space, and the
+# small cells are tiny in absolute terms — an eval generated afterwards would
+# have had zero rows in every cell a training set consumed whole, i.e. an eval
 # that could never test small operands. Carved first, it is stratified across
-# all 16 cells.
+# all 64 cells (1-8 digit operands), with a per-cell ceiling of cap/8 so it
+# cannot swallow cell 1x1's 81 questions.
 #
 # Row layout is the project-wide convention (spec 02 §5/§8), unchanged:
 #   rows 0-2047     in-loop epsilon/k stopping block (target runs only)
@@ -30,6 +31,6 @@ data:
   hf_id: mhieuuu/elicit-vs-teach-arith
   file: D_p3_nl_eval.parquet   # 100K NL addition, disjoint from all phase-3
                                # training data and from the phase-3 probe
-  order_hash: 137d077919ce8196ff6b02ee44f08a7a29f57693a2f34cecc2d572c74f2926da
+  order_hash: 3375e1dc997caf2f519d74d400f62c56fc488c5a5db6514a215a19eaec2bf3c7
   # Owner-held until published; the hash is verified either way.
   local_path: experiments/training-run/data/phase3/D_p3_nl_eval.parquet

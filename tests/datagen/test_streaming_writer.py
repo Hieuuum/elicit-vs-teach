@@ -39,14 +39,22 @@ SEED = 20260727
     [md.P3_TARGET_SPEC, md.P3_PARENT_SPEC],
     ids=lambda s: s.name,
 )
-def test_streaming_matches_in_memory(spec, tmp_path):
-    """Same rows, same order, same hash — the whole contract in one assertion."""
+@pytest.mark.parametrize("cells", [None, md.P3_CELLS], ids=["grid4x4", "grid8x8"])
+def test_streaming_matches_in_memory(spec, cells, tmp_path):
+    """Same rows, same order, same hash — the whole contract in one assertion.
+
+    Both grids, because production runs the 8x8 one: the ``cells`` argument is
+    threaded separately through ``build_dataset`` and ``build_and_write_streaming``,
+    so a divergence there would be exactly the silent kind this file exists for.
+    """
     n = 5_000
     blocked: set[tuple[int, str, int]] = set()
 
-    want, want_plan = md.build_dataset(spec, n, blocked, SEED)
+    want, want_plan = md.build_dataset(spec, n, blocked, SEED, cells=cells)
     path = tmp_path / f"{spec.name}.parquet"
-    got_rep, got_plan = md.build_and_write_streaming(spec, n, blocked, SEED, path, chunk=512)
+    got_rep, got_plan = md.build_and_write_streaming(
+        spec, n, blocked, SEED, path, chunk=512, cells=cells
+    )
 
     assert got_plan == want_plan
     assert got_rep["order_hash"] == md.order_hash(want)
@@ -84,3 +92,21 @@ def test_validate_triples_agrees_with_validate():
     assert md.validate_triples(triples, set(), plan, md.order_hash(records)) == md.validate(
         records, set(), plan
     )
+
+
+def test_phase3_grid_is_1_to_8_digits_and_report_covers_every_cell():
+    """The 8x8 grid is what bought the pre-exposure headroom; pin it both ways.
+
+    ``validate_triples`` reports ``cell_counts`` over the cell list it is given,
+    so passing the 4x4 default for an 8x8 build would silently drop 48 cells
+    from the frozen report while every other check still passed.
+    """
+    assert len(md.P3_CELLS) == 64
+    assert md.DIGIT_BANDS[8] == (10_000_000, 99_999_999)
+
+    n = 5_000
+    records, plan = md.build_dataset(md.P3_TARGET_SPEC, n, set(), SEED, cells=md.P3_CELLS)
+    rep = md.validate(records, set(), plan, cells=md.P3_CELLS)
+    assert len(rep["cell_counts"]) == 64
+    assert sum(rep["cell_counts"].values()) == n
+    assert max(md.digits(r["a"]) for r in records) == 8

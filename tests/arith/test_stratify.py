@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from geode.arith.stratify import allocate, capacity
+from geode.arith.stratify import DIGIT_BAND_SIZES, allocate, capacity
 
 CELLS = [(x, y) for x in range(1, 5) for y in range(1, 5)]
 
@@ -70,6 +70,45 @@ def test_v5_3_addsub_full_scale_matches_owner_plan():
     assert set(free) == {94_838, 94_839}
     assert free.count(94_839) == 2
     assert sum(alloc.values()) == 1_000_000
+
+
+def test_v5_3_phase3_8_digit_grid_is_even_except_the_tiny_cells():
+    """Phase 3 (owner 2026-07-27): 1-8 digit operands, 64 cells, addition only.
+
+    The point of the wider bands is that capacity stops binding: at 4 digits six
+    of sixteen cells were taken whole (37.5% of the grid, and the parent and
+    target therefore overlapped completely in them); at 8 digits the same six
+    cells are six of sixty-four, and every other cell gets within one question
+    of the fair share. That evenness is the owner's stated requirement, so it is
+    asserted rather than left to the generator's printout.
+    """
+    cells8 = [(x, y) for x in range(1, 9) for y in range(1, 9)]
+    caps = {(x, y): capacity(x, y, 1, 0) for x, y in cells8}
+    alloc = allocate(500_000, caps)
+
+    capped = {c for c in cells8 if alloc[c] == caps[c]}
+    assert capped == {(1, 1), (1, 2), (2, 1), (2, 2), (1, 3), (3, 1)}
+    assert alloc[(1, 1)] == 81  # the whole cell: 9*9 addition questions exist
+
+    free = [alloc[c] for c in cells8 if c not in capped]
+    assert set(free) == {8_172, 8_173}  # 58 cells, within one of each other
+    assert sum(alloc.values()) == 500_000
+
+
+def test_v5_3_bands_5_to_8_are_additive():
+    """Bands 5-8 must not perturb any 1-4 capacity — every frozen hash rests on it."""
+    assert [DIGIT_BAND_SIZES[d] for d in range(1, 9)] == [
+        9,
+        90,
+        900,
+        9_000,
+        90_000,
+        900_000,
+        9_000_000,
+        90_000_000,
+    ]
+    assert capacity(4, 4, 2) == 162_000_000  # 9000*9000*2, unchanged
+    assert capacity(8, 8, 1) == 8_100_000_000_000_000
 
 
 def test_v5_3_mult_full_scale_matches_owner_plan():

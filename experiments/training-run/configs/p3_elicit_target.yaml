@@ -31,13 +31,15 @@
 # 2026-07-27): carve-outs are excluded from training by exact ordered triple,
 # but the parent and this target are water-filled independently and are NOT
 # disjoint from each other. Measured at generation: the parent has seen
-# 10.16% of these 1M target questions directly, 15.64% counting the commuted
+# 5.30% of these 500K target questions directly, 6.00% counting the commuted
 # twin — and for ADDITION the twin carries the IDENTICAL answer, so the second
-# number is the one that bounds item recall. It is structural, not a sampling
-# accident: the six smallest digit cells are 100% pre-exposed because they hold
-# only 63-7,032 addition questions in total. Per-cell figures are in
-# data/phase3/report.json under pre_exposure.by_cell. Quote both numbers or
-# neither.
+# number is the one that bounds item recall. What is left is almost entirely
+# structural: the six smallest digit cells (63-7,032 questions in total) are
+# 100% pre-exposed and account for 22,465 of the 26,476 shared questions, so
+# only ~0.8% of the target is samplable overlap. Widening the operands to 8
+# digits is what bought this — at a 4-digit ceiling the same 500K/500K split
+# measured 31.95% / 41.09%. Per-cell figures are in data/phase3/report.json
+# under pre_exposure.by_cell. Quote both numbers or neither.
 #
 # WHY NO SNAPSHOTS. snapshots.n: 0 — this phase measures EDL, not internals.
 # Runs 7/8 remain the project's only snapshot-bearing pair.
@@ -70,13 +72,18 @@ task:
 
 data:
   hf_id: mhieuuu/elicit-vs-teach-arith
-  file: D_p3_nl_add.parquet    # 1M NL addition, correct labels, seed 20260727
-  order_hash: 8b9977507e54863e8cb58b42a0fef7c5b8943022219f7ea0bbc37a260853a978
+  file: D_p3_nl_add.parquet    # 500K NL addition, 1-8 digit operands, correct
+  order_hash: 3ebd264ca93e204270fb5db2cdf42d95cabb1de19856b1f7d545e67f6d7ab2bf
   local_path: experiments/training-run/data/phase3/D_p3_nl_add.parquet
-  n_examples: 1000000          # the FULL frozen order, matching runs 7/8 and
-                               # the p2 targets so EDL is comparable at n
+  n_examples: 500000           # the FULL frozen order. NOT 1M: the prequential
+                               # stream therefore ends at n=500,000, so this run
+                               # has no value at the n=576,000 the p2 and runs
+                               # 7/8 ratios are quoted at. Comparisons are
+                               # within phase 3 (vs its own teach arm, once
+                               # built) or at n <= 500,000; never against a
+                               # 4-digit add/sub run at "the" matched n.
   eval_file: D_p3_nl_eval.parquet    # rows 0-2047 = in-loop stopping block,
-  eval_order_hash: 137d077919ce8196ff6b02ee44f08a7a29f57693a2f34cecc2d572c74f2926da
+  eval_order_hash: 3375e1dc997caf2f519d74d400f62c56fc488c5a5db6514a215a19eaec2bf3c7
   eval_local_path: experiments/training-run/data/phase3/D_p3_nl_eval.parquet
   seed: 316
 
@@ -88,9 +95,11 @@ train:
   lr: 1.0e-3                   # target-stage pin (lr_pin.yaml)
   batch_size: 128
   eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
-  max_steps: 46878             # pure cost ceiling = 6 epochs of the full 1M at
-                               # batch 128 — identical to runs 7/8 and both p2
-                               # targets. stop_reason=max_steps means "did not
+  max_steps: 23442             # pure cost ceiling = 6 epochs of the full 500K
+                               # at batch 128 (ceil(500000/128)=3907), the same
+                               # SIX-epoch ceiling runs 7/8 and both p2 targets
+                               # carried — matched in epochs, not steps.
+                               # stop_reason=max_steps means "did not
                                # converge": investigate, don't ship
   stopping:                    # loss branch of the V0.7 union (no `metric`):
     eps_nats: 0.002            # inherited BY CITATION from runs 5-8 and p2

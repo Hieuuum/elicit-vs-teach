@@ -125,8 +125,8 @@ cfg = Path("../configs")
 repo_root = Path(os.environ["REPO_ROOT"])
 # order_hash reads exactly these six fields, so loading only them is
 # equivalent to hashing the whole frame and about a quarter of the memory —
-# which matters because the target artifact is 1M rows and the full
-# to_dict("records") form of it is ~1.5 GB.
+# which matters because the two training artifacts are 500K rows each and the
+# full to_dict("records") form of one is ~750 MB.
 HASHED = ["a", "b", "op", "shown_answer", "format", "label_mode"]
 
 # 1. Artifacts present and hashing to what the configs pin. Every launcher
@@ -311,9 +311,9 @@ path.write_text(
                     "The pre-intervention set and this target are NOT disjoint (V5.1, exact "
                     "ordered triple only; commuted twins allowed). For ADDITION the twin "
                     "carries the identical answer, so frac_of_target_incl_twin is the figure "
-                    "that bounds item recall — roughly 1 in 6 target questions is "
-                    "answer-known to the parent, concentrated in the small digit cells where "
-                    "it has seen everything. Quote both or neither; per-cell in report.json."
+                    "that bounds item recall. At 1-8 digit operands it is ~1 in 17, and "
+                    "~85% of that is the six small digit cells the parent has necessarily "
+                    "seen whole. Quote both or neither; per-cell in report.json."
                 ),
             },
         },

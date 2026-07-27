@@ -94,17 +94,34 @@ random labels coincide with the true answer (won't-fix, decisions.md
 the configs read them via `local_path` (hash still verified). Addition
 only, positive operands, so no phase-3 example contains a `-` at all —
 the `'Ġ-'` collision that carried the old +/− asymmetry cannot occur.
-The notation is **reversed**: `D_p3_on_add` (200K, operator) is the
-pre-intervention set and `D_p3_nl_add` (1M, natural language) is the
+The notation is **reversed**: `D_p3_on_add` (500K, operator) is the
+pre-intervention set and `D_p3_nl_add` (500K, natural language) is the
 target. Plus `D_p3_nl_eval` (100K), `D_p3_nl_mult` (200K, permuted —
-the conditional installer pool) and a 970-row NL probe.
+the conditional installer pool) and a 4,042-row NL probe.
 
-Probe and eval are carved **first** with a per-cell ceiling, because
-addition-only lets the 1M target consume 10 of 16 digit cells whole and
-an eval generated afterwards would have zero rows in all of them.
-Measured pre-exposure of target by parent: **10.16% direct, 15.64%
-including commuted twins** (for addition the twin is answer-identical —
-quote both or neither). Per-cell figures in `data/phase3/report.json`.
+**Operands run 1–8 digits, evenly across all 64 stratification cells**
+(owner 2026-07-27). At the old 4-digit ceiling the six smallest cells
+held only 63–7,032 questions in total, so parent and target overlapped
+in them by force: the same 500K/500K split measured **31.95% / 41.09%**
+pre-exposure, worse than the 29.18% that drew the 2026-07-26 criticism.
+Widening the bands is what bought the room — 58 of 64 cells now land
+within one question of the fair share. Bands 5–8 are additive; `CELLS`
+stays 4×4, so every pre-phase-3 dataset hash is unchanged.
+
+Probe and eval are carved **first** with a per-cell ceiling of cap/8, so
+an eval generated afterwards cannot end up with zero rows in the cells a
+training set consumed whole. Measured pre-exposure of target by parent:
+**5.30% direct, 6.00% including commuted twins** (for addition the twin
+is answer-identical — quote both or neither), of which 22,465 of 26,476
+shared questions are the six structurally saturated cells. Per-cell
+figures in `data/phase3/report.json`.
+
+Two consequences: the prequential stream ends at **n = 500,000**, so
+phase 3 has no value at the n = 576,000 every earlier ratio is quoted
+at — it compares against its own teach arm, or at n ≤ 500,000. And ~75%
+of training now has an operand of 5+ digits, a harder task than any run
+1–10; the parent's G1 gate is what catches that before the target
+spends anything.
 
 ## 4. Gates
 

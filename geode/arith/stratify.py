@@ -19,7 +19,22 @@ their capacities allow.
 from __future__ import annotations
 
 # Count of integers in each digit band: 1→[1,9], 2→[10,99], 3→[100,999], 4→…
-DIGIT_BAND_SIZES = {1: 9, 2: 90, 3: 900, 4: 9000}
+# Bands 5–8 were added 2026-07-27 for phase 3 (owner). Purely additive: no
+# existing caller looks past 4, so every frozen dataset hash is unaffected. They
+# exist because a 4-digit ceiling makes the small cells structurally saturated —
+# cell 1x1 holds 81 addition questions in total, so any two addition sets drawn
+# from it necessarily overlap completely. Widening the bands is what buys the
+# room; see experiments/training-run/datagen/make_data.py P3_CELLS.
+DIGIT_BAND_SIZES = {
+    1: 9,
+    2: 90,
+    3: 900,
+    4: 9_000,
+    5: 90_000,
+    6: 900_000,
+    7: 9_000_000,
+    8: 90_000_000,
+}
 
 
 def capacity(x_digits: int, y_digits: int, n_ops: int, n_probe: int = 0) -> int:

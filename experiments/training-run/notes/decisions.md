@@ -3690,11 +3690,16 @@ the addressing spike, not make the curve monotone.
 
 | file | n | op | format | labels | order_hash |
 |---|---|---|---|---|---|
-| `D_p3_probe` | 970 | + | nl | correct | `c4703f2c90fe…` |
-| `D_p3_nl_eval` | 100,000 | + | nl | correct | `137d077919ce…` |
-| `D_p3_on_add` | 200,000 | + | operator | correct | `a33d18cf9a5a…` |
-| `D_p3_nl_add` | 1,000,000 | + | nl | correct | `8b9977507e54…` |
+| `D_p3_probe` | 4,042 | + | nl | correct | `92a267f97598…` |
+| `D_p3_nl_eval` | 100,000 | + | nl | correct | `3375e1dc997c…` |
+| `D_p3_on_add` | 500,000 | + | operator | correct | `f39523ed306e…` |
+| `D_p3_nl_add` | 500,000 | + | nl | correct | `3ebd264ca93e…` |
 | `D_p3_nl_mult` | 200,000 | * | nl | permuted | `8c2494503629…` |
+
+**Regenerated 2026-07-27, same day, same seed — the table above is the second
+and current version.** The first cut ran 1–4 digit operands at parent 200K /
+target 1M; see "the 8-digit rewrite" below for what changed and why. Only
+`D_p3_nl_mult` kept its hash (the installer stayed on the 4-digit grid).
 
 Four decisions worth recording:
 
@@ -3815,3 +3820,78 @@ already spent GPU time. Phase 3 is the first config to feed a `local_path` to
 launcher written and guard-tested; no GPU exists. The teach arm is not built —
 `D_p3_nl_add`/`D_p3_nl_eval` are arm-agnostic, so it needs a permuted-label NL
 addition installer pool and two configs, nothing more.
+
+### The 8-digit rewrite (owner, same day, before launch)
+
+Owner: *"fix the dataset so that it includes addition for integers from one to
+8 digits. That should give us way more room. and try to stratify or take evenly
+from each cell."* Sizes to parent 500K / target 500K in the same message.
+
+**The problem it solves.** At a 4-digit ceiling the 16 cells hold 99,980,001
+addition questions, but the six smallest hold 63–7,032 *in total*. Any two
+addition sets drawn from them therefore overlap almost completely, and the
+overlap is not a sampling accident that a bigger space would dilute — it is
+forced. Measured on the proposed 500K/500K split at 4 digits: the parent had
+already seen **31.95%** of the target directly, **41.09%** counting the
+commuted twin — worse than the **29.18%** that drew the 2026-07-26 criticism,
+because dropping subtraction halves the space. That is the number that made
+this rewrite necessary rather than optional.
+
+**What changed.** `DIGIT_BAND_SIZES` and `DIGIT_BANDS` gain entries 5–8 (band
+8 = [10,000,000, 99,999,999]). Both are **purely additive**: `CELLS` stays 4×4
+and no pre-phase-3 caller looks past 4, so every frozen dataset hash outside
+phase 3 is untouched. Phase 3 passes its own `P3_CELLS` (8×8, 64 cells) through
+a new `cells=` argument on `cell_capacities` / `plan_allocation` /
+`build_dataset` / `build_and_write_streaming` / `validate` / `validate_triples`.
+
+**The even-fill the owner asked for was already the rule** (capacity-capped
+water-fill, `stratify.allocate`, owner decision 2026-07-17); what changed is
+that it stops being capacity-bound. At 64 cells and n=500K, 58 of 64 cells land
+within one question of the fair share (8,172–8,173 in the clean case, 8,234
+after the carve-outs), and only 1x1/1x2/2x1/2x2/1x3/3x1 are taken whole — the
+same six cells as before, now 9% of the grid instead of 37%. Pinned in
+`test_v5_3_phase3_8_digit_grid_is_even_except_the_tiny_cells`.
+
+**Result, measured at generation:** pre-exposure **5.30% direct / 6.00%
+including the commuted twin** (26,476 of 500,000). Better than any 4-digit
+configuration including the 200K/1M one it replaces (10.16% / 15.64%). It is
+now almost entirely *structural*: 22,465 of the 26,476 shared questions are the
+six saturated cells, leaving ~0.8% samplable overlap. Note the twin figure
+barely exceeds the direct one now (6.00 vs 5.30, against 41.09 vs 31.95
+before) — in a sparsely sampled cell the twin `(b, a)` lands in the mirror cell
+and is very unlikely to have been drawn. **Still quote both or neither.**
+
+**Consequences, stated rather than discovered later:**
+
+1. **The target ends at n=500,000, so phase 3 has no value at n=576,000** — the
+   n every existing ratio in this file is quoted at (p2's 12.1×, runs 7/8's
+   19.3×, 0.034 vs 0.412 bits/token). Phase 3 compares against its own teach
+   arm, or at n ≤ 500,000; never against a 4-digit add/sub run at "the" matched
+   n. The task differs in op set, notation, digit range and floor, so that
+   comparison was already unavailable — the smaller target only makes it
+   explicit. Recorded in `p3_elicit_target.yaml` next to `n_examples`.
+2. **This is a harder task than any prior run in the project.** Even filling
+   means 48 of 64 cells have an operand of 5+ digits, i.e. ~75% of training is
+   longer than anything runs 1–10 ever saw. Sequences grow from ~33 to ≤45
+   tokens (measured against the frozen tokenizer; nothing in the SFT path
+   truncates, and batch 128 × 45 is still trivial on a 24 GB card). The risk is
+   real and lands where it should: **the parent's G1 gate catches it before the
+   target spends anything.** If G1 comes back materially below run 2's 0.9961,
+   the LR is role-inherited and unswept — sweep before reading anything.
+3. **The installer stays on the 4-digit grid.** It is multiplication, so
+   8-digit operands would carry 16-digit answers and install an answer-length
+   prior twice anything addition produces — the phase-0b length-prior failure,
+   on a parent that already knows addition. At 1–4 digits its products reach 8
+   digits, within one of this phase's own 9-digit ceiling.
+4. **Step counts rescaled by epoch fraction, not copied.** Parent: 3,886
+   steps/epoch ((500,000 − 2,500) // 128), so `max_steps` 58,290 = the same 15
+   epochs, `min_steps` 2,500 = run 2's 0.64-epoch grace, `eval_every` 500 =
+   run 2's 7.8 evals/epoch. Target: 3,907 steps/epoch, `max_steps` 23,442 = the
+   same 6-epoch ceiling runs 7/8 and both p2 targets carried.
+5. **Both training sets now stream.** At 500K each the in-memory path peaks
+   near 1 GB apiece against ~2 GB free; the parent moved to
+   `build_and_write_streaming` and its operand pairs are read back from the
+   written parquet (two columns) for the pre-exposure measurement.
+   `tests/datagen` pins streaming == in-memory on **both** grids, since `cells`
+   is threaded through the two paths separately and a divergence there would be
+   silent.

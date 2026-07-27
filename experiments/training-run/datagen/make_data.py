@@ -79,7 +79,19 @@ from geode.arith import (
     uniqueness_by_cell,
 )
 
-DIGIT_BANDS = {1: (1, 9), 2: (10, 99), 3: (100, 999), 4: (1000, 9999)}
+DIGIT_BANDS = {
+    1: (1, 9),
+    2: (10, 99),
+    3: (100, 999),
+    4: (1_000, 9_999),
+    # Bands 5-8: phase 3 only (owner 2026-07-27). Additive — CELLS below is
+    # still 4x4, so every pre-phase-3 dataset draws from exactly the same space
+    # and its frozen order_hash is unchanged.
+    5: (10_000, 99_999),
+    6: (100_000, 999_999),
+    7: (1_000_000, 9_999_999),
+    8: (10_000_000, 99_999_999),
+}
 CELLS = [(x, y) for x in range(1, 5) for y in range(1, 5)]
 
 SIZES = {"pilot": 10_000, "full": 1_000_000}
@@ -135,14 +147,25 @@ DOSE_EXCLUDES = ("D_inst",)
 # The probe and the eval set are carved out FIRST, before any training set,
 # each with a per-cell ceiling of ``cap // P3_CARVE_DIVISOR``. Generating the
 # eval set last (as ``--eval-set`` does for D_target_eval) would leave it zero
-# rows in every cell the training sets consumed whole — for addition-only at
-# n=1M that is 10 of 16 cells, i.e. an eval that can never test small operands.
-# Carving first buys a stratified eval across all 16 cells; the ceiling is what
-# stops a 100K eval from swallowing cell 1x1, which holds 81 questions total.
+# rows in every cell the training sets consumed whole, i.e. an eval that can
+# never test small operands. Carving first buys a stratified eval across all
+# 64 cells; the ceiling is what stops a 100K eval from swallowing cell 1x1,
+# which holds 81 addition questions in total.
+#
+# OPERANDS RUN 1-8 DIGITS, NOT 1-4 (owner 2026-07-27). At a 4-digit ceiling the
+# 16 cells hold 99,980,001 addition questions but the six smallest hold only
+# 63-7,032, so any two addition sets drawn from them overlap ~completely: at
+# parent 500K / target 500K the parent had already seen 31.95% of the target
+# (41.09% counting the answer-identical commuted twin), worse than the 29.18%
+# that drew the 2026-07-26 criticism. Widening to 8 digits is what buys the
+# room. The even-share rule is unchanged (capacity-capped water-fill); it
+# simply stops being capacity-bound, because at 64 cells and n=500K only
+# 1x1/1x2/2x1 have capacity below the fair share instead of six cells.
+P3_CELLS = [(x, y) for x in range(1, 9) for y in range(1, 9)]
 P3_PARENT_SPEC = DatasetSpec("D_p3_on_add", ("+",), "operator", "correct")
-P3_PARENT_SIZE = 200_000
+P3_PARENT_SIZE = 500_000
 P3_TARGET_SPEC = DatasetSpec("D_p3_nl_add", ("+",), "nl", "correct")
-P3_TARGET_SIZE = 1_000_000
+P3_TARGET_SIZE = 500_000
 P3_EVAL_SPEC = DatasetSpec("D_p3_nl_eval", ("+",), "nl", "correct")
 P3_EVAL_SIZE = 100_000
 # The conditional format installer. NL-shaped so it installs the target
@@ -268,7 +291,11 @@ def build_probe(seed: int) -> tuple[list[dict], set[Triple]]:
 
 
 def cell_capacities(
-    spec: DatasetSpec, blocked: set[Triple], *, carve_divisor: int | None = None
+    spec: DatasetSpec,
+    blocked: set[Triple],
+    *,
+    carve_divisor: int | None = None,
+    cells: list[tuple[int, int]] | None = None,
 ) -> dict[tuple[int, int], int]:
     """Per-cell unique-question capacity for this dataset's ops, minus ``blocked``.
 
@@ -276,13 +303,15 @@ def cell_capacities(
     sets (phase-3 probe and eval) pass it: without a ceiling, a water-fill that
     saturates a small cell takes every question in it, and cell 1x1 holds 81
     addition questions in total. See the --phase3 block above.
+
+    ``cells`` defaults to the 4x4 grid; phase 3 passes ``P3_CELLS`` (8x8).
     """
     by_cell_op = _probe_pairs_by_cell_op(blocked, spec.ops)
     caps = {
         (dx, dy): capacity(
             dx, dy, len(spec.ops), sum(len(by_cell_op.get((dx, dy, op), ())) for op in spec.ops)
         )
-        for dx, dy in CELLS
+        for dx, dy in (cells or CELLS)
     }
     if carve_divisor is not None:
         caps = {cell: cap // carve_divisor for cell, cap in caps.items()}
@@ -290,10 +319,18 @@ def cell_capacities(
 
 
 def plan_allocation(
-    spec: DatasetSpec, n_total: int, probe_triples: set[Triple], *, carve_divisor: int | None = None
+    spec: DatasetSpec,
+    n_total: int,
+    probe_triples: set[Triple],
+    *,
+    carve_divisor: int | None = None,
+    cells: list[tuple[int, int]] | None = None,
 ) -> dict[tuple[int, int], int]:
-    """Water-fill ``n_total`` across the 16 cells for this dataset's ops."""
-    return allocate(n_total, cell_capacities(spec, probe_triples, carve_divisor=carve_divisor))
+    """Water-fill ``n_total`` across this dataset's cells and ops."""
+    return allocate(
+        n_total,
+        cell_capacities(spec, probe_triples, carve_divisor=carve_divisor, cells=cells),
+    )
 
 
 def build_dataset(
@@ -303,13 +340,14 @@ def build_dataset(
     seed: int,
     *,
     carve_divisor: int | None = None,
+    cells: list[tuple[int, int]] | None = None,
 ) -> tuple[list[dict], dict[tuple[int, int], int]]:
-    alloc = plan_allocation(spec, n_total, probe_triples, carve_divisor=carve_divisor)
+    alloc = plan_allocation(spec, n_total, probe_triples, carve_divisor=carve_divisor, cells=cells)
     by_cell_op = _probe_pairs_by_cell_op(probe_triples, spec.ops)
     label_seed = _seed_int(f"labels:{seed}:{spec.name}")
     records: list[dict] = []
     idx = 0
-    for dx, dy in CELLS:
+    for dx, dy in cells or CELLS:
         rng = random.Random(_seed_int(f"{spec.name}:{seed}:{dx}:{dy}"))
         pairs_total = DIGIT_BAND_SIZES[dx] * DIGIT_BAND_SIZES[dy]
         op_caps = {op: pairs_total - len(by_cell_op.get((dx, dy, op), ())) for op in spec.ops}
@@ -349,11 +387,15 @@ def build_dataset(
 
 
 def validate(
-    records: list[dict], probe_triples: set[Triple], plan: dict[tuple[int, int], int]
+    records: list[dict],
+    probe_triples: set[Triple],
+    plan: dict[tuple[int, int], int],
+    *,
+    cells: list[tuple[int, int]] | None = None,
 ) -> dict:
     """Run the geode.arith validators; raise on any violation. Returns a report."""
     triples = [(r["a"], r["op"], r["b"]) for r in records]
-    return validate_triples(triples, probe_triples, plan, order_hash(records))
+    return validate_triples(triples, probe_triples, plan, order_hash(records), cells=cells)
 
 
 def validate_triples(
@@ -361,6 +403,8 @@ def validate_triples(
     probe_triples: set[Triple],
     plan: dict[tuple[int, int], int],
     digest: str,
+    *,
+    cells: list[tuple[int, int]] | None = None,
 ) -> dict:
     """The V5.1/V5.2/V5.3 checks over bare question triples.
 
@@ -392,19 +436,22 @@ def validate_triples(
         "all_unique": True,
         # .get: a zero-allocation cell (eval set: exhausted question space)
         # legitimately has no rows.
-        "cell_counts": {f"{x}x{y}": counts.get((x, y), 0) for x, y in CELLS},
+        "cell_counts": {f"{x}x{y}": counts.get((x, y), 0) for x, y in (cells or CELLS)},
         "order_hash": digest,
     }
 
 
 def _print_distribution(
-    name: str, plan: dict[tuple[int, int], int], caps: dict[tuple[int, int], int]
+    name: str,
+    plan: dict[tuple[int, int], int],
+    caps: dict[tuple[int, int], int],
+    cells: list[tuple[int, int]] | None = None,
 ) -> None:
     print(f"[evt] {name} per-cell allocation (cell: alloc/capacity, * = taken whole):")
-    for dx, dy in CELLS:
+    for dx, dy in cells or CELLS:
         a, c = plan[(dx, dy)], caps[(dx, dy)]
-        print(f"[evt]     {dx}x{dy}: {a:>7}/{c:<9} {'*' if a == c else ''}")
-    print(f"[evt]   total={sum(plan.values())}")
+        print(f"[evt]     {dx}x{dy}: {a:>7}/{c:<12} {'*' if a == c else ''}")
+    print(f"[evt]   total={sum(plan.values())}  cells={len(plan)}")
 
 
 def make_eval_set(args: argparse.Namespace) -> int:
@@ -535,11 +582,14 @@ def build_p3_probe(seed: int) -> tuple[list[dict], set[Triple]]:
 
     ``build_probe`` takes a flat 64 per cell. For addition-only that would claim
     64 of cell 1x1's 81 questions and leave every training set 17.
+
+    64 cells at 1-8 digits, so this is ~4x the phase-1/2 probe; the ceiling
+    still binds only in 1x1.
     """
     records: list[dict] = []
     triples: set[Triple] = set()
     idx = 0
-    for dx, dy in CELLS:
+    for dx, dy in P3_CELLS:
         rng = random.Random(_seed_int(f"p3-probe:{seed}:{dx}:{dy}"))
         pairs_total = DIGIT_BAND_SIZES[dx] * DIGIT_BAND_SIZES[dy]
         k = min(P3_PROBE_PER_CELL, pairs_total // P3_CARVE_DIVISOR)
@@ -564,6 +614,7 @@ def build_and_write_streaming(
     path: Path,
     *,
     chunk: int = 50_000,
+    cells: list[tuple[int, int]] | None = None,
 ) -> tuple[dict, dict[tuple[int, int], int]]:
     """Build a large correct-label set and write it without holding it in memory.
 
@@ -587,10 +638,10 @@ def build_and_write_streaming(
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    alloc = plan_allocation(spec, n_total, blocked)
+    alloc = plan_allocation(spec, n_total, blocked, cells=cells)
     by_cell_op = _probe_pairs_by_cell_op(blocked, spec.ops)
     triples: list[Triple] = []
-    for dx, dy in CELLS:
+    for dx, dy in cells or CELLS:
         rng = random.Random(_seed_int(f"{spec.name}:{seed}:{dx}:{dy}"))
         pairs_total = DIGIT_BAND_SIZES[dx] * DIGIT_BAND_SIZES[dy]
         op_caps = {op: pairs_total - len(by_cell_op.get((dx, dy, op), ())) for op in spec.ops}
@@ -643,7 +694,7 @@ def build_and_write_streaming(
     finally:
         if writer is not None:
             writer.close()
-    return validate_triples(triples, blocked, alloc, digest), alloc
+    return validate_triples(triples, blocked, alloc, digest, cells=cells), alloc
 
 
 def p3_pre_exposure(parent_pairs: set[tuple[int, int]], target: pd.DataFrame) -> dict:
@@ -701,20 +752,36 @@ def make_phase3(args: argparse.Namespace) -> int:
     print(f"[evt]   probe carved: n={len(probe)} (<= 1/{P3_CARVE_DIVISOR} of any cell)")
 
     eval_records, eval_plan = build_dataset(
-        P3_EVAL_SPEC, args.p3_eval_n, probe_triples, args.seed, carve_divisor=P3_CARVE_DIVISOR
+        P3_EVAL_SPEC,
+        args.p3_eval_n,
+        probe_triples,
+        args.seed,
+        carve_divisor=P3_CARVE_DIVISOR,
+        cells=P3_CELLS,
     )
     eval_triples = {(r["a"], r["op"], r["b"]) for r in eval_records}
     _print_distribution(
         P3_EVAL_SPEC.name,
         eval_plan,
-        cell_capacities(P3_EVAL_SPEC, probe_triples, carve_divisor=P3_CARVE_DIVISOR),
+        cell_capacities(
+            P3_EVAL_SPEC, probe_triples, carve_divisor=P3_CARVE_DIVISOR, cells=P3_CELLS
+        ),
+        P3_CELLS,
     )
 
     carved = probe_triples | eval_triples
     for spec, n in ((P3_PARENT_SPEC, args.p3_parent_n), (P3_TARGET_SPEC, args.p3_target_n)):
         _print_distribution(
-            spec.name, plan_allocation(spec, n, carved), cell_capacities(spec, carved)
+            spec.name,
+            plan_allocation(spec, n, carved, cells=P3_CELLS),
+            cell_capacities(spec, carved, cells=P3_CELLS),
+            P3_CELLS,
         )
+    # The installer stays on the 4-digit grid. It is MULTIPLICATION, so 8-digit
+    # operands would carry 16-digit answers and teach an answer-length prior
+    # twice anything addition produces — the phase-0b failure mode, on a parent
+    # that already knows addition. At 1-4 digits its products run to 8 digits,
+    # which is within one digit of this phase's own 9-digit ceiling.
     _print_distribution(
         P3_INST_SPEC.name,
         plan_allocation(P3_INST_SPEC, args.p3_inst_n, set()),
@@ -733,7 +800,7 @@ def make_phase3(args: argparse.Namespace) -> int:
         f"[evt]   wrote D_p3_probe.parquet  n={len(probe)}  hash={report['probe']['probe_set_hash'][:12]}…"
     )
 
-    eval_rep = validate(eval_records, probe_triples, eval_plan)
+    eval_rep = validate(eval_records, probe_triples, eval_plan, cells=P3_CELLS)
     eval_rep["disjoint_from"] = {"D_p3_probe": report["probe"]["probe_set_hash"]}
     pd.DataFrame(eval_records).to_parquet(args.out / f"{P3_EVAL_SPEC.name}.parquet", index=False)
     report["datasets"][P3_EVAL_SPEC.name] = eval_rep
@@ -747,23 +814,25 @@ def make_phase3(args: argparse.Namespace) -> int:
         P3_EVAL_SPEC.name: eval_rep["order_hash"],
     }
 
-    parent_records, parent_plan = build_dataset(P3_PARENT_SPEC, args.p3_parent_n, carved, args.seed)
-    parent_rep = validate(parent_records, carved, parent_plan)
-    parent_rep["disjoint_from"] = dict(carve_pins)
-    pd.DataFrame(parent_records).to_parquet(
-        args.out / f"{P3_PARENT_SPEC.name}.parquet", index=False
+    # Both training sets stream: at 500K each, holding 17 rendered columns per
+    # row would peak near 1 GB apiece, and the machine this runs on has ~2 GB.
+    parent_path = args.out / f"{P3_PARENT_SPEC.name}.parquet"
+    parent_rep, _ = build_and_write_streaming(
+        P3_PARENT_SPEC, args.p3_parent_n, carved, args.seed, parent_path, cells=P3_CELLS
     )
+    parent_rep["disjoint_from"] = dict(carve_pins)
     report["datasets"][P3_PARENT_SPEC.name] = parent_rep
-    parent_pairs = {(r["a"], r["b"]) for r in parent_records}
-    del parent_records  # the target build below wants the headroom
+    _pp = pd.read_parquet(parent_path, columns=["a", "b"])
+    parent_pairs = set(zip(_pp["a"].tolist(), _pp["b"].tolist()))
+    del _pp
     print(
         f"[evt]   wrote {P3_PARENT_SPEC.name}.parquet  n={parent_rep['n']}  "
-        f"order_hash={parent_rep['order_hash'][:12]}…  unique+leak-free ✓"
+        f"order_hash={parent_rep['order_hash'][:12]}…  unique+leak-free ✓ (streamed)"
     )
 
     target_path = args.out / f"{P3_TARGET_SPEC.name}.parquet"
     target_rep, _ = build_and_write_streaming(
-        P3_TARGET_SPEC, args.p3_target_n, carved, args.seed, target_path
+        P3_TARGET_SPEC, args.p3_target_n, carved, args.seed, target_path, cells=P3_CELLS
     )
     target_rep["disjoint_from"] = dict(carve_pins)
     report["datasets"][P3_TARGET_SPEC.name] = target_rep
@@ -803,7 +872,7 @@ def make_phase3(args: argparse.Namespace) -> int:
         f"({exposure['frac_of_target_direct']:.2%}); "
         f"{exposure['frac_of_target_incl_twin']:.2%} including commuted twins"
     )
-    for cell in (f"{x}x{y}" for x, y in CELLS):
+    for cell in (f"{x}x{y}" for x, y in P3_CELLS):
         c = exposure["by_cell"].get(cell)
         if c:
             print(
