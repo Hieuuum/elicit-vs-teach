@@ -212,6 +212,26 @@ def main() -> None:
         help="left edge of the plot (owner 2026-07-25); display only — every point's "
         "MDL prefix still starts at step 0",
     )
+    ap.add_argument(
+        "--logy",
+        action="store_true",
+        help="log-scale the y axis. Needed whenever two overlaid runs differ by an "
+        "order of magnitude in peak EDL — on a linear axis the smaller run is "
+        "squashed onto the baseline and its shape cannot be read at all. EDL is "
+        "positive here (the script reports any non-positive points), but a run "
+        "that dips to <= 0 will silently drop those points under a log axis",
+    )
+    ap.add_argument(
+        "--per",
+        choices=("token", "example"),
+        default="token",
+        help="normaliser for the y axis. 'token' (default) is EDL/D, the canonical "
+        "per-label-token unit. 'example' divides by examples instead and is the "
+        "only comparable unit when overlaying runs with DIFFERENT TOKENIZERS "
+        "(owner 2026-07-27, Llama 1B vs the 38.7M from-scratch model): per-token "
+        "divides each run by its own label-token count, so the same information "
+        "reads as a different height purely from how the tokenizer splits digits",
+    )
     args = ap.parse_args()
     run_ids = args.run_ids or list(DEFAULT_RUNS)
     if args.out is None:
@@ -239,7 +259,8 @@ def main() -> None:
     for i, (rid, c) in enumerate(curves.items()):
         color = colors[i % len(colors)]
         shown = c["examples"] >= args.min_examples
-        y = c["edl_per_token_nats"][shown] / LN2
+        ykey = f"edl_per_{args.per}_nats"
+        y = c[ykey][shown] / LN2
         n_nonpos = int((y <= 0).sum())
         tok_per_ex = c["tokens"][-1] / c["examples"][-1]
         ax.plot(
@@ -254,7 +275,7 @@ def main() -> None:
         )
         ax.plot(
             ends[rid]["examples"],
-            ends[rid]["edl_per_token_nats"] / LN2,
+            ends[rid][ykey] / LN2,
             color=color,
             marker="*",
             ms=15,
@@ -268,7 +289,10 @@ def main() -> None:
         # curve and must not be clipped into looking true -- under --floor test
         # armA-target-noinst reads 0/187 monotone once clipped, but 1/194 and
         # not monotone over every eval step. Sign is unit-free, so nats serves.
-        diffs = np.diff(c["edl_per_token_nats"])
+        # Diff the series actually plotted: tokens/example is near-constant but
+        # not exactly constant, so the two normalisers can disagree on a
+        # marginal transition, and the printed count must describe this curve.
+        diffs = np.diff(c[ykey])
         n_rising = int((diffs > 0).sum())
         print(
             f"[edl] {rid}: {len(y)} eval points shown of {len(c['step'])}, "
@@ -290,13 +314,16 @@ def main() -> None:
         alpha=0.7,
     )
     ax.set_xscale("log")
+    if args.logy:
+        ax.set_yscale("log")
     ax.set_xlabel("training examples seen (log scale)")
     # A saved PNG has to say which floor drew it: the two curves have different
     # shapes and no reader can tell them apart from the plot alone. Only the
     # test figure takes the y-axis suffix — the val title already names its
     # moving floor, so the default figure stays byte-identical to every one
     # saved before this flag existed.
-    ylabel = "EDL per label token (bits)"
+    unit = "label token" if args.per == "token" else "example"
+    ylabel = f"EDL per {unit} (bits{', log scale' if args.logy else ''})"
     if args.floor == "val":
         subtrahend, stars = (
             "the step's val loss",
@@ -310,7 +337,7 @@ def main() -> None:
         )
     ax.set_ylabel(ylabel)
     ax.set_title(
-        f"Running EDL/D: prefix MDL minus {subtrahend}, per label token\n"
+        f"Running EDL/D: prefix MDL minus {subtrahend}, per {unit}\n"
         f"points = eval steps; {stars}"
     )
     ax.legend(fontsize=8)
