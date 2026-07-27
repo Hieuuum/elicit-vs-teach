@@ -80,6 +80,11 @@ train:
                                # epoch ceiling run 2 carried.
                                # stop_reason=max_steps = "did not converge":
                                # investigate, don't ship
+  epochs_total_planned: 15     # REQUIRED by train_sft.py manifest_fields (bare
+                               # subscript, not .get) — manifest metadata only,
+                               # never read back as a cap. 58,290 / 3,886 = 15
+                               # exactly, so it agrees with
+                               # cost.assumed_epochs_for_estimate below.
   stopping:                    # canonical loss rule (spec 02 §6)
     eps_nats: 0.002
     k: 5

@@ -98,6 +98,9 @@ train:
                                # memorisation, which is the leak this must not
                                # have. stop_reason=max_steps means the format
                                # never installed: investigate, don't ship
+  epochs_total_planned: 2      # REQUIRED by train_sft.py manifest_fields (bare
+                               # subscript, not .get) — manifest metadata only.
+                               # Matches the 2-epoch ceiling above.
   stopping:
     metric: format_validity    # the phase's shared bar, same 0.90 as p2
     threshold: 0.90
