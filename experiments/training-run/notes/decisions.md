@@ -4147,11 +4147,19 @@ EDL from `evt-p3-elicit-parent` with **no installer** (G4 0.9902 ≥ 0.90).
 **The 16-shot 0.0000 is in family, not a bug.** A 99% zero-shot model reading 0%
 with exemplars looks like the 2026-07-21 G1-on-converged-models incident, so it
 was checked rather than reported. It is not length or context: the cliff is at
-**k=1** (57–68 prompt tokens, `max_position_embeddings` 1024), the format holds
-(**0/64 unparseable slots** at every k), and the model emits clean integers that
-borrow the *exemplar's* operands — 1-shot on "sum of 8652819 and 6" after an
-exemplar containing 5355 returns `5355884`. Every from-scratch 38.7M run in this
-project behaves the same way:
+**k=1** (57–68 prompt tokens, `max_position_embeddings` 1024) and the format
+holds (**0/64 unparseable slots** at every k) — the model emits a clean integer
+in the slot and it is simply the wrong one.
+
+The mechanism, measured against a null rather than asserted from one completion:
+with a single exemplar whose answer is 5366, **46/64 completions begin with the
+digit `5`**, against **11/64** beginning with `1` for a held-out exemplar whose
+answer is 126882 — and `1` is the *most* common leading digit under Benford, so
+the true contrast is wider than 46 vs 11. Literal copying is NOT the mechanism:
+exact substrings of the exemplar's numbers appear in only 3/64 completions
+(null 0/64), and the 2-digit prefix match is 9/64 vs 3/64. So the exemplar
+anchors the **magnitude** of the answer, not its digits. Every from-scratch
+38.7M run in this project sits at the same near-zero 16-shot:
 
     run 5 armA 0.998/0.002   run 7 armA 0.997/0.004   p2 armA 0.997/0.002
     run 6 armB 0.950/0.000   run 8 armB 0.955/0.002   p2 armB 0.970/0.000
@@ -4186,10 +4194,17 @@ predicts, and it is why the floor must be named: the same run is "monotone" and
 elicit from teach. `monotone_dec` prints False under both floors because it is a
 strict all-transitions flag; quote the transition count, not the flag.
 
-One reporting trap: `plot_edl_per_token.py`'s own summary line prints its peak
-over the **shown** subset (193 of 200 points), giving "peak 5.2342 bits at
-n=1,024" under the test floor, while the full series peaks at **6.7129 bits at
-n=384**. Quote which series you mean.
+One reporting trap, and it is **deliberate, not a bug**:
+`plot_edl_per_token.py`'s summary line mixes two domains on purpose
+(`plot_edl_per_token.py:265-271`). `peak` is computed over the **shown** subset
+after the `--min-examples` clip, while `rising k/n` and `monotone_dec` are
+computed over the **whole** series — because, as the code comment records,
+clipping the early points would make monotonicity read as true when it is not
+(`armA-target-noinst` is 0/187 clipped but 1/194 unclipped). The consequence for
+quoting: under the test floor the printed peak is "5.2342 bits at n=1,024" over
+193 shown points, while the full 200-point series peaks at **6.7129 bits at
+n=384**. Both are correct for their domain; say which one you mean, and never
+compare a printed peak against an unclipped one.
 
 #### Comparison, with the caveat that makes it non-quotable as a ratio
 
