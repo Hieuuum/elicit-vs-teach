@@ -3968,14 +3968,26 @@ does ~3 syncs per step, so the parent gains nothing.**
 A batch here is 128 × ~25 label-bearing positions on a 39M-param model, which is
 far too little work to saturate a 4090; the run is very likely overhead-bound,
 not FLOP-bound, and `precision: fp32` means tensor cores go mostly unused, so an
-H100's advantage is largely unreachable. But that is an argument, not a number,
-because **no run in this project has ever recorded wall clock** — the manifests
-carry `est_usd` and no elapsed time. Both trainers now print minutes and steps/s
-at the end, so after the first phase-3 parent this becomes arithmetic against
-the FLOP estimate already printed in phase 4 rather than a judgement call. Note
-also that the printed estimate (165 TFLOPS × 0.35 utilization, `common.yaml`)
-is far too optimistic at this size — it is why the p2 target's full ceiling
-priced at $0.084 — and must not be used to plan wall clock.
+H100's advantage is largely unreachable.
+
+**Corrected 2026-07-27, on the box, before launch: one run DID record wall
+clock, and it says the cost model is calibrated, not optimistic.** `run1-base-v3`
+and `-v3-ext` carry `run_duration_s` in `experiment.pretrain_result` — the only
+two in the store, written by the pretrain script rather than by `train_sft.py`
+or `train_target.py`. Both land at **3.21 steps/s** (28,000 steps in 8,711.6 s;
+30,000 in 9,321.0 s). At 128 × 512 packed tokens in bf16 that is **48.9 TFLOP/s
+= 29.6% MFU on a 4090**, against the 35% `common.yaml` assumes. So the estimate
+block is close to right *for the shape it was fitted to*: a well-fed 512-token
+pretrain. The earlier claim here that it is "far too optimistic at this size"
+was wrong as written — what is unmeasured is the **short-sequence** shape, where
+a step carries 3,200 tokens instead of 65,536, twenty times less work spread
+over the same per-step overhead, in fp32 rather than bf16. That is where the
+MFU should collapse and where the p2 target's $0.084 ceiling estimate comes
+from. Whether it does is now printed by both trainers, so the phase-3 parent
+settles it on its own first run: **at run 1's 3.21 steps/s the parent is 1.7 h
+(20K steps) to 5.1 h (the full 58,290 ceiling); if the shorter sequences buy
+even 3× it is well under an hour.** Do not plan from either end until the number
+is printed.
 
 **TF32 is the one large lever, and it is the owner's call, not a default.**
 `torch.backends.cuda.matmul.allow_tf32` is False by default in current PyTorch
