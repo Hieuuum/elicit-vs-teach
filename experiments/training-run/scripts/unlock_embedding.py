@@ -185,7 +185,8 @@ def cmd_provenance(args: argparse.Namespace) -> int:
     w_base, w_algo = embed_of(args.base), embed_of(args.run)
     if w_base.shape != w_algo.shape:
         raise SystemExit(f"shape mismatch {w_base.shape} vs {w_algo.shape}")
-    delta = (w_algo - w_base).norm(dim=1)
+    d_vec = w_algo - w_base
+    delta = d_vec.norm(dim=1)
 
     cfg = load_config(args.algo_config, None)
     df = load_frozen_parquet(cfg)
@@ -226,32 +227,53 @@ def cmd_provenance(args: argparse.Namespace) -> int:
         )
     absent_delta = delta[absent]
     pct = float((absent_delta < delta[plus]).float().mean() * 100)
-    print(
-        f"\n  '+'  (id {plus}) delta = {delta[plus]:.5f}"
-        f"  -> {pct:.1f}th percentile of the absent-from-D_algo group"
-    )
+    print(f"\n  '+'  (id {plus}) delta = {delta[plus]:.5f}  -> {pct:.1f}th pct of the absent group")
     print(f"  'Ġ-' (id {minus}) delta = {delta[minus]:.5f}  (trained on both paths)")
+
+    # Norm alone does not separate "was read" from "was suppressed" — it runs
+    # the other way. A token that is never a correct label receives only the
+    # monotone push-down from the tied unembedding, so its row drifts far; a
+    # frequent label is pulled up as often as it is pushed down and settles
+    # near an equilibrium. Direction is the discriminating quantity: pure
+    # suppression moves every absent row along one shared axis (antiparallel to
+    # the mean answer-position hidden state), so a row that was additionally
+    # *read* is the one with movement off that axis.
+    u = d_vec[absent].mean(dim=0)
+    u = u / u.norm()
+    cos = (d_vec @ u) / delta.clamp_min(1e-12)
+    resid = delta * (1 - cos.clamp(-1, 1) ** 2).clamp_min(0).sqrt()
+    digits = [resolve_row(tokenizer, str(i)) for i in range(10)]
+    print("\n### DIRECTION OF THE MOVEMENT (u = shared absent-token axis)")
+    print(f"  {'group':40s} {'median cos(d,u)':>16s} {'median off-axis':>16s}")
+    for name, idx in [
+        *groups.items(),
+        ("digits 0-9", digits),
+        ("'+' row", [plus]),
+        ("'Ġ-' row", [minus]),
+    ]:
+        c, r = cos[idx], resid[idx]
+        print(f"  {name:40s} {float(c.median()):>16.4f} {float(r.median()):>16.4f}")
+        out_rows.append(
+            {
+                "group": name,
+                "n": len(idx),
+                "median": float(delta[idx].median()),
+                "median_cos_u": float(c.median()),
+                "median_off_axis": float(r.median()),
+            }
+        )
+    r_pct = float((resid[absent] < resid[plus]).float().mean() * 100)
     print(
-        "\n  Reading: '+' inside the absent group and far below 'Ġ-' means it moved only\n"
-        "  from logit suppression through the tied unembedding — never from being read."
-    )
-    out_rows.append(
-        {"group": "'+' row", "n": 1, "median": float(delta[plus]), "p10": pct, "p90": "", "max": ""}
-    )
-    out_rows.append(
-        {
-            "group": "'Ġ-' row",
-            "n": 1,
-            "median": float(delta[minus]),
-            "p10": "",
-            "p90": "",
-            "max": "",
-        }
+        f"\n  '+' off-axis movement is at the {r_pct:.1f}th percentile of the absent group.\n"
+        "  Inside that distribution => the row moved only as suppression moved every\n"
+        "  never-labelled row, i.e. it was never read. Far above it => something\n"
+        "  token-specific reached row 12 during run 2, and the 'untrained' framing\n"
+        "  needs weakening before the unlock result is interpreted."
     )
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         with args.out.open("w", newline="") as fh:
-            w = csv.DictWriter(fh, fieldnames=list(out_rows[0]))
+            w = csv.DictWriter(fh, fieldnames=list(dict.fromkeys(k for r in out_rows for k in r)))
             w.writeheader()
             w.writerows(out_rows)
         print(f"\n[evt] wrote {args.out}")
