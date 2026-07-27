@@ -4130,3 +4130,75 @@ against a number that turned out not to be comparable. Proceeding to the target
 was chosen because it is cheap to redo (the parent checkpoint is preserved and
 relay-backed, and a swept parent would simply take a new run id), not because
 the question is closed. Owner's call.
+
+### 2026-07-27 — phase 3 elicit arm COMPLETE: the target, and the monotonicity answer
+
+`evt-p3-elicit-target`, LoRA (12.1M trainable of 38.7M), NL addition, prequential
+EDL from `evt-p3-elicit-parent` with **no installer** (G4 0.9902 ≥ 0.90).
+
+    stop_reason  converged at step 3500  (14.9% of the 23,442 ceiling, 1 epoch = 3,907)
+    min val      0.004116 nats   (eps-gated best 0.005478)
+    wall clock   9.7 min at 6.01 steps/s   (~3x slower than the parent's 19.88:
+                 the prequential harness evaluates each block before training on it)
+    snapshots    0/0, as configured
+    G5           zero-shot 0.9912 | 16-shot 0.0000 | shared-set test loss 0.0082 nats (n=97,952)
+    relay        model.safetensors sha256 4de2f59f...
+
+**The 16-shot 0.0000 is in family, not a bug.** A 99% zero-shot model reading 0%
+with exemplars looks like the 2026-07-21 G1-on-converged-models incident, so it
+was checked rather than reported. It is not length or context: the cliff is at
+**k=1** (57–68 prompt tokens, `max_position_embeddings` 1024), the format holds
+(**0/64 unparseable slots** at every k), and the model emits clean integers that
+borrow the *exemplar's* operands — 1-shot on "sum of 8652819 and 6" after an
+exemplar containing 5355 returns `5355884`. Every from-scratch 38.7M run in this
+project behaves the same way:
+
+    run 5 armA 0.998/0.002   run 7 armA 0.997/0.004   p2 armA 0.997/0.002
+    run 6 armB 0.950/0.000   run 8 armB 0.955/0.002   p2 armB 0.970/0.000
+    p3 elicit  0.991/0.000
+    -- only the PRETRAINED arm has in-context learning:
+    run 9-v2 (Llama) 0.297/0.534   run 10-v2 (Llama) 0.988/0.143
+
+So the 38.7M from-scratch architecture has **no in-context learning at all**, on
+either arm, in every run. Consequence worth pinning: **16-shot is not a usable
+discriminator for the from-scratch arms** — it is an architecture constant near
+zero, and spec 02 §8's "A ~2%/12%" 16-shot expectation has never been met by any
+from-scratch run. Only zero-shot and the shared-set test loss carry information
+here. Do not read a from-scratch 16-shot number as evidence about elicitation.
+
+#### The monotonicity ask, answered
+
+Owner: *"we just want to make sure that the EDL per token label for the last run
+is decreasing monotonically."* Measured on the full 200-point series, EDL/label
+token in bits (7.11 label tokens/example):
+
+    --floor test (canonical Eq. 3, FIXED floor):  rising at 2 of 199 transitions
+        6.5763 -> 6.6654 (n=256) -> 6.7129 (n=384) -> ... -> 0.01589 bits
+        strictly decreasing at EVERY transition from n=384 to the end
+    --floor val  (moving floor, the plot default): rising at 27 of 199
+        peak 2.4462 bits at n=1,280; the last 20 points are not decreasing
+
+**Answer: yes, under the canonical floor — monotone from n=384 onward, the only
+two rises being the 2nd and 3rd eval points, before the run has seen 400
+examples.** This is exactly the shape the 2026-07-27 floor-artifact finding
+predicts, and it is why the floor must be named: the same run is "monotone" and
+"not monotone" depending on a plotting flag, and neither reading discriminates
+elicit from teach. `monotone_dec` prints False under both floors because it is a
+strict all-transitions flag; quote the transition count, not the flag.
+
+One reporting trap: `plot_edl_per_token.py`'s own summary line prints its peak
+over the **shown** subset (193 of 200 points), giving "peak 5.2342 bits at
+n=1,024" under the test floor, while the full series peaks at **6.7129 bits at
+n=384**. Quote which series you mean.
+
+#### Comparison, with the caveat that makes it non-quotable as a ratio
+
+p2 elicit's early spike was 3.46 bits at n=1,536; this run's is 6.71 at n=384.
+That is the direction phase 3 was built to move, but the two are **not
+commensurable**: different task (1–8 digit vs 4-digit), different label-token
+count per example, different eval file. Treat as within-phase only until a teach
+arm runs on the identical phase-3 artifacts.
+
+**Arm B (teach) is still unbuilt** — it needs a permuted-label NL-addition
+installer pool and two configs. Until it exists phase 3 has one arm and no
+elicit-vs-teach comparison; every number above describes the elicit arm alone.
