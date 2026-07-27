@@ -98,12 +98,24 @@ Usage (box, from experiments/training-run/scripts/):
         --run evt-run2-armA-algo --base evt-run1-base-v3-ext \
         --algo-config ../configs/run2_algo.yaml --out ../analysis/figures/unlock_provenance.csv
 
-    python3 unlock_embedding.py unlock --confirm-cost \
-        --eval-config ../configs/eval_target_data.yaml \
-        --train-config ../configs/run7_target_1m.yaml \
-        --algo-config ../configs/run2_algo.yaml \
+    # forward: train each row on addition
+    python3 unlock_embedding.py unlock --confirm-cost --train-op=+ \
+        --rows '+,uest,:' --lr-grid 1e-3,1e-2,1e-1,1.0 --k-grid 32,128,512 \
         --expect overall=0.1016,add=0.0039 \
-        --out ../analysis/figures/unlock_embedding.csv
+        --out ../analysis/figures/unlock_forward.csv
+
+    # mirror: same protocol on subtraction. 'id:1854' is Ġ-, the subtraction
+    # operator; '+' is the degenerate control that cannot move here.
+    python3 unlock_embedding.py unlock --confirm-cost --train-op=- \
+        --rows 'id:1854,:,+' --lr-grid 1e-3,1e-2,1e-1,1.0 --k-grid 32,128,512 \
+        --expect overall=0.1016,add=0.0039 \
+        --out ../analysis/figures/unlock_mirror.csv
+
+Results (2026-07-27, both directions) are in ``notes/decisions.md`` under
+"the 512-parameter unlock". Headline: addition 0.0039 -> 0.3976 from 512
+parameters, so it was latent; but '+' is the *weakest* handle (0.1083), so the
+glyph-lock hypothesis this script was built to test is falsified. The CSVs
+live under ``analysis/figures/`` which is gitignored — re-run to regenerate.
 """
 
 from __future__ import annotations

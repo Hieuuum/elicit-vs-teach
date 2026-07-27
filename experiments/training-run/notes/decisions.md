@@ -3500,3 +3500,105 @@ than notation transfer; flat ⇒ the elicitation reading stands as stated.
 `geode-store/results/` has no per-example loss artifact and run 7 stores only
 aggregate `eval/test_loss.json`, so this is a box job, not a laptop one.
 OPEN — not launched, no owner decision requested yet.
+
+### 2026-07-27 — the 512-parameter unlock: addition IS latent, and the '+' glyph is NOT the lock
+
+Ran the diagnostic that gates every dataset-redesign option raised after the
+2026-07-26 audit. Question: is the parent's operator-notation profile
+(subtraction 0.1977 vs addition 0.0039) a *capability* gap or an *addressing*
+gap? Method: freeze the run-2 elicit parent completely except **one row of the
+input embedding table — 512 parameters — and train that on operator-notation
+arithmetic. 512 parameters entering as one token's embedding cannot store
+4-digit addition, so any gain on held-out questions must come from the frozen
+38.7M. `analysis/figures/unlock_{forward,mirror,provenance}.csv`;
+`scripts/unlock_embedding.py` re-derives everything (36 cells per direction,
+~4 min each on the 4090, $0.05).
+
+Protocol notes that matter. The checkpoint has `tie_word_embeddings: true`
+(74 keys, no `lm_head.weight`), so "train one row" would otherwise also train
+the *unembedding* row and pick up softmax-denominator gradient at every
+position. The script unties first and asserts the untie is a **bitwise** no-op
+on real logits (max |Δlogit| = 0.0), then asserts after every cell that
+exactly one row moved. LR is a **declared grid axis** (1e-3…1.0 × k ∈
+{32,128,512}), identical for every row, whole surface reported — no best-cell
+quoting. Training draws only from `D_target \ D_algo` (direct triples *and*
+commuted twins; 299,598 of 500,001 '+' rows survive), so the parent's 29.18%
+pre-exposure cannot be read as the result. Eval is G5's zero-shot arm
+verbatim; `--expect` reproduced the recorded numbers exactly (overall 0.1016 /
+add 0.0039 / sub 0.1977) before any training.
+
+**Result 1 — addition is latent, decisively.** 512 parameters take held-out
+addition from **0.0039 → 0.3976** (102×). Predictions move to the right closed
+form, not to noise: `a+b` 0.0039 → 0.3976, `|a−b|` 0.0728 → 0.0098,
+other/unparsed 0.9232 → 0.5906. The algorithm was in the frozen weights and
+was not being addressed. Subtraction likewise 0.1977 → **0.6647**.
+
+**Result 2 — "the '+' glyph is the lock" is FALSIFIED.** It was the working
+hypothesis from the 2026-07-26 audit entry, and it is wrong as stated. The '+'
+row is the *weakest* of the three handles tested: it reaches only 0.1083,
+while `:` reaches 0.3976 on the same questions under the same protocol. So the
+'+' row gates at most ~27% of the addressable addition capability. The glyph
+asymmetry remains a true fact about D_algo; it is not the mechanism behind the
+gap.
+
+**Result 3 — the mechanism is token SCOPE, not token semantics**, and it holds
+in both directions:
+
+| trained row | scope | trained op | the *other* op |
+|---|---|---|---|
+| `+` (12) on '+' | that op's prompts only | 0.0039 → 0.1083 | sub **fixed at 0.1977**, all 12 cells |
+| `Ġ-` (1854) on '−' | that op's prompts only | 0.1977 → 0.5078 | add **fixed at 0.0039**, all 12 cells |
+| `:` (27), `uest` (6204) | every prompt | up to 0.3976 / 0.6647 | collapses to ≈0 |
+| `+` (12) on '−' | absent from those prompts | — | **row never moved**, both accuracies bit-identical |
+
+An operator token is a *conditional* handle: it moves its own operator and
+leaves the other bit-identical to four decimal places across every LR,
+including cells where the row moved 285 L2 units. A prompt-general token is an
+*unconditional* mode switch: bigger gain on the trained operator, paid for by
+destroying the other. The last row is the degenerate control — a token absent
+from the trained operator's prompts receives exactly zero input-side gradient,
+so nothing moves at all, which is what the gradient path predicts.
+
+**Result 4 — a real asymmetry survives the unlock, so the glyph story was
+never going to be the whole explanation.** Under matched interventions
+subtraction always beats addition: 0.5078 vs 0.1083 conditional (4.7×), 0.6647
+vs 0.3976 unconditional (1.7×). Token addressing closes most of the 50×
+baseline ratio but not all of it. Whether the residue is capability or deeper
+addressing is **not** settled here — 250,110 `Ġ-` exposures plausibly trained
+the pathway as well as the row.
+
+**Correction to the 2026-07-26 entry.** Its claim that the +/− gap "is a
+tokenizer glyph asymmetry" is too strong and should be read as superseded by
+Results 2–4. What survives from it: the corpus fact (0 '+' glyphs vs 250,110
+'−'), the shared-token observation, and the finding that the leakage present
+favours addition.
+
+**Sub-result — the '+' row was never pristine, and the obvious check inverts.**
+`unlock_embedding.py provenance` compares run-1 vs run-2 embedding rows.
+D_algo's token support is only **30 of 10,000** rows, and the 9,970 absent rows
+moved *more* (median L2 1.78) than the 30 present ones (0.66); '+' moved 2.11
+vs `Ġ-`'s 0.62. That is the tie, not evidence of reading: a token that is
+never a correct label receives only monotone push-down from the unembedding,
+while a frequent label is pulled up as often as pushed down and equilibrates.
+Norm therefore cannot separate "read" from "suppressed" and must not be quoted
+as if it could. The decisive fact needs no statistics — '+' occurs 0 times in
+D_algo, so the gradient into its *input* embedding is exactly zero by
+construction.
+
+**What this means for the redesign options.** The three families raised on
+2026-07-27 (answer-side '+' sign in D_algo; a question-side glossary; an
+embedding warm-start) all target the '+' row, which Result 2 shows is the
+weak handle. None is worth a chain-forking re-run of run 2 on this evidence.
+Both targets remain unlaunched and the parent should stay frozen.
+
+**Limits.** One parent, one seed, one tokenizer; from-scratch d512-L8 only,
+nothing here transfers to the Llama arm without re-running. The unlock trains
+on correct-label operator arithmetic, so it is a **diagnostic and can never be
+part of Arm A** — it writes no manifest and registers no run. Accuracies are
+G5 zero-shot on the shared 1,024-question slice, and the commuted-twin caveat
+on that eval (2026-07-26, §C) is unchanged. `overall` accuracy is meaningless
+for the prompt-general rows: they double it purely by trading one operator
+away on a 50/50 split.
+
+OPEN, unchanged and still not launched: the per-example run-7 target loss
+split by D_algo membership.
