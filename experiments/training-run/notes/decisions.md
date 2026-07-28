@@ -4370,6 +4370,18 @@ prequential path is where the cost lands; endpoint accuracy (0.9961) is saturate
 and not a discriminator. Figures `analysis/figures/edl_bridge_threeway_{test,val}
 _floor.png`; the val floor agrees on direction (0.03658 > 0.02917 > 0.02429).
 
+**Ordering is floor-independent — the "bridge only looks worst because floored
+hardest" objection is refuted.** Bridge has the LOWEST test floor of the three
+(0.00278 nats/token), and EDL/token = MDL/D − floor, so a lower floor mechanically
+inflates EDL. Adding each floor back (EDL/token + L_test/ln2) gives raw prequential
+codelength MDL/D over the first 384K, floor-free (bits/label-token): control
+**0.03137**, recover **0.03327**, bridge **0.04292**. Same order, and bridge is
+worst *despite* the SMALLEST floor add-back — the floor subtraction if anything
+flattered it. Caveat stated plainly: the three runs are matched on saturated
+exact-match but NOT on test loss (0.00820 vs 0.00296 vs 0.00278 nats/token, ~3×
+spread), so their floors are not a common target — which is exactly why this
+floor-free MDL/D check is the one that settles direction.
+
 **No causal claim — this comparison is doubly confounded, and I flag it in both
 directions:** the bridge trained on NL-format addition strings (answer-free
 translation), giving NL-format familiarity the control never had, which biases the
