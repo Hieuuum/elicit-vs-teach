@@ -61,6 +61,7 @@ LORA_TARGET = [
     ("p3_elicit_target.yaml", None),
     ("p3_elicit_target.yaml", "p3/target_after_bridge.yaml"),
     ("p3_elicit_target.yaml", "p3/target_after_recover.yaml"),
+    ("p3_elicit_target.yaml", "p3/target_on_bridge.yaml"),
 ]
 
 

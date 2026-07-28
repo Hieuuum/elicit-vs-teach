@@ -361,6 +361,14 @@ if [[ $STAGE == all || $STAGE == bridge ]]; then
     --prompt-config ../configs/eval_p3_data.yaml --threshold 0.90 ||
     fail "$BRIDGE_RID G4 format validity"
 
+  # SUPERSEDED (2026-07-27): the bridge FAILED G2 (0.3018), so this clean-path
+  # bridged target — which points parent_run_id at the bridge and would be
+  # refused by require_parent_ready — never ran. It now runs via the dedicated
+  # launch_phase3_bridge_target.sh (parent_run_id: null + external_base bypass).
+  # Do NOT re-run this stage to get it: the bridge's G2 is already recorded, so
+  # the halt above is skipped and this stage would RECORD G4 on the shared
+  # bridge parent, mutating its gate record. Left here as the record of the
+  # original clean design.
   ST=$(status_of "$BRIDGE_TARGET_RID")
   if [[ $ST == complete ]]; then
     echo "[p3] $BRIDGE_TARGET_RID already complete — skipping"

@@ -140,6 +140,15 @@ def manifest_fields(
 ) -> dict[str, Any]:
     t = cfg["train"]
     lora = cfg["lora"]
+    exp = cfg["experiment"]
+    # A null parent_run_id + external_base names a non-zoo base (e.g. a
+    # checkpoint carrying a recorded failing gate that require_parent_ready
+    # refuses as a zoo parent); it is recorded verbatim. Mirrors train_sft.py.
+    base_hf_id = (
+        exp["external_base"]
+        if not exp.get("parent_run_id") and exp.get("external_base")
+        else f"zoo-run/{exp['parent_run_id']}"
+    )
     return {
         "schema_version": 1,
         "run_id": cfg["run_id"],
@@ -147,7 +156,7 @@ def manifest_fields(
         "git_commit": git_commit(),
         "regime": ARM_REGIME[cfg["experiment"]["arm"]],
         "base_model": {
-            "hf_id": f"zoo-run/{cfg['experiment']['parent_run_id']}",
+            "hf_id": base_hf_id,
             "revision": "none",
         },
         "task": {"name": cfg["task"]["name"], "format_version": cfg["task"]["format_version"]},
@@ -323,15 +332,27 @@ def main() -> int:
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
     parent = cfg["experiment"]["parent_run_id"]
+    external_base = cfg["experiment"].get("external_base")
     if not parent:
-        print("[evt] experiment.parent_run_id is null — pin it to the installer run. Exiting.")
-        return 1
-    require_parent_ready(
-        parent,
-        required_gates=tuple(cfg["experiment"].get("parent_required_gates", ())),
-        store=store,
-    )
-    print(f"[evt] parent '{parent}' complete, gates pass", flush=True)
+        if not external_base:
+            print("[evt] experiment.parent_run_id is null — pin it to the installer run. Exiting.")
+            return 1
+        # Deliberate bypass (mirrors train_sft.py): the true base carries a
+        # recorded failing gate that require_parent_ready correctly refuses, so
+        # the config declares no zoo parent and names the base via external_base.
+        # --init-from still carries the real weights; experiment.init_from
+        # records the exact path. Owner-directed only ("ignore the gate").
+        print(
+            f"[evt] external_base '{external_base}' — no zoo parent, skipping parent-gate check",
+            flush=True,
+        )
+    else:
+        require_parent_ready(
+            parent,
+            required_gates=tuple(cfg["experiment"].get("parent_required_gates", ())),
+            store=store,
+        )
+        print(f"[evt] parent '{parent}' complete, gates pass", flush=True)
 
     match_with = cfg["experiment"].get("match_data_order_with")
     if match_with:
