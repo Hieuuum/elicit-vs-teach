@@ -36,6 +36,9 @@ esac
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
 export REPO_ROOT
+# Launchers run from experiments/training-run/scripts, so a fresh box without
+# an editable install cannot otherwise import the repository's geode package.
+export PYTHONPATH=$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}
 export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 INST_RID=evt-p3-teach-inst
 TARGET_RID=evt-p3-teach-target
