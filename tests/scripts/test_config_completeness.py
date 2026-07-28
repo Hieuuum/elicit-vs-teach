@@ -54,6 +54,7 @@ FULL_FT = [
     "run9_llama1b_inst.yaml",
     "p3_elicit_parent.yaml",
     "p3_elicit_inst.yaml",
+    "p3_teach_inst.yaml",
     "p3_bridge.yaml",
 ]
 LORA_TARGET = [
@@ -62,6 +63,7 @@ LORA_TARGET = [
     ("p3_elicit_target.yaml", "p3/target_after_bridge.yaml"),
     ("p3_elicit_target.yaml", "p3/target_after_recover.yaml"),
     ("p3_elicit_target.yaml", "p3/target_on_bridge.yaml"),
+    ("p3_elicit_target.yaml", "p3/target_teach.yaml"),
 ]
 
 

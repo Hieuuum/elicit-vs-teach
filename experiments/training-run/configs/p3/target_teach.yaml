@@ -1,0 +1,11 @@
+# PHASE 3 — Arm B teaching target. Overlay on p3_elicit_target.yaml.
+#
+# Only identity and parent lineage change. The frozen 500K NL-addition stream,
+# order, eval, optimizer, LoRA, seed, epsilon/k rule, ceiling, and no-snapshot
+# choice remain inherited byte-for-byte from the completed elicit target.
+run_id: evt-p3-teach-target
+experiment:
+  arm: B
+  parent_run_id: evt-p3-teach-inst
+  parent_required_gates: [G4, G5]
+  match_data_order_with: evt-p3-elicit-target

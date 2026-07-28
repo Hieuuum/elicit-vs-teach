@@ -36,6 +36,7 @@ def _fixture(tmp_path: Path) -> tuple[object, Path, Path, Path]:
         "p3_elicit_parent.yaml",
         "p3_elicit_inst.yaml",
         "p3_elicit_target.yaml",
+        "p3_teach_inst.yaml",
         "eval_p3_data.yaml",
         "p3_bridge.yaml",
         "eval_p3_bridge_data.yaml",
@@ -92,13 +93,10 @@ def test_phase3_guards_refuse_corrupt_hash(tmp_path: Path) -> None:
         guards.check_phase3_guards(configs, repo_root)
 
 
-def test_phase3_guards_refuse_installer_target_lr(tmp_path: Path) -> None:
+@pytest.mark.parametrize("name", ["p3_elicit_inst.yaml", "p3_teach_inst.yaml"])
+def test_phase3_guards_refuse_installer_target_lr(tmp_path: Path, name: str) -> None:
     guards, configs, repo_root, _data = _fixture(tmp_path)
-    _set_lr(configs, "p3_elicit_inst.yaml", 1.0e-3)
-    _set_lr(configs, "p3_bridge.yaml", 1.0e-3)
-    pin = yaml.safe_load((configs / "lr_pin.yaml").read_text())
-    pin["installer_lr"] = 1.0e-3
-    _write_yaml(configs / "lr_pin.yaml", pin)
+    _set_lr(configs, name, 1.0e-3)
     with pytest.raises(SystemExit, match="full-FT format stage pins the target lr"):
         guards.check_phase3_guards(configs, repo_root)
 

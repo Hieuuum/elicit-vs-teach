@@ -4395,3 +4395,53 @@ having the capability under study matters more than retaining the translation. T
 hypothesis that translation elicits NL addition more cheaply is **not supported**;
 every bridge configuration only added EDL cost. Bridge G2 remains recorded
 pass:false; nothing un-recorded.
+
+### 2026-07-28 — Phase-3 teaching arm built (unrun): role-matched NL-add installer → 500K target
+
+The missing within-phase comparator from the 2026-07-27 entry is now wired but
+**nothing has trained**. The chosen chain is:
+
+    evt-run1-base-v3-ext
+      -> evt-p3-teach-inst
+      -> evt-p3-teach-target
+
+The first run full-FTs the TinyStories floor-1 base on the newly frozen
+`D_p3_nl_add_perm` pool: 200,000 natural-language addition questions over the
+same 1–8 digit grid as the target, with true sums permuted across questions.
+The shown-label multiset therefore equals the true-answer multiset exactly
+(format + answer-shape prior survive; question→answer mapping does not).
+Generation hash-verifies and excludes all frozen target, eval, and probe
+triples before sampling, so no scored/target question is ever shown a wrong
+sum. Frozen order hash `0e58ba913c9ef8f3e3679eb5305ed0d124de4706430411060dfb9e65fa87c535`;
+label coincidence **0/200,000**. The six smallest cells have no capacity after
+the exclusions; that is recorded by the water-fill rather than
+repaired by weakening disjointness.
+
+The installer inherits the role-scoped `3e-6` LR, runs fp32 at batch 128, and
+stops at the first persistent G4 format-validity `>=0.90` (`k=3`, every step,
+512 held-out prompts). Its 200K pool / two-epoch ceiling is a cost ceiling, not
+an exposure budget; `final_step × 128` must be copied here after it runs.
+Before any target spend the launcher requires recorded G4 and G5 and enforces
+**G5 zero-shot <= 0.02** on the frozen Phase-3 NL-add eval. G5 itself is
+protocol evidence with `pass:true`, so the numeric leak bar lives in the
+launcher. G3 is deliberately omitted: it scores the old NL add/sub task,
+whereas Phase-3 G5 is addition-only, same-notation, and question-disjoint.
+
+`evt-p3-teach-target` is a minimal overlay on `p3_elicit_target.yaml`: arm B,
+parent/gate lineage, and `match_data_order_with: evt-p3-elicit-target` are the
+only changes. The target therefore inherits the completed control's exact
+500K order, eval, LoRA r128/alpha32, target LR 1e-3, seed 316, epsilon/k rule,
+23,442-step six-epoch ceiling, fp32 behavior, and `snapshots.n:0`. G7 is checked
+by `train_target.py` before cost confirmation. Comparisons end at n=500K and
+name the floor; monotonicity is not an arm discriminator (2026-07-27 metric
+finding).
+
+**Why not start the target directly from TinyStories?** That simpler path would
+bill prompt-format and answer-shape acquisition inside teach EDL while the
+elicit parent enters the target already format-valid. The role-matched installer
+moves those state variables outside both target measurements and follows the
+Phase-2 Arm-B design. It is generous to teach (unbilled warm-up can only shrink
+teach EDL), so it cannot manufacture an elicit advantage. The launcher is
+`scripts/launch_phase3_teach.sh --confirm-cost --stage teach|target|all`; no GPU
+job is implicit, and neither run exists until that command is explicitly run on
+the rented box.

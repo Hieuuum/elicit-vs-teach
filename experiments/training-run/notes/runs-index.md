@@ -69,3 +69,5 @@ per spec 00 §2).
 | evt-run10-sweep-lr1e-4 | Llama sweep point (max_steps cap, still descending) | pilot | both | decisions.md 2026-07-25 "Llama target LR sweep" |
 | evt-p2-cal-dose1 | new-phase dose ε/k calibration pilot, n=1 (eps 0.0; 8.9963 → 0.00026 nats, stopped by hand at 1065 of 3000) | pilot | local — logs only, no checkpoint | decisions.md 2026-07-26 "dose stopping-rule calibration" |
 | evt-p2-cal-dose16 | new-phase dose ε/k calibration pilot, n=16 (eps 0.0; 15.9081 → 0.0709, killed at step 948 by a shell teardown, still descending — RERUN on the box before ε/k is pinned) | pilot | local — logs only, no checkpoint | decisions.md 2026-07-26 "dose stopping-rule calibration" |
+| evt-p3-teach-inst | Phase-3 teach format/shape installer: TinyStories base → permuted-label NL addition | planned | none — config + local dataset only | decisions.md 2026-07-28 "Phase-3 teaching arm built" |
+| evt-p3-teach-target | Phase-3 teaching EDL target @500K NL addition; G7-matched to elicit control | planned | none — config only | decisions.md 2026-07-28 "Phase-3 teaching arm built" |

@@ -97,7 +97,10 @@ the `'Ġ-'` collision that carried the old +/− asymmetry cannot occur.
 The notation is **reversed**: `D_p3_on_add` (500K, operator) is the
 pre-intervention set and `D_p3_nl_add` (500K, natural language) is the
 target. Plus `D_p3_nl_eval` (100K), `D_p3_nl_mult` (200K, permuted —
-the conditional installer pool) and a 4,042-row NL probe.
+the conditional elicit installer pool), `D_p3_nl_add_perm` (200K,
+permuted — the role-matched teach installer pool), and a 4,042-row NL
+probe. The teach pool is question-disjoint from target, eval, and probe;
+its order hash is `0e58ba91…c535` and label coincidence is 0/200K.
 
 **Operands run 1–8 digits, evenly across all 64 stratification cells**
 (owner 2026-07-27). At the old 4-digit ceiling the six smallest cells
@@ -343,8 +346,8 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
 9. **Phase 3 — the notation swap (owner 2026-07-27). PARENT + CONTROL TARGET +
    BRIDGE RAN; recovery detour closed.** Addition only, positive operands;
    operator notation becomes the pre-intervention task and natural language the
-   target — the reverse of runs 2 and 5–8. Elicit arm only; the teach arm is
-   deferred. **Outcome (see decisions.md 2026-07-27):** the translation bridge
+   target — the reverse of runs 2 and 5–8. The elicit arm has run; the teach
+   arm is now built but unrun. **Outcome (see decisions.md 2026-07-27):** the translation bridge
    passed G6 (0.9993) but destroyed op-add retention (G2 0.3018); an owner-
    directed recovery retrained op-add on the bridge checkpoint (G1 restored to
    0.9941) but the repair erased the equivalence (G6 → 0.0000). The plain NL
@@ -379,16 +382,24 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    arm's 3.46-bit early spike, which the 2026-07-27 unlock result implicates
    as an *addressing* cost rather than algorithm acquisition.
 
-   Ready: datasets (§3b), `configs/p3_elicit_{parent,inst,target}.yaml` +
+   Elicit setup: `configs/p3_elicit_{parent,inst,target}.yaml` +
    `configs/eval_p3_data.yaml` + `configs/p3/target_after_inst.yaml`, and
-   `scripts/launch_phase3.sh --stage parent|target|all` (four refusal paths
-   negative-tested). The format install is **conditional** on G4 format
-   validity < 0.90 zero-shot on NL prompts, and is expected not to fire;
-   when it does fire it uses NL **multiplication**, because permuted-label
-   NL addition would train wrong sums into a parent that already knows
-   addition (the run-9 retention failure).
+   `scripts/launch_phase3.sh --stage parent|target|all`. Its format install is
+   **conditional** on G4 < 0.90 and uses NL multiplication if it fires, because
+   permuted-label NL addition would train wrong sums into a parent that already
+   knows addition (the run-9 retention failure).
 
-   Blocked on: a GPU. Nothing here has been run.
+   **Teach arm built 2026-07-28, unrun.** `evt-p3-teach-inst` full-FTs the
+   TinyStories floor-1 base on `D_p3_nl_add_perm`: the target's exact NL-add
+   surface with true sums permuted across disjoint questions, preserving the
+   answer marginal while carrying no addition mapping. It stops at the first
+   persistent G4 >= 0.90 and must score G5 zero-shot <= 0.02 before
+   `evt-p3-teach-target` launches. The target is a minimal overlay on the elicit
+   target and `match_data_order_with: evt-p3-elicit-target` enforces the same
+   frozen 500K hash/prefix (G7). `scripts/launch_phase3_teach.sh
+   --stage teach|target|all` is resume-safe and cost-gated. Directly training the
+   raw TinyStories base on the target was rejected because its EDL would also
+   bill prompt-format and answer-shape learning. No teach run has launched.
 
 ## 7. Budget
 

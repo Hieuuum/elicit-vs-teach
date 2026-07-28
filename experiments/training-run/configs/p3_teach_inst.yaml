@@ -1,0 +1,59 @@
+# PHASE 3 — Arm B role-matched format/shape installer.
+#
+# Full FT from the canonical TinyStories floor-1 base. The frozen corpus uses
+# the target's exact natural-language addition surface, but permutes true sums
+# across questions: the answer marginal is exact while the question->answer
+# mapping carries no signal. Target/eval/probe questions are excluded.
+#
+# This stage is deliberately unbilled by the target EDL. It gives the teach arm
+# the NL scaffold and addition answer-shape prior before the 500K correct-label
+# stream, matching the role of the already-format-valid elicit parent. Exposure
+# is an output: launch_phase3_teach.sh reports final_step x batch_size.
+#
+# G4 and G5 are required before the target. G4 proves the format installed; G5
+# is evidence on the matched Phase-3 NL-add eval, with the launcher enforcing
+# zero-shot <= 0.02 as the operative leak bar.
+run_id: evt-p3-teach-inst
+experiment:
+  name: training-run
+  arm: B
+  role: format_install
+  parent_run_id: evt-run1-base-v3-ext
+  parent_required_gates: []
+
+model:
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_nl_add
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_p3_nl_add_perm.parquet
+  order_hash: 0e58ba913c9ef8f3e3679eb5305ed0d124de4706430411060dfb9e65fa87c535
+  local_path: experiments/training-run/data/phase3/D_p3_nl_add_perm.parquet
+  val_fraction: 0.005
+  seed: 316
+
+train:
+  lr: 3.0e-6                   # installer-stage pin (configs/lr_pin.yaml)
+  batch_size: 128
+  eval_every: 1                # smallest observable k=3 exposure is 384 examples
+  max_steps: 3108              # two-epoch cost ceiling over 199K train rows
+  epochs_total_planned: 2
+  stopping:
+    metric: format_validity
+    threshold: 0.90
+    k: 3
+    n_prompts: 512
+    prompt_seed: 316
+  precision: fp32
+  seed: 316
+
+cost:
+  assumed_epochs_for_estimate: 2

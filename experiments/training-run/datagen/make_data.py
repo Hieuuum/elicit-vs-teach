@@ -17,6 +17,7 @@ Three distinct training datasets + one probe set + one eval set:
 | D_target_eval | eval only | + -     | operator | correct  |
 | D_inst_perm   | new-phase teach installer  | + - | operator | permuted |
 | D_dose_mult   | new-phase elicit installer | *   | operator | correct  |
+| D_p3_nl_add_perm | phase-3 teach installer | + | nl | permuted |
 
 ``D_target_eval`` (``--eval-set``, owner 2026-07-22) is generated after the
 frozen training sets, question-disjoint from D_target ∪ D_algo ∪ probe, so
@@ -37,6 +38,12 @@ disjoint from D_target ∪ D_algo ∪ probe ∪ D_target_eval so no target quest
 is ever seen with a wrong label — and ``D_dose_mult`` — correct-label mult
 examples, one per cell, disjoint from D_inst, the elicit arm's dose pool.
 Both append to report.json; the frozen entries are never touched.
+
+``--phase3-teach-installer`` does the analogous append-only build for Phase 3:
+``D_p3_nl_add_perm`` is NL addition over the 1–8 digit grid with permuted
+labels, question-disjoint from the frozen Phase-3 target, eval, and probe. It
+installs the target surface format and answer marginal without teaching the
+addition mapping; existing Phase-3 entries and parquets are never rewritten.
 
 Uniqueness is the **question**: every training row is a distinct ordered triple
 ``(a, op, b)`` — no repeats anywhere. Probe exclusion is question-level and
@@ -178,6 +185,14 @@ P3_EVAL_SIZE = 100_000
 # exactly (V5.64), so the marginal answer distribution survives.
 P3_INST_SPEC = DatasetSpec("D_p3_nl_mult", ("*",), "nl", "permuted")
 P3_INST_SIZE = 200_000
+# The teach arm starts from TinyStories, so there is no addition mapping to
+# retain. Its role-matched installer can therefore use the target's exact NL-add
+# surface with permuted labels, preserving the addition answer marginal while
+# carrying no question->answer signal. It is built append-only against frozen
+# target/eval/probe triples so no target question is ever shown a wrong sum.
+P3_TEACH_INST_SPEC = DatasetSpec("D_p3_nl_add_perm", ("+",), "nl", "permuted")
+P3_TEACH_INST_SIZE = 200_000
+P3_TEACH_INST_EXCLUDES = (P3_TARGET_SPEC.name, P3_EVAL_SPEC.name, "D_p3_probe")
 P3_PROBE_PER_CELL = 64
 P3_CARVE_DIVISOR = 8
 
@@ -535,12 +550,16 @@ def _frozen_triples(out_dir: Path, names: tuple[str, ...], report: dict) -> set[
     """
     excluded: set[Triple] = set()
     for name in names:
+        is_probe = name in {"probe", "D_p3_probe"}
         pin = (
             report["probe"]["probe_set_hash"]
-            if name == "probe"
+            if is_probe
             else report["datasets"][name]["order_hash"]
         )
-        df = pd.read_parquet(out_dir / f"{name}.parquet")
+        df = pd.read_parquet(
+            out_dir / f"{name}.parquet",
+            columns=["a", "b", "op", "shown_answer", "format", "label_mode"],
+        )
         got = order_hash(df.to_dict("records"))
         if got != pin:
             raise AssertionError(
@@ -597,6 +616,57 @@ def make_installer_sets(args: argparse.Namespace) -> int:
         f"order_hash={d_rep['order_hash'][:12]}…  unique+disjoint ✓"
     )
     report_path.write_text(json.dumps(report, indent=2))
+    print(f"[evt] report -> {report_path}")
+    return 0
+
+
+def make_phase3_teach_installer(args: argparse.Namespace) -> int:
+    """Append the role-matched teach installer to frozen Phase-3 artifacts."""
+    report_path = args.out / "report.json"
+    report = json.loads(report_path.read_text())
+    excluded = _frozen_triples(args.out, P3_TEACH_INST_EXCLUDES, report)
+    print(
+        f"[evt] {P3_TEACH_INST_SPEC.name} exclusion union: {len(excluded):,} "
+        f"triples from {P3_TEACH_INST_EXCLUDES}"
+    )
+    _print_distribution(
+        P3_TEACH_INST_SPEC.name,
+        plan_allocation(P3_TEACH_INST_SPEC, args.p3_teach_inst_n, excluded, cells=P3_CELLS),
+        cell_capacities(P3_TEACH_INST_SPEC, excluded, cells=P3_CELLS),
+        P3_CELLS,
+    )
+    if args.dry_run:
+        print("[evt] --dry-run: nothing written.")
+        return 0
+
+    records, plan = build_dataset(
+        P3_TEACH_INST_SPEC,
+        args.p3_teach_inst_n,
+        excluded,
+        args.seed,
+        cells=P3_CELLS,
+    )
+    rep = validate(records, excluded, plan, cells=P3_CELLS)
+    if sorted(r["shown_answer"] for r in records) != sorted(r["true_answer"] for r in records):
+        raise AssertionError(
+            f"{P3_TEACH_INST_SPEC.name}: shown-label multiset != true-answer multiset"
+        )
+    rep["label_coincidence"] = sum(r["shown_answer"] == r["true_answer"] for r in records) / len(
+        records
+    )
+    rep["disjoint_from"] = {
+        P3_TARGET_SPEC.name: report["datasets"][P3_TARGET_SPEC.name]["order_hash"],
+        P3_EVAL_SPEC.name: report["datasets"][P3_EVAL_SPEC.name]["order_hash"],
+        "D_p3_probe": report["probe"]["probe_set_hash"],
+    }
+    pd.DataFrame(records).to_parquet(args.out / f"{P3_TEACH_INST_SPEC.name}.parquet", index=False)
+    report["datasets"][P3_TEACH_INST_SPEC.name] = rep
+    report_path.write_text(json.dumps(report, indent=2))
+    print(
+        f"[evt]   wrote {P3_TEACH_INST_SPEC.name}.parquet  n={rep['n']}  "
+        f"order_hash={rep['order_hash'][:12]}…  "
+        f"label_coincidence={rep['label_coincidence']:.4%}  unique+disjoint ✓"
+    )
     print(f"[evt] report -> {report_path}")
     return 0
 
@@ -1011,7 +1081,9 @@ def validate_bridge(
 
     counts = cell_counts(cells)
     mismatch = [
-        (c, counts.get(c, 0), 2 * pair_alloc[c]) for c in pair_alloc if counts.get(c, 0) != 2 * pair_alloc[c]
+        (c, counts.get(c, 0), 2 * pair_alloc[c])
+        for c in pair_alloc
+        if counts.get(c, 0) != 2 * pair_alloc[c]
     ]
     if mismatch or set(counts) - set(pair_alloc):
         raise AssertionError(f"bridge FAIL: row counts != 2 x pair allocation; diff {mismatch[:5]}")
@@ -1140,7 +1212,11 @@ def make_phase3_bridge(args: argparse.Namespace) -> int:
     _print_distribution(
         BRIDGE_EVAL_SPEC.name,
         plan_allocation(
-            BRIDGE_EVAL_SPEC, args.bridge_eval_pairs, blocked, carve_divisor=P3_CARVE_DIVISOR, cells=P3_CELLS
+            BRIDGE_EVAL_SPEC,
+            args.bridge_eval_pairs,
+            blocked,
+            carve_divisor=P3_CARVE_DIVISOR,
+            cells=P3_CELLS,
         ),
         cell_capacities(BRIDGE_EVAL_SPEC, blocked, carve_divisor=P3_CARVE_DIVISOR, cells=P3_CELLS),
         P3_CELLS,
@@ -1171,7 +1247,9 @@ def make_phase3_bridge(args: argparse.Namespace) -> int:
         raise AssertionError("bridge FAIL: eval rows overlap train rows")
 
     pd.DataFrame(train_records).to_parquet(args.out / f"{BRIDGE_SPEC.name}.parquet", index=False)
-    pd.DataFrame(eval_records).to_parquet(args.out / f"{BRIDGE_EVAL_SPEC.name}.parquet", index=False)
+    pd.DataFrame(eval_records).to_parquet(
+        args.out / f"{BRIDGE_EVAL_SPEC.name}.parquet", index=False
+    )
     print(
         f"[evt]   wrote {BRIDGE_SPEC.name}.parquet  n={train_rep['n']} pairs={train_rep['pairs']}  "
         f"order_hash={train_rep['order_hash'][:12]}…  unique+leak-free+both-dir ✓"
@@ -1254,6 +1332,13 @@ def main() -> int:
     parser.add_argument("--p3-eval-n", type=int, default=P3_EVAL_SIZE)
     parser.add_argument("--p3-inst-n", type=int, default=P3_INST_SIZE)
     parser.add_argument(
+        "--phase3-teach-installer",
+        action="store_true",
+        help="generate D_p3_nl_add_perm against the frozen phase-3 target, eval, "
+        "and probe in --out; merges one dataset entry into report.json",
+    )
+    parser.add_argument("--p3-teach-inst-n", type=int, default=P3_TEACH_INST_SIZE)
+    parser.add_argument(
         "--phase3-bridge",
         action="store_true",
         help="generate the operator<->NL translation bridge (D_p3_bridge + "
@@ -1270,6 +1355,8 @@ def main() -> int:
         return make_installer_sets(args)
     if args.phase3:
         return make_phase3(args)
+    if args.phase3_teach_installer:
+        return make_phase3_teach_installer(args)
     if args.phase3_bridge:
         return make_phase3_bridge(args)
 
