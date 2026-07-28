@@ -84,6 +84,19 @@ def test_phase3_guards_refuse_missing_artifact(tmp_path: Path) -> None:
         guards.check_phase3_guards(configs, repo_root)
 
 
+def test_phase3_teach_scope_ignores_unrelated_elicit_and_bridge_artifacts(
+    tmp_path: Path,
+) -> None:
+    guards, configs, repo_root, data = _fixture(tmp_path)
+    other = tmp_path / "unrelated.parquet"
+    data.rename(other)
+    for name, key in guards.TEACH_ARTIFACT_PINS:
+        cfg = yaml.safe_load((configs / name).read_text())
+        cfg["data"][key] = str(other)
+        _write_yaml(configs / name, cfg)
+    guards.check_phase3_guards(configs, repo_root, scope="teach")
+
+
 def test_phase3_guards_refuse_corrupt_hash(tmp_path: Path) -> None:
     guards, configs, repo_root, _data = _fixture(tmp_path)
     cfg = yaml.safe_load((configs / "p3_bridge.yaml").read_text())

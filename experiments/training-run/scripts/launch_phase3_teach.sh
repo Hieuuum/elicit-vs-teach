@@ -92,8 +92,8 @@ ckpt_of() { # run_id -> checkpoint dir, or empty
   [[ -f $d/model.safetensors ]] && echo "$d"
 }
 
-# Hash every Phase-3 artifact and verify role-scoped LR pins before spend.
-python3 phase3_guards.py --configs ../configs --repo-root "$REPO_ROOT" || exit 1
+# Hash the artifacts this arm consumes and verify all role-scoped LR pins.
+python3 phase3_guards.py --configs ../configs --repo-root "$REPO_ROOT" --scope teach || exit 1
 
 if [[ $STAGE == all || $STAGE == teach ]]; then
   ST=$(status_of "$INST_RID")

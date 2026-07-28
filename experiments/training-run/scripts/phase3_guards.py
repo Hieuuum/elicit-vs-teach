@@ -21,15 +21,27 @@ ARTIFACT_PINS = (
     ("p3_bridge.yaml", "local_path"),
     ("eval_p3_bridge_data.yaml", "local_path"),
 )
+TEACH_ARTIFACT_PINS = (
+    ("p3_teach_inst.yaml", "local_path"),
+    ("p3_elicit_target.yaml", "local_path"),
+    ("p3_elicit_target.yaml", "eval_local_path"),
+    ("eval_p3_data.yaml", "local_path"),
+)
+ALL_ARTIFACT_PINS = {"all": ARTIFACT_PINS, "teach": TEACH_ARTIFACT_PINS}
+
+
+def artifact_pins(scope: str) -> tuple[tuple[str, str], ...]:
+    """Return only the artifact set used by the selected launcher."""
+    return ALL_ARTIFACT_PINS[scope]
 
 
 def _read_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
 
 
-def check_phase3_guards(configs: Path, repo_root: Path) -> None:
+def check_phase3_guards(configs: Path, repo_root: Path, *, scope: str = "all") -> None:
     """Refuse missing/corrupt artifacts and cross-scoped learning rates."""
-    for name, key in ARTIFACT_PINS:
+    for name, key in artifact_pins(scope):
         data = _read_yaml(configs / name)["data"]
         local = data.get(key)
         hash_key = "eval_order_hash" if key.startswith("eval_") else "order_hash"
@@ -100,8 +112,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--configs", type=Path, required=True)
     parser.add_argument("--repo-root", type=Path, required=True)
+    parser.add_argument(
+        "--scope",
+        choices=tuple(ALL_ARTIFACT_PINS),
+        default="all",
+        help="artifact subset to verify; LR guards always check every Phase-3 role",
+    )
     args = parser.parse_args()
-    check_phase3_guards(args.configs, args.repo_root)
+    check_phase3_guards(args.configs, args.repo_root, scope=args.scope)
     return 0
 
 
