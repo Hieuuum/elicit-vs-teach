@@ -352,7 +352,17 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    — not a finding), but its EDL/token curve DIVERGES from the control: ~1.5×
    HIGHER excess description length at matched n (0.029 vs 0.020 bits/token,
    fixed-test floor) despite a lower final loss — the opposite of an elicitation
-   benefit. No evidence the bridge helped (see decisions.md for the confounds).
+   benefit. **Then the bridged target itself ran** (`evt-p3-elicit-target-bridge`,
+   NL-add trained DIRECTLY on the G2-failed bridge with translation still intact —
+   `train_target.py` gained the `external_base` bypass; G7-matched to the control;
+   converged step 4500, G5 zero-shot 0.9961). It is the WORST of the three: at
+   matched n=384K, fixed-test floor, EDL/token **0.03891** (bridge) > **0.02900**
+   (recover) > **0.01954** (control) — ~2× the control, above both curves at every
+   step, with a HIGHER early spike (6.22 vs 5.23 bits). No evidence the bridge
+   helped in ANY form; the intact-translation hypothesis is not supported. The
+   comparison is doubly confounded (NL-format exposure biases EDL down, damaged
+   op-add up); net is decisively up. See decisions.md 2026-07-27 for the confounds
+   and the three-way logic; figures `edl_bridge_threeway_{test,val}_floor.png`.
 
    **Read the metric finding in decisions.md before reading any phase-3
    curve.** `plot_edl_per_token.py` subtracts a *moving* val-loss floor, so

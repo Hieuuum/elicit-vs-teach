@@ -4330,3 +4330,56 @@ overreach and is corrected here.**
 identical, so it is the few-shot prompt composition breaking these tiny
 from-scratch models, not a capability gap. The bridge's recorded G2 failure is
 left in place as evidence; nothing was un-recorded.
+
+### 2026-07-27 (later) — the bridged target itself, on the G2-failed bridge
+
+The recovery detour above restored op-add but ERASED the translation (G6→0), so
+it could never test the actual hypothesis — that an *intact* NL↔op translation
+bridge makes NL-addition cheaper to elicit. Owner: "train the model that failed
+G2 on the target task itself." So `evt-p3-elicit-target-bridge` finally ran, on
+the bridge checkpoint directly (translation intact 0.9993, op-add damaged 0.30).
+
+`train_target.py` had no `external_base` bypass (only `train_sft.py` did), so it
+gained one — a faithful two-spot mirror (main() parent check + `manifest_fields`
+`base_hf_id`); the same honest `parent_run_id: null` + `external_base:
+evt-p3-elicit-bridge` leaves the bridge's pass:false G2 intact. New overlay
+`configs/p3/target_on_bridge.yaml` (G7-matched to the control, unlike the plain
+recover-target) + one-stage `launch_phase3_bridge_target.sh`. It deliberately does
+NOT reuse `launch_phase3.sh --stage bridge`: the bridge's G2 is already recorded,
+so `gate_done G2` short-circuits the halt and that stage would then RECORD G4 on
+the shared bridge parent (mutating it). A note in `launch_phase3.sh` marks the
+superseded clean path.
+
+Converged (`converged`, step 4500, min val 0.0024 nats; G7 matched the control's
+frozen order; cost $0.07). **G5 zero-shot 0.9961, 16-shot 0.0000, shared-set test
+loss 0.00278 nats.**
+
+**Result: the bridge gave NO elicit benefit — it is the WORST of the three.** At
+matched n = 384,000, canonical fixed-test floor (bits/label-token):
+
+    control  (clean op-add, no translation)          0.01954   [best]
+    recover  (op-add restored, translation erased)    0.02900   1.48×
+    bridge   (op-add damaged, translation intact)     0.03891   1.99×  [worst]
+
+Green sits above both other curves at *every* eval step, from a HIGHER early
+addressing spike (6.22 bits at n=1,024 vs control 5.23 — the phase's stated aim
+was to SHRINK that spike; the bridge enlarged it) through matched n. Same
+endpoint-saturation pattern as the recovery: the bridge target reaches the LOWEST
+final test loss (0.00278 vs control 0.00820 nats/token) yet the HIGHEST EDL — the
+prequential path is where the cost lands; endpoint accuracy (0.9961) is saturated
+and not a discriminator. Figures `analysis/figures/edl_bridge_threeway_{test,val}
+_floor.png`; the val floor agrees on direction (0.03658 > 0.02917 > 0.02429).
+
+**No causal claim — this comparison is doubly confounded, and I flag it in both
+directions:** the bridge trained on NL-format addition strings (answer-free
+translation), giving NL-format familiarity the control never had, which biases the
+bridged EDL *down*; its op-add is damaged (0.30), biasing *up*. The observed net
+is decisively *up*, so whatever the NL-format exposure bought is more than
+cancelled. A clean three-way reading survives the confounds anyway: neither
+bridge-derived base (recover OR bridge) beats the clean control, and holding
+"went through the bridge" constant, keeping translation-but-damaged-op-add
+(bridge) is worse than losing-translation-but-restored-op-add (recover) — i.e.
+having the capability under study matters more than retaining the translation. The
+hypothesis that translation elicits NL addition more cheaply is **not supported**;
+every bridge configuration only added EDL cost. Bridge G2 remains recorded
+pass:false; nothing un-recorded.
