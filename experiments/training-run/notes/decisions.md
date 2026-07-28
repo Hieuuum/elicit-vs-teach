@@ -4263,3 +4263,55 @@ hash-verifies all bridge artifacts before any spend.
 
 No multiplication-transfer paper was searched or cited; no citation was
 provided, so no provenance claim was invented.
+
+## 2026-07-27 — Phase 3 bridge RAN and FAILED its retention gate; recovery detour tested and closed
+
+The bridge chain (`launch_phase3.sh --stage bridge`) ran. `evt-p3-elicit-bridge`
+learned NL↔operator translation almost perfectly (**G6 0.9993**, both directions
+≥0.999) but **destroyed** the operator-addition capability it was built on:
+recorded **G2 0.3018 (pass:false)** on the frozen op-add val. The launcher halted
+there by design (a damaged parent would deflate the target's EDL and read as a
+*better* elicitation result), so `evt-p3-elicit-target-bridge` never trained. The
+bridge stopped at `max_steps` (3108, its 2-epoch ceiling), i.e. its translation
+val was still creeping down when the ceiling hit; the damage is not a
+non-convergence artifact — G2 is measured on the final checkpoint.
+
+Owner then directed a recovery detour (gates scored, not blocking): retrain
+operator-addition **on top of** the bridge checkpoint to convergence, then train a
+**plain** (un-G7-matched) NL-addition target on the recovered model. New launcher
+`launch_phase3_recover.sh`; two overlays under `configs/p3/`.
+
+- `evt-p3-elicit-recover` — full-FT op-add from `evt-p3-elicit-bridge/model` at the
+  **3e-4 op-add role LR** (never the bridge's 3e-6). Because the bridge carries a
+  recorded pass:false G2, `require_parent_ready` (V0.6) refuses it as a zoo parent;
+  the overlay declares `parent_run_id: null` + `external_base: evt-p3-elicit-bridge`
+  (the honest bypass — skips the DAG check without erasing the bridge's real G2),
+  and `--init-from` carries the true weights (`experiment.init_from` records them).
+  Converged (`converged`, step 8000, min val 0.0027 nats). Step-0 op-add val on the
+  bridge checkpoint = **1.6285 nats** (the damage, quantified).
+  - **G1 op-notation val exact match 0.9941** (--no-record) → capability fully
+    restored (bridge 0.30 → 0.9941; healthy parent ~0.996).
+  - **G6 translation retention 0.0000** (--no-record, both directions) → the op-add
+    repair **catastrophically erased** the NL↔op equivalence (0.9993 → 0.0000).
+    This is the load-bearing result: the recovered base is *not* "op-add restored +
+    equivalence kept"; it is a plain op-add model reached by an expensive detour.
+
+- `evt-p3-elicit-recover-target` — plain LoRA NL-add from the recovered checkpoint,
+  `match_data_order_with: null` (owner: not matched to the control), LR 1e-3.
+  Converged (`converged`, step 3000, min val 0.0018 nats).
+  - **G5 zero-shot 0.9912, 16-shot 0.0000, shared-set test loss 0.00296 nats.**
+
+Against the no-bridge control `evt-p3-elicit-target` (zero-shot **0.9912109375**,
+16-shot 0.0, test loss 0.00820 nats): zero-shot is **byte-identical**, confirming
+the salvage hypothesis fails — a translation bridge, once overwritten by op-add
+retraining (G6→0), confers no elicitation benefit; the NL target is
+indistinguishable from the direct-parent control. The recover-target's lower test
+loss (0.00296 vs 0.00820) reflects its parent seeing more op-add steps (8000 vs
+6000), not a bridge effect; the capability readout (zero-shot) is identical.
+**16-shot 0.0000 is a systematic eval artifact, not a finding** — the control is
+identical, so it is the few-shot prompt composition breaking these tiny
+from-scratch models, not a capability gap. Caveat: this is not a matched EDL
+comparison (owner chose plain/unmatched); both targets do train on the same frozen
+D_p3_nl_add order and differ only in parent checkpoint, so the zero-shot identity
+is still informative. No ratio quoted. The bridge's recorded G2 failure is left in
+place as evidence; nothing was un-recorded.

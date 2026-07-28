@@ -340,10 +340,16 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    optimum. The pin therefore does not move, and phase 2 stays comparable
    with runs 7/8, which executed under the same value.
 
-9. **Phase 3 — the notation swap (owner 2026-07-27). BUILT, NOT LAUNCHED.**
-   Addition only, positive operands; operator notation becomes the
-   pre-intervention task and natural language the target — the reverse of
-   runs 2 and 5–8. Elicit arm only; the teach arm is deferred.
+9. **Phase 3 — the notation swap (owner 2026-07-27). PARENT + CONTROL TARGET +
+   BRIDGE RAN; recovery detour closed.** Addition only, positive operands;
+   operator notation becomes the pre-intervention task and natural language the
+   target — the reverse of runs 2 and 5–8. Elicit arm only; the teach arm is
+   deferred. **Outcome (see decisions.md 2026-07-27):** the translation bridge
+   passed G6 (0.9993) but destroyed op-add retention (G2 0.3018); an owner-
+   directed recovery retrained op-add on the bridge checkpoint (G1 restored to
+   0.9941) but the repair erased the equivalence (G6 → 0.0000), and the plain
+   NL target on the recovered base is byte-identical to the no-bridge control
+   (zero-shot 0.9912) — the bridge confers no elicitation benefit.
 
    **Read the metric finding in decisions.md before reading any phase-3
    curve.** `plot_edl_per_token.py` subtracts a *moving* val-loss floor, so
