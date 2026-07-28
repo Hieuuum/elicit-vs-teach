@@ -60,6 +60,7 @@ LORA_TARGET = [
     ("run10_llama1b_target.yaml", None),
     ("p3_elicit_target.yaml", None),
     ("p3_elicit_target.yaml", "p3/target_after_bridge.yaml"),
+    ("p3_elicit_target.yaml", "p3/target_after_recover.yaml"),
 ]
 
 
