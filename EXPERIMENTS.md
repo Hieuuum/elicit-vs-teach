@@ -347,9 +347,12 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    deferred. **Outcome (see decisions.md 2026-07-27):** the translation bridge
    passed G6 (0.9993) but destroyed op-add retention (G2 0.3018); an owner-
    directed recovery retrained op-add on the bridge checkpoint (G1 restored to
-   0.9941) but the repair erased the equivalence (G6 → 0.0000), and the plain
-   NL target on the recovered base is byte-identical to the no-bridge control
-   (zero-shot 0.9912) — the bridge confers no elicitation benefit.
+   0.9941) but the repair erased the equivalence (G6 → 0.0000). The plain NL
+   target on the recovered base has byte-identical zero-shot (0.9912, saturation
+   — not a finding), but its EDL/token curve DIVERGES from the control: ~1.5×
+   HIGHER excess description length at matched n (0.029 vs 0.020 bits/token,
+   fixed-test floor) despite a lower final loss — the opposite of an elicitation
+   benefit. No evidence the bridge helped (see decisions.md for the confounds).
 
    **Read the metric finding in decisions.md before reading any phase-3
    curve.** `plot_edl_per_token.py` subtracts a *moving* val-loss floor, so

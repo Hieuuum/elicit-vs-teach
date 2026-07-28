@@ -4302,16 +4302,31 @@ operator-addition **on top of** the bridge checkpoint to convergence, then train
   - **G5 zero-shot 0.9912, 16-shot 0.0000, shared-set test loss 0.00296 nats.**
 
 Against the no-bridge control `evt-p3-elicit-target` (zero-shot **0.9912109375**,
-16-shot 0.0, test loss 0.00820 nats): zero-shot is **byte-identical**, confirming
-the salvage hypothesis fails — a translation bridge, once overwritten by op-add
-retraining (G6→0), confers no elicitation benefit; the NL target is
-indistinguishable from the direct-parent control. The recover-target's lower test
-loss (0.00296 vs 0.00820) reflects its parent seeing more op-add steps (8000 vs
-6000), not a bridge effect; the capability readout (zero-shot) is identical.
+16-shot 0.0, test loss 0.00820 nats): zero-shot is byte-identical, but that is
+**saturation at matched capability, not a finding** — both targets converge to
+solving NL addition, so the endpoint metric is nearly forced (memory: endpoint-
+referenced metrics aren't comparable at matched capability; the discriminator is
+the EDL curve). The EDL/token curve DIVERGES. At matched n = 384,000, canonical
+fixed-test floor (bits/label-token): recover-target **0.02900** vs control
+**0.01954** — the bridge→recover base needs ~1.5× MORE excess description length,
+not less; per example 0.20623 vs 0.13901; final shared-set test loss 0.00296 vs
+0.00820 (recover LOWER). So the recovered base reaches a better final fit but at a
+HIGHER EDL — the OPPOSITE of an elicitation benefit. There is no evidence the
+bridge helped; with G6→0 the mechanism is that the bridge left no useful trace and
+the extra op-add training merely produced a marginally different (lower-loss,
+higher-EDL) base. **Confounds bound the magnitude, not the direction:** EDL is
+floor-sensitive and the recover-target's lower test-loss floor mechanically
+inflates its EDL; its parent saw more op-add steps (8000 vs 6000); and this was
+not a G7-matched run (owner chose plain/unmatched). Both targets do consume the
+identical frozen D_p3_nl_add order (same order_hash, n=500000, seed 316) and
+differ only in the parent checkpoint, so the divergence is real even where its
+size is confounded. Named-floor numbers only; the ~1.5× is a descriptor, not a
+quoted result. Under the moving val floor the direction is the same (0.02917 vs
+0.02429 at matched n). **The earlier read in the commit before this — "byte-
+identical, indistinguishable, curves overlap" — was an endpoint-saturation
+overreach and is corrected here.**
+
 **16-shot 0.0000 is a systematic eval artifact, not a finding** — the control is
 identical, so it is the few-shot prompt composition breaking these tiny
-from-scratch models, not a capability gap. Caveat: this is not a matched EDL
-comparison (owner chose plain/unmatched); both targets do train on the same frozen
-D_p3_nl_add order and differ only in parent checkpoint, so the zero-shot identity
-is still informative. No ratio quoted. The bridge's recorded G2 failure is left in
-place as evidence; nothing was un-recorded.
+from-scratch models, not a capability gap. The bridge's recorded G2 failure is
+left in place as evidence; nothing was un-recorded.
