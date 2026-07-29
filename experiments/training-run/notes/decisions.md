@@ -4510,3 +4510,72 @@ EDL, raw MDL/example, and final test loss must also rule out floor motion or a
 worse endpoint. Null or worse results are reportable outcomes, not reasons to tune
 on target EDL. Setup launcher: `scripts/launch_phase3_warmstart.sh`; no GPU run has
 launched.
+
+### 2026-07-28 — practical Phase-3 embedding warm-start RESULTS: large residual-MDL win, broad routing not a `sum` lock
+
+All 12 frozen candidates and all three 100K children completed at implementation
+commit `2692834`; every run/checkpoint remains in the private `mhieuuu/geode-store`
+relay. The launcher and an independent post-run pass both matched each Hub LFS
+checkpoint hash, and all manifests are `complete`. No candidate was filtered,
+deleted, or assigned a failing gate.
+
+Candidate selection used only the pre-registered 3,584-row held-out warm-start
+suffix. Values below are `(NL exact match, NL masked NLL nats, operator-add
+accuracy)`; the common operator baseline was 0.97168:
+
+| rows | LR 1e-3 | LR 1e-2 | LR 1e-1 | LR 1e0 | selected |
+|---|---|---|---|---|---|
+| `sum` 261+492 | (0.0564, 2.6141, 0.9717) | (0.4819, 0.6419, 0.9717) | **(0.5845, 0.4294, 0.9717)** | (0.2796, 0.7842, 0.9717) | LR 0.1 |
+| `:` 27 | (0.2425, 1.9042, 0.8262) | (0.4386, 0.8471, 0.6943) | (0.4414, 0.8178, 0.7002) | **(0.5511, 0.4969, 0.5605)** | LR 1.0 |
+| `sum` + `:` | (0.1928, 1.3223, 0.9102) | (0.7480, 0.1924, 0.4971) | (0.7985, 0.1406, 0.7061) | **(0.8156, 0.1317, 0.7305)** | LR 1.0 |
+
+This reproduces the unlock diagnostic's scope distinction. Moving only the two
+`sum` rows preserves operator addition *exactly* across the whole LR grid, while
+the prompt-general `:` row can unlock much more NL behavior by damaging the old
+mode. The selected colon parent drops operator EM by 0.4111; selected sum-colon
+drops it by 0.2412. Those are evidence, not disqualifications, as pre-registered.
+The 1.0 edge wins colon and sum-colon, so their selection optima are not bracketed;
+do not call those LRs intrinsic optima or extrapolate dose response beyond this
+grid.
+
+All three targets consumed exactly 100,000 unique examples in 782 updates (781
+full batches plus the final 32), epoch one only, and intentionally ended
+`stop_reason=max_steps`. `sum` is the G7 anchor; the two siblings record its exact
+`3ebd264c…ab2bf` order hash and 100K prefix. Endpoint evidence:
+
+| target | selected parent | raw MDL (bits/example) | fixed-test-floor residual EDL (bits/example) | reporting loss (nats/token) | G5 zero-shot |
+|---|---|---:|---:|---:|---:|
+| no-warm control, exact 100K interpolation | none | 0.72465 | 0.64056 | 0.00820 (final 448K endpoint) | 0.9912 (final endpoint) |
+| `sum` | LR 0.1 | 0.11381 | 0.05447 | 0.00579 | 0.9824 |
+| `:` | LR 1.0 | 0.12726 | 0.03830 | 0.00867 | 0.9746 |
+| `sum` + `:` | LR 1.0 | **0.09344** | **0.03616** | **0.00558** | 0.9795 |
+
+The control has no boundary exactly at 100K (batch 782 ends at 100,096), so its
+raw-MDL line above linearly prorates the last 128-row batch to exact n=100,000;
+the last full boundary below 100K is n=99,968 and gives 0.72487 bits/example,
+which does not affect the conclusion. The standard evaluation-cadence table's
+last point before 100K is only n=97,408; it reports control residual EDL 0.65876,
+so it is not used as the exact comparison.
+
+**Result.** All three warm-starts remove 82–87% of the control's first-100K raw
+codelength (ratios 0.157 / 0.176 / 0.129). This floor-free result establishes a
+large practical warm-start benefit; the even lower residual-EDL values are not a
+floor-motion mirage. Sum-colon is the best overall. This is a fixed-budget prefix
+comparison, not a steady-state sample-efficiency comparison: the 100K children
+intentionally stop before convergence, while the control reporting floor comes
+from its converged 448K endpoint. But colon alone also removes 82% of raw MDL
+despite severely damaging operator retention, and its residual EDL is slightly
+below sum's only because its own reporting floor is worse. Thus the experiment
+supports **broad prompt routing / mode switching**, not a narrow claim that the
+word `sum` was the lock. It does not identify how much of the remaining gain is
+format routing versus arithmetic addressing.
+
+The moving-validation-floor endpoint values are 0.04797 / 0.03719 / 0.03758
+bits/example for sum / colon / sum-colon, versus 0.68000 for the control at the
+last logged point <=100K (n=97,408). Their curves have 80 / 75 / 94 rising
+transitions out of 256, compared with 27/199 for the longer control curve. This
+is expected floor motion and is diagnostic only; no monotonicity claim is made.
+Reporting-block losses and G5 losses agree within numerical precision. The
+warm-start cost remains outside target EDL: **512 unique correct-label questions,
+200 optimizer steps, 102,400 presentations per selected treatment**. Therefore
+these are practical residual-information controls, not clean elicitation runs.

@@ -1,6 +1,6 @@
 # EXPERIMENTS.md — live experiment plan
 
-Status: **executing** (updated 2026-07-27). This is the current state
+Status: **executing** (updated 2026-07-28). This is the current state
 and remaining work of the elicit-vs-teach training-run experiment.
 `specs/02-training-run.md` is the detailed design source;
 `experiments/training-run/notes/decisions.md` is the running decision
@@ -393,33 +393,38 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    permuted-label NL addition would train wrong sums into a parent that already
    knows addition (the run-9 retention failure).
 
-   **Teach arm built 2026-07-28, unrun.** `evt-p3-teach-inst` full-FTs the
-   TinyStories floor-1 base on `D_p3_nl_add_perm`: the target's exact NL-add
-   surface with true sums permuted across disjoint questions, preserving the
-   answer marginal while carrying no addition mapping. It stops at the first
-   persistent G4 >= 0.90 and must score G5 zero-shot <= 0.02 before
-   `evt-p3-teach-target` launches. The target is a minimal overlay on the elicit
-   target and `match_data_order_with: evt-p3-elicit-target` enforces the same
-   frozen 500K hash/prefix (G7). `scripts/launch_phase3_teach.sh
-   --stage teach|target|all` is resume-safe and cost-gated. Directly training the
-   raw TinyStories base on the target was rejected because its EDL would also
-   bill prompt-format and answer-shape learning. No teach run has launched.
+   **Teach arm DONE 2026-07-28.** `evt-p3-teach-inst` reached its behavioral
+   stop at step 75 (9,600 examples), with G5 zero-shot 0.0000; the matched
+   `evt-p3-teach-target` converged at step 16,000 with G5 zero-shot 0.9443 and
+   reporting loss 0.02029 nats/token. At matched n=448K its fixed-test-floor
+   EDL/example is 5.7767 bits versus the control's 0.1130: the teach comparator
+   needs ~51x more excess description length. Both runs are relay-verified.
 
-   **Practical embedding warm-start family built 2026-07-28, unrun.** This is a
-   diagnostic/control family, not Arm A: each parent sees 512 correct NL-addition
-   examples for 200 optimizer steps before the target, so its EDL is explicitly
-   residual after unbilled teaching exposure. `evt-p3-warm-{sum,colon,sum-colon}-lr{1e-3,1e-2,1e-1,1e0}`
-   train only input rows `{261,492}`, `{27}`, or `{261,492,27}` after untying and
-   freezing `lm_head`. All 12 candidates are independently persisted on the
-   pre-registered 4,096-row pool, which is disjoint from parent/target/eval/probe
-   both directly and by commuted twin. Selection is target-free: highest held-out
-   NL exact match, then lower NL loss, then smaller LR. G2 retention is report-only.
-   One selected candidate per row treatment feeds a stable `-target` child that
-   consumes exactly the first 100K frozen target rows once (782 updates). `sum` is
-   the 100K G7 anchor; the other two targets match it. `scripts/launch_phase3_warmstart.sh` is resume-safe and
-   cost-gated; neither `+` nor `;` is included because neither appears in an NL
-   target prompt. Judge the result by residual fixed-test-floor EDL/example and
-   raw MDL/example; the requested moving-validation trend is diagnostic only.
+   **Practical embedding warm-start family DONE 2026-07-28.** This is a
+   diagnostic/control family, not Arm A: each parent saw 512 correct NL-addition
+   examples for 200 optimizer steps (102,400 presentations) before the target,
+   so its EDL is residual after unbilled teaching exposure. All 12 candidates
+   were persisted and relay-verified. Target-free held-out selection chose
+   `sum` LR 0.1 (NL EM 0.5845, operator retention 0.9717), `colon` LR 1.0
+   (0.5511, retention 0.5605), and `sum-colon` LR 1.0 (0.8156, retention
+   0.7305). This confirms that the prompt-general colon row can be a strong but
+   destructive mode switch; retention was report-only as pre-registered.
+
+   Each selected parent then consumed the exact first 100K target rows once
+   (782 updates, intentional `max_steps`); sibling G7 wiring and all 15 Hub
+   checkpoint hashes were verified. At exact n=100K, raw MDL/example is
+   **0.1138 / 0.1273 / 0.09344 bits** for sum / colon / sum-colon, versus
+   **0.7247** for the control's interpolated first-100K prefix. Own-final-
+   test-floor residual EDL/example is **0.05447 / 0.03830 / 0.03616 bits**
+   (control **0.6406**); reporting losses are **0.00579 / 0.00867 / 0.00558
+   nats/token** (control endpoint 0.00820). The raw, floor-free MDL result is
+   decisive: all three warm-starts remove 82–87% of the first-100K codelength,
+   and sum-colon is best. This does **not** compare steady-state sample efficiency:
+   the 100K children intentionally stop before convergence while the control floor
+   comes from its converged 448K endpoint. But colon alone is nearly as effective despite heavy
+   operator damage, so this is evidence for broad prompt routing, not a
+   sum-specific lexical lock and not clean elicitation. Moving-validation-floor
+   curves tell the same level story but remain floor-dependent diagnostics.
 
 ## 7. Budget
 
