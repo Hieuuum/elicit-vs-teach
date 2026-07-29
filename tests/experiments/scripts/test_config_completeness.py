@@ -40,28 +40,28 @@ load_config = load("train").load_config
 # derives epochs_total itself rather than reading it from the config, which is
 # why only the full-FT side needs epochs_total_planned.
 FULL_FT = [
-    "p2_armB_instperm.yaml",
+    "archive/phase2/p2_armB_instperm.yaml",
     "archive/runs/run9_llama1b_inst.yaml",
-    "p3_elicit_parent.yaml",
-    "p3_elicit_inst.yaml",
-    "p3_teach_inst.yaml",
-    "p3_bridge.yaml",
+    "archive/phase3/p3_elicit_parent.yaml",
+    "archive/phase3/p3_elicit_inst.yaml",
+    "archive/phase3/p3_teach_inst.yaml",
+    "archive/phase3/p3_bridge.yaml",
 ]
 EMBEDDING_WARMSTART = [
-    "p3/warm_sum.yaml",
-    "p3/warm_colon.yaml",
-    "p3/warm_sum_colon.yaml",
+    "archive/phase3/p3/warm_sum.yaml",
+    "archive/phase3/p3/warm_colon.yaml",
+    "archive/phase3/p3/warm_sum_colon.yaml",
 ]
 LORA_TARGET = [
     ("archive/runs/run10_llama1b_target.yaml", None),
-    ("p3_elicit_target.yaml", None),
-    ("p3_elicit_target.yaml", "p3/target_after_bridge.yaml"),
-    ("p3_elicit_target.yaml", "p3/target_after_recover.yaml"),
-    ("p3_elicit_target.yaml", "p3/target_on_bridge.yaml"),
-    ("p3_elicit_target.yaml", "p3/target_teach.yaml"),
-    ("p3_elicit_target.yaml", "p3/target_warm_sum.yaml"),
-    ("p3_elicit_target.yaml", "p3/target_warm_colon.yaml"),
-    ("p3_elicit_target.yaml", "p3/target_warm_sum_colon.yaml"),
+    ("archive/phase3/p3_elicit_target.yaml", None),
+    ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_after_bridge.yaml"),
+    ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_after_recover.yaml"),
+    ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_on_bridge.yaml"),
+    ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_teach.yaml"),
+    ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_warm_sum.yaml"),
+    ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_warm_colon.yaml"),
+    ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_warm_sum_colon.yaml"),
 ]
 
 
@@ -69,7 +69,7 @@ LORA_TARGET = [
 def test_embedding_warmstart_configs_build_a_manifest(override: str) -> None:
     trainer = load("train_embedding_warmstart")
 
-    cfg = load_config(CONFIGS / "p3_embedding_warmstart.yaml", CONFIGS / override)
+    cfg = load_config(CONFIGS / "archive/phase3/p3_embedding_warmstart.yaml", CONFIGS / override)
     cfg["run_id"] = trainer.candidate_run_id(cfg["run_id"], 0.01)
     manifest = trainer.manifest_fields(
         cfg,
@@ -130,13 +130,13 @@ def test_lora_target_configs_build_a_manifest(config: str, override: str | None)
 @pytest.mark.parametrize(
     ("override", "match_with"),
     [
-        ("p3/target_warm_sum.yaml", None),
-        ("p3/target_warm_colon.yaml", "evt-p3-warm-sum-target"),
-        ("p3/target_warm_sum_colon.yaml", "evt-p3-warm-sum-target"),
+        ("archive/phase3/p3/target_warm_sum.yaml", None),
+        ("archive/phase3/p3/target_warm_colon.yaml", "evt-p3-warm-sum-target"),
+        ("archive/phase3/p3/target_warm_sum_colon.yaml", "evt-p3-warm-sum-target"),
     ],
 )
 def test_warmstart_targets_pin_one_100k_pass(override: str, match_with: str | None) -> None:
-    cfg = load_config(CONFIGS / "p3_elicit_target.yaml", CONFIGS / override)
+    cfg = load_config(CONFIGS / "archive/phase3/p3_elicit_target.yaml", CONFIGS / override)
     assert cfg["data"]["n_examples"] == 100000
     assert cfg["train"]["batch_size"] == 128
     assert cfg["train"]["max_steps"] == 782

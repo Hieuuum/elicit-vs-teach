@@ -83,9 +83,10 @@ def test_g6_decode_default_covers_frozen_eval_answers() -> None:
 
 def test_bridge_target_overlay_changes_only_parent_and_identity() -> None:
     load_config = load("train").load_config
-    base = load_config(CONFIGS / "p3_elicit_target.yaml", None)
+    base = load_config(CONFIGS / "archive/phase3/p3_elicit_target.yaml", None)
     bridged = load_config(
-        CONFIGS / "p3_elicit_target.yaml", CONFIGS / "p3/target_after_bridge.yaml"
+        CONFIGS / "archive/phase3/p3_elicit_target.yaml",
+        CONFIGS / "archive/phase3/p3/target_after_bridge.yaml",
     )
 
     allowed = {
@@ -126,7 +127,7 @@ def test_g4_rejects_translation_prompt_config_before_loading_run(monkeypatch) ->
             "--run",
             "does-not-exist",
             "--config",
-            str(CONFIGS / "p3_bridge.yaml"),
+            str(CONFIGS / "archive/phase3/p3_bridge.yaml"),
             "--prompt-config",
             str(CONFIGS / "eval_p3_bridge_data.yaml"),
             "--threshold",

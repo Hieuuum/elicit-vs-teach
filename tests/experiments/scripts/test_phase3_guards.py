@@ -34,19 +34,25 @@ def _fixture(tmp_path: Path) -> tuple[object, Path, Path, Path]:
     guards = _load_guards()
     configs = tmp_path / "configs"
     configs.mkdir()
-    for name in {
-        "p3_elicit_parent.yaml",
-        "p3_elicit_inst.yaml",
-        "p3_elicit_target.yaml",
-        "p3_teach_inst.yaml",
-        "p3_embedding_warmstart.yaml",
-        "eval_p3_data.yaml",
-        "p3_bridge.yaml",
-        "eval_p3_bridge_data.yaml",
-        "lr_pin.yaml",
-    }:
-        shutil.copy(CONFIGS / name, configs / name)
-    shutil.copytree(CONFIGS / "p3", configs / "p3")
+    # The phase-3 run/bridge/warmstart configs were archived to
+    # configs/archive/phase3/ (reorg commit 12); the eval and lr_pin configs
+    # stay at the configs/ root. The tmp fixture flattens both into one dir,
+    # which is the layout check_phase3_guards() reads.
+    archived = CONFIGS / "archive" / "phase3"
+    sources = {
+        "p3_elicit_parent.yaml": archived,
+        "p3_elicit_inst.yaml": archived,
+        "p3_elicit_target.yaml": archived,
+        "p3_teach_inst.yaml": archived,
+        "p3_embedding_warmstart.yaml": archived,
+        "p3_bridge.yaml": archived,
+        "eval_p3_data.yaml": CONFIGS,
+        "eval_p3_bridge_data.yaml": CONFIGS,
+        "lr_pin.yaml": CONFIGS,
+    }
+    for name, src in sources.items():
+        shutil.copy(src / name, configs / name)
+    shutil.copytree(archived / "p3", configs / "p3")
 
     data = tmp_path / "artifact.parquet"
     rows = [
