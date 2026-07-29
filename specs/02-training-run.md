@@ -279,6 +279,13 @@ zero/16-shot prompt builder for G5.
   smaller LR in that order. Operator-addition retention is recorded evidence but
   never filters or ranks candidates. The target stream, D_p3_nl_eval, and target
   EDL are never selection inputs.
+- V5.70 frozen-parquet load (2026-07-29): `geode.arith.load_frozen_parquet(d,
+  root=...)` recomputes the content-and-order hash (V5.40) over the fetched file
+  and refuses (`ValueError`) unless it equals `d["order_hash"]`; rows come back
+  in the frozen order; a relative `data.local_path` resolves under the injected
+  `root`, an absolute one as-is, and neither path skips the hash check. The SFT
+  and target launchers keep thin adapters that bind `root=REPO_ROOT` and preserve
+  their existing `(cfg)` / `(d)` call contracts, so every importer is unchanged.
 
 ## 6. Training runs — per-run needs
 

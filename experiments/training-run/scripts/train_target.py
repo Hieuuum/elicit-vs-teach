@@ -40,7 +40,7 @@ from typing import Any
 
 import torch
 
-from geode.arith import order_hash, tokenize_with_spans
+from geode.arith import load_frozen_parquet as _load_frozen_parquet, tokenize_with_spans
 from geode.edl.loop import PrequentialStepInfo, train_prequential
 from geode.edl.masking import TaskFormat, masking_config_hash
 from geode.probe import snapshot_steps
@@ -78,39 +78,15 @@ EVAL_CURVE_DENSE_UNTIL = 30
 
 
 def load_frozen_parquet(d: dict):
-    """Fetch + hash-verify a frozen parquet data block; return the DataFrame.
+    """Data-block adapter over ``geode.arith.load_frozen_parquet`` (V5.70).
 
-    ``d`` needs ``hf_id``/``file``/``order_hash`` (+ optional ``local_path``).
-    The order_hash is recomputed over the FULL file before anything else
-    (wrong file, truncated download, or a re-generated dataset all refuse);
-    the ``data.n_examples`` prefix is taken by the caller afterwards, so the
-    recorded hash always names the frozen artifact, not a slice.
-    ``local_path`` skips the download but never the hash check. It is resolved
-    against ``REPO_ROOT`` when relative (2026-07-27) — it used to be taken raw,
-    i.e. relative to the *cwd*, which differs from ``train_sft.py``'s handling
-    of the identical key. Every launcher ``cd``s to ``scripts/``, so a
-    repo-root-relative spelling that ``train_sft.py`` accepts would raise
-    FileNotFoundError here, and only after the earlier stages had already spent
-    GPU time. No pre-2026-07-27 config fed this path a ``local_path``, so the
-    change is a no-op for runs 5-10 and phase 2; phase 3 is the first caller.
+    ``d`` needs ``hf_id``/``file``/``order_hash`` (+ optional ``local_path``);
+    the hash is recomputed over the FULL file, so the recorded hash always names
+    the frozen artifact, not the ``data.n_examples`` prefix the caller slices
+    afterwards. A relative ``local_path`` resolves against ``REPO_ROOT``
+    (2026-07-27 reconciliation with train_sft.py), an absolute one as-is.
     """
-    import pandas as pd
-
-    if d.get("local_path"):
-        path = Path(d["local_path"])
-        path = path if path.is_absolute() else REPO_ROOT / path
-    else:
-        from huggingface_hub import hf_hub_download
-
-        path = hf_hub_download(d["hf_id"], d["file"], repo_type="dataset")
-    df = pd.read_parquet(path)
-    got = order_hash(df.to_dict("records"))
-    if got != d["order_hash"]:
-        raise ValueError(
-            f"dataset {d['file']}: order_hash {got} != pinned {d['order_hash']} — "
-            "wrong or corrupted frozen file; refusing to proceed"
-        )
-    return df
+    return _load_frozen_parquet(d, root=REPO_ROOT)
 
 
 def lora_trainable_param_count(model: torch.nn.Module, lora_cfg: dict) -> int:

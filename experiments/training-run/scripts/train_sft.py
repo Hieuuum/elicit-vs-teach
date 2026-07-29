@@ -29,7 +29,12 @@ from typing import Any
 import torch
 import yaml
 
-from geode.arith import format_valid, greedy_completions, order_hash, tokenize_with_spans
+from geode.arith import (
+    format_valid,
+    greedy_completions,
+    load_frozen_parquet as _load_frozen_parquet,
+    tokenize_with_spans,
+)
 from geode.edl.masking import TaskFormat, masking_config_hash
 from geode.train import (
     BehavioralStoppingRule,
@@ -44,38 +49,14 @@ from train import REPO_ROOT, git_commit, load_config, phase
 
 
 def load_frozen_parquet(cfg: dict):
-    """Download + hash-verify one frozen parquet; return the DataFrame.
+    """Full-cfg adapter over ``geode.arith.load_frozen_parquet`` (V5.70).
 
-    The order_hash recomputation guards against silently training (or
-    gating, via ``gates.py``) on the wrong file, a truncated download, or a
-    re-generated dataset: the config pins the hash recorded in the frozen
-    report.json.
-
-    ``data.local_path`` (repo-root-relative, or absolute) skips the download
-    but never the hash check — the same escape hatch ``train_target.py`` has,
-    needed by the 2026-07-26 new-phase artifacts while their HF publish is
-    owner-held. Resolving against ``REPO_ROOT`` (not the cwd, as
-    train_target.py does) keeps one spelling valid from any working
-    directory.
+    Binds the repo root so every existing importer keeps the
+    ``load_frozen_parquet(cfg)`` contract (gates.py, dump_g5_predictions.py,
+    train_embedding_warmstart.py). ``data.local_path`` (repo-root-relative or
+    absolute) skips the download but never the hash check.
     """
-    import pandas as pd
-
-    d = cfg["data"]
-    if d.get("local_path"):
-        path = Path(d["local_path"])
-        path = path if path.is_absolute() else REPO_ROOT / path
-    else:
-        from huggingface_hub import hf_hub_download
-
-        path = hf_hub_download(d["hf_id"], d["file"], repo_type="dataset")
-    df = pd.read_parquet(path)
-    got = order_hash(df.to_dict("records"))
-    if got != d["order_hash"]:
-        raise ValueError(
-            f"dataset {d['file']}: order_hash {got} != pinned {d['order_hash']} — "
-            "wrong or corrupted frozen file; refusing to proceed"
-        )
-    return df
+    return _load_frozen_parquet(cfg["data"], root=REPO_ROOT)
 
 
 def own_lora_block(cfg: dict, config_path: Path, override_path: Path | None) -> dict | None:

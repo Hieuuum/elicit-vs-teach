@@ -28,6 +28,7 @@ from geode.arith.evals import (
 )
 from geode.arith.formats import OPS, digits, render, render_translate, true_answer
 from geode.arith.labels import permute_labels, random_label
+from geode.arith.load import load_frozen_parquet
 from geode.arith.spans import SftExample, token_label_span, tokenize_with_spans
 from geode.arith.stratify import DIGIT_BAND_SIZES, allocate, capacity
 from geode.arith.validate import cell_counts, order_hash, probe_leakage, uniqueness_by_cell
@@ -45,6 +46,7 @@ __all__ = [
     "few_shot_prompt",
     "format_valid",
     "greedy_completions",
+    "load_frozen_parquet",
     "order_hash",
     "parse_answer",
     "permute_labels",
