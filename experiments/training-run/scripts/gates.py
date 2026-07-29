@@ -79,12 +79,12 @@ from geode.arith import (
     text_exact_match,
     tokenize_with_spans,
 )
+from geode.edl import EVAL_STOP_ROWS, G5_N_SHOTS
 from geode.edl.masking import TaskFormat
 from geode.train import evaluate_sft_nll_nats, split_indices
 from geode.zoo import checkpoint_dir, load_model, load_run
 from train import REPO_ROOT, load_config
 from train_sft import load_frozen_parquet
-from train_target import EVAL_STOP_ROWS
 
 # G1 and G2 share the bar: 0.95 is the committed definition of "capability
 # present", no separate installer δ (owner 2026-07-21, spec 02 §8).
@@ -96,8 +96,6 @@ G6_THRESHOLD = 0.95
 # have taught real add/sub — pass iff accuracy <= chance + margin. Exact match
 # on signed multi-digit integers has ~0 chance rate; 0.02 is the margin.
 G3_LEAK_THRESHOLD = 0.02
-# G5 is zero/16-shot (spec 02 §8): the shot count is protocol, not a knob.
-G5_N_SHOTS = 16
 
 
 def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = False) -> int:

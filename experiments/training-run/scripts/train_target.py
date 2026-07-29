@@ -41,6 +41,7 @@ from typing import Any
 import torch
 
 from geode.arith import load_frozen_parquet as _load_frozen_parquet, tokenize_with_spans
+from geode.edl import EVAL_STOP_ROWS
 from geode.edl.loop import PrequentialStepInfo, train_prequential
 from geode.edl.masking import TaskFormat, masking_config_hash
 from geode.probe import snapshot_steps
@@ -54,13 +55,12 @@ from train import REPO_ROOT, git_commit, load_config, phase
 # Explicit entry, not .get(default): a typo'd arm must still fail loudly.
 ARM_REGIME = {"A": "elicit", "B": "teach", "llama": "unknown", "warmstart": "unknown"}
 
-# The first EVAL_STOP_ROWS rows of the frozen eval file (D_target_eval,
-# question-disjoint from D_target ∪ D_algo ∪ probe by construction — spec 02
-# §5) are the in-loop ε/k stopping block, identical for every run and every
-# n. Everything after is the reporting block: the harness's final θ_T test
-# loss (eval/test_loss.json) and gates.py g5 draw from it, so no reported
-# number ever touches the rows that drove the stop decision.
-EVAL_STOP_ROWS = 2048
+# EVAL_STOP_ROWS (spec 02 §5) is imported from geode.edl (V5.74) and re-exported
+# here so `from train_target import EVAL_STOP_ROWS` still resolves
+# (dump_g5_predictions.py, unlock_embedding.py). Rows [0, EVAL_STOP_ROWS) of the
+# frozen eval file are the in-loop ε/k stopping block; everything after is the
+# reporting block (θ_T test loss + G5), so no reported number ever touches the
+# rows that drove the stop decision.
 
 # Curve evals (owner 2026-07-22): extra in-loop evals at a dense-then-log-
 # spaced set of steps (same tested scheduler as snapshots) so the val learning

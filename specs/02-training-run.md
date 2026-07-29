@@ -935,6 +935,14 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   floor-artifact, decisions.md 2026-07-27). `analysis/plot_edl_per_token.py` keeps
   its `--floor {val,test}` flag and `notebooks/key_figures.py` its accumulation
   figure, both delegating here.
+- V5.74 eval-protocol constants + G5 leak bar (2026-07-29, §5/§8): `geode.edl`
+  exposes `EVAL_STOP_ROWS = 2048` (the frozen eval file's stopping/reporting split)
+  and `G5_N_SHOTS = 16` (the G5 few-shot count, protocol not a knob), and
+  `g5_leak_ok(zero_shot)` — the leak bar, inclusive at 0.02: a zero-shot exact-match
+  rate ≤ 0.02 has not leaked the target mapping. `gates.py` and `analysis/steering.py`
+  import the constants from `geode.edl`; `train_target.py` re-exports `EVAL_STOP_ROWS`
+  so `from train_target import EVAL_STOP_ROWS` still resolves. The two leak-bar shell
+  heredocs retire by archival.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

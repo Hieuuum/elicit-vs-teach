@@ -87,7 +87,14 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 
-from geode.arith import exact_match, greedy_completions, order_hash, tokenize_with_spans
+from geode.arith import (
+    exact_match,
+    greedy_completions,
+    load_frozen_parquet,
+    order_hash,
+    tokenize_with_spans,
+)
+from geode.edl import EVAL_STOP_ROWS, G5_N_SHOTS
 from geode.edl.masking import TaskFormat
 from geode.probe import (
     assert_probe_alignment,
@@ -107,14 +114,13 @@ from geode.zoo.store import run_dir
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS_DIR = REPO_ROOT / "experiments" / "training-run" / "scripts"
 CONFIGS_DIR = REPO_ROOT / "experiments" / "training-run" / "configs"
+# The eval-slice constants and the frozen-file loader are now geode.edl / geode.arith
+# (V5.74 / V5.70). The only remaining scripts/ dependency is `load_config`; this
+# sys.path insert exists solely for it and is removed once the _lib package lands
+# (reorg commit 10).
 sys.path.insert(0, str(SCRIPTS_DIR))
 
-# The eval-slice protocol constants and the frozen-file loader live in
-# scripts/, next to the gates that define them — imported, never re-derived.
-from gates import G5_N_SHOTS  # noqa: E402
 from train import load_config  # noqa: E402
-from train_sft import load_frozen_parquet  # noqa: E402
-from train_target import EVAL_STOP_ROWS  # noqa: E402
 
 DEFAULT_RUN = "evt-run7-armA-target-1m"
 DEFAULT_EVAL_CONFIG = CONFIGS_DIR / "eval_target_data.yaml"
@@ -259,7 +265,7 @@ def load_eval_examples(
         print(f"[evt] eval data: local {eval_local} (pinned order_hash NOT verified)")
         df = pd.read_parquet(eval_local)
     else:
-        df = load_frozen_parquet(cfg)
+        df = load_frozen_parquet(cfg["data"], root=REPO_ROOT)
     q_start = EVAL_STOP_ROWS + G5_N_SHOTS
     if len(df) < q_start + n_eval:
         raise ValueError(

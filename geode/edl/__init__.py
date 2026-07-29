@@ -13,14 +13,18 @@ from geode.edl.metrics import (
     training_curve,
 )
 from geode.edl.prequential import PrequentialAccumulator, StepLoss, prequential_step
+from geode.edl.protocol import EVAL_STOP_ROWS, G5_N_SHOTS, g5_leak_ok
 
 __all__ = [
+    "EVAL_STOP_ROWS",
+    "G5_N_SHOTS",
     "PrequentialAccumulator",
     "StepLoss",
     "TaskFormat",
     "edl_nats",
     "edl_per_label_token",
     "edl_per_param",
+    "g5_leak_ok",
     "label_mask",
     "masking_config_hash",
     "mdl_nats",
