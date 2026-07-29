@@ -52,12 +52,24 @@ def _invocations(text: str) -> list[list[str]]:
     return out
 
 
-LAUNCHERS = sorted(p.name for p in SCRIPTS.glob("launch_*.sh"))
+# The live probe100k launcher stays in scripts/; the retired launchers moved to
+# scripts/archive/ (reorg commit 14). Glob both (non-recursively, so scripts/lib/
+# glue is excluded) as SCRIPTS-relative paths, so the live launcher keeps
+# coverage and the archived ones stay byte-identical-but-tested.
+LAUNCHERS = sorted(
+    str(p.relative_to(SCRIPTS))
+    for directory in (SCRIPTS, SCRIPTS / "archive")
+    for p in directory.glob("launch_*.sh")
+)
 
 
 def test_launchers_are_discovered() -> None:
     """Guard the guard: a rename that empties the glob must not silently pass."""
     assert LAUNCHERS, "no launch_*.sh found — this test would vacuously pass"
+    assert "launch_llama_probe100k.sh" in LAUNCHERS, "live probe100k launcher not discovered"
+    assert sum(name.startswith("archive/") for name in LAUNCHERS) == 10, (
+        "expected 10 archived launchers under scripts/archive/"
+    )
 
 
 @pytest.mark.parametrize("launcher", LAUNCHERS)
