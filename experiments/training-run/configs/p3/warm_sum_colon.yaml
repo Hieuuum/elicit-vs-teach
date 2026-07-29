@@ -1,0 +1,5 @@
+# Phase-3 embedding warm-start combination: " sum" plus the shared ':'.
+run_id: evt-p3-warm-sum-colon
+warmstart:
+  tokens: ["Ġs", "um", ":"]
+  rows: [261, 492, 27]

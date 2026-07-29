@@ -71,6 +71,7 @@ import torch
 
 from geode.arith import (
     exact_match,
+    exact_match_accuracy,
     few_shot_prompt,
     format_valid,
     greedy_completions,
@@ -131,14 +132,18 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = Fal
     answers = rows["true_answer"].astype(int).tolist()
     ops = rows["op"].tolist()
 
-    completions = greedy_completions(
-        model, tokenizer, prompt_ids, device=args.device, batch_size=args.batch_size
+    accuracy, completions = exact_match_accuracy(
+        model,
+        tokenizer,
+        prompt_ids,
+        answers,
+        device=args.device,
+        batch_size=args.batch_size,
     )
     # The completion starts inside the answer slot (its leading space rides on
     # the first answer token), so "Answer:" + completion re-enters the tested
     # parser with the marker it expects.
     hits = [exact_match("Answer:" + c, a) for c, a in zip(completions, answers)]
-    accuracy = sum(hits) / len(hits)
     by_op = {
         op: sum(h for h, o in zip(hits, ops) if o == op) / max(1, ops.count(op))
         for op in sorted(set(ops))
@@ -380,11 +385,15 @@ def run_g5(args: argparse.Namespace) -> int:
             char_spans.append((offset + cs, offset + ce))
         examples = tokenize_with_spans(texts, char_spans, tokenizer)
         prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
-        completions = greedy_completions(
-            model, tokenizer, prompt_ids, device=args.device, batch_size=args.batch_size
+        accuracy, _ = exact_match_accuracy(
+            model,
+            tokenizer,
+            prompt_ids,
+            answers,
+            device=args.device,
+            batch_size=args.batch_size,
         )
-        hits = [exact_match("Answer:" + c, a) for c, a in zip(completions, answers)]
-        return sum(hits) / len(hits)
+        return accuracy
 
     zero = accuracy_with([])
     print(f"[evt] G5 zero-shot exact_match {zero:.4f} on n={args.n}")
@@ -474,9 +483,7 @@ def run_g6(args: argparse.Namespace) -> int:
     """Held-out bidirectional exact match for the phase-3 translation bridge."""
     cfg = load_config(args.config, None)
     if cfg["task"]["name"] != "arith_translate":
-        raise SystemExit(
-            f"[evt] G6 needs task.name=arith_translate, got {cfg['task']['name']!r}"
-        )
+        raise SystemExit(f"[evt] G6 needs task.name=arith_translate, got {cfg['task']['name']!r}")
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
     manifest = load_run(args.run, store=store)
@@ -499,9 +506,7 @@ def run_g6(args: argparse.Namespace) -> int:
     directions = df["direction"].astype(str).tolist()
 
     texts = df["full_text"].tolist()
-    char_spans = list(
-        zip(df["answer_char_start"].astype(int), df["answer_char_end"].astype(int))
-    )
+    char_spans = list(zip(df["answer_char_start"].astype(int), df["answer_char_end"].astype(int)))
     examples = tokenize_with_spans(texts, char_spans, tokenizer)
     prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
     completions = greedy_completions(

@@ -57,6 +57,11 @@ FULL_FT = [
     "p3_teach_inst.yaml",
     "p3_bridge.yaml",
 ]
+EMBEDDING_WARMSTART = [
+    "p3/warm_sum.yaml",
+    "p3/warm_colon.yaml",
+    "p3/warm_sum_colon.yaml",
+]
 LORA_TARGET = [
     ("run10_llama1b_target.yaml", None),
     ("p3_elicit_target.yaml", None),
@@ -64,7 +69,35 @@ LORA_TARGET = [
     ("p3_elicit_target.yaml", "p3/target_after_recover.yaml"),
     ("p3_elicit_target.yaml", "p3/target_on_bridge.yaml"),
     ("p3_elicit_target.yaml", "p3/target_teach.yaml"),
+    ("p3_elicit_target.yaml", "p3/target_warm_sum.yaml"),
+    ("p3_elicit_target.yaml", "p3/target_warm_colon.yaml"),
+    ("p3_elicit_target.yaml", "p3/target_warm_sum_colon.yaml"),
 ]
+
+
+@pytest.mark.parametrize("override", EMBEDDING_WARMSTART)
+def test_embedding_warmstart_configs_build_a_manifest(override: str) -> None:
+    trainer = _load("train_embedding_warmstart")
+    from train import load_config  # noqa: PLC0415
+
+    cfg = load_config(CONFIGS / "p3_embedding_warmstart.yaml", CONFIGS / override)
+    cfg["run_id"] = trainer.candidate_run_id(cfg["run_id"], 0.01)
+    manifest = trainer.manifest_fields(
+        cfg,
+        candidate={
+            "lr": 0.01,
+            "operator_accuracy": 0.0,
+            "nl_accuracy": 0.5,
+            "nl_loss_nats": 1.0,
+        },
+        n_trainable=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+    )
+    assert manifest["run_id"].endswith("-lr1e-2")
+    assert manifest["experiment"]["gates"] == {}
+    assert manifest["experiment"]["embedding_warmstart"]["final"]["operator_accuracy"] == 0.0
 
 
 @pytest.mark.parametrize("config", FULL_FT)
@@ -105,3 +138,24 @@ def test_lora_target_configs_build_a_manifest(config: str, override: str | None)
         mask_hash="0" * 64,
         precision="fp32",
     )
+
+
+@pytest.mark.parametrize(
+    ("override", "match_with"),
+    [
+        ("p3/target_warm_sum.yaml", None),
+        ("p3/target_warm_colon.yaml", "evt-p3-warm-sum-target"),
+        ("p3/target_warm_sum_colon.yaml", "evt-p3-warm-sum-target"),
+    ],
+)
+def test_warmstart_targets_pin_one_100k_pass(override: str, match_with: str | None) -> None:
+    from train import load_config  # noqa: PLC0415
+
+    cfg = load_config(CONFIGS / "p3_elicit_target.yaml", CONFIGS / override)
+    assert cfg["data"]["n_examples"] == 100000
+    assert cfg["train"]["batch_size"] == 128
+    assert cfg["train"]["max_steps"] == 782
+    assert cfg["train"]["stopping"]["min_steps"] == 782
+    assert cfg["experiment"]["parent_required_gates"] == []
+    assert cfg["experiment"]["fixed_prefix_one_pass"] is True
+    assert cfg["experiment"]["match_data_order_with"] == match_with

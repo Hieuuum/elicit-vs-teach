@@ -18,7 +18,14 @@ elicit-vs-teach comparison, so they are tested core:
 from __future__ import annotations
 
 from geode.arith.decode import greedy_completions
-from geode.arith.evals import exact_match, few_shot_prompt, format_valid, parse_answer, text_exact_match
+from geode.arith.evals import (
+    exact_match,
+    exact_match_accuracy,
+    few_shot_prompt,
+    format_valid,
+    parse_answer,
+    text_exact_match,
+)
 from geode.arith.formats import OPS, digits, render, render_translate, true_answer
 from geode.arith.labels import permute_labels, random_label
 from geode.arith.spans import SftExample, token_label_span, tokenize_with_spans
@@ -34,6 +41,7 @@ __all__ = [
     "cell_counts",
     "digits",
     "exact_match",
+    "exact_match_accuracy",
     "few_shot_prompt",
     "format_valid",
     "greedy_completions",

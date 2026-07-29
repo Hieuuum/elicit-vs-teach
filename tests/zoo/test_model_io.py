@@ -17,7 +17,7 @@ import pytest
 import torch
 from torch import nn
 
-from geode.train import apply_lora
+from geode.train import apply_lora, untie_lm_head
 from geode.zoo import load_model
 from tests.zoo.test_manifest import make_manifest
 
@@ -84,6 +84,22 @@ def test_v0_9_full_ft_checkpoint_round_trip_bit_exact(tiny_llama, tmp_path: Path
     write_run(store, "run-ft", saved, "full_ft")
 
     loaded = load_model("run-ft", store=store)
+    assert torch.equal(logits(loaded), logits(saved))
+
+
+def test_v0_9_untied_warmstart_base_survives_lora_round_trip(tiny_llama, tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    saved = tiny_llama(seed=0, tie_word_embeddings=True)
+    untie_lm_head(saved)
+    with torch.no_grad():
+        saved.get_input_embeddings().weight[5].add_(0.25)
+    apply_lora(saved, seed=1, **LORA_KW)
+    perturb_adapters(saved, seed=9)
+    write_run(store, "run-untied-lora", saved, "lora")
+
+    loaded = load_model("run-untied-lora", store=store)
+    assert not loaded.config.tie_word_embeddings
+    assert loaded.lm_head.weight.data_ptr() != loaded.get_input_embeddings().weight.data_ptr()
     assert torch.equal(logits(loaded), logits(saved))
 
 

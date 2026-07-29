@@ -266,6 +266,19 @@ zero/16-shot prompt builder for G5.
   Train and held-out translation pairs are disjoint, probe questions and exact
   target pairs are excluded, and allocation uses the same capacity-capped
   water-fill over phase 3's 64 operand-length cells.
+- V5.68 input-embedding warm-start (phase 3, 2026-07-28): untying the language-
+  model head is a bitwise logit no-op before training; a row-masked optimizer
+  changes only the declared input-embedding rows and leaves the frozen output
+  head and every other parameter bit-identical. A prompt that contains none of
+  the changed rows therefore keeps bit-identical logits. The practical
+  warm-start corpus is deterministic, correct-label NL addition, and excludes
+  both direct questions and answer-identical commuted twins from the frozen
+  phase-3 parent, target, eval, and probe sets.
+- V5.69 warm-start selection (phase 3, revised 2026-07-28): all persisted LR
+  candidates are ranked by held-out NL exact match, held-out masked NLL, and
+  smaller LR in that order. Operator-addition retention is recorded evidence but
+  never filters or ranks candidates. The target stream, D_p3_nl_eval, and target
+  EDL are never selection inputs.
 
 ## 6. Training runs — per-run needs
 

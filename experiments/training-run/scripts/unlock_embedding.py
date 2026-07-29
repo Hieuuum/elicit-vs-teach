@@ -132,6 +132,7 @@ import torch
 
 from geode.arith import exact_match, greedy_completions, parse_answer, tokenize_with_spans
 from geode.edl.masking import TaskFormat, label_mask
+from geode.train import untie_lm_head
 from geode.train.sft import _mean_masked_ce_nats  # the one masked-CE; a copy would drift
 from geode.zoo import checkpoint_dir, load_model
 from gates import G5_N_SHOTS
@@ -320,23 +321,6 @@ def cmd_provenance(args: argparse.Namespace) -> int:
 # --------------------------------------------------------------------------
 # unlock: the experiment
 # --------------------------------------------------------------------------
-
-
-def untie_lm_head(model: torch.nn.Module) -> None:
-    """Give ``lm_head`` its own frozen copy of the (tied) embedding matrix.
-
-    Mathematically a no-op at step 0 — the caller asserts that on real logits.
-    Without it, training an embedding row also trains an unembedding row, and
-    the softmax denominator contributes gradient at every position, so the row
-    would move for reasons that have nothing to do with reading the token.
-    """
-    emb = model.get_input_embeddings().weight
-    if model.lm_head.weight.data_ptr() != emb.data_ptr():
-        return  # already untied
-    model.lm_head.weight = torch.nn.Parameter(emb.detach().clone())
-    model.config.tie_word_embeddings = False
-    if model.lm_head.weight.data_ptr() == emb.data_ptr():
-        raise SystemExit("untie failed: lm_head still aliases the embedding table")
 
 
 def main() -> int:

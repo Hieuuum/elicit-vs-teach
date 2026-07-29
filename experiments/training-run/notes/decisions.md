@@ -4445,3 +4445,68 @@ teach EDL), so it cannot manufacture an elicit advantage. The launcher is
 `scripts/launch_phase3_teach.sh --confirm-cost --stage teach|target|all`; no GPU
 job is implicit, and neither run exists until that command is explicitly run on
 the rented box.
+
+### 2026-07-28 — practical Phase-3 embedding warm-start pre-registration (built, unrun)
+
+This is a **practical warm-start control, not an Arm-A elicitation result**. It
+intentionally sees correct-label natural-language addition before the measured
+100K fixed-prefix target stream. Its target EDL therefore means *residual information after
+warm-starting*; the warm-start's own exposure is reported separately and may not
+be hidden inside an elicitation claim.
+
+The question is whether a tiny input-side change can make the existing operator-
+addition algorithm easier to address from the target wording. The frozen tokenizer
+encodes `" sum"` as rows 261 (`Ġs`) + 492 (`um`); `:` is row 27 and occurs in both
+`Question:` and `Answer:`. Three arms are frozen before any GPU result:
+
+| warm-start run | trainable input rows | target run |
+|---|---|---|
+| `evt-p3-warm-sum-lr{1e-3,1e-2,1e-1,1e0}` | 261 + 492 (`sum`) | `evt-p3-warm-sum-target` |
+| `evt-p3-warm-colon-lr{1e-3,1e-2,1e-1,1e0}` | 27 (`:` broad-switch control) | `evt-p3-warm-colon-target` |
+| `evt-p3-warm-sum-colon-lr{1e-3,1e-2,1e-1,1e0}` | 261 + 492 + 27 | `evt-p3-warm-sum-colon-target` |
+
+Neither `;` nor `+` is an arm. Neither token appears in the NL target prompt, so
+changing its input embedding cannot route that prompt; including either would
+only repeat the unlock diagnostic's absent-row control.
+
+One new frozen pool, `D_p3_nl_warmstart`, contains **4,096** correct-label NL-add
+questions at seed 20260728 (order hash
+`3a8383e69c50eaeedefcc51ea81fc3c0f6fa8f52d999fa63fd74f13e2b8d9e32`).
+Both direct questions and answer-identical commuted twins are excluded from
+`D_p3_on_add`, `D_p3_nl_add`, `D_p3_nl_eval`, and `D_p3_probe`; measured overlap
+is zero for all four. The first 512 rows are the fixed training dose and the
+remaining 3,584 are the selection block. This data stays outside the target and
+reporting eval sets.
+
+Every arm receives the identical protocol: 512 unique examples, 200 full-dose
+optimizer steps, micro-batch 128, AdamW with weight decay **zero**, seed 20260728,
+and LR grid `[1e-3, 1e-2, 1e-1, 1]`. Each LR candidate restarts from the identical
+`evt-p3-elicit-parent` and is persisted as its own checkpoint: all 12 survive and
+are relayed, including damaged candidates. Selection independently per row treatment
+maximizes held-out NL exact match, then minimizes held-out NL masked NLL, then selects
+the smaller LR. Operator-addition accuracy is recorded evidence but never filters,
+ranks, gates, blocks, or deletes a run. The target stream, `D_p3_nl_eval`, and target
+EDL are forbidden selection inputs.
+
+Before training, `lm_head` is cloned and frozen and the code requires the untie
+to leave logits bit-identical. Only the declared input rows receive gradients;
+the saved checkpoint is re-read and must differ from the operator parent only at
+those rows, with the output head unchanged. The true trainable counts are 1,024,
+512, and 1,536 parameters. Each persisted candidate records its own LR, metrics,
+row deltas, and exposure: **512 unique questions and 102,400
+example presentations**. Correct labels make this teaching exposure regardless
+of the small parameter count.
+
+Each row treatment selects one persisted parent for a stable `-target` child with
+`arm: warmstart` / `regime: unknown` and no required parent gates. The child consumes
+exactly frozen target rows 0–99,999 once: 781 full 128-row batches plus a final 32-row
+batch, 782 updates total. `sum` is the 100K G7 anchor; `colon` and `sum-colon` match
+it. LoRA, LR, seed, eval data, and zero-snapshot policy remain inherited from the
+control; the intentional `stop_reason=max_steps` means the fixed one-pass budget ended.
+Success is lower residual EDL **per training example** than the completed control,
+with the requested moving-validation-floor trend reported from n=128. A smoother
+or decreasing moving-floor curve is not sufficient by itself: fixed-test-floor
+EDL, raw MDL/example, and final test loss must also rule out floor motion or a
+worse endpoint. Null or worse results are reportable outcomes, not reasons to tune
+on target EDL. Setup launcher: `scripts/launch_phase3_warmstart.sh`; no GPU run has
+launched.

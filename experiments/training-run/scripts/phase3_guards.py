@@ -17,6 +17,7 @@ ARTIFACT_PINS = (
     ("p3_elicit_target.yaml", "local_path"),
     ("p3_elicit_target.yaml", "eval_local_path"),
     ("p3_teach_inst.yaml", "local_path"),
+    ("p3_embedding_warmstart.yaml", "local_path"),
     ("eval_p3_data.yaml", "local_path"),
     ("p3_bridge.yaml", "local_path"),
     ("eval_p3_bridge_data.yaml", "local_path"),
@@ -27,7 +28,18 @@ TEACH_ARTIFACT_PINS = (
     ("p3_elicit_target.yaml", "eval_local_path"),
     ("eval_p3_data.yaml", "local_path"),
 )
-ALL_ARTIFACT_PINS = {"all": ARTIFACT_PINS, "teach": TEACH_ARTIFACT_PINS}
+WARMSTART_ARTIFACT_PINS = (
+    ("p3_embedding_warmstart.yaml", "local_path"),
+    ("p3_elicit_parent.yaml", "local_path"),
+    ("p3_elicit_target.yaml", "local_path"),
+    ("p3_elicit_target.yaml", "eval_local_path"),
+    ("eval_p3_data.yaml", "local_path"),
+)
+ALL_ARTIFACT_PINS = {
+    "all": ARTIFACT_PINS,
+    "teach": TEACH_ARTIFACT_PINS,
+    "warmstart": WARMSTART_ARTIFACT_PINS,
+}
 
 
 def artifact_pins(scope: str) -> tuple[tuple[str, str], ...]:
@@ -37,6 +49,66 @@ def artifact_pins(scope: str) -> tuple[tuple[str, str], ...]:
 
 def _read_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text())
+
+
+def _check_warmstart_protocol(configs: Path) -> None:
+    base = _read_yaml(configs / "p3_embedding_warmstart.yaml")
+    warm = base["warmstart"]
+    if [float(lr) for lr in warm["lr_grid"]] != [0.001, 0.01, 0.1, 1.0]:
+        raise SystemExit("phase3: warm-start LR grid drifted from [1e-3, 1e-2, 1e-1, 1]")
+    expected_dose = {
+        "train_rows": 512,
+        "selection_rows": 3584,
+        "steps": 200,
+        "micro_batch_size": 128,
+    }
+    for key, expected in expected_dose.items():
+        if warm[key] != expected:
+            raise SystemExit(
+                f"phase3: warm-start {key}={warm[key]} but the pre-registered value is {expected}"
+            )
+    if base["data"]["n_examples"] != warm["train_rows"] + warm["selection_rows"]:
+        raise SystemExit("phase3: warm-start split does not cover the pinned dataset")
+
+    expected_arms = {
+        "warm_sum.yaml": (["Ġs", "um"], [261, 492]),
+        "warm_colon.yaml": ([":"], [27]),
+        "warm_sum_colon.yaml": (["Ġs", "um", ":"], [261, 492, 27]),
+    }
+    for name, (tokens, rows) in expected_arms.items():
+        arm = _read_yaml(configs / "p3" / name)["warmstart"]
+        if arm.get("tokens") != tokens or arm.get("rows") != rows:
+            raise SystemExit(
+                f"phase3: p3/{name} must pin tokens={tokens!r}, rows={rows!r}; got {arm}"
+            )
+
+    expected_targets = {
+        "target_warm_sum.yaml": None,
+        "target_warm_colon.yaml": "evt-p3-warm-sum-target",
+        "target_warm_sum_colon.yaml": "evt-p3-warm-sum-target",
+    }
+    base_target = _read_yaml(configs / "p3_elicit_target.yaml")
+    for name, match_with in expected_targets.items():
+        target = _read_yaml(configs / "p3" / name)
+        if target.get("data", {}).get("n_examples") != 100000:
+            raise SystemExit(f"phase3: p3/{name} must pin data.n_examples=100000")
+        train = target.get("train", {})
+        if train.get("max_steps") != 782 or train.get("stopping", {}).get("min_steps") != 782:
+            raise SystemExit(f"phase3: p3/{name} must pin a one-pass 782-step target budget")
+        experiment = target.get("experiment", {})
+        if experiment.get("parent_required_gates") != []:
+            raise SystemExit(f"phase3: p3/{name} must not require warm-start parent gates")
+        if experiment.get("fixed_prefix_one_pass") is not True:
+            raise SystemExit(f"phase3: p3/{name} must mark fixed_prefix_one_pass: true")
+        if experiment.get("match_data_order_with") != match_with:
+            raise SystemExit(f"phase3: p3/{name} match_data_order_with must be {match_with!r}")
+        target_hash = target.get("data", {}).get("order_hash", base_target["data"]["order_hash"])
+        if target_hash != base_target["data"]["order_hash"]:
+            raise SystemExit(f"phase3: p3/{name} drifted from the frozen target order hash")
+    print(
+        "[p3] warm-start protocol: 3 row sets, 12 persisted LR candidates, "
+        "512x200 dose, 100K/782-step targets pinned"
+    )
 
 
 def check_phase3_guards(configs: Path, repo_root: Path, *, scope: str = "all") -> None:
@@ -106,6 +178,8 @@ def check_phase3_guards(configs: Path, repo_root: Path, *, scope: str = "all") -
             "is scoped to LoRA target runs; a full-FT stage at that rate is the run-9 failure."
         )
     print(f"[p3] pre-intervention lr {parent_lr} (role-inherited from run 2, see config header)")
+    if scope in {"all", "warmstart"}:
+        _check_warmstart_protocol(configs)
 
 
 def main() -> int:

@@ -18,6 +18,14 @@ spacing remain exact.
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
+
+import torch
+
+from geode.arith.decode import greedy_completions
+
+if TYPE_CHECKING:
+    from transformers import PreTrainedTokenizerBase
 
 _INT = re.compile(r"^-?\d+$")
 _ANSWER_MARKER = "Answer:"
@@ -43,6 +51,31 @@ def parse_answer(text: str) -> int | None:
 def exact_match(output: str, answer: int) -> bool:
     """True iff the parsed answer slot equals ``answer`` exactly."""
     return parse_answer(output) == answer
+
+
+@torch.no_grad()
+def exact_match_accuracy(
+    model: torch.nn.Module,
+    tokenizer: "PreTrainedTokenizerBase",
+    prompt_ids: list[list[int]],
+    answers: list[int],
+    *,
+    device: str,
+    batch_size: int,
+) -> tuple[float, list[str]]:
+    """Run the shared greedy protocol and return aggregate integer accuracy."""
+    if len(prompt_ids) != len(answers):
+        raise ValueError(
+            f"exact_match_accuracy: {len(prompt_ids)} prompts != {len(answers)} answers"
+        )
+    completions = greedy_completions(
+        model, tokenizer, prompt_ids, device=device, batch_size=batch_size
+    )
+    hits = [
+        exact_match("Answer:" + completion, answer)
+        for completion, answer in zip(completions, answers)
+    ]
+    return sum(hits) / max(1, len(hits)), completions
 
 
 def text_exact_match(output: str, answer: str) -> bool:

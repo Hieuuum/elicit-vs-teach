@@ -1,0 +1,5 @@
+# Phase-3 embedding warm-start treatment: the two rows forming " sum".
+run_id: evt-p3-warm-sum
+warmstart:
+  tokens: ["Ġs", "um"]
+  rows: [261, 492]

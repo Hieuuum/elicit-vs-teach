@@ -1,0 +1,16 @@
+# G7-matched fixed-prefix target after the selected practical ':' warm-start.
+run_id: evt-p3-warm-colon-target
+experiment:
+  arm: warmstart
+  parent_run_id: evt-p3-warm-colon-lr1e-3  # launcher overrides with selected LR
+  parent_required_gates: []                # retention is evidence, never a blocker
+  match_data_order_with: evt-p3-warm-sum-target
+  fixed_prefix_one_pass: true
+
+data:
+  n_examples: 100000
+
+train:
+  max_steps: 782  # exactly one no-drop-last pass: 781x128 + 1x32
+  stopping:
+    min_steps: 782

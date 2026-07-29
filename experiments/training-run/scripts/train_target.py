@@ -45,14 +45,14 @@ from geode.edl.loop import PrequentialStepInfo, train_prequential
 from geode.edl.masking import TaskFormat, masking_config_hash
 from geode.probe import snapshot_steps
 from geode.train import ConvergenceTracker, StoppingRule, evaluate_sft_nll_nats
-from geode.zoo import load_run, register_run, require_parent_ready, tokenizer_hash
+from geode.zoo import checkpoint_dir, load_run, register_run, require_parent_ready, tokenizer_hash
 from train import REPO_ROOT, git_commit, load_config, phase
 
 # Regimes attach to the target runs. Run 10 (arm "llama") records "unknown"
 # (spec 00: regime is design-known at creation; whether real Llama holds the
 # capability latent is exactly what that run measures — run-9 SFT precedent).
 # Explicit entry, not .get(default): a typo'd arm must still fail loudly.
-ARM_REGIME = {"A": "elicit", "B": "teach", "llama": "unknown"}
+ARM_REGIME = {"A": "elicit", "B": "teach", "llama": "unknown", "warmstart": "unknown"}
 
 # The first EVAL_STOP_ROWS rows of the frozen eval file (D_target_eval,
 # question-disjoint from D_target ∪ D_algo ∪ probe by construction — spec 02
@@ -240,11 +240,20 @@ def main() -> int:
         "(targets never start from random)",
     )
     parser.add_argument("--store", type=Path, default=None, help="override $GEODE_STORE")
+    parser.add_argument(
+        "--parent-run-id",
+        default=None,
+        help="override experiment.parent_run_id for a pre-selected warm-start candidate",
+    )
     parser.add_argument("--confirm-cost", action="store_true")
     args = parser.parse_args()
 
     phase(1, "config + tokenizer")
     cfg = load_config(args.config, args.override)
+    if args.parent_run_id is not None:
+        if cfg["experiment"]["arm"] != "warmstart":
+            raise ValueError("--parent-run-id is only valid for arm: warmstart")
+        cfg["experiment"]["parent_run_id"] = args.parent_run_id
     if cfg["train"].get("lr") is None:
         print(
             "[evt] train.lr is null — the LoRA target LR is unpinned until the pilot "
@@ -352,7 +361,16 @@ def main() -> int:
             required_gates=tuple(cfg["experiment"].get("parent_required_gates", ())),
             store=store,
         )
-        print(f"[evt] parent '{parent}' complete, gates pass", flush=True)
+        if cfg["experiment"]["arm"] == "warmstart":
+            expected_parent_checkpoint = checkpoint_dir(parent, store=store)
+            if args.init_from.resolve() != expected_parent_checkpoint.resolve():
+                raise ValueError(
+                    f"--init-from {args.init_from} is not declared warm-start parent "
+                    f"'{parent}' checkpoint {expected_parent_checkpoint}"
+                )
+            print(f"[evt] parent '{parent}' complete, gates pass, checkpoint matches", flush=True)
+        else:
+            print(f"[evt] parent '{parent}' complete, gates pass", flush=True)
 
     match_with = cfg["experiment"].get("match_data_order_with")
     if match_with:
@@ -370,6 +388,21 @@ def main() -> int:
         print(f"[evt] G7: data order matches '{match_with}'", flush=True)
 
     t = cfg["train"]
+    steps_per_epoch = math.ceil(len(train_examples) / t["batch_size"])  # no drop-last
+    fixed_prefix_one_pass = bool(cfg["experiment"].get("fixed_prefix_one_pass", False))
+    if fixed_prefix_one_pass:
+        if cfg["experiment"]["arm"] != "warmstart":
+            raise ValueError("fixed_prefix_one_pass is only valid for arm: warmstart")
+        if t["max_steps"] != steps_per_epoch:
+            raise ValueError(
+                "fixed-prefix warm-start target must set max_steps to exactly one "
+                f"no-drop-last pass ({steps_per_epoch}), got {t['max_steps']}"
+            )
+        if t["stopping"].get("min_steps", 0) != steps_per_epoch:
+            raise ValueError(
+                "fixed-prefix warm-start target must prevent convergence before its "
+                f"one-pass ceiling at step {steps_per_epoch}"
+            )
     gpu = cfg["gpu"]
     # Same CPU fallback as train_sft.py; spec 00 §2 records the resolved value.
     precision = t.get("precision", "fp32") if args.device != "cpu" else "fp32"
@@ -378,7 +411,6 @@ def main() -> int:
     flops = 6.0 * n_params * (t["max_steps"] * t["batch_size"] * max_len)
     hours = flops / (gpu["tflops_bf16"] * 1e12 * gpu["utilization"] * 3600.0)
     est_usd = hours * gpu["usd_per_hour"]
-    steps_per_epoch = math.ceil(len(train_examples) / t["batch_size"])  # no drop-last
     epochs_total = math.ceil(t["max_steps"] / steps_per_epoch)
     print(
         f"[evt] run_id={cfg['run_id']} train={len(train_examples)} "
@@ -518,6 +550,14 @@ def main() -> int:
         if (p / "adapter.safetensors").is_file()
     )
     stop_reason = state["stop_reason"] or "max_steps"
+    if fixed_prefix_one_pass and (
+        stop_reason != "max_steps" or state["final_step"] != steps_per_epoch
+    ):
+        raise RuntimeError(
+            "fixed-prefix warm-start target did not complete its exact one-pass budget: "
+            f"stop_reason={stop_reason!r}, final_step={state['final_step']}, "
+            f"expected_step={steps_per_epoch}"
+        )
     manifest.data["status"] = "complete"
     # Scheduled steps past the stopping point never materialize; the emergent
     # truncation is recorded here (declared schedule stays in snapshot_steps).

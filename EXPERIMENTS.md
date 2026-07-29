@@ -98,9 +98,13 @@ The notation is **reversed**: `D_p3_on_add` (500K, operator) is the
 pre-intervention set and `D_p3_nl_add` (500K, natural language) is the
 target. Plus `D_p3_nl_eval` (100K), `D_p3_nl_mult` (200K, permuted —
 the conditional elicit installer pool), `D_p3_nl_add_perm` (200K,
-permuted — the role-matched teach installer pool), and a 4,042-row NL
-probe. The teach pool is question-disjoint from target, eval, and probe;
-its order hash is `0e58ba91…c535` and label coincidence is 0/200K.
+permuted — the role-matched teach installer pool), `D_p3_nl_warmstart`
+(4,096 correct NL-add rows: 512 fixed-dose + 3,584 LR selection), and a
+4,042-row NL probe. The teach pool is question-disjoint from target, eval,
+and probe; its order hash is `0e58ba91…c535` and label coincidence is
+0/200K. The warm-start pool additionally excludes parent questions and
+answer-identical commuted twins of all four frozen sets; its order hash is
+`3a8383e6…9e32`.
 
 **Operands run 1–8 digits, evenly across all 64 stratification cells**
 (owner 2026-07-27). At the old 4-digit ceiling the six smallest cells
@@ -400,6 +404,22 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    --stage teach|target|all` is resume-safe and cost-gated. Directly training the
    raw TinyStories base on the target was rejected because its EDL would also
    bill prompt-format and answer-shape learning. No teach run has launched.
+
+   **Practical embedding warm-start family built 2026-07-28, unrun.** This is a
+   diagnostic/control family, not Arm A: each parent sees 512 correct NL-addition
+   examples for 200 optimizer steps before the target, so its EDL is explicitly
+   residual after unbilled teaching exposure. `evt-p3-warm-{sum,colon,sum-colon}-lr{1e-3,1e-2,1e-1,1e0}`
+   train only input rows `{261,492}`, `{27}`, or `{261,492,27}` after untying and
+   freezing `lm_head`. All 12 candidates are independently persisted on the
+   pre-registered 4,096-row pool, which is disjoint from parent/target/eval/probe
+   both directly and by commuted twin. Selection is target-free: highest held-out
+   NL exact match, then lower NL loss, then smaller LR. G2 retention is report-only.
+   One selected candidate per row treatment feeds a stable `-target` child that
+   consumes exactly the first 100K frozen target rows once (782 updates). `sum` is
+   the 100K G7 anchor; the other two targets match it. `scripts/launch_phase3_warmstart.sh` is resume-safe and
+   cost-gated; neither `+` nor `;` is included because neither appears in an NL
+   target prompt. Judge the result by residual fixed-test-floor EDL/example and
+   raw MDL/example; the requested moving-validation trend is diagnostic only.
 
 ## 7. Budget
 

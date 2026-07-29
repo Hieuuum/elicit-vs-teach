@@ -1,0 +1,17 @@
+# Fixed-prefix target after the selected practical "sum" embedding warm-start.
+# This is the 100K G7 anchor for the three warm-start row treatments.
+run_id: evt-p3-warm-sum-target
+experiment:
+  arm: warmstart
+  parent_run_id: evt-p3-warm-sum-lr1e-3  # launcher overrides with the selected LR
+  parent_required_gates: []              # retention is evidence, never a blocker
+  match_data_order_with: null
+  fixed_prefix_one_pass: true
+
+data:
+  n_examples: 100000
+
+train:
+  max_steps: 782  # exactly one no-drop-last pass: 781x128 + 1x32
+  stopping:
+    min_steps: 782

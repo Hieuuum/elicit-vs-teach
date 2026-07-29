@@ -45,6 +45,11 @@ labels, question-disjoint from the frozen Phase-3 target, eval, and probe. It
 installs the target surface format and answer marginal without teaching the
 addition mapping; existing Phase-3 entries and parquets are never rewritten.
 
+``--phase3-warmstart`` appends the correct-label NL-addition pool used only by
+the practical embedding warm-start. Both ordered questions and their commuted
+twins are excluded from the frozen Phase-3 parent, target, eval, and probe; the
+first 512 rows are the fixed training dose and the remainder select the LR.
+
 Uniqueness is the **question**: every training row is a distinct ordered triple
 ``(a, op, b)`` — no repeats anywhere. Probe exclusion is question-level and
 format-independent: a probe triple blocks only its own ``(a, op, b)`` from
@@ -193,6 +198,16 @@ P3_INST_SIZE = 200_000
 P3_TEACH_INST_SPEC = DatasetSpec("D_p3_nl_add_perm", ("+",), "nl", "permuted")
 P3_TEACH_INST_SIZE = 200_000
 P3_TEACH_INST_EXCLUDES = (P3_TARGET_SPEC.name, P3_EVAL_SPEC.name, "D_p3_probe")
+P3_WARMSTART_SPEC = DatasetSpec("D_p3_nl_warmstart", ("+",), "nl", "correct")
+P3_WARMSTART_SIZE = 4_096
+P3_WARMSTART_TRAIN_SIZE = 512
+P3_WARMSTART_SEED = 20260728
+P3_WARMSTART_EXCLUDES = (
+    P3_PARENT_SPEC.name,
+    P3_TARGET_SPEC.name,
+    P3_EVAL_SPEC.name,
+    "D_p3_probe",
+)
 P3_PROBE_PER_CELL = 64
 P3_CARVE_DIVISOR = 8
 
@@ -616,6 +631,64 @@ def make_installer_sets(args: argparse.Namespace) -> int:
         f"order_hash={d_rep['order_hash'][:12]}…  unique+disjoint ✓"
     )
     report_path.write_text(json.dumps(report, indent=2))
+    print(f"[evt] report -> {report_path}")
+    return 0
+
+
+def _with_commuted_twins(triples: set[Triple]) -> set[Triple]:
+    """Return ``triples`` plus answer-identical commuted addition questions."""
+    return triples | {(b, op, a) for a, op, b in triples if op == "+"}
+
+
+def make_phase3_warmstart(args: argparse.Namespace) -> int:
+    """Append the disjoint correct-label embedding warm-start pool."""
+    report_path = args.out / "report.json"
+    report = json.loads(report_path.read_text())
+    frozen = _frozen_triples(args.out, P3_WARMSTART_EXCLUDES, report)
+    excluded = _with_commuted_twins(frozen)
+    print(
+        f"[evt] {P3_WARMSTART_SPEC.name} exclusion union: {len(frozen):,} direct, "
+        f"{len(excluded):,} including commuted twins from {P3_WARMSTART_EXCLUDES}"
+    )
+    _print_distribution(
+        P3_WARMSTART_SPEC.name,
+        plan_allocation(P3_WARMSTART_SPEC, args.p3_warmstart_n, excluded, cells=P3_CELLS),
+        cell_capacities(P3_WARMSTART_SPEC, excluded, cells=P3_CELLS),
+        P3_CELLS,
+    )
+    if args.dry_run:
+        print("[evt] --dry-run: nothing written.")
+        return 0
+
+    records, plan = build_dataset(
+        P3_WARMSTART_SPEC,
+        args.p3_warmstart_n,
+        excluded,
+        args.seed,
+        cells=P3_CELLS,
+    )
+    rep = validate(records, excluded, plan, cells=P3_CELLS)
+    rep["split"] = {
+        "train_rows": args.p3_warmstart_train_n,
+        "selection_rows": args.p3_warmstart_n - args.p3_warmstart_train_n,
+        "policy": "prefix",
+    }
+    rep["disjoint_from"] = {
+        P3_PARENT_SPEC.name: report["datasets"][P3_PARENT_SPEC.name]["order_hash"],
+        P3_TARGET_SPEC.name: report["datasets"][P3_TARGET_SPEC.name]["order_hash"],
+        P3_EVAL_SPEC.name: report["datasets"][P3_EVAL_SPEC.name]["order_hash"],
+        "D_p3_probe": report["probe"]["probe_set_hash"],
+    }
+    rep["commuted_twins_excluded"] = True
+    path = args.out / f"{P3_WARMSTART_SPEC.name}.parquet"
+    pd.DataFrame(records).to_parquet(path, index=False)
+    report["datasets"][P3_WARMSTART_SPEC.name] = rep
+    report_path.write_text(json.dumps(report, indent=2))
+    print(
+        f"[evt]   wrote {path.name}  n={rep['n']}  order_hash={rep['order_hash'][:12]}…  "
+        f"train={args.p3_warmstart_train_n} selection="
+        f"{args.p3_warmstart_n - args.p3_warmstart_train_n}  direct+twin-disjoint ✓"
+    )
     print(f"[evt] report -> {report_path}")
     return 0
 
@@ -1339,6 +1412,19 @@ def main() -> int:
     )
     parser.add_argument("--p3-teach-inst-n", type=int, default=P3_TEACH_INST_SIZE)
     parser.add_argument(
+        "--phase3-warmstart",
+        action="store_true",
+        help="generate D_p3_nl_warmstart against the frozen phase-3 parent, target, "
+        "eval, and probe (direct + commuted-twin exclusions); merges one dataset entry",
+    )
+    parser.add_argument("--p3-warmstart-n", type=int, default=P3_WARMSTART_SIZE)
+    parser.add_argument(
+        "--p3-warmstart-train-n",
+        type=int,
+        default=P3_WARMSTART_TRAIN_SIZE,
+        help="prefix rows used for the embedding dose; the remainder select the LR",
+    )
+    parser.add_argument(
         "--phase3-bridge",
         action="store_true",
         help="generate the operator<->NL translation bridge (D_p3_bridge + "
@@ -1348,6 +1434,11 @@ def main() -> int:
     parser.add_argument("--bridge-n", type=int, default=BRIDGE_SIZE, help="bridge train pairs")
     parser.add_argument("--bridge-eval-pairs", type=int, default=BRIDGE_EVAL_PAIRS)
     args = parser.parse_args()
+    if args.phase3_warmstart:
+        if args.seed == 20260717:
+            args.seed = P3_WARMSTART_SEED
+        if not 0 < args.p3_warmstart_train_n < args.p3_warmstart_n:
+            parser.error("--p3-warmstart-train-n must be between 1 and --p3-warmstart-n - 1")
 
     if args.eval_set:
         return make_eval_set(args)
@@ -1357,6 +1448,8 @@ def main() -> int:
         return make_phase3(args)
     if args.phase3_teach_installer:
         return make_phase3_teach_installer(args)
+    if args.phase3_warmstart:
+        return make_phase3_warmstart(args)
     if args.phase3_bridge:
         return make_phase3_bridge(args)
 
