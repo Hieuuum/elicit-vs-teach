@@ -114,14 +114,14 @@ def test_phase3_guards_refuse_corrupt_hash(tmp_path: Path) -> None:
 def test_phase3_guards_refuse_installer_target_lr(tmp_path: Path, name: str) -> None:
     guards, configs, repo_root, _data = _fixture(tmp_path)
     _set_lr(configs, name, 1.0e-3)
-    with pytest.raises(SystemExit, match="full-FT format stage pins the target lr"):
+    with pytest.raises(SystemExit, match="full-FT installer stage pins the LoRA target lr"):
         guards.check_phase3_guards(configs, repo_root)
 
 
 def test_phase3_guards_refuse_parent_target_lr(tmp_path: Path) -> None:
     guards, configs, repo_root, _data = _fixture(tmp_path)
     _set_lr(configs, "p3_elicit_parent.yaml", 1.0e-3)
-    with pytest.raises(SystemExit, match="pre-intervention stage pins the TARGET lr"):
+    with pytest.raises(SystemExit, match="full-FT parent stage pins the LoRA target lr"):
         guards.check_phase3_guards(configs, repo_root)
 
 

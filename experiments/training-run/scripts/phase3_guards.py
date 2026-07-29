@@ -9,6 +9,7 @@ import pandas as pd
 import yaml
 
 from geode.arith import order_hash
+from geode.train import assert_lr_scope
 
 HASHED_COLUMNS = ["a", "b", "op", "shown_answer", "format", "label_mode"]
 ARTIFACT_PINS = (
@@ -135,49 +136,34 @@ def check_phase3_guards(configs: Path, repo_root: Path, *, scope: str = "all") -
             f"({len(HASHED_COLUMNS)} hashed columns)"
         )
 
+    # LR-scope guards (V5.71): one tested implementation refuses a mispinned or
+    # cross-scoped rate per role (the run-9 defect class). phase3_guards stays a
+    # CLI shim, so the geode ValueError is surfaced as this script's SystemExit.
     pin = _read_yaml(configs / "lr_pin.yaml")
-    target_lr = float(_read_yaml(configs / "p3_elicit_target.yaml")["train"]["lr"])
-    installer_lrs = {
-        name: float(_read_yaml(configs / name)["train"]["lr"])
+    target_cfg = _read_yaml(configs / "p3_elicit_target.yaml")
+    installer_cfgs = {
+        name: _read_yaml(configs / name)
         for name in ("p3_elicit_inst.yaml", "p3_teach_inst.yaml")
     }
-    bridge_lr = float(_read_yaml(configs / "p3_bridge.yaml")["train"]["lr"])
-    if abs(target_lr - float(pin["lr"])) > 1e-12:
-        raise SystemExit(
-            f"phase3: target pins lr={target_lr} but configs/lr_pin.yaml records {pin['lr']}"
-        )
-    for name, installer_lr in installer_lrs.items():
-        if abs(installer_lr - target_lr) < 1e-12:
-            raise SystemExit(
-                f"phase3: a full-FT format stage pins the target lr ({target_lr}) — this is "
-                "the 2026-07-25 scope leak that destroyed run 9's retention (lr_pin.yaml)"
-            )
-        if abs(installer_lr - float(pin["installer_lr"])) > 1e-12:
-            raise SystemExit(
-                f"phase3: {name} pins installer lr={installer_lr}, "
-                f"lr_pin.yaml records {pin['installer_lr']}"
-            )
-    if abs(bridge_lr - float(pin["installer_lr"])) > 1e-12:
-        raise SystemExit(
-            f"phase3: bridge pins lr={bridge_lr}, lr_pin.yaml records {pin['installer_lr']}"
-        )
-    if abs(bridge_lr - target_lr) < 1e-12:
-        raise SystemExit(
-            f"phase3: a full-FT format stage pins the target lr ({target_lr}) — this is "
-            "the 2026-07-25 scope leak that destroyed run 9's retention (lr_pin.yaml)"
-        )
+    bridge_cfg = _read_yaml(configs / "p3_bridge.yaml")
+    parent_cfg = _read_yaml(configs / "p3_elicit_parent.yaml")
+    try:
+        assert_lr_scope(target_cfg, pin, stage="target")
+        for installer_cfg in installer_cfgs.values():
+            assert_lr_scope(installer_cfg, pin, stage="installer")
+        assert_lr_scope(bridge_cfg, pin, stage="bridge")
+        assert_lr_scope(parent_cfg, pin, stage="parent")
+    except ValueError as exc:
+        raise SystemExit(f"phase3: {exc}") from exc
+    installer_lrs = {name: float(c["train"]["lr"]) for name, c in installer_cfgs.items()}
     print(
-        f"[p3] lr pins: target {target_lr}, installers {installer_lrs}, "
-        f"bridge {bridge_lr} (lr_pin.yaml)"
+        f"[p3] lr pins: target {float(target_cfg['train']['lr'])}, installers {installer_lrs}, "
+        f"bridge {float(bridge_cfg['train']['lr'])} (lr_pin.yaml)"
     )
-
-    parent_lr = float(_read_yaml(configs / "p3_elicit_parent.yaml")["train"]["lr"])
-    if abs(parent_lr - target_lr) < 1e-12:
-        raise SystemExit(
-            f"phase3: the pre-intervention stage pins the TARGET lr ({target_lr}). That pin "
-            "is scoped to LoRA target runs; a full-FT stage at that rate is the run-9 failure."
-        )
-    print(f"[p3] pre-intervention lr {parent_lr} (role-inherited from run 2, see config header)")
+    print(
+        f"[p3] pre-intervention lr {float(parent_cfg['train']['lr'])} "
+        "(role-inherited from run 2, see config header)"
+    )
     if scope in {"all", "warmstart"}:
         _check_warmstart_protocol(configs)
 

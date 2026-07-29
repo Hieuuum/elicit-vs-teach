@@ -917,6 +917,14 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   exactly; `min_val_nats` propagates the metric's true min; empty
   `val_examples` in any other mode raises upfront; a 1-example dose
   memorizes and stops `converged` before a generous ceiling.
+- V5.71 LR scope guard (2026-07-29, §6): `geode.train.assert_lr_scope(cfg, pin,
+  stage=...)` refuses a `train.lr` that is mispinned or cross-scoped for its role.
+  `stage="target"` requires the pinned target LR; a full-FT stage
+  (`installer`/`bridge`/`parent`) that pins the target LR raises the run-9 scope
+  leak, and `installer`/`bridge` additionally require the pinned installer LR
+  (`parent` inherits its rate by role and pins no positive value).
+  `phase3_guards.py` is a thin CLI shim over it (its `ValueError` surfaces as the
+  guard's `SystemExit`); the four `launch_*.sh` heredoc copies retire by archival.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

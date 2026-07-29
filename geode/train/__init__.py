@@ -9,6 +9,7 @@ from geode.train.embedding import (
     untie_lm_head,
 )
 from geode.train.loop import TrainResult, evaluate_nll_nats, train_full
+from geode.train.lr_scope import assert_lr_scope
 from geode.train.lora import LORA_TARGET_MODULES, LoRALinear, apply_lora, merge_lora, reapply_lora
 from geode.train.packing import pack_corpus, split_documents, split_indices, train_val_split
 from geode.train.stopping import (
@@ -29,6 +30,7 @@ __all__ = [
     "StoppingRule",
     "TrainResult",
     "apply_lora",
+    "assert_lr_scope",
     "assert_untie_is_noop",
     "evaluate_nll_nats",
     "merge_lora",
