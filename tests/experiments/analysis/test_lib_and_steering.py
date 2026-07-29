@@ -18,7 +18,7 @@ from tests._scriptloader import load, repo_root
 
 REPO = repo_root()
 CONFIGS = REPO / "experiments" / "training-run" / "configs"
-_SAMPLE_CONFIG = CONFIGS / "run2_algo.yaml"  # walks up to configs/common.yaml
+_SAMPLE_CONFIG = CONFIGS / "archive" / "runs" / "run2_algo.yaml"  # walks up to configs/common.yaml
 
 
 def _load_lib():
