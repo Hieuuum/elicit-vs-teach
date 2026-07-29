@@ -38,6 +38,7 @@ from huggingface_hub import HfApi, snapshot_download
 from geode.zoo import checkpoint_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+DEFAULT_REPO_ID = "mhieuuu/geode-store"
 
 
 def find_checkpoint(store: Path, run_id: str) -> Path:
@@ -62,6 +63,39 @@ def sha256_of(path: Path) -> str:
         while chunk := f.read(1 << 20):
             h.update(chunk)
     return h.hexdigest()
+
+
+def hub_lfs_sha256(repo_id: str, repo_path: str) -> str | None:
+    """The hub's stored LFS sha256 for one file, or ``None`` if unrecorded.
+
+    A single wrapper over ``get_paths_info`` so every push/pull verifier reads
+    the remote digest the same way. ``None`` means the hub has no LFS hash for
+    that path (a non-LFS file, or a path the repo does not hold); each caller
+    decides whether that is a warning (``pull``) or a hard failure
+    (``verify_hub_checkpoint``)."""
+    info = HfApi().get_paths_info(repo_id, [repo_path])
+    return info[0].lfs.sha256 if info and info[0].lfs else None
+
+
+def verify_hub_checkpoint(store: Path, run_id: str, repo_id: str = DEFAULT_REPO_ID) -> str:
+    """Assert the hub's ``model.safetensors`` sha256 equals the local one.
+
+    The single implementation of the "push, then confirm the relay actually
+    holds the bytes I have" check that launchers used to inline as a Python
+    heredoc after ``hf_checkpoint.py push``. Strict by contract: a missing hub
+    hash (``None``) counts as a mismatch and raises, because a push verifier
+    that is silent when the hub reports nothing is worthless. Returns the
+    verified local sha256 on success so the caller can log it.
+
+    ``pull`` keeps its own leniency (``None`` -> warning) — that is a
+    post-download sanity note, not a gate on deleting local weights."""
+    ckpt = find_checkpoint(store, run_id)
+    repo_path = f"runs/{run_id}/{ckpt.relative_to(store / 'runs' / run_id).as_posix()}"
+    local = sha256_of(ckpt)
+    remote = hub_lfs_sha256(repo_id, repo_path)
+    if remote != local:
+        raise SystemExit(f"[hf] {run_id}: hub sha256 {remote!r} != local {local}")
+    return local
 
 
 def push(store: Path, run_id: str, repo_id: str, public: bool, with_snapshots: bool = False) -> int:
@@ -108,8 +142,7 @@ def pull(
     ckpt = find_checkpoint(store, run_id)
     repo_path = f"runs/{run_id}/{ckpt.relative_to(store / 'runs' / run_id).as_posix()}"
     local = sha256_of(ckpt)
-    info = HfApi().get_paths_info(repo_id, [repo_path])
-    remote = info[0].lfs.sha256 if info and info[0].lfs else None
+    remote = hub_lfs_sha256(repo_id, repo_path)
     if remote is None:
         print(
             f"[hf] WARNING: hub reports no hash for {repo_path}; local sha256 {local} — "
@@ -129,7 +162,7 @@ def main() -> int:
     # Required, no default: a forgotten --run-id must not silently push a run
     # whose relay manifest was backfilled elsewhere (run-1 v1/v2/v2-ext/v3).
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--repo-id", default="mhieuuu/geode-store")
+    parser.add_argument("--repo-id", default=DEFAULT_REPO_ID)
     parser.add_argument(
         "--store",
         type=Path,
