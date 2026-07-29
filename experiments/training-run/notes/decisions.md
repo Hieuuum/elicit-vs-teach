@@ -4736,7 +4736,9 @@ these are practical residual-information controls, not clean elicitation runs.
 
 ## 2026-07-29 — repository reorg executed (archive tree + promotions), branch `reorg`
 
-Owner-approved plan executed in 19 commits: enablers (`tests/_scriptloader`,
+Owner-approved plan executed as the planned 19-commit sequence, plus one
+follow-up path-fix commit (20) — see the addendum at the end of this
+entry. The 19: enablers (`tests/_scriptloader`,
 test-tree mirror, `load_config` walk-up), promotions V5.70–V5.74 into
 `geode/{arith,train,probe,edl}` (frozen-parquet loader, LR scope guard,
 probe dump iterator + alignment guard, required-floor prefix-EDL curve, G5
@@ -4763,3 +4765,21 @@ file's index.
 - Owner's in-flight llama10 sweep yamls + `view_dataset.ipynb` untouched
   throughout. Suite green (673) after every commit. No pushes until owner
   review + probe100k completion.
+
+**Addendum — deviations from the delivered Phase E plan, found during
+execution:**
+- `manifests/figures.md`'s producer attribution for `edl_per_example_n1.png`
+  / `_logy.png` corrects the plan's guess (`learning_curves.py`) to
+  `plot_edl_per_token.py --per example` (custom `--out`) — verified by
+  grep; `learning_curves.py`'s only output is `learning_curves.png`.
+- The plan's own commit-19 final-sweep grep predicted 0 hits but (a) never
+  excluded `configs/sweeps/` (frozen by rule 5, same as `configs/archive/`)
+  and (b) didn't account for live `scripts/*.py` usage docstrings
+  (`extract.py`, `gates.py`, `train.py`, `train_sft.py`, `train_target.py`)
+  left stale by this reorg's own moves (commits 11–15). Fixed in commit 20
+  (comment/docstring text only). `configs/pilot/llama10_smoke.yaml` was
+  also fixed there — it is live and unprotected, distinct from the four
+  sibling `llama10_sweep_lr*` files, which stayed untouched. Left alone:
+  `configs/pilot/run1_pretrain.yaml` and `run2_*` bare mentions
+  (`train.py`, `specs/02-training-run.md:972`) — illustrative patterns that
+  never resolved to real files, not paths broken by the reorg.
