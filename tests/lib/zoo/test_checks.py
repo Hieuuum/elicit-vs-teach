@@ -10,7 +10,7 @@ from __future__ import annotations
 import pytest
 
 from geode.zoo import ConsistencyError, register_run, require_parent_ready
-from tests.zoo.test_manifest import make_manifest
+from tests.lib.zoo.test_manifest import make_manifest
 
 
 def _register_parent(store, *, status="complete", gates=None, run_id="parent-1"):

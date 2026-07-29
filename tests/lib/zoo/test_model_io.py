@@ -19,7 +19,7 @@ from torch import nn
 
 from geode.train import apply_lora, untie_lm_head
 from geode.zoo import load_model
-from tests.zoo.test_manifest import make_manifest
+from tests.lib.zoo.test_manifest import make_manifest
 
 LORA_KW = {"rank": 4, "alpha": 16.0, "target_modules": ("q_proj", "v_proj")}
 
