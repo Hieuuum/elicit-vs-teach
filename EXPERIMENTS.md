@@ -4,7 +4,7 @@ Status: **executing** (updated 2026-07-28). This is the current state
 and remaining work of the elicit-vs-teach training-run experiment.
 `specs/02-training-run.md` is the detailed design source;
 `experiments/training-run/notes/decisions.md` is the running decision
-log; `docs/run*-guide.md` are the box walkthroughs. (This file replaced
+log; `docs/runbooks/*.md` are the box walkthroughs. (This file replaced
 the 2026-07-17 cut plan — the cut is executed history; see git history
 if you need its record.)
 
@@ -211,7 +211,7 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    `--limit 128` snapshots/run (one dump ≈ 0.5 GiB; full density
    ≈ 0.6 TiB/run does not fit the 300 GB box), resumable, dumps stay
    on-box (regenerable from the hub snapshots). Paste sheet:
-   `docs/run7-8-guide.md` §4; target: one real gradient-alignment
+   `docs/runbooks/run7-8-guide.md` §4; target: one real gradient-alignment
    plot (spec 02 §11).
 4. ~~Runs 5–6~~ — **DONE 2026-07-22**: both converged, G5 recorded;
    snapshots + final weights LOST 2026-07-24 with the old box
@@ -291,7 +291,7 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    metadata (spec 00 §2).
 
    **Built out the same day** (decisions.md "new phase built out";
-   operational detail in `notes/phase2-runbook.md`). Owner set the dose grid
+   operational detail in `docs/runbooks/phase2-runbook.md`). Owner set the dose grid
    at **n ∈ {1, 2, 4, 8, 16}**, so the phase is **twelve runs**: 5 dose
    installers (`evt-p2-armA-dose{n}`, prefix-nested doses), 1 teach shape
    installer (`evt-p2-armB-instperm`), and **one target per installer** —

@@ -1,19 +1,29 @@
 # Runs 9–10 (Llama-3.2-1B external-validity chain) — box paste sheet
 
+> **Historical runbook** — the Llama chain (runs 9/10) this file walks
+> through is closed. Paths were updated 2026-07-29 for the archive reorg.
+> The launchers it references are frozen byte-identical in
+> `scripts/archive/` and reference pre-reorg paths internally, so they are
+> **not re-runnable as-is** — see the path-mapping table at the top of
+> `notes/decisions.md`.
+> Paths are relative to `experiments/training-run/` unless they start with
+> `specs/` or `docs/`.
+
 Elicitation on the real pretrained model (owner 2026-07-23, decisions.md):
 run 9 = LoRA format install on `D_inst` (behavioral stop), merge to a
 plain checkpoint, run 10 = LoRA target on the full 1M `D_target` through
 the EDL harness (bf16 update forward, fp32-measured losses — V5.62).
-Configs: `run9_llama1b_inst.yaml` / `run10_llama1b_target.yaml` — both
+Configs: `archive/runs/run9_llama1b_inst.yaml` / `archive/runs/run10_llama1b_target.yaml` — both
 ship `lr: null` until the **runs-7/8 1M sweep winner** is pinned into
 them: **one LR everywhere** (owner 2026-07-24) — the per-stage Llama
-sweeps are dropped (`pilot/llama{9,10}_sweep_lr*` kept only as history;
+sweeps are dropped (`sweeps/llama9/llama9_sweep_lr*` archived; the live
+`pilot/llama10_sweep_lr*` set stays in `pilot/`, kept only as history;
 fallback: if run 9's gates fail at the shared LR, revive the gentle
 installer sweep for run 9 only). Sequencing: this chain waits until
 extraction + runs 7/8 are done (one-box plan), or gets its own box.
 
-Unattended alternative (owner 2026-07-24): `./launch_chain_7_10.sh
---confirm-cost [--push-and-prune]` runs 7 → 8 → 9 → 10 end to end —
+Unattended alternative (owner 2026-07-24): `./archive/launch_chain_7_10.sh
+--confirm-cost [--push-and-prune]` (retired; frozen copy) runs 7 → 8 → 9 → 10 end to end —
 smokes, G4/G5 evidence, merge, ntfy pings, completed runs skipped on
 re-run. This guide stays the manual path and the reference for what the
 chain script does at each step.
@@ -58,22 +68,22 @@ the output back to the owner. Do not patch around a span error.
 LR: the runs-7/8 sweep winner, already pinned in the config before this
 chain starts (one LR everywhere, owner 2026-07-24 — no installer sweep).
 If G4 fails or zero-shot arithmetic degrades at that LR, stop and revive
-the gentle installer sweep (`pilot/llama9_sweep_lr*`) for run 9 only.
+the gentle installer sweep (`sweeps/llama9/llama9_sweep_lr*`) for run 9 only.
 
 ```bash
 # memory + plumbing (~1 min, disposable)
-python3 train_sft.py --config ../configs/run9_llama1b_inst.yaml \
-    --override ../configs/pilot/llama9_smoke.yaml \
+python3 train_sft.py --config ../configs/archive/runs/run9_llama1b_inst.yaml \
+    --override ../configs/sweeps/llama9/llama9_smoke.yaml \
     --init-from meta-llama/Llama-3.2-1B --confirm-cost
 ```
 
 ```bash
-python3 train_sft.py --config ../configs/run9_llama1b_inst.yaml \
+python3 train_sft.py --config ../configs/archive/runs/run9_llama1b_inst.yaml \
     --init-from meta-llama/Llama-3.2-1B --confirm-cost \
   ; curl -d "run9 llama install done (exit $?)" $NTFY
 
 python3 gates.py g4 --run evt-run9-llama1b-inst \
-    --config ../configs/run9_llama1b_inst.yaml --device cuda
+    --config ../configs/archive/runs/run9_llama1b_inst.yaml --device cuda
 
 # merge the install adapter into a plain checkpoint — run 10's parent.
 # NEVER point run 10 at model/ (wrapped); only model_merged/ is loadable
@@ -91,14 +101,14 @@ one LR everywhere, owner 2026-07-24).
 # harness at 1.24B, batch 128 (bf16 update forward, fp32 measurement
 # forwards) — the memory worst case (~2 min). OOM here = STOP and ask
 # the owner; a batch/precision change is a protocol change.
-python3 train_target.py --config ../configs/run10_llama1b_target.yaml \
+python3 train_target.py --config ../configs/archive/runs/run10_llama1b_target.yaml \
     --override ../configs/pilot/llama10_smoke.yaml \
     --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged --confirm-cost
 ```
 Then:
 
 ```bash
-python3 train_target.py --config ../configs/run10_llama1b_target.yaml \
+python3 train_target.py --config ../configs/archive/runs/run10_llama1b_target.yaml \
     --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged --confirm-cost \
   ; curl -d "run10 llama target done (exit $?)" $NTFY
 

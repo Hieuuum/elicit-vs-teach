@@ -1,7 +1,16 @@
 # Arm-B 1M LR sweep — box paste sheet (pilot for runs 7/8)
 
+> **Historical runbook** — the runs this file walks through (the runs 7/8
+> pair, the Arm-B 1M LR sweep) are closed. Paths were updated 2026-07-29
+> for the archive reorg. The launchers it references are frozen
+> byte-identical in `scripts/archive/` and reference pre-reorg paths
+> internally, so they are **not re-runnable as-is** — see the path-mapping
+> table at the top of `notes/decisions.md`.
+> Paths are relative to `experiments/training-run/` unless they start with
+> `specs/` or `docs/`.
+
 Re-pins `train.lr` before the runs-7/8 pair can launch (owner 2026-07-23/24).
-Grid points as overlays on `run8_target_1m.yaml`, each capped at **one
+Grid points as overlays on `archive/runs/run8_target_1m.yaml`, each capped at **one
 epoch** of the full 1M (`max_steps` 7813) with **no snapshots**. First pass
 (2026-07-24): 3e-4 → 0.1063, 1e-3 → 0.0397, 3e-3 → 0.0343 min_val nats —
 3e-3 won at the top edge, so the grid was EXTENDED to {…, 1e-2} per the
@@ -14,7 +23,7 @@ yamls + `configs/lr_pin.yaml` carry the pin; decisions.md has the full
 record. §2/§3 below are history. For sweep runs `stop_reason=max_steps` is the
 expected outcome, not a bug signal (documented exception, decisions.md
 2026-07-24).
-Design notes live in `configs/pilot/target_sweep_1m_lr3e-4.yaml`.
+Design notes live in `configs/sweeps/target_1m/target_sweep_1m_lr3e-4.yaml`.
 State (owner 2026-07-24): the old box was DELETED — the four sweep run
 dirs and the runs-5/6 snapshots + final weights went with it
 (owner-accepted; runs-5/6 manifests + all logs + θ_T test loss survive on
@@ -32,7 +41,7 @@ export NTFY=ntfy.sh/<your-topic>
 cd experiments/training-run/scripts
 ```
 
-Fresh box instead (e.g. a new chain box for `launch_chain_7_10.sh`)?
+Fresh box instead (e.g. a new chain box for `scripts/archive/launch_chain_7_10.sh`)?
 Template runs `box_onstart.sh` (clone + install + CPU suite + exports; see
 its header for the HF_TOKEN/NTFY template vars — READ token, from the
 Meta-licensed account if the Llama chain runs here). Then in an SSH
@@ -55,8 +64,8 @@ store it would have retrained all four points.)
 
 ```bash
 for lr in 3e-4 1e-3 3e-3 1e-2; do
-  python3 train_target.py --config ../configs/run8_target_1m.yaml \
-      --override ../configs/pilot/target_sweep_1m_lr${lr}.yaml \
+  python3 train_target.py --config ../configs/archive/runs/run8_target_1m.yaml \
+      --override ../configs/sweeps/target_1m/target_sweep_1m_lr${lr}.yaml \
       --init-from $GEODE_STORE/runs/evt-run4-armB-inst/model --confirm-cost \
     ; curl -d "1M sweep lr=${lr} done (exit $?)" $NTFY
 done
@@ -85,8 +94,8 @@ as its first GPU job (a good end-to-end shakedown before the chain);
 parent pull is in §1.
 
 ```bash
-python3 train_target.py --config ../configs/run7_target_1m.yaml \
-    --override ../configs/pilot/target_pilot_100k_armA_lr3e-3.yaml \
+python3 train_target.py --config ../configs/archive/runs/run7_target_1m.yaml \
+    --override ../configs/sweeps/target_pilot/target_pilot_100k_armA_lr3e-3.yaml \
     --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model --confirm-cost \
   ; curl -d "armA 3e-3 pilot done (exit $?)" $NTFY
 ```
@@ -105,8 +114,8 @@ commit + push; box `git pull` and confirm the hash before the pair
 launches. Launch order and gate mechanics for the pair are in the configs'
 headers (run 7 first — G7).
 
-Then the pair runs unattended: `./launch_pair_1m.sh --confirm-cost` (or
-`./launch_chain_7_10.sh --confirm-cost` to continue straight into the Llama
+Then the pair runs unattended: `./archive/launch_pair_1m.sh --confirm-cost` (retired; frozen copy) (or
+`./archive/launch_chain_7_10.sh --confirm-cost` to continue straight into the Llama
 chain — it skips completed runs, so it also picks up after the pair) — checks
 the pin equals the sweep winner in the store, ≥200 GB free, parents present;
 run 7 then run 8 with NTFY pings; skips a completed run on re-run.
@@ -126,12 +135,12 @@ of GPU, unlike the snapshots themselves.
 ```bash
 cd /workspace/elicit-vs-teach && git pull  # hash must match laptop
 cd experiments/training-run/scripts
-python3 extract.py --config ../configs/run7_target_1m.yaml \
+python3 extract.py --config ../configs/archive/runs/run7_target_1m.yaml \
     --run-id evt-run7-armA-target-1m \
     --probe-hash 2b6d51c27fce0e69b6b0b7d2f033fcc720e39ade287bb31350cb6b2f6fb562e2 \
     --limit 128 --device cuda --confirm-cost \
   ; curl -d "run7 extraction done (exit $?)" $NTFY
-python3 extract.py --config ../configs/run8_target_1m.yaml \
+python3 extract.py --config ../configs/archive/runs/run8_target_1m.yaml \
     --run-id evt-run8-armB-target-1m \
     --probe-hash 2b6d51c27fce0e69b6b0b7d2f033fcc720e39ade287bb31350cb6b2f6fb562e2 \
     --limit 128 --device cuda --confirm-cost \

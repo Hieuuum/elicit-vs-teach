@@ -1,4 +1,4 @@
-"""Pre-spend artifact and LR guards for ``launch_phase3.sh``."""
+"""Pre-spend artifact and LR guards for the retired ``scripts/archive/launch_phase3.sh`` (kept live as the V5.71 CLI shim for the next launcher)."""
 
 from __future__ import annotations
 

@@ -1,8 +1,17 @@
 # New-phase runbook — one installer, two EDL measurements
 
+> **Historical runbook** — the phase-2 runs this file walks through (dose
+> grid, teach installer, both targets) are closed. Paths were updated
+> 2026-07-29 for the archive reorg. The launchers it references are frozen
+> byte-identical in `scripts/archive/` and reference pre-reorg paths
+> internally, so they are **not re-runnable as-is** — see the path-mapping
+> table at the top of `notes/decisions.md`.
+> Paths are relative to `experiments/training-run/` unless they start with
+> `specs/` or `docs/`.
+
 > **STATUS 2026-07-26: the dose grid ran, and its result retired the elicit
 > installer.** All five dose installers converged and were gated;
-> `launch_phase2.sh` stopped at dose 16 on G2 retention 0.8467 < 0.95, as
+> `scripts/archive/launch_phase2.sh` stopped at dose 16 on G2 retention 0.8467 < 0.95, as
 > written. Every dose was damage and none helped, so the curve had no interior
 > optimum and its argmax was n = 0 — **the owner dropped the elicit arm's
 > installer entirely** (decisions.md, "no elicit installer"). The phase is now
@@ -33,13 +42,13 @@ not the *procedure* of having had an installer. Arm A's parent measures that
 state already (G4 1.0000; mean answer digits 3.726 vs true 3.746, phase 0b);
 Arm B's does not (G4 0.0039), which is why it still takes `D_inst_perm`.
 
-Configs: `configs/p2_armB_instperm.yaml`,
-`configs/p2_armA_target_noinst.yaml` (the G7 anchor) and
-`configs/p2_armB_target_perm.yaml`, all standalone. Retired but kept, with
-banners: `configs/p2_armA_dose.yaml` + `configs/p2/dose*.yaml` (ran — the
-negative control), `configs/p2_armA_target_dose.yaml` + `configs/p2/
+Configs: `configs/archive/phase2/p2_armB_instperm.yaml`,
+`configs/archive/phase2/p2_armA_target_noinst.yaml` (the G7 anchor) and
+`configs/archive/phase2/p2_armB_target_perm.yaml`, all standalone. Retired but kept, with
+banners: `configs/archive/phase2/p2_armA_dose.yaml` + `configs/archive/phase2/p2/dose*.yaml` (ran — the
+negative control), `configs/archive/phase2/p2_armA_target_dose.yaml` + `configs/archive/phase2/p2/
 target_dose*.yaml` (never launched). Calibration pilots
-`configs/pilot/p2_dose_cal_n{1,16}.yaml` are likewise closed.
+`configs/sweeps/dose_cal/p2_dose_cal_n{1,16}.yaml` are likewise closed.
 
 ## Order, and why it is this order
 
@@ -60,7 +69,7 @@ teach installer ──► G4 + G3 + G5 ──► leak bar ──► Arm B target
 4. **The leak bar runs between the teach installer and the teach target**
    (below).
 
-`./launch_phase2.sh --confirm-cost [--stage teach|targets|all]` does all of
+`scripts/archive/launch_phase2.sh --confirm-cost [--stage teach|targets|all]` (retired; frozen copy) did all of
 it, skips anything already complete, and refuses to start unless the artifact
 hash-matches and the target LR both equals the committed pin and differs from
 the installer LR. `--stage doses` is refused with a pointer here.
