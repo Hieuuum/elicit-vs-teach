@@ -19,27 +19,17 @@ it asserts the call does not raise, and says nothing about the values.
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = REPO_ROOT / "experiments" / "training-run" / "scripts"
-CONFIGS = REPO_ROOT / "experiments" / "training-run" / "configs"
+from tests._scriptloader import load, repo_root
 
+CONFIGS = repo_root() / "experiments" / "training-run" / "configs"
 
-def _load(name: str):
-    """Import a script by path; they are not package modules and import siblings."""
-    sys.path.insert(0, str(SCRIPTS))
-    try:
-        spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-    finally:
-        sys.path.remove(str(SCRIPTS))
+# ``train`` holds the shared config loader; loading it puts SCRIPTS on sys.path
+# so the trainer modules' own ``from train import ...`` resolve.
+load_config = load("train").load_config
 
 
 # Exactly the configs a launcher shell script passes to each trainer by name:
@@ -77,8 +67,7 @@ LORA_TARGET = [
 
 @pytest.mark.parametrize("override", EMBEDDING_WARMSTART)
 def test_embedding_warmstart_configs_build_a_manifest(override: str) -> None:
-    trainer = _load("train_embedding_warmstart")
-    from train import load_config  # noqa: PLC0415
+    trainer = load("train_embedding_warmstart")
 
     cfg = load_config(CONFIGS / "p3_embedding_warmstart.yaml", CONFIGS / override)
     cfg["run_id"] = trainer.candidate_run_id(cfg["run_id"], 0.01)
@@ -102,8 +91,7 @@ def test_embedding_warmstart_configs_build_a_manifest(override: str) -> None:
 
 @pytest.mark.parametrize("config", FULL_FT)
 def test_full_ft_configs_build_a_manifest(config: str) -> None:
-    train_sft = _load("train_sft")
-    from train import load_config  # noqa: PLC0415 — SCRIPTS is only on sys.path via _load
+    train_sft = load("train_sft")
 
     cfg = load_config(CONFIGS / config, None)
     train_sft.manifest_fields(
@@ -122,8 +110,7 @@ def test_full_ft_configs_build_a_manifest(config: str) -> None:
 
 @pytest.mark.parametrize(("config", "override"), LORA_TARGET)
 def test_lora_target_configs_build_a_manifest(config: str, override: str | None) -> None:
-    train_target = _load("train_target")
-    from train import load_config  # noqa: PLC0415
+    train_target = load("train_target")
 
     override_path = CONFIGS / override if override is not None else None
     cfg = load_config(CONFIGS / config, override_path)
@@ -149,8 +136,6 @@ def test_lora_target_configs_build_a_manifest(config: str, override: str | None)
     ],
 )
 def test_warmstart_targets_pin_one_100k_pass(override: str, match_with: str | None) -> None:
-    from train import load_config  # noqa: PLC0415
-
     cfg = load_config(CONFIGS / "p3_elicit_target.yaml", CONFIGS / override)
     assert cfg["data"]["n_examples"] == 100000
     assert cfg["train"]["batch_size"] == 128

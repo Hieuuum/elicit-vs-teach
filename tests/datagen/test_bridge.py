@@ -13,11 +13,12 @@ from __future__ import annotations
 import importlib.util
 import sys
 from collections import Counter
-from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests._scriptloader import repo_root
+
+REPO_ROOT = repo_root()
 _SCRIPT = REPO_ROOT / "experiments" / "training-run" / "datagen" / "make_data.py"
 # A distinct module name (the @dataclass in make_data resolves its module through
 # sys.modules at class-creation time), so this load never clobbers another test's.

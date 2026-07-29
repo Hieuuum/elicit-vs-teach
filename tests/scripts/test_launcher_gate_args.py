@@ -24,16 +24,12 @@ only a missing or misspelled flag.
 
 from __future__ import annotations
 
-import importlib.util
 import re
 import shlex
-import sys
-from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = REPO_ROOT / "experiments" / "training-run" / "scripts"
+from tests._scriptloader import SCRIPTS, load
 
 # "$VAR" / ${VAR} / $VAR -> a placeholder. Every shell variable in these call
 # sites is a run id or a checkpoint path, i.e. a plain argument value; none
@@ -56,17 +52,6 @@ def _invocations(text: str) -> list[list[str]]:
     return out
 
 
-def _gates_parser():
-    sys.path.insert(0, str(SCRIPTS))
-    try:
-        spec = importlib.util.spec_from_file_location("gates", SCRIPTS / "gates.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod.build_parser()
-    finally:
-        sys.path.remove(str(SCRIPTS))
-
-
 LAUNCHERS = sorted(p.name for p in SCRIPTS.glob("launch_*.sh"))
 
 
@@ -77,7 +62,7 @@ def test_launchers_are_discovered() -> None:
 
 @pytest.mark.parametrize("launcher", LAUNCHERS)
 def test_gate_invocations_parse(launcher: str) -> None:
-    parser = _gates_parser()
+    parser = load("gates").build_parser()
     calls = _invocations((SCRIPTS / launcher).read_text())
     for argv in calls:
         try:

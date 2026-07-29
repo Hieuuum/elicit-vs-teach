@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests._scriptloader import repo_root
+
+REPO_ROOT = repo_root()
 _SCRIPT = REPO_ROOT / "experiments" / "training-run" / "datagen" / "make_data.py"
 _spec = importlib.util.spec_from_file_location("make_data_p3_teach", _SCRIPT)
 md = importlib.util.module_from_spec(_spec)

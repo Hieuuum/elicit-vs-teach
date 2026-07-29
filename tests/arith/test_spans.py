@@ -10,14 +10,14 @@ answers that a toy in-process tokenizer would not reproduce.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from geode.arith.formats import render, render_translate, true_answer
 from geode.arith.spans import token_label_span, tokenize_with_spans
 
-FROZEN_TOKENIZER = Path(__file__).resolve().parents[2] / "experiments/training-run/tokenizer"
+from tests._scriptloader import repo_root
+
+FROZEN_TOKENIZER = repo_root() / "experiments/training-run/tokenizer"
 
 
 # --- token_label_span on synthetic offsets -------------------------------

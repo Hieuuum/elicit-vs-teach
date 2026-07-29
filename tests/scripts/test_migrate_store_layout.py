@@ -16,7 +16,9 @@ import pytest
 
 from geode.zoo import checkpoint_dir
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests._scriptloader import repo_root
+
+REPO_ROOT = repo_root()
 _SCRIPT = REPO_ROOT / "experiments" / "training-run" / "scripts" / "migrate_store_layout.py"
 _spec = importlib.util.spec_from_file_location("migrate_store_layout", _SCRIPT)
 mig = importlib.util.module_from_spec(_spec)

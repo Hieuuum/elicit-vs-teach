@@ -2,30 +2,18 @@
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPTS = REPO_ROOT / "experiments" / "training-run" / "scripts"
+from tests._scriptloader import load, repo_root
+
+REPO_ROOT = repo_root()
 CONFIGS = REPO_ROOT / "experiments" / "training-run" / "configs"
 
 
-def _load_gates():
-    sys.path.insert(0, str(SCRIPTS))
-    try:
-        spec = importlib.util.spec_from_file_location("gates", SCRIPTS / "gates.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-    finally:
-        sys.path.remove(str(SCRIPTS))
-
-
 def test_v5_67_g6_scores_aggregate_and_both_directions() -> None:
-    gates = _load_gates()
+    gates = load("gates")
     completions = [
         " 23 + 45 ",
         "23 + 45",
@@ -50,13 +38,13 @@ def test_v5_67_g6_scores_aggregate_and_both_directions() -> None:
 
 
 def test_v5_67_g6_requires_both_directions() -> None:
-    gates = _load_gates()
+    gates = load("gates")
     with pytest.raises(ValueError, match="both directions"):
         gates._translation_rates(["1 + 2"], ["1 + 2"], ["to_op"])
 
 
 def test_g6_parser_has_safe_translation_decode_ceiling() -> None:
-    gates = _load_gates()
+    gates = load("gates")
     args = gates.build_parser().parse_args(
         [
             "g6",
@@ -85,23 +73,20 @@ def test_g6_decode_default_covers_frozen_eval_answers() -> None:
     spans = list(zip(df["answer_char_start"].astype(int), df["answer_char_end"].astype(int)))
     examples = tokenize_with_spans(df["full_text"].tolist(), spans, tokenizer, append_eos=True)
     longest = max(ex.label_span[1] - ex.label_span[0] for ex in examples)
-    args = _load_gates().build_parser().parse_args(
-        ["g6", "--run", "r", "--config", str(CONFIGS / "eval_p3_bridge_data.yaml")]
+    args = (
+        load("gates")
+        .build_parser()
+        .parse_args(["g6", "--run", "r", "--config", str(CONFIGS / "eval_p3_bridge_data.yaml")])
     )
     assert args.max_new_tokens >= longest
 
 
 def test_bridge_target_overlay_changes_only_parent_and_identity() -> None:
-    sys.path.insert(0, str(SCRIPTS))
-    try:
-        from train import load_config  # noqa: PLC0415
-
-        base = load_config(CONFIGS / "p3_elicit_target.yaml", None)
-        bridged = load_config(
-            CONFIGS / "p3_elicit_target.yaml", CONFIGS / "p3/target_after_bridge.yaml"
-        )
-    finally:
-        sys.path.remove(str(SCRIPTS))
+    load_config = load("train").load_config
+    base = load_config(CONFIGS / "p3_elicit_target.yaml", None)
+    bridged = load_config(
+        CONFIGS / "p3_elicit_target.yaml", CONFIGS / "p3/target_after_bridge.yaml"
+    )
 
     allowed = {
         "run_id",
@@ -128,13 +113,13 @@ def test_bridge_target_overlay_changes_only_parent_and_identity() -> None:
 
 @pytest.mark.parametrize("gate", ["G4", "G5"])
 def test_integer_answer_gates_reject_translation_configs(gate: str) -> None:
-    gates = _load_gates()
+    gates = load("gates")
     with pytest.raises(SystemExit, match="text answers"):
         gates._reject_translate_config({"task": {"name": "arith_translate"}}, gate)
 
 
 def test_g4_rejects_translation_prompt_config_before_loading_run(monkeypatch) -> None:
-    gates = _load_gates()
+    gates = load("gates")
     args = gates.build_parser().parse_args(
         [
             "g4",

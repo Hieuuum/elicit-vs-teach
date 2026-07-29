@@ -25,8 +25,6 @@ sibling ``adapters``).
 
 from __future__ import annotations
 
-import importlib.util
-import sys
 from pathlib import Path
 
 import pytest
@@ -35,22 +33,10 @@ from safetensors.torch import save_file
 
 from geode.zoo import register_run
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-ANALYSIS = REPO_ROOT / "experiments" / "training-run" / "analysis"
+from tests._scriptloader import load
 
-if str(ANALYSIS) not in sys.path:  # trajectory.py does `from adapters import ...`
-    sys.path.insert(0, str(ANALYSIS))
-
-
-def _load(name: str):
-    spec = importlib.util.spec_from_file_location(name, ANALYSIS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-traj = _load("trajectory")
-adapters = _load("adapters")
+traj = load("trajectory")
+adapters = load("adapters")
 
 RANK = 4
 ALPHA = 8.0

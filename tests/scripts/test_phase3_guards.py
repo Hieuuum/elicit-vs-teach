@@ -12,7 +12,9 @@ import yaml
 
 from geode.arith import order_hash
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests._scriptloader import repo_root
+
+REPO_ROOT = repo_root()
 SCRIPTS = REPO_ROOT / "experiments" / "training-run" / "scripts"
 CONFIGS = REPO_ROOT / "experiments" / "training-run" / "configs"
 
