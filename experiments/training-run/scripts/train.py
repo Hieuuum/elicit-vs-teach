@@ -47,13 +47,28 @@ def deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
+def _find_common(start: Path) -> Path:
+    """Walk up from ``start`` to the ``configs/`` root, returning the first
+    ``common.yaml`` found.
+
+    Raises ``FileNotFoundError`` if none exists up to and including the
+    ``configs/`` root. The old silent ``{}`` fallback masked this: a config
+    moved into a ``configs/`` subdir (e.g. ``configs/archive/runs/``) would have
+    dropped every shared block without a word. A run config with no shared base
+    is a bug, so it now fails loudly. Behavior-preserving for a config sitting
+    directly in ``configs/``, whose first hit is the same ``configs/common.yaml``
+    the old same-dir lookup found."""
+    for directory in (start, *start.parents):
+        candidate = directory / "common.yaml"
+        if candidate.is_file():
+            return candidate
+        if directory.name == "configs":  # the configs/ root; never walk above it
+            break
+    raise FileNotFoundError(f"no common.yaml found walking up from {start} to the configs/ root")
+
+
 def load_config(config_path: Path, override_path: Path | None) -> dict:
-    here = config_path.parent
-    common = (
-        yaml.safe_load((here / "common.yaml").read_text())
-        if (here / "common.yaml").exists()
-        else {}
-    )
+    common = yaml.safe_load(_find_common(config_path.parent).read_text())
     cfg = deep_merge(common, yaml.safe_load(config_path.read_text()))
     if override_path is not None:
         cfg = deep_merge(cfg, yaml.safe_load(override_path.read_text()))
