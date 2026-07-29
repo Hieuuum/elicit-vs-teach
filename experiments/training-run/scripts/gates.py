@@ -48,12 +48,12 @@ answers.
 CPU-only friendly and no ``--confirm-cost``: evaluation, not training.
 
 Usage:
-    python3 gates.py g1 --run evt-run2-armA-algo --config configs/run2_algo.yaml \
+    python3 gates.py g1 --run evt-run2-armA-algo --config configs/archive/runs/run2_algo.yaml \
         [--checkpoint <dir>] [--device cuda] [--n 1024] [--sample-seed 316]
-    python3 gates.py g2 --run evt-run3-sweep-lr3e-4 --config configs/run2_algo.yaml
-    python3 gates.py g3 --run evt-run4-armB-inst --config configs/run2_algo.yaml
-    python3 gates.py g4 --run evt-run3-sweep-lr3e-4 --config configs/run3_inst.yaml
-    python3 gates.py g4 --run evt-p2-armA-dose1 --config configs/p2_armA_dose.yaml \
+    python3 gates.py g2 --run evt-run3-sweep-lr3e-4 --config configs/archive/runs/run2_algo.yaml
+    python3 gates.py g3 --run evt-run4-armB-inst --config configs/archive/runs/run2_algo.yaml
+    python3 gates.py g4 --run evt-run3-sweep-lr3e-4 --config configs/archive/runs/run3_inst.yaml
+    python3 gates.py g4 --run evt-p2-armA-dose1 --config configs/archive/phase2/p2_armA_dose.yaml \
         --prompt-config configs/eval_target_data.yaml --threshold 0.90
     python3 gates.py g5 --run evt-run3-armA-inst --config configs/eval_target_data.yaml
 """

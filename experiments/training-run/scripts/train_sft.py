@@ -8,8 +8,8 @@ without --confirm-cost (CLAUDE.md budget rule). All learning logic lives in
 ``geode.train.sft``; this file must stay thin.
 
 Usage (run 9):
-    python3 train_sft.py --config configs/run9_llama1b_inst.yaml \
-        [--override configs/pilot/llama9_smoke.yaml] \
+    python3 train_sft.py --config configs/archive/runs/run9_llama1b_inst.yaml \
+        [--override configs/sweeps/llama9/llama9_smoke.yaml] \
         --init-from meta-llama/Llama-3.2-1B \
         [--device cuda] [--confirm-cost]
 """
@@ -300,7 +300,7 @@ def main() -> int:
         if not external_base:
             print(
                 "[evt] experiment.parent_run_id is null — pin it to the floor-1 run id "
-                "(see configs/run2_algo.yaml). Exiting."
+                "(see configs/archive/runs/run2_algo.yaml). Exiting."
             )
             return 1
         print(

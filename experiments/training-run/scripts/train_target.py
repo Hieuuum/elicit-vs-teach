@@ -20,8 +20,8 @@ The spec 02 §6 logging extension (per-step LR + train-accuracy) and the loss
 pure cost ceiling. This file must stay thin.
 
 Usage (run 5):
-    python3 train_target.py --config configs/run5_target.yaml \
-        [--override configs/pilot/target_pilot_100k_armA_lr1e-3.yaml] \
+    python3 train_target.py --config configs/archive/runs/run5_target.yaml \
+        [--override configs/sweeps/target_pilot/target_pilot_100k_armA_lr1e-3.yaml] \
         --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model \
         [--device cuda] [--store <dir>] [--confirm-cost]
 """

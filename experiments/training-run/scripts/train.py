@@ -6,7 +6,7 @@ geode.zoo, prints a cost estimate, and refuses to train without
 geode.train; this file must stay thin.
 
 Usage:
-    python3 train.py --config configs/run1_pretrain.yaml [--override configs/pilot/run1_pretrain.yaml]
+    python3 train.py --config configs/archive/runs/run1_pretrain.yaml [--override configs/pilot/run1_pretrain.yaml]
         [--device cuda] [--init-from <checkpoint_dir>] [--confirm-cost]
 """
 
@@ -263,7 +263,7 @@ def main() -> int:
     if not tok_path:
         print(
             "[evt] tokenizer.path is null — train the custom tokenizer first "
-            "(datagen/make_tokenizer.py; see configs/run1_pretrain.yaml). Exiting."
+            "(datagen/make_tokenizer.py; see configs/archive/runs/run1_pretrain.yaml). Exiting."
         )
         return 1
     # Relative paths resolve against the config dir; anything that doesn't

@@ -3,8 +3,8 @@
 # inherited train.precision) is the memory worst case on a 24 GB 4090 —
 # run this before any sweep or production launch; if it OOMs, STOP and
 # ask the owner (a batch-size change is a protocol change). Overlay over
-# configs/run10_llama1b_target.yaml:
-#     python train_target.py --config ../configs/run10_llama1b_target.yaml \
+# configs/archive/runs/run10_llama1b_target.yaml:
+#     python train_target.py --config ../configs/archive/runs/run10_llama1b_target.yaml \
 #         --override ../configs/pilot/llama10_smoke.yaml \
 #         --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged \
 #         --confirm-cost
