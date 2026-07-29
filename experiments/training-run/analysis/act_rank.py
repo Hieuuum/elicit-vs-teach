@@ -57,7 +57,13 @@ import pandas as pd
 import torch
 
 from geode.arith import order_hash
-from geode.probe import effective_rank, load_probe_dump, residual_hook_names
+from geode.probe import (
+    assert_probe_alignment,
+    effective_rank,
+    load_probe_dump,
+    load_probe_dumps,
+    residual_hook_names,
+)
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
 
@@ -78,16 +84,6 @@ def _load_probe(probe_local: Path | None) -> pd.DataFrame:
 
         path = hf_hub_download(PROBE_REPO, PROBE_FILE, repo_type="dataset")
     return pd.read_parquet(path)
-
-
-def _guard_probe_hash(run_id: str, step: int, meta_hash: str, probe_hash: str) -> None:
-    """Row-alignment guard (spec 00 §6): parquet order == every dump's probe set."""
-    if meta_hash != probe_hash:
-        raise ValueError(
-            f"{run_id}@step_{step}: dump probe_set_hash {meta_hash} != probe parquet "
-            f"order_hash {probe_hash} — parquet row i and dump row i must be the same "
-            "frozen probe example (spec 00 §6); refusing to align mismatched sets"
-        )
 
 
 def pooled_matrix(acts: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
@@ -113,11 +109,7 @@ def pooled_matrix(acts: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
 
 def run_rows(run_id: str, store: Path, probe_hash: str, n_probe: int) -> list[dict]:
     probe_root = run_dir(run_id, store=store) / "probe"
-    steps = sorted(
-        int(p.name.removeprefix("step_"))
-        for p in probe_root.glob("step_*")
-        if (p / "meta.json").is_file()
-    )
+    steps = load_probe_dumps(probe_root)
     if not steps:
         raise FileNotFoundError(
             f"{run_id}: no probe dumps under {probe_root} — run scripts/extract.py first"
@@ -131,7 +123,7 @@ def run_rows(run_id: str, store: Path, probe_hash: str, n_probe: int) -> list[di
     names: list[str] = []
     for k in steps:
         capture, meta = load_probe_dump(run_id, k, store=store)
-        _guard_probe_hash(run_id, k, meta.probe_set_hash, probe_hash)
+        assert_probe_alignment(meta.probe_set_hash, probe_hash, run_id=run_id, step=k)
         if ref_input_ids is None:
             ref_input_ids = capture.input_ids
             names = residual_hook_names(len(capture.acts) - 1)

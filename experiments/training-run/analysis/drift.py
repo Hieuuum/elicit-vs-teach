@@ -50,7 +50,13 @@ import pandas as pd
 import torch
 
 from geode.arith import order_hash
-from geode.probe import load_probe_dump, representation_drift, residual_hook_names
+from geode.probe import (
+    assert_probe_alignment,
+    load_probe_dump,
+    load_probe_dumps,
+    representation_drift,
+    residual_hook_names,
+)
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
 
@@ -73,25 +79,11 @@ def _load_probe(probe_local: Path | None) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def _guard_probe_hash(run_id: str, step: int, meta_hash: str, probe_hash: str) -> None:
-    """Row-alignment guard (spec 00 §6): parquet order == every dump's probe set."""
-    if meta_hash != probe_hash:
-        raise ValueError(
-            f"{run_id}@step_{step}: dump probe_set_hash {meta_hash} != probe parquet "
-            f"order_hash {probe_hash} — parquet row i and dump row i must be the same "
-            "frozen probe example (spec 00 §6); refusing to align mismatched sets"
-        )
-
-
 def run_rows(
     run_id: str, store: Path, probe_hash: str, cells: list[str], ref_step: int | None
 ) -> list[dict]:
     probe_root = run_dir(run_id, store=store) / "probe"
-    steps = sorted(
-        int(p.name.removeprefix("step_"))
-        for p in probe_root.glob("step_*")
-        if (p / "meta.json").is_file()
-    )
+    steps = load_probe_dumps(probe_root)
     if not steps:
         raise FileNotFoundError(
             f"{run_id}: no probe dumps under {probe_root} — run scripts/extract.py first"
@@ -104,7 +96,7 @@ def run_rows(
     dataset_size = manifest.data["dataset"]["n_unique_examples"]
 
     ref_capture, ref_meta = load_probe_dump(run_id, ref, store=store)
-    _guard_probe_hash(run_id, ref, ref_meta.probe_set_hash, probe_hash)
+    assert_probe_alignment(ref_meta.probe_set_hash, probe_hash, run_id=run_id, step=ref)
     names = residual_hook_names(len(ref_capture.acts) - 1)
     counts = Counter(cells)
     n_total = len(cells)
@@ -116,7 +108,7 @@ def run_rows(
             capture, meta = ref_capture, ref_meta
         else:
             capture, meta = load_probe_dump(run_id, k, store=store)
-        _guard_probe_hash(run_id, k, meta.probe_set_hash, probe_hash)
+        assert_probe_alignment(meta.probe_set_hash, probe_hash, run_id=run_id, step=k)
         if not torch.equal(capture.input_ids, ref_capture.input_ids):
             raise ValueError(
                 f"{run_id}: step {k} input_ids differ from ref step {ref} — the probe "

@@ -103,14 +103,19 @@ import pandas as pd
 import torch
 
 from geode.arith import order_hash
-from geode.probe import load_probe_dump, residual_hook_names
+from geode.probe import (
+    assert_probe_alignment,
+    load_probe_dump,
+    load_probe_dumps,
+    residual_hook_names,
+)
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
 
 # The direction's pooling semantics must be the ones steering.py injected, not
 # a re-derivation: if that changes, this curve has to change with it. Sibling
 # import, as trajectory.py takes its deltas from adapters.py.
-from steering import _guard_probe_hash, _load_probe, pooled_label_mean  # noqa: E402
+from steering import _load_probe, pooled_label_mean  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RUNS = ("evt-run7-armA-target-1m", "evt-run8-armB-target-1m")
@@ -147,11 +152,7 @@ def _snapshot_means(
 
 def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) -> list[dict]:
     probe_root = run_dir(run_id, store=store) / "probe"
-    steps = sorted(
-        int(p.name.removeprefix("step_"))
-        for p in probe_root.glob("step_*")
-        if (p / "meta.json").is_file()
-    )
+    steps = load_probe_dumps(probe_root)
     if len(steps) < 2:
         raise FileNotFoundError(
             f"{run_id}: need >= 2 probe dumps under {probe_root} to take a direction, "
@@ -167,7 +168,7 @@ def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) ->
     dataset_size = manifest.data["dataset"]["n_unique_examples"]
 
     ref_capture, ref_meta = load_probe_dump(run_id, ref, store=store)
-    _guard_probe_hash(run_id, ref, ref_meta.probe_set_hash, probe_hash)
+    assert_probe_alignment(ref_meta.probe_set_hash, probe_hash, run_id=run_id, step=ref)
     names = residual_hook_names(len(ref_capture.acts) - 1)
     mask = ref_capture.label_mask
     n_examples = int(mask.shape[0])
@@ -182,7 +183,7 @@ def run_rows(run_id: str, store: Path, probe_hash: str, ref_step: int | None) ->
             capture, meta = ref_capture, ref_meta
         else:
             capture, meta = load_probe_dump(run_id, k, store=store)
-        _guard_probe_hash(run_id, k, meta.probe_set_hash, probe_hash)
+        assert_probe_alignment(meta.probe_set_hash, probe_hash, run_id=run_id, step=k)
         if not torch.equal(capture.input_ids, ref_capture.input_ids):
             raise ValueError(
                 f"{run_id}: step {k} input_ids differ from ref step {ref} — the probe "

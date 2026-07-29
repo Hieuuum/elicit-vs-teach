@@ -36,7 +36,7 @@ import torch
 from geode.arith import order_hash, tokenize_with_spans
 from geode.edl import load_snapshot
 from geode.edl.masking import TaskFormat
-from geode.probe import ProbeMeta, extract_probe, probe_dump_dir, save_probe_dump
+from geode.probe import ProbeMeta, extract_probe, load_probe_dumps, probe_dump_dir, save_probe_dump
 from geode.train import apply_lora
 from geode.zoo import checkpoint_dir, load_run, tokenizer_hash
 from geode.zoo.store import run_dir
@@ -106,12 +106,8 @@ def main() -> int:
     manifest = load_run(args.run_id, store=store)
     declared = set(manifest.data["snapshot_steps"])
     snap_root = run_dir(args.run_id, store=store) / "snapshots"
-    on_disk = {
-        int(p.name.removeprefix("step_"))
-        for p in snap_root.glob("step_*")
-        # adapter-only format (2026-07-22) or legacy full snapshot — both load
-        if (p / "adapter.safetensors").is_file() or (p / "model.safetensors").is_file()
-    }
+    # adapter-only format (2026-07-22) or legacy full snapshot — both load.
+    on_disk = set(load_probe_dumps(snap_root, marker=("adapter.safetensors", "model.safetensors")))
     steps = sorted(declared & on_disk)
     if not steps:
         raise FileNotFoundError(

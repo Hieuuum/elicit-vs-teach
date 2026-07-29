@@ -1083,6 +1083,16 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
   finite-sample floor, not 0); planted shared structure y = xM ⇒ high;
   degenerate inputs (non-matrix, row-count mismatch, n<2, non-finite,
   zero-variance) refuse.
+- V5.72 dump iterator + alignment guard (2026-07-29): `load_probe_dumps(root,
+  marker=...)` returns the ascending step indices of the `step_*` dump
+  directories under `root` that carry `marker` (the `meta.json` sidecar for
+  probe dumps by default; a tuple = "any present", e.g. snapshot dirs carrying
+  `adapter.safetensors` OR `model.safetensors`), replacing the hand-rolled glob
+  the analysis drivers and `extract.py` duplicated; empties return `[]` so the
+  caller raises its own contextual error. `assert_probe_alignment(dump_hash,
+  probe_set_hash, run_id=..., step=...)` is the row-alignment guard (spec 00 §6):
+  a dump aligns with the frozen probe parquet only when the two hashes agree,
+  else parquet row i and dump row i are not the same probe example.
 
 ## 8. Verification gates
 

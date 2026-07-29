@@ -66,7 +66,7 @@ import torch.nn.functional as F
 from safetensors.torch import load_file
 
 from geode.arith import order_hash
-from geode.probe import residual_hook_names
+from geode.probe import assert_probe_alignment, load_probe_dumps, residual_hook_names
 from geode.probe.extract import ACTS_FILE, META_FILE, PROBE_DATA_FILE, ProbeMeta
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
@@ -92,23 +92,9 @@ def _load_probe(probe_local: Path | None) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def _guard_probe_hash(run_id: str, step: int, meta_hash: str, probe_hash: str) -> None:
-    """Row-alignment guard (spec 00 §6): parquet order == every dump's probe set."""
-    if meta_hash != probe_hash:
-        raise ValueError(
-            f"{run_id}@step_{step}: dump probe_set_hash {meta_hash} != probe parquet "
-            f"order_hash {probe_hash} — parquet row i and dump row i must be the same "
-            "frozen probe example (spec 00 §6); refusing to align mismatched sets"
-        )
-
-
 def _dumped_steps(run_id: str, store: Path) -> list[int]:
     probe_root = run_dir(run_id, store=store) / "probe"
-    steps = sorted(
-        int(p.name.removeprefix("step_"))
-        for p in probe_root.glob("step_*")
-        if (p / META_FILE).is_file()
-    )
+    steps = load_probe_dumps(probe_root, marker=META_FILE)
     if not steps:
         raise FileNotFoundError(
             f"{run_id}: no probe dumps under {probe_root} — run scripts/extract.py first"
@@ -246,7 +232,7 @@ def run_rows(
     n_fits = 0
     for i, k in enumerate(steps, start=1):
         acts, data, meta = _load_dump(run_id, k, store)
-        _guard_probe_hash(run_id, k, meta.probe_set_hash, probe_hash)
+        assert_probe_alignment(meta.probe_set_hash, probe_hash, run_id=run_id, step=k)
         ref.assert_matches(run_id, k, data)
         names = residual_hook_names(len(acts) - 1)
         # Extract the [n, d] feature matrices first, then drop the dump: the
@@ -385,7 +371,7 @@ def main() -> None:
     ref_run = run_ids[0]
     ref_step = _dumped_steps(ref_run, args.store)[0]
     _, ref_data, ref_meta = _load_dump(ref_run, ref_step, args.store)
-    _guard_probe_hash(ref_run, ref_step, ref_meta.probe_set_hash, probe_hash)
+    assert_probe_alignment(ref_meta.probe_set_hash, probe_hash, run_id=ref_run, step=ref_step)
     ref = _Reference(ref_data, args.seed, f"{ref_run}@step_{ref_step}")
     del ref_data
     print(

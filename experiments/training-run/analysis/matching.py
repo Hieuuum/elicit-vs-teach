@@ -50,7 +50,7 @@ import pandas as pd
 import torch
 from safetensors.torch import load_file
 
-from geode.probe import performance_aligned_matching
+from geode.probe import load_probe_dumps, performance_aligned_matching
 from geode.probe.extract import META_FILE, PROBE_DATA_FILE, _MATCH_FIELDS
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
@@ -79,11 +79,7 @@ def _load_curve(run_id: str, store: Path) -> RunCurve:
     probe set must be frozen for the run — spec 00 §6).
     """
     probe_root = run_dir(run_id, store=store) / "probe"
-    steps = sorted(
-        int(p.name.removeprefix("step_"))
-        for p in probe_root.glob("step_*")
-        if (p / META_FILE).is_file()
-    )
+    steps = load_probe_dumps(probe_root, marker=META_FILE)
     if not steps:
         raise FileNotFoundError(
             f"{run_id}: no probe dumps under {probe_root} — run scripts/extract.py first"

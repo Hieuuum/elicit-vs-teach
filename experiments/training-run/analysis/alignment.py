@@ -30,7 +30,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from geode.probe import gradient_alignment, load_probe_dump, residual_hook_names
+from geode.probe import gradient_alignment, load_probe_dump, load_probe_dumps, residual_hook_names
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
 
@@ -41,11 +41,7 @@ METRICS = ("grad_pairwise_cosine_mean", "grad_top_pc_explained_variance")
 
 def run_rows(run_id: str, store: Path, min_examples: int) -> list[dict]:
     probe_root = run_dir(run_id, store=store) / "probe"
-    steps = sorted(
-        int(p.name.removeprefix("step_"))
-        for p in probe_root.glob("step_*")
-        if (p / "meta.json").is_file()
-    )
+    steps = load_probe_dumps(probe_root)
     if not steps:
         raise FileNotFoundError(
             f"{run_id}: no probe dumps under {probe_root} — run scripts/extract.py first"

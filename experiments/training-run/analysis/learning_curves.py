@@ -62,6 +62,7 @@ import torch
 from safetensors.torch import load_file
 
 from geode.arith import order_hash
+from geode.probe import assert_probe_alignment, load_probe_dumps
 from geode.probe.extract import META_FILE, PROBE_DATA_FILE
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
@@ -99,24 +100,10 @@ def _load_probe(probe_local: Path | None) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def _guard_probe_hash(run_id: str, step: int, meta_hash: str, probe_hash: str) -> None:
-    """Row-alignment guard (spec 00 §6): parquet order == every dump's probe set."""
-    if meta_hash != probe_hash:
-        raise ValueError(
-            f"{run_id}@step_{step}: dump probe_set_hash {meta_hash} != probe parquet "
-            f"order_hash {probe_hash} — parquet row i and dump row i must be the same "
-            "frozen probe example (spec 00 §6); refusing to align mismatched sets"
-        )
-
-
 def load_curves(run_id: str, store: Path, probe_hash: str, cells: list[str]) -> RunCurves:
     """Build ``run_id``'s per-cell loss curves from the dumps under ``probe/``."""
     probe_root = run_dir(run_id, store=store) / "probe"
-    steps = sorted(
-        int(p.name.removeprefix("step_"))
-        for p in probe_root.glob("step_*")
-        if (p / META_FILE).is_file()
-    )
+    steps = load_probe_dumps(probe_root, marker=META_FILE)
     if not steps:
         raise FileNotFoundError(
             f"{run_id}: no probe dumps under {probe_root} — run scripts/extract.py first"
@@ -130,7 +117,7 @@ def load_curves(run_id: str, store: Path, probe_hash: str, cells: list[str]) -> 
     for k in steps:
         step_dir = probe_root / f"step_{k}"
         meta = json.loads((step_dir / META_FILE).read_text())
-        _guard_probe_hash(run_id, k, meta["probe_set_hash"], probe_hash)
+        assert_probe_alignment(meta["probe_set_hash"], probe_hash, run_id=run_id, step=k)
         loss = load_file(step_dir / PROBE_DATA_FILE)["probe_loss_nats"].to(torch.float64)
         if int(loss.shape[0]) != len(cells):
             raise ValueError(

@@ -89,7 +89,12 @@ import torch
 
 from geode.arith import exact_match, greedy_completions, order_hash, tokenize_with_spans
 from geode.edl.masking import TaskFormat
-from geode.probe import load_probe_dump, residual_hook_names
+from geode.probe import (
+    assert_probe_alignment,
+    load_probe_dump,
+    load_probe_dumps,
+    residual_hook_names,
+)
 
 # The single hook-name -> module map (embedding + decoder blocks) that
 # extraction hooks with; injection must hook exactly the same points, so it
@@ -133,16 +138,6 @@ def _load_probe(probe_local: Path | None) -> pd.DataFrame:
     return pd.read_parquet(path)
 
 
-def _guard_probe_hash(run_id: str, step: int, meta_hash: str, probe_hash: str) -> None:
-    """Row-alignment guard (spec 00 §6): parquet order == every dump's probe set."""
-    if meta_hash != probe_hash:
-        raise ValueError(
-            f"{run_id}@step_{step}: dump probe_set_hash {meta_hash} != probe parquet "
-            f"order_hash {probe_hash} — parquet row i and dump row i must be the same "
-            "frozen probe example (spec 00 §6); refusing to align mismatched sets"
-        )
-
-
 def pooled_label_mean(acts: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
     """Per-example mean activation over ``mask``-True positions: ``[n, seq, d] -> [n, d]``.
 
@@ -174,11 +169,7 @@ def steering_directions(
     direction is an fp64 ``[d_model]`` vector.
     """
     probe_root = run_dir(run_id, store=store) / "probe"
-    steps = sorted(
-        int(p.name.removeprefix("step_"))
-        for p in probe_root.glob("step_*")
-        if (p / "meta.json").is_file()
-    )
+    steps = load_probe_dumps(probe_root)
     if len(steps) < 2:
         raise FileNotFoundError(
             f"{run_id}: need >= 2 probe dumps under {probe_root} to take a shift, "
@@ -187,8 +178,8 @@ def steering_directions(
     first, last = steps[0], steps[-1]
     cap_first, meta_first = load_probe_dump(run_id, first, store=store)
     cap_last, meta_last = load_probe_dump(run_id, last, store=store)
-    _guard_probe_hash(run_id, first, meta_first.probe_set_hash, probe_hash)
-    _guard_probe_hash(run_id, last, meta_last.probe_set_hash, probe_hash)
+    assert_probe_alignment(meta_first.probe_set_hash, probe_hash, run_id=run_id, step=first)
+    assert_probe_alignment(meta_last.probe_set_hash, probe_hash, run_id=run_id, step=last)
     if not torch.equal(cap_first.input_ids, cap_last.input_ids):
         raise ValueError(
             f"{run_id}: step {last} input_ids differ from step {first} — the probe "

@@ -227,6 +227,43 @@ def probe_dump_dir(run_id: str, step: int, *, store: Path | None = None) -> Path
     return run_dir(run_id, store=store) / "probe" / f"step_{step}"
 
 
+def load_probe_dumps(root: Path, *, marker: str | tuple[str, ...] = META_FILE) -> list[int]:
+    """Sorted step indices of the ``step_*`` dump directories under ``root`` (V5.72).
+
+    A ``step_k`` subdirectory counts only if it carries ``marker`` — the probe
+    dump sidecar (``meta.json``, the default) for probe dumps, or a tuple of
+    filenames meaning "any present" (snapshot dirs carry ``adapter.safetensors``
+    OR ``model.safetensors``). The glob order is arbitrary; the returned indices
+    are ascending. Returns ``[]`` when none match, so the caller raises its own
+    contextual error. Replaces the hand-rolled
+    ``sorted(int(p.name.removeprefix("step_")) for p in root.glob("step_*") …)``
+    idiom the analysis drivers and ``extract.py`` duplicated.
+    """
+    markers = (marker,) if isinstance(marker, str) else tuple(marker)
+    return sorted(
+        int(p.name.removeprefix("step_"))
+        for p in root.glob("step_*")
+        if any((p / m).is_file() for m in markers)
+    )
+
+
+def assert_probe_alignment(
+    dump_probe_set_hash: str, probe_set_hash: str, *, run_id: str, step: int
+) -> None:
+    """Row-alignment guard (spec 00 §6, V5.72): a dump aligns with the frozen probe
+    parquet only when the dump's recorded ``probe_set_hash`` equals the parquet's
+    ``order_hash`` — else parquet row i and dump row i are not the same probe
+    example. Raises ``ValueError`` naming the run and step; the drivers that
+    hand-rolled this ``_guard_probe_hash`` check delegate here.
+    """
+    if dump_probe_set_hash != probe_set_hash:
+        raise ValueError(
+            f"{run_id}@step_{step}: dump probe_set_hash {dump_probe_set_hash} != probe "
+            f"parquet order_hash {probe_set_hash} — parquet row i and dump row i must be "
+            "the same frozen probe example (spec 00 §6); refusing to align mismatched sets"
+        )
+
+
 def save_probe_dump(capture: ProbeCapture, meta: ProbeMeta, *, store: Path | None = None) -> Path:
     """Write one dump (spec §7 layout) and return its directory.
 

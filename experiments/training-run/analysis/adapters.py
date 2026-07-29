@@ -48,7 +48,7 @@ import pandas as pd
 import torch
 from safetensors.torch import load_file
 
-from geode.probe import effective_rank
+from geode.probe import effective_rank, load_probe_dumps
 from geode.zoo import load_run, write_results
 from geode.zoo.store import run_dir
 
@@ -116,11 +116,7 @@ def _load_state(run_id: str, step: int, store: Path) -> dict[str, torch.Tensor]:
 
 def _discover_steps(snap_root: Path) -> list[int]:
     """Sorted step indices under ``snap_root`` carrying an adapter or full save."""
-    return sorted(
-        int(p.name.removeprefix("step_"))
-        for p in snap_root.glob("step_*")
-        if (p / "adapter.safetensors").is_file() or (p / "model.safetensors").is_file()
-    )
+    return load_probe_dumps(snap_root, marker=("adapter.safetensors", "model.safetensors"))
 
 
 def _full_ft_deltas(
