@@ -106,7 +106,7 @@ train_arm() {
       [[ -f $MERGED/model.safetensors ]] || fail "no merged parent at $MERGED (pull $INSTALLER_RID first)"
       echo "[probe] MILESTONE train_start run=$rid arm=inst init=$INSTALLER_RID/model_merged"
       python3 train_target.py --config ../configs/llama_probe100_inst.yaml \
-        --parent-run-id "$INSTALLER_RID" --init-from "$MERGED" --confirm-cost || fail "$rid training"
+        --init-from "$MERGED" --confirm-cost || fail "$rid training"
       ;;
   esac
   [[ $(status_of "$rid") == complete ]] || fail "$rid did not complete"
