@@ -1,6 +1,6 @@
 """Apply the phase-2 LR sweep's pre-registered reading rules, mechanically.
 
-The rules themselves live in ``configs/pilot/p2_sweep_armA_lr1e-3.yaml`` and
+The rules themselves live in ``configs/sweeps/p2/p2_sweep_armA_lr1e-3.yaml`` and
 were fixed before the first point launched; this script only executes them, so
 that the verdict is not an eyeball judgement made after seeing the numbers.
 
