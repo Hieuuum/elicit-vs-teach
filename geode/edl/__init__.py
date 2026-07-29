@@ -9,6 +9,7 @@ from geode.edl.metrics import (
     mdl_nats,
     nats_to_bits,
     pgr,
+    prefix_edl_curve,
     training_curve,
 )
 from geode.edl.prequential import PrequentialAccumulator, StepLoss, prequential_step
@@ -25,6 +26,7 @@ __all__ = [
     "mdl_nats",
     "nats_to_bits",
     "pgr",
+    "prefix_edl_curve",
     "prequential_step",
     "load_snapshot",
     "train_prequential",

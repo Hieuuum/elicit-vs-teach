@@ -925,6 +925,16 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   (`parent` inherits its rate by role and pins no positive value).
   `phase3_guards.py` is a thin CLI shim over it (its `ValueError` surfaces as the
   guard's `SystemExit`); the four `launch_*.sh` heredoc copies retire by archival.
+- V5.73 prefix EDL curve (2026-07-29, §6): `geode.edl.prefix_edl_curve(run_id,
+  floor=..., store=...)` returns the running `EDL(e) = MDL(e) − tokens(e)·floor(e)`
+  at each in-loop eval step from the epoch-1 `prequential.jsonl` prefix and
+  `eval_log.jsonl`, unifying the three hand-rolled cumsum sites. `floor` is a
+  REQUIRED keyword (omitting it is a `TypeError`): `"val"` is the moving per-step
+  val floor, `"test"` the run's one constant `eval/test_loss.json` per-token floor
+  (masking-parity guarded, D-1) — the choice sets the curve's shape (the
+  floor-artifact, decisions.md 2026-07-27). `analysis/plot_edl_per_token.py` keeps
+  its `--floor {val,test}` flag and `notebooks/key_figures.py` its accumulation
+  figure, both delegating here.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

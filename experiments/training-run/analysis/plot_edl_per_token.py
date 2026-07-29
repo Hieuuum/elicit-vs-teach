@@ -79,6 +79,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+from geode.edl import prefix_edl_curve
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_RUNS = (
     "evt-run7-armA-target-1m",
@@ -88,74 +90,21 @@ DEFAULT_RUNS = (
 LN2 = math.log(2.0)
 
 
-def read_jsonl(path: Path) -> list[dict]:
-    with path.open() as f:
-        return [json.loads(line) for line in f if line.strip()]
-
-
-def fixed_test_floor_nats(run_dir: Path) -> float:
-    """The run's constant Eq. 3 floor: eval/test_loss.json's per-label-token loss.
-
-    Deliberately mirrors ``canonical_endpoint``'s D-1 train/test masking-parity
-    guard (specs/01 §1, V0.5 / V1.4(a)) instead of sharing it, so that function
-    stays untouched; the two checks must move together.
-    """
-    test = json.loads((run_dir / "eval" / "test_loss.json").read_text())
-    manifest = json.loads((run_dir / "manifest.json").read_text())
-    if manifest.get("masking_config_hash") != test.get("masking_config_hash"):
-        raise SystemExit(f"{run_dir.name}: train/test masking hashes disagree (D-1 guard)")
-    return float(test["loss_per_label_token_nats"])
-
-
 def running_edl(run_dir: Path, *, floor: str = "val") -> dict[str, np.ndarray]:
-    """Prefix EDL at every eval step, from prequential.jsonl + eval_log.jsonl.
+    """Prefix EDL at every eval step (delegates to ``geode.edl.prefix_edl_curve``, V5.73).
 
     ``floor`` selects the subtrahend and therefore the curve's shape (see the
-    module docstring): ``"val"`` is the moving per-step val loss -- the
-    historical default, kept so saved figures stay reproducible -- and
-    ``"test"`` is the run's one constant test loss, the canonical Eq. 3 floor.
-
-    Returns arrays indexed by eval step e: examples/tokens seen, running
-    MDL, val loss, and EDL per label token and per example (all nats).
+    module docstring): ``"val"`` is the moving per-step val loss (kept so saved
+    figures stay reproducible), ``"test"`` the run's one constant Eq. 3 floor.
+    ``run_dir`` is a ``<store>/runs/<run_id>`` path, so the run id and store are
+    read off it; returned as the array dict this script's plotting expects, with
+    ``n_epoch1_steps``/``epoch1_totals`` carried in ``df.attrs``.
     """
-    preq = sorted(read_jsonl(run_dir / "logs" / "prequential.jsonl"), key=lambda r: r["step"])
-    epoch1 = [r for r in preq if r["epoch"] == 1]
-    # Index i holds the totals AFTER encoding batches 0..i, so a prefix of e
-    # batches reads at index e-1.
-    cum_loss = np.cumsum([r["loss_sum_nats"] for r in epoch1])
-    cum_tok = np.cumsum([r["label_token_count"] for r in epoch1])
-    cum_ex = np.cumsum([len(r["example_ids"]) for r in epoch1])
-
-    evals = sorted(read_jsonl(run_dir / "eval_log.jsonl"), key=lambda r: r["step"])
-    steps, vals = [], []
-    for row in evals:
-        e = row["step"]
-        if 1 <= e <= len(epoch1):  # evals past the epoch-1 cut have no MDL prefix
-            steps.append(e)
-            vals.append(row["val_loss_nats"])
-    idx = np.array(steps) - 1
-    val = np.array(vals)
-    mdl, tok, ex = cum_loss[idx], cum_tok[idx], cum_ex[idx]
-    # floor(e): the moving per-step val loss, or one constant for the whole run.
-    # val_nats stays in the return dict either way — it is what the stopping
-    # rule watched, and the val-vs-test floor gap is caveat 1.
-    subtrahend = val if floor == "val" else fixed_test_floor_nats(run_dir)
-    edl = mdl - tok * subtrahend
-    return {
-        "step": np.array(steps),
-        "examples": ex,
-        "tokens": tok,
-        "mdl_nats": mdl,
-        "val_nats": val,
-        "edl_nats": edl,
-        "edl_per_token_nats": edl / tok,
-        "edl_per_example_nats": edl / ex,
-        "n_epoch1_steps": len(epoch1),
-        # Full epoch-1 totals, NOT the last eval point: run 8's epoch-1 cut
-        # (step 7813) falls between evals, and the canonical EDL is defined
-        # over the whole first epoch (geode.edl.metrics._epoch1_totals).
-        "epoch1_totals": (float(cum_loss[-1]), float(cum_tok[-1]), float(cum_ex[-1])),
-    }
+    df = prefix_edl_curve(run_dir.name, floor=floor, store=run_dir.parents[1])
+    curve: dict[str, np.ndarray] = {col: df[col].to_numpy() for col in df.columns}
+    curve["n_epoch1_steps"] = df.attrs["n_epoch1_steps"]
+    curve["epoch1_totals"] = df.attrs["epoch1_totals"]
+    return curve
 
 
 def canonical_endpoint(run_dir: Path, curve: dict[str, np.ndarray]) -> dict[str, float]:

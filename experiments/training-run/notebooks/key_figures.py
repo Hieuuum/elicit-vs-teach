@@ -38,6 +38,7 @@ from geode.edl.metrics import (  # noqa: E402
     edl_per_param,
     mdl_nats,
     nats_to_bits,
+    prefix_edl_curve,
     training_curve,
 )
 
@@ -91,15 +92,18 @@ def main() -> None:
     ax.legend()
     fig.savefig(out / "1_prequential_curve.png", dpi=150, bbox_inches="tight")
 
-    # 2 — EDL accumulation: running excess over the converged model's code
+    # 2 — EDL accumulation: running excess over the converged model's code. The
+    # canonical test-floored prefix curve (geode.edl.prefix_edl_curve, V5.73),
+    # sampled at the in-loop eval steps rather than every prequential record.
     fig, ax = plt.subplots(figsize=(9, 4.5))
-    for (label, r), color in zip(runs.items(), colors):
-        c = r["curve"]
-        excess_bits = (
-            c["loss_sum_nats"].cumsum().to_numpy()
-            - c["label_token_count"].cumsum().to_numpy() * r["theta_T_nats"]
-        ) / LN2
-        ax.plot(c["example_index"].to_numpy() + 1, excess_bits, color=color, label=label)
+    for (label, rid), color in zip(RUNS.items(), colors):
+        edl = prefix_edl_curve(rid, floor="test", store=STORE)
+        ax.plot(
+            edl["examples"].to_numpy(),
+            (edl["edl_nats"] / LN2).to_numpy(),
+            color=color,
+            label=label,
+        )
     ax.set(
         xlabel="examples seen (epoch 1)",
         ylabel="cumulative excess bits  (≈ EDL(n))",
