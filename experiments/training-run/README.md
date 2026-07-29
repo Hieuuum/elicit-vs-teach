@@ -37,6 +37,23 @@ decision history in `notes/decisions.md`.
   plotting; all figures land in `analysis/figures/` (gitignored).
 - `notes/` — `decisions.md` running log; pilot outcomes close spec 02
   OPEN items there first, then the spec.
+- `_lib/` — shared trainer boilerplate (`REPO_ROOT`, `load_config`, the
+  phase banner, `git_commit`), single-sourced from `scripts/train.py`;
+  the forward-looking import home for the next trainer/driver.
+- `scripts/lib/launch_common.sh` — sourceable launcher glue (`notify`,
+  `fail`, `milestone`, `status_of`, `gate_recorded`, `stop_reason_of`) for
+  the next launcher to `source` instead of re-declaring inline.
+
+### Deliberate non-goal: per-trainer manifest skeletons
+
+The `manifest_fields` builders in `train.py`, `train_sft.py`,
+`train_target.py`, and `train_embedding_warmstart.py` stay **duplicated on
+purpose**. Each trainer's manifest carries a different resolved shape
+(pretrain vs. SFT vs. LoRA-target vs. embedding warm-start), and those
+shapes drift independently as the experiment evolves. A shared builder
+would couple unrelated schemas and force every trainer to move in lockstep;
+the boilerplate hoisted into `_lib/` is only the truly-common glue, not the
+manifest bodies.
 
 ## Launching run 1 (once OPEN(8)/OPEN(11) are pinned)
 

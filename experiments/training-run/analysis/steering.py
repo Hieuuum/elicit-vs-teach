@@ -76,8 +76,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
-import sys
 from pathlib import Path
 
 import matplotlib
@@ -112,15 +112,19 @@ from geode.zoo import load_model, load_run, write_results
 from geode.zoo.store import run_dir
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-SCRIPTS_DIR = REPO_ROOT / "experiments" / "training-run" / "scripts"
 CONFIGS_DIR = REPO_ROOT / "experiments" / "training-run" / "configs"
-# The eval-slice constants and the frozen-file loader are now geode.edl / geode.arith
-# (V5.74 / V5.70). The only remaining scripts/ dependency is `load_config`; this
-# sys.path insert exists solely for it and is removed once the _lib package lands
-# (reorg commit 10).
-sys.path.insert(0, str(SCRIPTS_DIR))
 
-from train import load_config  # noqa: E402
+# ``load_config`` is the last scripts/ dependency; it now comes from the
+# training-run ``_lib`` package. training-run/ has a hyphen and is not
+# pip-installed, so ``_lib`` cannot be a normal import — load it by file path
+# anchored on REPO_ROOT. This replaces the old insert of scripts/ onto the
+# import path (reorg commit 10; the eval-slice constants and frozen loader
+# moved to geode.edl / geode.arith, V5.74 / V5.70).
+_lib_init = REPO_ROOT / "experiments" / "training-run" / "_lib" / "__init__.py"
+_lib_spec = importlib.util.spec_from_file_location("evt_training_lib", _lib_init)
+_evt_lib = importlib.util.module_from_spec(_lib_spec)
+_lib_spec.loader.exec_module(_evt_lib)
+load_config = _evt_lib.load_config
 
 DEFAULT_RUN = "evt-run7-armA-target-1m"
 DEFAULT_EVAL_CONFIG = CONFIGS_DIR / "eval_target_data.yaml"
