@@ -17,6 +17,10 @@ Start here: `CLAUDE.md` (conventions + workflow), then `EXPERIMENTS.md`.
 Version pins in `pyproject.toml` are minimums — tighten them to the exact
 versions of your environment on first install.
 
+Operator runbooks (closed-run walkthroughs) live in `docs/runbooks/`;
+tracked manifests for gitignored data/figure artifacts in
+`experiments/training-run/manifests/`.
+
 Clone references (read-only):
 
     git clone https://github.com/science-of-finetuning/sparsity-artifacts-crosscoders reference/sparsity-artifacts-crosscoders

@@ -3,6 +3,160 @@
 Pilot outcomes and design decisions land here first, then close their
 `OPEN(n)` markers in `specs/02-training-run.md` (same PR).
 
+## Index (added 2026-07-29 — navigation only; entry text below is never edited)
+
+### Old→new path map (2026-07-29 archive reorg)
+
+Entries below cite paths as they were when written. Applies to every citation
+in this file; archived files also keep these stale citations internally, by
+design (byte-identical moves).
+
+| cited as (old) | lives at (now) |
+|---|---|
+| `configs/run*.yaml`, `configs/llama_probe100_{inst,noinst}.yaml` | `configs/archive/runs/` |
+| `configs/p2_*.yaml`, `configs/p2/*.yaml` | `configs/archive/phase2/`, `configs/archive/phase2/p2/` |
+| `configs/p3_*.yaml`, `configs/p3/*.yaml` | `configs/archive/phase3/`, `configs/archive/phase3/p3/` |
+| `configs/pilot/llama9_*`, `configs/pilot/p2_sweep_*`, `configs/pilot/p2_dose_cal_*`, `configs/pilot/target_pilot_*`, `configs/pilot/target_sweep_1m_*` | `configs/sweeps/{llama9,p2,dose_cal,target_pilot,target_1m}/` |
+| `scripts/launch_*.sh` (all except `launch_llama_probe100k.sh`), `scripts/unlock_embedding.py` | `scripts/archive/` |
+| `notebooks/pilot_loss_compare.ipynb` | `notebooks/archive/` |
+| `docs/run7-8-guide.md`, `docs/llama-guide.md`, `notes/phase2-runbook.md` | `docs/runbooks/` |
+| `tests/{arith,edl,probe,train,zoo}/` | `tests/lib/{arith,edl,probe,train,zoo}/` |
+| `tests/{scripts,datagen,analysis}/` | `tests/experiments/{scripts,datagen,analysis}/` |
+
+Did NOT move: `configs/{common,lr_pin,eval_*,llama_probe100k_*}.yaml`,
+`configs/pilot/llama10_*`, `scripts/box_onstart.sh`,
+`scripts/launch_llama_probe100k.sh`, all live trainers/tools in `scripts/`,
+all of `analysis/`, `notebooks/view_dataset.ipynb`, `datagen/`, `tokenizer/`.
+Already gone before the reorg (git history, not moved): `sweep_1m.sh`
+(deleted 2026-07-24), `docs/impl-logs/` (pruned 2026-07-24),
+`run5-6-guide.md`.
+
+### Phase TOC
+
+**Foundations & datasets (2026-07-16 → 07-19)**
+
+- 2026-07-16 — TRAIN-1 (run-1 infrastructure)
+- 2026-07-17 — dataset generation redesigned (owner, this session)
+- 2026-07-17 — dataset generation implemented (pilot green)
+- 2026-07-18 — adversarial review of dataset generation (owner: accept gaps)
+- 2026-07-18 — architecture downscale (owner)
+- 2026-07-18 — run-1 launch prep (tokenizer frozen, dataset verified, OPEN(5) closed)
+- 2026-07-19 — dataset frozen on HF (owner); run-1 launch tooling (this session)
+
+**Run 1 + training policies (2026-07-19 → 07-21)**
+
+- 2026-07-19 — run-1 sweep OOM → gradient accumulation (owner launch)
+- 2026-07-19 — OPEN(11)/OPEN(3) closed (run-1 LR sweep, owner + Claude)
+- 2026-07-19 — Gate G0: **FAIL** (run-1 production pretrain)
+- 2026-07-19 — G0 fix: cosine retrain (owner + Claude), fallback PRE-COMMITTED
+- 2026-07-20 — run-1 extension to convergence (owner)
+- 2026-07-20 — store layout: inside the repo, gitignored (owner)
+- 2026-07-20 — run-2 optimization review + launch tooling (owner + Claude)
+- 2026-07-20 — run 1 CLOSED: ext converged, G0 PASS, floor 1 = v2-ext
+- 2026-07-20 — run 1 RE-OPENED: v3 constant-LR retrain (owner decision)
+- 2026-07-20 — G0 REMOVED; manifests now record the full recipe (owner)
+- 2026-07-21 — v3 hit the ceiling still descending; extension v3-ext (owner)
+- 2026-07-21 — runs end on convergence; stopping grace `min_steps` (owner)
+- 2026-07-21 — one canonical convergence rule for ALL training runs (owner)
+- 2026-07-21 — installers stop on behavior, not loss (owner); run-2 ceiling 15 epochs at pin
+
+**Runs 2–4 (2026-07-21 → 07-22)**
+
+- 2026-07-21 — run-2 sweep G1 0.0000 on all arms: broken gauge, not missing capability; EOS fix
+- 2026-07-21 — run-2 re-sweep (post-V5.43): all arms PASS G1; winner lr 3e-4, pinned
+- Open at the moment
+- 2026-07-21 — run-3 tooling landed: in-loop G4 stop, decode promotion, sweep configs
+- 2026-07-22 — runs 2–4 closed: canonical outcomes + all gates recorded
+
+**Runs 5–6 + curve evals (2026-07-22)**
+
+- 2026-07-22 — runs-5/6 infrastructure landed; target-LR sweep launched (OPEN(2) phase 1)
+- 2026-07-22 — target LR pinned 1e-3; runs-5/6 stopping ratified (OPEN(2) phase 1 closed)
+- Curve evals — dense log-spaced val logging (owner 2026-07-22)
+- OPEN(2) closed — target n = 500K (owner 2026-07-22)
+- OPEN(4) + OPEN(10) closed — runs 5/6 launch-ready (owner 2026-07-22)
+- Adapter-only snapshots (owner 2026-07-22, supersedes the 2026-07-18 self-contained format)
+- Runs 5–6 complete — both converged, G5 recorded (2026-07-22)
+
+**Runs 7–10, Llama chain, box ops (2026-07-23 → 07-25)**
+
+- Owner directives 2026-07-23 — 1M rerun pair (runs 7/8), 1M LR re-pin, Llama-3.2-1B chain (runs 9/10)
+- Owner directives 2026-07-24 (sweep design + sequencing updates)
+- Owner directives 2026-07-24 (second batch: precision, LR policy, launchers)
+- Owner directives 2026-07-24 (third batch: full-chain launcher, push-and-prune, hf --force)
+- 1M B-arm LR sweep — first pass results, edge rule FIRED (2026-07-24)
+- Owner directives 2026-07-24 (fourth batch: no Llama snapshots, dense val curve)
+- 2026-07-24 — 1M sweep extension result: 3e-3 stands; chain moves to a new box
+- 2026-07-24 — old box deleted before the pilot/pushes: losses accepted (owner)
+- Arm-A 3e-3 pilot: high plateau → tie-break pilot at 1e-3 (owner 2026-07-24)
+- Box portability: python3 everywhere + canonical /workspace (owner 2026-07-24)
+- One ntfy variable everywhere: $NTFY (owner 2026-07-24)
+- Runs 7/8 snapshots WILL be pushed to the relay — owner has HF Pro (2026-07-24)
+- Repo pruned — closed-era history removed from the working tree (owner 2026-07-24)
+- Runs 9/10 G5 evidence was measured with the wrong tokenizer — invalid, re-measure (2026-07-24)
+- Runs 9/10 G5 re-measured with eval_target_data_llama.yaml — evidence now valid (2026-07-25, box)
+- Runs 9/10 archive = full run-dir relay pushes (owner 2026-07-25)
+- Extraction protocol for runs 7/8 — `--limit 128`, dumps stay on-box (2026-07-24)
+
+**Lifecycle reorg + wave-2 internals + close-out (2026-07-24 → 07-25)**
+
+- Lifecycle reorg of experiments/training-run (2026-07-24)
+- Analysis metrics V5.14–V5.16 + drivers built (2026-07-24)
+- Wave-2 analysis: V5.63 linear CKA + five drivers + steering (2026-07-24)
+- Campaign close-out: all ten metrics, cross-arm findings (2026-07-25)
+  - What the ten metrics say
+  - Techniques considered and declined
+
+**Llama scope leak, v2, steering & emergence (2026-07-25)**
+
+- 2026-07-25 — run 9's installer LR was a scope leak; retention swept, now gating
+- 2026-07-25 — runs 9-v2 / 10-v2: the Llama chain now measures elicitation
+- 2026-07-25 — Steering square: a direction is a key, not a capability
+- 2026-07-25 — Direction emergence: elicitation fixes its output direction at step 1
+- 2026-07-25 — Llama target LR sweep: PRE-REGISTERED, not yet launched
+
+**Phase 2 — role-matched installers + dose grid (2026-07-26 → 07-27)**
+
+- 2026-07-26 — new-phase installer redesign ratified (owner): role-matched installers, mapping-only EDL
+- 2026-07-26 — run archival: lifecycle metadata + runs index (owner-delegated)
+- 2026-07-26 — new phase built out: dose grid, twelve run configs, gate wiring, and the dose-rule calibration
+  - 2026-07-26 — dose ε/k PINNED at 0.0002/5 from both pilots on one device
+  - 2026-07-26 — dose grid RUN: the mult dose is monotone damage, and n=16 fails G2
+  - 2026-07-26 — NO ELICIT INSTALLER (owner): the phase is one installer and two targets
+  - 2026-07-26 — teach installer RAN: 15,488 examples, all gates pass, and a 3.1-nat state gap
+  - 2026-07-26 — phase-2 target LR sweep launched, with the tie-break fixed before any point scored
+  - 2026-07-26 — dataset audit: no contamination behind the +/− gap; the '+' glyph was never trained, and Arm A's parent has seen 29% of the target stream
+  - 2026-07-27 — the 512-parameter unlock: addition IS latent, and the '+' glyph is NOT the lock
+
+**Phase 3 — notation swap, bridge, warm-start (2026-07-27 → 07-28)**
+
+- 2026-07-27 — phase 3: the notation swap, and the EDL floor that made the signature unreadable
+  - The metric finding, which came first and changed the premise
+  - Why phase 3 is still worth building
+  - Datasets (`make_data.py --phase3`, seed 20260727, `data/phase3/`)
+  - The conditional gate
+  - Other choices
+  - Two things to know before reading a phase-3 gate
+  - The 8-digit rewrite (owner, same day, before launch)
+  - Cost of the run, and what "faster" can and cannot buy (owner, same day)
+  - Launch, 2026-07-27: the parent, and the two config bugs that cost a box round-trip each
+    - Two bugs, one class, both found only on a paid GPU
+    - The GPU question, measured rather than argued
+    - G1's 2.83% miss is not a width ceiling (so the header's sweep trigger does not fire on width)
+  - 2026-07-27 — phase 3 elicit arm COMPLETE: the target, and the monotonicity answer
+    - The monotonicity ask, answered
+    - Comparison, with the caveat that makes it non-quotable as a ratio
+  - 2026-07-27 — phase-3 answer-free translation bridge frozen and wired (unrun)
+- 2026-07-27 — Phase 3 bridge RAN and FAILED its retention gate; recovery detour tested and closed
+  - 2026-07-27 (later) — the bridged target itself, on the G2-failed bridge
+  - 2026-07-28 — Phase-3 teaching arm built (unrun): role-matched NL-add installer → 500K target
+  - 2026-07-28 — practical Phase-3 embedding warm-start pre-registration (built, unrun)
+  - 2026-07-28 — practical Phase-3 embedding warm-start RESULTS: large residual-MDL win, broad routing not a `sum` lock
+
+**Reorg (2026-07-29)**
+
+- 2026-07-29 — repository reorg executed (archive tree + promotions), branch `reorg`
+
 ## 2026-07-16 — TRAIN-1 (run-1 infrastructure)
 
 - `geode.train` implemented under the four-stage protocol; full account in
@@ -4579,3 +4733,33 @@ Reporting-block losses and G5 losses agree within numerical precision. The
 warm-start cost remains outside target EDL: **512 unique correct-label questions,
 200 optimizer steps, 102,400 presentations per selected treatment**. Therefore
 these are practical residual-information controls, not clean elicitation runs.
+
+## 2026-07-29 — repository reorg executed (archive tree + promotions), branch `reorg`
+
+Owner-approved plan executed in 19 commits: enablers (`tests/_scriptloader`,
+test-tree mirror, `load_config` walk-up), promotions V5.70–V5.74 into
+`geode/{arith,train,probe,edl}` (frozen-parquet loader, LR scope guard,
+probe dump iterator + alignment guard, required-floor prefix-EDL curve, G5
+leak bar + eval constants), consolidations (`hf_checkpoint.verify_hub_checkpoint`,
+`scripts/lib/launch_common.sh`, `_lib/`), then byte-identical archive moves
+(`configs/archive/{runs,phase2,phase3}/`, `configs/sweeps/<family>/`,
+`scripts/archive/`, `notebooks/archive/`, `docs/runbooks/`), manifests
+(`manifests/*.md` — tracked hashes for gitignored artifacts), and this
+file's index.
+
+- Supersedes the scope of "Lifecycle reorg" (2026-07-24): "paths in
+  scripts/ don't move" now covers only `box_onstart.sh` (vast.ai template
+  pin), `launch_llama_probe100k.sh` (live), and the live trainers/tools.
+  RETIRED launchers moved frozen to `scripts/archive/`; the 2026-07-24
+  claim that both box paste sheets "stay valid as printed" no longer holds —
+  the runbooks in `docs/runbooks/` carry updated paths and a not-re-runnable
+  header.
+- Archived files are byte-identical (R100 verified) and keep pre-reorg
+  internal citations by design; the path map at the top of this file is the
+  decoder. Re-running an archived launcher as-is will fail on path lookups —
+  intentional (they are records, not tools).
+- `phase3_guards.py` stays live as the V5.71 CLI shim; its pinned p3 config
+  filenames are historical (tests copy archived configs into a temp dir).
+- Owner's in-flight llama10 sweep yamls + `view_dataset.ipynb` untouched
+  throughout. Suite green (673) after every commit. No pushes until owner
+  review + probe100k completion.

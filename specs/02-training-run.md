@@ -40,6 +40,12 @@ r=128 (§6), adapter-only snapshots + a once-per-run base file (spec 00
 1B-derived numbers (paper Table-3 LRs, the ~300K teaching peak,
 capacity thresholds) are void — the pilot re-establishes them (§11).
 
+Contents: §1 Runs, arms, DAG · §2 Repository layout (code) · §3 Store layout
+(artifacts) · §4 Zoo schema additions · §5 `geode.arith` · §6 Training runs
+(§6.1 `geode.train`, §6.2 run-1 launch surface) · §7 `geode.probe` · §8
+Verification gates · §9 Analysis deliverables · §10 HF publication · §11
+Pilot protocol · §12 Open items · §13 Limitations / notes
+
 ## 1. Runs, arms, DAG
 
 | # | run_id (proposed)      | Role            | Init      | Method  | Data |

@@ -66,7 +66,7 @@ recipe, tightened convergence rule ε 2 mnat / k 5 (abandons descent
 slower than 0.4 mnat/1k vs 1.7 under 0.005/3; owner 2026-07-21), runs
 to convergence — `max_steps` 81k is a 10-epoch ETA bound, not a stop,
 with a 5k-step stopping grace (V5.42) absorbing the warm-start
-transient (`configs/run1_extend.yaml`) — floor 1 is this run's
+transient (`configs/archive/runs/run1_extend.yaml`) — floor 1 is this run's
 convergence point, and children init from its checkpoint.** Compare
 runs via `min_val_nats` — manifest `best_val_nats` is ε-gated by the
 stopping rule and reads stale.
@@ -179,6 +179,16 @@ ungated inspection tool.
   fixture models (non-negotiable).
 - Decisions worth recording go in `notes/decisions.md` (experiment) or
   this file (structure/plan).
+- **Structure (2026-07-29 reorg):** closed material lives byte-identical in
+  archive subtrees — `configs/archive/{runs,phase2,phase3}/`,
+  `configs/sweeps/<family>/`, `scripts/archive/`, `notebooks/archive/`;
+  operator runbooks in `docs/runbooks/`; tracked artifact manifests in
+  `experiments/training-run/manifests/`; tests mirror the source tree
+  (`tests/lib/**`, `tests/experiments/**`). `notes/decisions.md` opens with
+  the old→new path map. Naming: archived files keep historical names; NEW
+  files follow the live-tree conventions (`run<N>_<stage>.yaml`,
+  `p<phase>_<arm>_<stage>.yaml`, `launch_<family>.sh`,
+  `eval_<slice>_data.yaml`, `test_v<N>_<M>_<property>.py`).
 
 Built so far: `geode.edl` (incl. the pinned-adapter prequential loop,
 V1.9/V1.10), `geode.train` (full FT + SFT + `apply_lora`), `geode.zoo`,
@@ -297,8 +307,8 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    installer (`evt-p2-armB-instperm`), and **one target per installer** —
    5 + 1 EDL measurements on the identical frozen 1M order as runs 7/8, with
    `snapshots.n: 0` (≈$0.08 each at the ceiling runs 7/8 printed). Landed:
-   all twelve configs (`configs/p2_*` + `configs/p2/` overlays),
-   `launch_phase2.sh` (three resumable stages, guards before spend, and the
+   all twelve configs (`configs/archive/phase2/p2_*` + `configs/archive/phase2/p2/` overlays),
+   `scripts/archive/launch_phase2.sh` (retired; three resumable stages, guards before spend, and the
    teach-arm leak bar), `gates.py g4 --prompt-config` for no-val runs
    (verified end-to-end), launcher-side **step-0 recording** for every SFT
    run, the fp32 phase pin, and a `train_loss` branch in the spec-00
@@ -386,9 +396,9 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    arm's 3.46-bit early spike, which the 2026-07-27 unlock result implicates
    as an *addressing* cost rather than algorithm acquisition.
 
-   Elicit setup: `configs/p3_elicit_{parent,inst,target}.yaml` +
-   `configs/eval_p3_data.yaml` + `configs/p3/target_after_inst.yaml`, and
-   `scripts/launch_phase3.sh --stage parent|target|all`. Its format install is
+   Elicit setup: `configs/archive/phase3/p3_elicit_{parent,inst,target}.yaml` +
+   `configs/eval_p3_data.yaml` + `configs/archive/phase3/p3/target_after_inst.yaml`, and
+   `scripts/archive/launch_phase3.sh --stage parent|target|all` (retired). Its format install is
    **conditional** on G4 < 0.90 and uses NL multiplication if it fires, because
    permuted-label NL addition would train wrong sums into a parent that already
    knows addition (the run-9 retention failure).

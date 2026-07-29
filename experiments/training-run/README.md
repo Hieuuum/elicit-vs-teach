@@ -23,20 +23,35 @@ graph LR
 Live run/gate status lives in [`EXPERIMENTS.md`](../../EXPERIMENTS.md);
 decision history in `notes/decisions.md`.
 
-## Layout (lifecycle split, 2026-07-24)
+## Layout (lifecycle split 2026-07-24; archive reorg 2026-07-29)
 
-- `configs/` — one YAML per run; `common.yaml` shared blocks;
-  `pilot/` overlays (pilot uploads go to the separate `-pilot` HF repo).
+- `configs/` — live YAMLs only at top level: `common.yaml` (walk-up target),
+  `lr_pin.yaml`, `eval_*.yaml`, `llama_probe100k_*.yaml`;
+  `pilot/` holds the ACTIVE llama10 pilot set.
+  `archive/{runs,phase2,phase3}/` — closed run/phase configs, byte-identical,
+  frozen. `sweeps/{llama9,dose_cal,p2,target_pilot,target_1m}/` — closed
+  pilot sweeps. Config VALUES in archives are still load-checked by
+  `tests/experiments/scripts/test_config_completeness.py` under the
+  `load_config` walk-up.
 - `datagen/` — one-time dataset + tokenizer generation (outputs frozen:
-  datasets on HF, tokenizer committed under `tokenizer/`).
-- `scripts/` — GPU/box operations: trainers, launchers, gates, relay,
-  monitoring, box provisioning. Cost paths **refuse without
-  `--confirm-cost`**. Paths in here are load-bearing (box paste sheets
-  in `docs/`, sibling imports, the vast.ai template) — don't move files.
+  full datasets on HF `mhieuuu/elicit-vs-teach-arith`, phase-3 local-only;
+  tokenizer committed under `tokenizer/`).
+- `scripts/` — LIVE GPU/box operations only: trainers, gates, relay,
+  monitoring, box provisioning, `launch_llama_probe100k.sh`. Cost paths
+  refuse without `--confirm-cost`. `scripts/archive/` — retired launchers +
+  one-offs, frozen byte-identical, not re-runnable as-is (internal paths
+  predate the reorg — see the path map atop `notes/decisions.md`).
+  Load-bearing pins that must NOT move: `box_onstart.sh` (vast.ai template
+  references it verbatim), sibling imports among live trainers.
 - `analysis/` — CPU post-hoc drivers (→ `geode-store/results/`) and
-  plotting; all figures land in `analysis/figures/` (gitignored).
-- `notes/` — `decisions.md` running log; pilot outcomes close spec 02
-  OPEN items there first, then the spec.
+  plotting; figures land in `analysis/figures/` (gitignored; tracked record
+  in `manifests/figures.md`).
+- `manifests/` — tracked per-family records (rows, `order_hash`, file
+  sha256, provenance, relay status) for the gitignored `data/**` and figure
+  artifacts.
+- `notes/` — `decisions.md` running log (index + path map at top); pilot
+  outcomes close spec 02 OPEN items there first, then the spec. Operator
+  runbooks live in repo-root `docs/runbooks/`.
 - `_lib/` — shared trainer boilerplate (`REPO_ROOT`, `load_config`, the
   phase banner, `git_commit`), single-sourced from `scripts/train.py`;
   the forward-looking import home for the next trainer/driver.
@@ -59,6 +74,6 @@ manifest bodies.
 
 ```bash
 export GEODE_STORE=/path/to/store
-python scripts/train.py --config configs/run1_pretrain.yaml            # prints cost, refuses
-python scripts/train.py --config configs/run1_pretrain.yaml --confirm-cost
+python scripts/train.py --config configs/archive/runs/run1_pretrain.yaml            # prints cost, refuses  # closed run — example syntax only
+python scripts/train.py --config configs/archive/runs/run1_pretrain.yaml --confirm-cost  # closed run — example syntax only
 ```
