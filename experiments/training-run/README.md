@@ -37,8 +37,9 @@ decision history in `notes/decisions.md`.
   full datasets on HF `mhieuuu/elicit-vs-teach-arith`, phase-3 local-only;
   tokenizer committed under `tokenizer/`).
 - `scripts/` — LIVE GPU/box operations only: trainers, gates, relay,
-  monitoring, box provisioning, `launch_llama_probe100k.sh`. Cost paths
-  refuse without `--confirm-cost`. `scripts/archive/` — retired launchers +
+  monitoring, box provisioning (`find_box.sh`, read-only vast.ai search),
+  `launch_llama_probe100k.sh`. Cost paths refuse without `--confirm-cost`.
+  `scripts/archive/` — retired launchers +
   one-offs, frozen byte-identical, not re-runnable as-is (internal paths
   predate the reorg — see the path map atop `notes/decisions.md`).
   Load-bearing pins that must NOT move: `box_onstart.sh` (vast.ai template
