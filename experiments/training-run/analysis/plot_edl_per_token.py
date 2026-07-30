@@ -77,6 +77,7 @@ import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mticker
 import numpy as np
 
 from geode.edl import prefix_edl_curve
@@ -121,6 +122,29 @@ def canonical_endpoint(run_dir: Path, curve: dict[str, np.ndarray]) -> dict[str,
         "edl_per_token_nats": edl / tok,
         "edl_per_example_nats": edl / ex,
     }
+
+
+def smoothed(y: np.ndarray, window: int) -> np.ndarray:
+    """Centered rolling mean over `window` eval points, display only.
+
+    Console diagnostics (peak, rising count, matched-n/endpoint tables) always
+    read the raw series -- this must never feed a quoted number, only the
+    plotted line. window<=1 returns y unchanged (the default: byte-identical
+    to every figure saved before this option existed).
+    """
+    if window <= 1:
+        return y
+    pad = window // 2
+    padded = np.pad(y, (pad, pad), mode="edge")
+    return np.convolve(padded, np.ones(window) / window, mode="valid")[: len(y)]
+
+
+def decimal_fmt(value: float, _pos: int | None = None) -> str:
+    """Comma-grouped plain decimal, ~3 significant figures -- no scientific notation."""
+    if value <= 0:
+        return "0"
+    decimals = max(0, 2 - math.floor(math.log10(value)))
+    return f"{value:,.{decimals}f}"
 
 
 def at_matched_n(curve: dict[str, np.ndarray], n: float) -> dict[str, float]:
@@ -181,6 +205,22 @@ def main() -> None:
         "divides each run by its own label-token count, so the same information "
         "reads as a different height purely from how the tokenizer splits digits",
     )
+    ap.add_argument(
+        "--smooth",
+        type=int,
+        default=1,
+        help="rolling-mean window in eval points, applied to the PLOTTED line "
+        "only (console diagnostics always use the raw series). 1 (default) = "
+        "no smoothing, byte-identical to every figure saved before this option "
+        "existed",
+    )
+    ap.add_argument(
+        "--plain-ticks",
+        action="store_true",
+        help="comma-grouped plain-decimal tick labels on both axes instead of "
+        "scientific/power-of-ten notation; on a log y-axis also adds every "
+        "1-9 x 10^k gridline instead of just the sparse default major ticks",
+    )
     args = ap.parse_args()
     run_ids = args.run_ids or list(DEFAULT_RUNS)
     if args.out is None:
@@ -214,7 +254,7 @@ def main() -> None:
         tok_per_ex = c["tokens"][-1] / c["examples"][-1]
         ax.plot(
             c["examples"][shown],
-            y,
+            smoothed(y, args.smooth),
             color=color,
             marker="o",
             ms=3,
@@ -265,6 +305,11 @@ def main() -> None:
     ax.set_xscale("log")
     if args.logy:
         ax.set_yscale("log")
+    if args.plain_ticks:
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(decimal_fmt))
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(decimal_fmt))
+        if args.logy:
+            ax.yaxis.set_major_locator(mticker.LogLocator(base=10, subs=np.arange(1, 10)))
     ax.set_xlabel("training examples seen (log scale)")
     # A saved PNG has to say which floor drew it: the two curves have different
     # shapes and no reader can tell them apart from the plot alone. Only the
