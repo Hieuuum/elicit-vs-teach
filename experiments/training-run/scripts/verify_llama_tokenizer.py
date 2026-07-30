@@ -75,7 +75,7 @@ def load_hub_artifacts(model_id: str):
     except OSError as e:
         raise SystemExit(
             f"[verify] cannot load {model_id!r} from the hub ({e}) — accept the Meta "
-            "Llama license on this HF account, then `hf auth login`"
+            "Llama license on this HF account, then `hf auth login --force`"
         ) from e
     return tokenizer, config
 

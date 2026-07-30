@@ -10,7 +10,7 @@ archive that future boxes can pull without the laptop.
 Usage:
     # laptop (must be logged in — check with `hf auth whoami`):
     python3 hf_checkpoint.py push --run-id <run-id>
-    # box (repo is private by default => `hf auth login` with a read token):
+    # box (repo is private by default => `hf auth login --force` with a read token):
     python3 hf_checkpoint.py pull --run-id <run-id>
     # laptop, logs/manifest only — no *.safetensors (analysis without weights):
     python3 hf_checkpoint.py pull --run-id <run-id> --no-weights

@@ -55,6 +55,55 @@ BRANCH=cut-to-core
 cd /workspace
 [[ -d elicit-vs-teach ]] || git clone -b "$BRANCH" https://github.com/Hieuuum/elicit-vs-teach.git
 cd elicit-vs-teach
+
+# CUDA-matched torch preflight (2026-07-29/30 incidents; see memory
+# reference-vastai-box-env-fix.md): an unpinned `pip install` resolves torch
+# to the newest PyPI wheel (currently cu130) regardless of the box's actual
+# driver. A driver whose max supported CUDA is older still accepts the
+# install, but torch.cuda.is_available() silently comes back False (a
+# buried "driver too old" UserWarning, not an error) — CPU pytest still
+# passes and suite=ok still prints. Read the driver's OWN max supported CUDA
+# from nvidia-smi's header instead of trusting PyPI's default resolution.
+cuda_tag_for() {  # nvidia-smi "CUDA Version" header string -> torch wheel tag; empty -> none
+  local ver=$1 major minor num
+  if [[ -z $ver ]]; then echo none; return; fi
+  major=${ver%%.*}
+  minor=${ver#*.}; minor=${minor%%.*}
+  case ${#minor} in
+    0) minor=00 ;;
+    1) minor="${minor}0" ;;
+    *) minor="${minor:0:2}" ;;
+  esac
+  num=$((10#$major * 100 + 10#$minor))
+  if   ((num >= 1300)); then echo cu130
+  elif ((num >= 1260)); then echo cu126
+  elif ((num >= 1210)); then echo cu121
+  else                       echo cu118
+  fi
+}
+
+gpu=none  # default; a GPU box overwrites this below (preflight) and again near the end (real gate)
+cuda_hdr=$(nvidia-smi 2>/dev/null | sed -n 's/.*CUDA Version: *\([0-9][0-9.]*\).*/\1/p' | head -1)
+torch_tag=$(cuda_tag_for "$cuda_hdr")
+if [[ $torch_tag != none ]]; then
+  gpu=pending  # real value comes from the matmul gate near the end of the script
+  # Marker mirrors .geode_suite_ok: install once per box — a container
+  # restart must not silently advance torch mid-experiment (same rule as the
+  # never-auto-pull clone above). The matmul gate below still runs every
+  # start and reports gpu=FAILED loudly if the env rotted.
+  if [[ ! -f /workspace/.geode_torch_ok ]]; then
+    python3 -m pip install -q --upgrade torch torchvision --index-url "https://download.pytorch.org/whl/$torch_tag" \
+      && touch /workspace/.geode_torch_ok
+    python3 -m pip uninstall -q -y torchaudio || true  # stale torchaudio's undefined-symbol break against a fresh torch (2026-07-29 fix); geode needs no audio
+  fi
+  if ! command -v gcc >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -q build-essential  # triton/torch.compile needs a C compiler at runtime (2026-07-29 fix); image ships none
+  fi
+  if ! grep -q '^export CC=gcc' ~/.bashrc 2>/dev/null; then
+    echo "export CC=gcc" >>~/.bashrc
+  fi
+fi
+
 python3 -m pip install -q -e ".[dev]"
 
 # Every login shell / tmux window gets the exports — a stale $GEODE_STORE in
@@ -103,8 +152,30 @@ suite=$([[ -f /workspace/.geode_suite_ok ]] && echo ok || echo FAILED)
 
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
 df -h /workspace | tail -1
+
+# Real GPU gate, every start (cheap — unlike the suite marker): a bare
+# cuda.is_available() lies on a driver/CUDA mismatch (see preflight above),
+# so actually run a matmul on the device instead of trusting it.
+if [[ $gpu != none ]]; then
+  if python3 - <<'PYEOF'
+import sys
+try:
+    import torch
+    x = torch.randn(64, 64, device="cuda")
+    (x @ x).sum().item()
+except Exception as e:
+    print(f"[gpu-gate] FAILED: {e}")
+    sys.exit(1)
+PYEOF
+  then
+    gpu=ok
+  else
+    gpu=FAILED
+  fi
+fi
+
 hash=$(git rev-parse --short HEAD)
-echo "ready: $hash suite=$suite (box hash must match laptop before any launch)"
-[[ -n ${NTFY:-} ]] && curl -sd "box ready: $hash suite=$suite" "$NTFY" >/dev/null
+echo "ready: $hash suite=$suite gpu=$gpu (box hash must match laptop before any launch)"
+[[ -n ${NTFY:-} ]] && curl -sd "box ready: $hash suite=$suite gpu=$gpu" "$NTFY" >/dev/null
 echo "=== onstart done ==="
 exit 0
