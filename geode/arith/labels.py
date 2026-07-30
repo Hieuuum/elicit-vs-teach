@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import hashlib
 import random
+from typing import Sequence
 
 from geode.arith.formats import digits
 
@@ -25,6 +26,22 @@ from geode.arith.formats import digits
 def _rng(seed: int, index: int) -> random.Random:
     h = hashlib.sha256(f"{seed}:{index}".encode()).hexdigest()
     return random.Random(int(h[:16], 16))
+
+
+def permute_labels(true_answers: Sequence[int], seed: int) -> list[int]:
+    """The true answers shuffled across positions (spec 02 §5, permuted mode).
+
+    Position ``i`` is shown some other position's true answer: individually
+    wrong up to chance collisions (two questions sharing an answer), while the
+    *multiset* of shown labels equals the multiset of true answers exactly —
+    the marginal answer distribution (digit counts, sign frequency, value
+    frequencies) is preserved by construction and the question→answer mapping
+    carries no signal (V5.64). Deterministic in ``seed``; the permutation is
+    over input order, so callers must fix that order first.
+    """
+    out = list(true_answers)
+    random.Random(seed).shuffle(out)
+    return out
 
 
 def random_label(true_answer: int, seed: int, index: int) -> int:

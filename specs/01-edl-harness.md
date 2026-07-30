@@ -55,9 +55,16 @@ def pgr(perf_tuned, perf_base, perf_fullft) -> float
 def training_curve(run_id) -> DataFrame   # loss vs example index, epoch 1
 ```
 
-Plus a thin training-loop wrapper around PEFT that: evaluates the
-pre-update loss, steps the optimizer, writes prequential + gradstat
-records, and saves snapshots per the manifest's `snapshot_steps`.
+Plus a thin training-loop wrapper (`train_prequential`) around the pinned
+LoRA adapter (`geode.train.apply_lora`, spec 02 §6: scaling α/(2r) —
+deliberately not PEFT's α/r — seeded A init ±1/√d_in, B zero, so θ₀
+computes the pretrained function exactly) that: evaluates the pre-update
+loss, steps the optimizer (SGD or AdamW per the manifest, with optional
+grad clipping), writes prequential + gradstat records, saves snapshots per
+the manifest's `snapshot_steps`, and exposes an optional per-update
+`step_callback` (per-step LR / train-loss / label-accuracy scalars; may
+request an early stop — the runs-5/6 stopping rule lives with the launch
+script, spec 02 §6).
 
 ## 4. Validation properties (each maps to ≥1 named test; tiny CPU models)
 
@@ -89,6 +96,28 @@ records, and saves snapshots per the manifest's `snapshot_steps`.
   prequential logs (CPU, fixed threads).
 - **V1.8 — Units.** Reported bits = nats / ln 2 (checked to tolerance);
   no public reporting function returns unlabeled units.
+- **V1.9 — Pinned adapter wiring.** The adapter `train_prequential` builds
+  is `geode.train.apply_lora`'s: adapter tensors are named
+  `<module>.A/.B.weight` (and the frozen `<module>.base.weight` twins live
+  in the once-per-run base file) on the target modules, every A factor is
+  bit-identical to the seeded init at the loop's explicit `seed`, B is
+  zero — and θ₀ therefore computes the pretrained function bit-exactly
+  (asserted on logits, not approximately).
+- **V1.10 — step_callback.** Called once per completed update with (step,
+  epoch, lr, train_loss_nats, train_accuracy); returning True ends training
+  after that update with all four artifacts still written and
+  `eval/test_loss.json` evaluated at the stopped θ_T; a stop inside epoch 1
+  truncates the MDL stream to the seen prefix; a None callback reproduces
+  the prior behavior exactly.
+- **V1.11 — Adapter-only snapshots** (2026-07-22, supersedes the
+  2026-07-18 self-contained format). (a) `snapshots/step_{k}/
+  adapter.safetensors` holds exactly the trainable tensors — no more, no
+  less — and `snapshots/base/model.safetensors` (written once, before any
+  step file) holds the frozen complement; together they cover the full
+  state dict. (b) Reassembly via `geode.edl.load_snapshot` is bit-exact
+  tensor-by-tensor, including under tied embeddings (the base save stores
+  a shared-storage pair once; load restores the alias from its twin).
+  (c) Legacy full `model.safetensors` snapshots still strict-load.
 
 ## 5. Non-goals
 

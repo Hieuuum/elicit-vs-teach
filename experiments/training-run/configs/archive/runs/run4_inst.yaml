@@ -1,0 +1,66 @@
+# Run 4 — Arm B format installer: operator-notation mult, random labels
+# (spec 02 §1 row 4, §6). Full FT from the run-1 base checkpoint (no algo
+# pre-teach — that absence IS the arm difference) via scripts/train_sft.py;
+# stops on the same behavioral rule as run 3, on the identical D_inst
+# stream (same file, order_hash, seed, val_fraction, batch order).
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run1-base-v3-ext must be complete (launcher enforces, V0.6);
+#      run 1 has no required gates (G0 removed).
+#   2. train.lr pinned 3e-6 (2026-07-21) = the run-3 winner pin (matched
+#      installer recipe: arms may differ only in the parent).
+#   3. Data block below must stay verbatim-identical to run3_inst.yaml
+#      (spec 02 §6: identical dataset + order as run 3; the G7 analog for
+#      the installer pair).
+run_id: evt-run4-armB-inst
+experiment:
+  name: training-run
+  arm: B
+  role: format_install
+  parent_run_id: evt-run1-base-v3-ext  # floor-1 base (min_val_nats 1.0718)
+  parent_required_gates: []            # run 1: complete is the only bar
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-3
+
+task:
+  name: arith_op_mult          # operator-notation mult (D_inst); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:                          # VERBATIM copy of run3_inst.yaml (spec 02 §6)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_inst.parquet         # 1M op-notation mult, random labels, seed 20260717
+  order_hash: d014388ab906c3db50fc2504fde2f38ff1d922e3826899713fbb161746caa048
+  val_fraction: 0.005          # 5,000 held-out; questions unique, no leak
+  seed: 316                    # runs 3+4 must share seed/val_fraction/batch
+                               # order: identical D_inst stream (spec 02 §6)
+
+train:
+  lr: 3.0e-6                   # = run-3 winner pin (matched installer recipe)
+  batch_size: 128
+  eval_every: 250              # behavioral cadence (spec 02 §6, OPEN(1) close)
+  max_steps: 15546             # pure ceiling = 2 epochs of 7,773 steps
+                               # ((1M − 5,000 val) // 128 drop-last); repeat
+                               # epochs over random labels invite label
+                               # memorization. stop_reason=max_steps means
+                               # the format never installed: investigate,
+                               # don't ship
+  stopping:                    # behavior-matched rule, frozen before either
+                               # installer launches (spec 02 §6)
+    metric: format_validity
+    threshold: 0.99
+    k: 3
+    n_prompts: 512
+    prompt_seed: 316
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 2      # ceiling metadata; Arm B starts from base
+                               # (never saw the answer scaffold), so the
+                               # behavioral stop may land later than run 3's
+
+cost:
+  assumed_epochs_for_estimate: 2  # quote the ceiling (worst case)

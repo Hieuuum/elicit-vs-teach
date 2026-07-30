@@ -1,0 +1,71 @@
+# NEW PHASE (2026-07-26) — Arm B target run behind the permuted-label shape
+# installer: the teach point the elicit arm is compared against. Same harness,
+# same frozen 1M order, same stopping rule and ceiling as the Arm A target in
+# this phase and as runs 7/8; the arms differ only in the parent chain. See
+# p2_armA_target_noinst.yaml for the phase's design notes (why the elicit arm
+# has no installer, mapping-only EDL, the exposure asymmetry, no snapshots)
+# and run7_target_1m.yaml for the harness mechanics.
+#
+# AFTER THE OWNER'S 2026-07-26 REVISION this is one of exactly TWO runs left
+# in the phase, and the comparison is a single elicit point against a single
+# teach point — no longer a dose-response curve against a teach point. The
+# five dose targets are retired unlaunched with the dose grid that would have
+# parented them.
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-p2-armB-instperm must be complete with G3 + G4 + G5 recorded — the
+#      launcher enforces all three (parent_required_gates, V0.6).
+#   2. THE LEAK BAR IS G5 ZERO-SHOT <= 0.02 on D_target_eval, matched notation
+#      and op (p2_armB_instperm.yaml header). G5 records pass: true by
+#      protocol, so the numeric bar is enforced by launch_phase2.sh before
+#      this run starts — never by the gate flag. A leak here deflates this
+#      arm's EDL and inflates the headline ratio.
+#   3. The G7 anchor is evt-p2-armA-target-noinst (launch it first): the check
+#      reads that run's registered manifest at launch time.
+run_id: evt-p2-armB-target-perm
+experiment:
+  name: training-run
+  arm: B
+  role: target
+  parent_run_id: evt-p2-armB-instperm
+  parent_required_gates: [G3, G4, G5]  # no NL leak + format + evidence recorded
+  match_data_order_with: evt-p2-armA-target-noinst  # G7, enforced at launch
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-8
+
+task:
+  name: arith_op_addsub        # operator-notation add/sub (D_target); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:                          # VERBATIM copy of p2_armA_target_noinst.yaml (G7)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target.parquet       # 1M op-notation add/sub, correct labels, seed 20260717
+  order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
+  n_examples: 1000000
+  eval_file: D_target_eval.parquet
+  eval_order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8
+  seed: 316
+
+lora:
+  r: 128                       # spec 02 §6 pin (2026-07-18 arch decision)
+  alpha: 32
+
+train:
+  lr: 1.0e-3                   # target-stage pin (2026-07-24, one LR everywhere)
+  batch_size: 128
+  eval_every: 500
+  max_steps: 46878             # identical ceiling to every target in the phase
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 0
+  snapshots:
+    n: 0                       # EDL only, no internals
+  seed: 316
+
+# No cost block: train_target.py quotes the max_steps ceiling directly.

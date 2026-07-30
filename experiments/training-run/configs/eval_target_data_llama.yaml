@@ -1,0 +1,22 @@
+# Llama variant of eval_target_data.yaml for gates.py g5 on runs 9/10
+# (arm llama). Identical D_target_eval pin; only the tokenizer differs:
+# G5's tokenizer must match the MODEL under eval, exactly like training
+# (2026-07-24 incident: run 9/10 G5 ran with eval_target_data.yaml's
+# custom arith tokenizer — a converged run 10 [0.0156 nats val] scored
+# 0.0000 exact match and a 15.04-nat "test loss" because every prompt and
+# NLL input was tokenized in a vocabulary the Llama model never saw).
+# NEVER use this file for runs 7/8 — those models use ../tokenizer.
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # the run-9/10 training tokenizer
+
+task:
+  name: arith_op_addsub          # for the shared-set test loss's label mask
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target_eval.parquet    # 100k op-notation add/sub, disjoint from all
+                                 # training data; rows 0-2047 = stopping block,
+                                 # rows 2048+ = reporting block (G5 + test loss)
+  order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8

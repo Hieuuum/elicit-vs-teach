@@ -11,10 +11,31 @@ formats; nothing else in `geode` may depend on external repo internals.
 $GEODE_STORE/
   runs/{run_id}/
     manifest.json
-    snapshots/step_{k}/       # self-contained full-model snapshots:
+    model/                    # final save_pretrained checkpoint:
                               #   model.safetensors = the complete state_dict
-                              #   (base + adapter tensors; 2026-07-18 decision —
-                              #   adapter-only saving + base reassembly retired)
+                              #   (base + adapter tensors — the FINAL checkpoint
+                              #   stays self-contained; zoo.load_model V0.9)
+    model_merged/             # OPTIONAL: a LoRA install run's adapter folded
+                              #   into plain weights (scripts/merge_adapter.py,
+                              #   geode.train.merge_lora) for cross-stage parent
+                              #   handoff — loadable by plain from_pretrained,
+                              #   never zoo.load_model (it is not method-tagged)
+    train_log.jsonl           # per-step trainer log (spec 02 §6.1 contract)
+    eval_log.jsonl            # periodic held-out evals (same contract)
+    training_meta.json        # trainer config echo + stop record
+    snapshots/                # runs 5-6 (adapter-only format 2026-07-22,
+                              # supersedes the 2026-07-18 self-contained one):
+      base/model.safetensors  #   frozen base + buffers, written once per run
+                              #   (tied aliases stored once, restored on load)
+      step_{k}/               #   adapter.safetensors = exactly the trainable
+                              #   (A/B) tensors at θ_k; reassemble via
+                              #   geode.edl.load_snapshot (bit-exact, V1.11;
+                              #   legacy full model.safetensors still loads)
+    probe/step_{k}/           # offline probe dumps (spec 02 §7):
+                              #   acts.safetensors + grads.safetensors (bf16,
+                              #   n_layers+1 named residual tensors each),
+                              #   probe_data.safetensors (ids/masks + fp32
+                              #   per-example loss), meta.json sidecar
     logs/
       prequential.jsonl       # per-batch first-epoch label losses (§3)
       gradstats.jsonl         # per-step gradient statistics (§4)
@@ -25,6 +46,16 @@ $GEODE_STORE/
   saes/{model_key}/{hook_name}/                                   # SAELens format
   results/                    # analysis outputs, parquet (§7)
 ```
+
+Flat run layout (2026-07-21): the final checkpoint lives at
+`runs/{run_id}/model/` and the trainer's files at the run root. Before
+this, runs nested everything under a phase dir named for how they were
+trained (`pretrain/` for run 1, `sft/` for runs 2-4), forcing every
+consumer to hardcode or guess the phase name. Legacy support: readers
+(`geode.zoo.checkpoint_dir`, monitor.py, hf_checkpoint.py) accept both
+layouts; a store converts only explicitly, via
+`experiments/training-run/scripts/migrate_store_layout.py`, after its
+runs finish — never implicitly, and never mid-training.
 
 `$GEODE_STORE` is an environment variable; no absolute paths in code.
 When it is unset, launch scripts (`experiments/`) default it to
@@ -53,7 +84,19 @@ Required fields. Unknown extra fields are permitted and preserved.
               "target_modules": ["str"], "dropout": "float|null",
               "sparse_param_count": "int|null"},
     "optimizer": {"name": "str", "lr": "float", "batch_size": "int",
-                   "weight_decay": "float"},
+                   "micro_batch_size": "int|null", "betas": "[float]|null",
+                   "weight_decay": "float", "grad_clip": "float|null"},
+    "lr_schedule": "constant | cosine",
+    "min_lr": "float|null",
+    "precision": "fp32 | bf16",
+    "eval_every": "int|null",
+    "max_steps": "int|null",
+    "stopping": {"eps_nats": "float|null", "k": "int|null",
+                  "min_steps": "int|null"}
+                | {"metric": "format_validity", "threshold": "float",
+                   "k": "int", "n_prompts": "int", "prompt_seed": "int"}
+                | {"metric": "train_loss", "eps_nats": "float",
+                   "k": "int", "min_steps": "int|null"},
     "epochs_total": "int",
     "seed": "int"
   },
@@ -65,11 +108,44 @@ Required fields. Unknown extra fields are permitted and preserved.
 }
 ```
 
+Optional lifecycle metadata (2026-07-26) — two extra fields may follow
+`status`:
+
+- `lifecycle`: `"canonical | superseded | pilot | invalid"` — the
+  scientific standing of a completed run, orthogonal to `status` (which
+  records process completion and stays load-bearing for parent gating).
+  Absent ⇒ treat as canonical.
+- `superseded_by`: `run_id` of the replacement; present only when
+  `lifecycle` is `superseded` or `invalid`.
+
+Both are advisory archive metadata for humans and analysis scripts; zoo
+gating never consults them.
+
 Rationale: `regime` is recorded at creation from experimental design, so
 analysis code can group runs without re-deriving it. `snapshot_steps` is
 declared up front — the checkpoint schedule is designed before training
 (rerunning training to recover a missing checkpoint is the expensive
 failure mode).
+
+The full training recipe (`lr_schedule` through `stopping`, plus the
+optimizer extras; added 2026-07-20) is required so the manifest alone
+answers "how exactly was this trained" — before this, telling a cosine
+run from a constant-LR run meant digging through
+`pretrain/training_meta.json`. Record **resolved** values (e.g. the
+precision actually used after any CPU fallback, `micro_batch_size` after
+defaulting to `batch_size`). Fields are `|null` only where a training
+mode has no such concept (SGD has no `betas`; the prequential EDL loop
+has no held-out eval, step cap, or plateau stopping). Run-1 manifests
+written before this change were backfilled from their
+`training_meta.json`. `stopping` is a union (2026-07-21): loss-stopped
+runs record the ε/k rule; the behavior-stopped format installers (runs
+3–4, spec 02 §6) record the in-loop format-validity rule instead.
+Extended 2026-07-26 to dispatch on the `metric` *value*, adding a
+`train_loss` branch for the new-phase dose installers (spec 02 §6): the
+same ε/k fields, but labelled, because the metric is the full-dose
+**training** loss and not a held-out one — an unlabelled ε/k record would
+read as a val curve. A `metric` value outside the listed branches is a
+validation error, so the discriminant stays closed.
 
 ## 3. Prequential log (`prequential.jsonl`)
 
@@ -122,6 +198,10 @@ A sidecar `{hook_name}.meta.json` records: model_key, hf_id + revision,
 dataset_key, position policy (`all | answer_only | last`), sample count,
 tokenizer hash. Matched-input comparisons across models require identical
 dataset_key, position policy, and tokenizer hash; loaders must enforce this.
+A matched pair must also have identical row counts; if per-row example
+identifiers are stored in the sidecar, they must match element-wise.
+`load_matched_pair` refuses row-count or per-row-id mismatches the same way
+it refuses the other matched-input mismatches.
 
 ## 7. Results tables
 
@@ -143,6 +223,10 @@ def iter_runs(regime: str | None = None, task: str | None = None,
               status: str = "complete") -> Iterator[RunManifest]
 def prequential_records(run_id: str) -> Iterator[PrequentialRecord]
 def test_loss(run_id: str) -> TestLoss
+def load_model(run_id: str, *, store=None, device="cpu",
+               checkpoint=None) -> nn.Module   # V0.9 — the ONLY way to
+               # load a run checkpoint for eval/analysis; dispatches on
+               # the manifest's training.method
 ```
 
 ## 9. Decisions (owner-approved 2026-07-11)
@@ -188,3 +272,29 @@ not a contract.
   `status` is not `"complete"`, any recorded `experiment.gates` entry lacks
   `pass: true`, or a caller-required gate has no recorded verdict. Gate
   records are objects with at least a boolean `pass` field.
+- **V0.7** `training.stopping` union (2026-07-21, extended 2026-07-26): an
+  object without `metric` validates against the val-loss ε/k field set only;
+  one with `metric` validates against the branch that value selects
+  (`format_validity` behavioral, `train_loss` full-dose ε/k) and against no
+  other. No branch demands another's fields, and an unlisted `metric` value
+  is a validation error.
+- **V0.8** Checkpoint resolution (2026-07-21 flat-layout migration):
+  `geode.zoo.checkpoint_dir(run_id)` returns `runs/{run_id}/model` when it
+  contains `model.safetensors`, else the single legacy `{phase}/model`
+  (glob `*/model/model.safetensors`). Exactly one candidate must exist
+  across both patterns; zero or several raises an error naming the run
+  dir — never a guess. Snapshot files (`snapshots/step_{k}/`, no `model/`
+  component) are never candidates.
+- **V0.9** Method-faithful checkpoint loading (2026-07-22 G5 incident):
+  `geode.zoo.load_model(run_id)` loads the final checkpoint the way the
+  run's manifest says it was trained — `training.method: "full_ft"` via
+  plain `from_pretrained`; `"lora"` by rebuilding the `apply_lora` module
+  tree from `training.lora` and loading the wrapped state dict (bit-exact
+  with the model that was saved, V5.51). A wrapped state dict
+  (`*.base.weight`/`*.A.weight`/`*.B.weight` keys) under a `full_ft`
+  manifest — or a plain one under `"lora"` — is a loud refusal: plain
+  `from_pretrained` on a wrapped checkpoint does not error, it silently
+  random-initializes every wrapped projection. Tied-embedding checkpoints
+  (`tie_word_embeddings: true`, where `save_pretrained` drops the
+  `lm_head.weight` duplicate from safetensors) load bit-exactly on the
+  lora path too: the tied alias is restored before the strict load.

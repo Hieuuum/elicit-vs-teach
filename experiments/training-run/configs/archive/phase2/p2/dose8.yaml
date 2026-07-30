@@ -1,0 +1,16 @@
+# New-phase Arm A dose installer at n=8 — overlay on p2_armA_dose.yaml,
+# which carries the whole design (why a dose, the eps/k plateau rule, the
+# gates). A dose is a PREFIX of the frozen D_dose_mult order, so
+# dose 1 ⊂ dose 2 ⊂ dose 4 ⊂ dose 8 ⊂ dose 16 — every larger dose contains
+# every smaller one, which is what makes the response curve a dose curve and
+# not five unrelated samples. batch_size tracks the dose because the
+# train_loss rule requires batch == n_train (V5.65).
+#
+#   python3 train_sft.py --config ../configs/p2_armA_dose.yaml \
+#       --override ../configs/p2/dose8.yaml \
+#       --init-from $GEODE_STORE/runs/evt-run2-armA-algo/model --confirm-cost
+run_id: evt-p2-armA-dose8
+data:
+  max_rows: 8
+train:
+  batch_size: 8

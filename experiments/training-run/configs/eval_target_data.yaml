@@ -1,0 +1,22 @@
+# Eval-only data pin for gates.py g5 (spec 02 §8 G5): zero/16-shot operator
+# add/sub + shared-set test loss on D_target_eval — the fixed shared eval
+# file (owner 2026-07-22), question-disjoint from D_target ∪ D_algo ∪ probe
+# by construction (make_data --eval-set, data/full/report.json). No training
+# run consumes this config; the runs-5/6 target configs pin the same file as
+# data.eval_file. order_hash pinned from data/full/report.json
+# (datasets.D_target_eval); load_frozen_parquet recomputes over the
+# downloaded file and refuses on mismatch.
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-4
+
+task:
+  name: arith_op_addsub        # for the shared-set test loss's label mask
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target_eval.parquet  # 100k op-notation add/sub, disjoint from all
+                               # training data; rows 0-2047 = stopping block,
+                               # rows 2048+ = reporting block (G5 + test loss)
+  order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8

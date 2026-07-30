@@ -9,9 +9,14 @@ archive that future boxes can pull without the laptop.
 
 Usage:
     # laptop (must be logged in — check with `hf auth whoami`):
-    python hf_checkpoint.py push
+    python3 hf_checkpoint.py push --run-id <run-id>
     # box (repo is private by default => `hf auth login` with a read token):
-    python hf_checkpoint.py pull
+    python3 hf_checkpoint.py pull --run-id <run-id>
+    # laptop, logs/manifest only — no *.safetensors (analysis without weights):
+    python3 hf_checkpoint.py pull --run-id <run-id> --no-weights
+    # either direction: snapshots/ is SKIPPED by default (multi-GB, needed
+    # only for extraction) — opt in explicitly:
+    python3 hf_checkpoint.py pull --run-id <run-id> --with-snapshots
 
 The hub repo (default mhieuuu/geode-store, private) mirrors the local
 store layout — runs/<run-id>/... — so every run lands as its own folder
@@ -30,8 +35,26 @@ from pathlib import Path
 
 from huggingface_hub import HfApi, snapshot_download
 
+from geode.zoo import checkpoint_dir
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
-CKPT_REL = Path("pretrain") / "model" / "model.safetensors"
+DEFAULT_REPO_ID = "mhieuuu/geode-store"
+
+
+def find_checkpoint(store: Path, run_id: str) -> Path:
+    """The run's single final ``model.safetensors`` (flat OR legacy layout).
+
+    Thin wrapper over ``geode.zoo.checkpoint_dir`` — the one resolver for
+    the flat ``runs/<id>/model/`` layout and the legacy phase-dir layout
+    (``pretrain/`` run 1, ``sft/`` runs 2-4), spec 00 §1 — converting its
+    refusals into clean CLI errors. Exactly one checkpoint must exist
+    across both patterns; zero or several is a wrong-dir/half-migrated
+    signal, not a guess to make.
+    """
+    try:
+        return checkpoint_dir(run_id, store=store) / "model.safetensors"
+    except (FileNotFoundError, RuntimeError) as e:
+        raise SystemExit(f"[hf] {e} — wrong --store/--run-id?") from e
 
 
 def sha256_of(path: Path) -> str:
@@ -42,12 +65,45 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def push(store: Path, run_id: str, repo_id: str, public: bool) -> int:
+def hub_lfs_sha256(repo_id: str, repo_path: str) -> str | None:
+    """The hub's stored LFS sha256 for one file, or ``None`` if unrecorded.
+
+    A single wrapper over ``get_paths_info`` so every push/pull verifier reads
+    the remote digest the same way. ``None`` means the hub has no LFS hash for
+    that path (a non-LFS file, or a path the repo does not hold); each caller
+    decides whether that is a warning (``pull``) or a hard failure
+    (``verify_hub_checkpoint``)."""
+    info = HfApi().get_paths_info(repo_id, [repo_path])
+    return info[0].lfs.sha256 if info and info[0].lfs else None
+
+
+def verify_hub_checkpoint(store: Path, run_id: str, repo_id: str = DEFAULT_REPO_ID) -> str:
+    """Assert the hub's ``model.safetensors`` sha256 equals the local one.
+
+    The single implementation of the "push, then confirm the relay actually
+    holds the bytes I have" check that launchers used to inline as a Python
+    heredoc after ``hf_checkpoint.py push``. Strict by contract: a missing hub
+    hash (``None``) counts as a mismatch and raises, because a push verifier
+    that is silent when the hub reports nothing is worthless. Returns the
+    verified local sha256 on success so the caller can log it.
+
+    ``pull`` keeps its own leniency (``None`` -> warning) — that is a
+    post-download sanity note, not a gate on deleting local weights."""
+    ckpt = find_checkpoint(store, run_id)
+    repo_path = f"runs/{run_id}/{ckpt.relative_to(store / 'runs' / run_id).as_posix()}"
+    local = sha256_of(ckpt)
+    remote = hub_lfs_sha256(repo_id, repo_path)
+    if remote != local:
+        raise SystemExit(f"[hf] {run_id}: hub sha256 {remote!r} != local {local}")
+    return local
+
+
+def push(store: Path, run_id: str, repo_id: str, public: bool, with_snapshots: bool = False) -> int:
     src = store / "runs" / run_id
-    ckpt = src / CKPT_REL
-    if not ckpt.is_file():
-        raise SystemExit(f"[hf] no checkpoint at {ckpt} — wrong --store/--run-id?")
+    ckpt = find_checkpoint(store, run_id)
     print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
+    if not with_snapshots:
+        print("[hf] snapshots/ skipped (default; pass --with-snapshots to include)")
     api = HfApi()
     api.create_repo(repo_id, private=not public, exist_ok=True)
     api.upload_folder(
@@ -55,23 +111,38 @@ def push(store: Path, run_id: str, repo_id: str, public: bool) -> int:
         folder_path=src,
         path_in_repo=f"runs/{run_id}",
         commit_message=f"{run_id} run artifacts",
+        ignore_patterns=None if with_snapshots else ["snapshots/*"],
     )
     print(f"[hf] pushed {src} -> https://huggingface.co/{repo_id}/tree/main/runs/{run_id}")
-    print("[hf] next, on the box: python hf_checkpoint.py pull")
+    print("[hf] next, on the box: python3 hf_checkpoint.py pull")
     return 0
 
 
-def pull(store: Path, run_id: str, repo_id: str) -> int:
-    repo_path = f"runs/{run_id}/{CKPT_REL.as_posix()}"
+def pull(
+    store: Path, run_id: str, repo_id: str, no_weights: bool = False, with_snapshots: bool = False
+) -> int:
+    ignore = [] if with_snapshots else [f"runs/{run_id}/snapshots/*"]
+    if no_weights:
+        ignore.append("*.safetensors")
+    if not with_snapshots:
+        print("[hf] snapshots/ skipped (default; pass --with-snapshots to include)")
     # The repo mirrors the store layout, so unpacking at the store root
     # puts runs/<run-id>/... exactly where train.py expects it.
-    snapshot_download(repo_id=repo_id, local_dir=store, allow_patterns=[f"runs/{run_id}/*"])
-    ckpt = store / "runs" / run_id / CKPT_REL
-    if not ckpt.is_file():
-        raise SystemExit(f"[hf] pull finished but {ckpt} is missing — wrong --repo-id/--run-id?")
+    snapshot_download(
+        repo_id=repo_id,
+        local_dir=store,
+        allow_patterns=[f"runs/{run_id}/*"],
+        ignore_patterns=ignore or None,
+    )
+    if no_weights:
+        # No checkpoint landed, so there is nothing to sha-verify; a later
+        # plain pull fills in the weights (snapshot_download resumes).
+        print(f"[hf] pulled runs/{run_id} manifest/logs only (*.safetensors skipped)")
+        return 0
+    ckpt = find_checkpoint(store, run_id)
+    repo_path = f"runs/{run_id}/{ckpt.relative_to(store / 'runs' / run_id).as_posix()}"
     local = sha256_of(ckpt)
-    info = HfApi().get_paths_info(repo_id, [repo_path])
-    remote = info[0].lfs.sha256 if info and info[0].lfs else None
+    remote = hub_lfs_sha256(repo_id, repo_path)
     if remote is None:
         print(
             f"[hf] WARNING: hub reports no hash for {repo_path}; local sha256 {local} — "
@@ -88,8 +159,10 @@ def pull(store: Path, run_id: str, repo_id: str) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("cmd", choices=("push", "pull"))
-    parser.add_argument("--run-id", default="evt-run1-base-v2")
-    parser.add_argument("--repo-id", default="mhieuuu/geode-store")
+    # Required, no default: a forgotten --run-id must not silently push a run
+    # whose relay manifest was backfilled elsewhere (run-1 v1/v2/v2-ext/v3).
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--repo-id", default=DEFAULT_REPO_ID)
     parser.add_argument(
         "--store",
         type=Path,
@@ -101,10 +174,24 @@ def main() -> int:
         action="store_true",
         help="push only: create the repo public, so pull needs no token",
     )
+    parser.add_argument(
+        "--no-weights",
+        action="store_true",
+        help="pull only: also skip *.safetensors (the final model) — "
+        "manifest/logs/gates land for laptop-side analysis",
+    )
+    parser.add_argument(
+        "--with-snapshots",
+        action="store_true",
+        help="include runs/<run-id>/snapshots/ (skipped by default both ways — "
+        "multi-GB, needed only for extraction)",
+    )
     args = parser.parse_args()
+    if args.no_weights and args.with_snapshots:
+        parser.error("--no-weights and --with-snapshots contradict (snapshots are weights)")
     if args.cmd == "push":
-        return push(args.store, args.run_id, args.repo_id, args.public)
-    return pull(args.store, args.run_id, args.repo_id)
+        return push(args.store, args.run_id, args.repo_id, args.public, args.with_snapshots)
+    return pull(args.store, args.run_id, args.repo_id, args.no_weights, args.with_snapshots)
 
 
 if __name__ == "__main__":

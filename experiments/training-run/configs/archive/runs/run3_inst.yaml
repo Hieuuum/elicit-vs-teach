@@ -1,0 +1,72 @@
+# Run 3 — Arm A format installer: operator-notation mult, random labels
+# (spec 02 §1 row 3, §6). Full FT from the canonical run-2 checkpoint via
+# scripts/train_sft.py; stops on behavior (in-loop G4 format validity),
+# not loss — rule ratified + frozen 2026-07-21 (decisions.md, OPEN(1)).
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run2-armA-algo must be complete with G1 recorded PASS — the
+#      launcher enforces both (parent_required_gates, V0.6).
+#   2. Verify the parent manifest shows the Phase-5 pin:
+#      training.optimizer.lr == 3e-4 AND git_commit 0bdd1ae… . A parent
+#      launched before the pin landed trained the 1e-4 placeholder and
+#      invalidates every child (2026-07-21 incident class).
+#   3. train.lr pinned 3e-6 (2026-07-21): winner of the downward-extended
+#      installer sweep — the only arm passing G2 (0.9531; G4 1.0). The
+#      original 3e-5..1e-3 grid all failed G2 with retention monotone in
+#      lr (0.68/0.42/0.04/0.00) and the misses were clean-but-wrong
+#      integers, mostly correct-answer-plus-extra-digits: random mult-length
+#      labels attack the answer-termination prior first, so the gentlest
+#      lr that still installs the format wins.
+run_id: evt-run3-armA-inst
+experiment:
+  name: training-run
+  arm: A
+  role: format_install
+  parent_run_id: evt-run2-armA-algo  # canonical Phase-5 relaunch (lr 3e-4)
+  parent_required_gates: [G1]        # G1 0.9961 recorded 2026-07-21
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-2
+
+task:
+  name: arith_op_mult          # operator-notation mult (D_inst); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_inst.parquet         # 1M op-notation mult, random labels, seed 20260717
+  # Pinned from data/full/report.json (frozen 2026-07-19); the launcher
+  # recomputes over the downloaded file and refuses on mismatch.
+  order_hash: d014388ab906c3db50fc2504fde2f38ff1d922e3826899713fbb161746caa048
+  val_fraction: 0.005          # 5,000 held-out; questions unique, no leak
+  seed: 316                    # runs 3+4 must share seed/val_fraction/batch
+                               # order: identical D_inst stream (spec 02 §6)
+
+train:
+  lr: 3.0e-6                   # sweep winner 2026-07-21 (see header note 3)
+  batch_size: 128
+  eval_every: 250              # behavioral cadence (spec 02 §6, OPEN(1) close)
+  max_steps: 15546             # pure ceiling = 2 epochs of 7,773 steps
+                               # ((1M − 5,000 val) // 128 drop-last); repeat
+                               # epochs over random labels invite label
+                               # memorization. stop_reason=max_steps means
+                               # the format never installed: investigate,
+                               # don't ship
+  stopping:                    # behavior-matched rule, frozen before either
+                               # installer launches (spec 02 §6)
+    metric: format_validity
+    threshold: 0.99
+    k: 3
+    n_prompts: 512
+    prompt_seed: 316
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 2      # ceiling metadata; behavioral stop expected
+                               # far earlier (Arm A starts format-adjacent)
+
+cost:
+  assumed_epochs_for_estimate: 2  # quote the ceiling (worst case)

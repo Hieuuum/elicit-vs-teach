@@ -1,0 +1,101 @@
+# Run 5 — Arm A target: operator-notation add/sub, correct labels, LoRA
+# (spec 02 §1 row 5, §6 "Runs 5-6"). Trains from the run-3 installer
+# checkpoint via scripts/train_target.py through the prequential EDL
+# harness (geode.edl.train_prequential): this run IS the EDL measurement —
+# first-epoch label losses land in logs/prequential.jsonl, per-step grad
+# norms in logs/gradstats.jsonl, adapter-only snapshots (+ once-per-run
+# base file) at the manifest's schedule (spec 00 §1, 2026-07-22). Adapter = the pinned geode.train
+# apply_lora (r=128, α=32, scaling α/2r — NOT PEFT's α/r; A ±1/√d_in
+# seeded, B zero ⇒ θ_0 is exactly the parent function).
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run3-armA-inst must be complete with G2 + G4 recorded PASS —
+#      the launcher enforces both (parent_required_gates, V0.6). G5 is
+#      evidence-only (spec 02 §8) and never gates a child.
+#   2. train.lr 1e-3 pinned 2026-07-22 by the target-LR mini-sweep (Arm B
+#      @ the 50K frozen prefix; original decade 3e-5..1e-3 came back
+#      monotone, extended upward to bracket: 3e-4 0.107 > 1e-3 0.035 <
+#      3e-3 0.086, 1e-2 unstable — decisions.md). The paper's 3.53e-4 was
+#      tuned at 1B and is void at this scale (spec 02 §6). SAME pin as
+#      run 6 (matched target recipe; arms may differ only in the parent).
+#   3. Precision: the prequential harness computes fp32 (no autocast) on
+#      any device — EDL numerics stay precision-uniform; the manifest
+#      records the resolved fp32.
+#   4. data.n_examples 500000 pinned 2026-07-22 — OPEN(2) closed by the
+#      B-convergence grid under the fixed shared eval protocol: 500K is
+#      the smallest grid n where B lands within a few points of A
+#      (B@500K 0.9805 / 0.0140 nats vs A@50K 0.9941 / 0.0059;
+#      decisions.md). SAME pin as run 6 (G7).
+run_id: evt-run5-armA-target
+experiment:
+  name: training-run
+  arm: A
+  role: target
+  parent_run_id: evt-run3-armA-inst
+  parent_required_gates: [G2, G4]  # arithmetic retained + format installed
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-4
+
+task:
+  name: arith_op_addsub        # operator-notation add/sub (D_target); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target.parquet       # 1M op-notation add/sub, correct labels, seed 20260717
+  # Pinned from data/full/report.json (frozen 2026-07-19); the launcher
+  # recomputes over the FULL downloaded file and refuses on mismatch —
+  # before any prefix is taken.
+  order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
+  n_examples: 500000           # OPEN(2) closed 2026-07-22 (header note 4;
+                               # decisions.md): the 500K PREFIX of the frozen
+                               # order — deterministic, identical across arms
+  # Fixed shared eval set (owner 2026-07-22): question-disjoint from
+  # D_target ∪ D_algo ∪ probe by construction (make_data --eval-set,
+  # data/full/report.json). First 2048 rows = ε/k stopping block; the rest
+  # = reporting block (θ_T test loss + G5). Identical for every run and n.
+  eval_file: D_target_eval.parquet
+  eval_order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8
+  seed: 316                    # runs 5+6 must share seed/batch order:
+                               # identical D_target stream (G7)
+
+lora:                          # r/alpha restated from common.yaml for the record
+  r: 128                       # spec 02 §6 pin (2026-07-18 arch decision)
+  alpha: 32                    # scaling α/2r, dropout 0, targets QKVOGUD —
+                               # inherited from common.yaml; adapter init seed
+                               # = train.seed (single-seed convention)
+
+train:
+  lr: 1.0e-3                   # pinned 2026-07-22 — sweep winner (header
+                               # note 2); same pin as run 6
+  batch_size: 128
+  eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
+  max_steps: 23442             # pure cost ceiling = 6 epochs of the 500K
+                               # prefix at batch 128 (6 × ceil(5e5/128) =
+                               # 23442) — the B@500K pilot's ε/k stop at
+                               # 15,500 sat 126 steps under the old 2-epochs-
+                               # of-1M ceiling, too tight for seed wobble.
+                               # The ε/k rule is the planned stop —
+                               # stop_reason=max_steps means "did not
+                               # converge": investigate, don't ship
+  stopping:                    # loss branch of the V0.7 union (no `metric`):
+    eps_nats: 0.002            # canonical loss rule at short-run cadence
+    k: 5                       # (owner 2026-07-22, spec 02 §6); min_steps
+    min_steps: 0               # 5000 grace was scaled for ~100k-step runs —
+                               # at ~390-step epochs k=5 patience is the grace
+  snapshots:
+    n: 1024                    # spec 02 §6: 1024 snapshots, dense-then-log-
+    dense_until: 30            # then-uniform (geode.probe.snapshot_steps);
+                               # schedule computed over max_steps at launch and
+                               # written into the manifest BEFORE training;
+                               # steps past the actual stop simply never
+                               # materialize (manifest snapshots_taken)
+  seed: 316
+
+# No cost block: train_target.py quotes the max_steps ceiling directly
+# (6·N·tokens over max_steps × batch × padded len — the worst case).

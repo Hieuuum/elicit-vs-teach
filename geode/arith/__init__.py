@@ -8,6 +8,7 @@ elicit-vs-teach comparison, so they are tested core:
 - ``formats`` — tokenizer-agnostic rendering + answer char spans.
 - ``labels``  — the random-label rule for the format-installer runs.
 - ``evals``   — answer parser, exact-match, format-validity, few-shot prompts.
+- ``decode``  — greedy token-prefix completions (gates + in-loop G4 eval).
 - ``spans``   — char-span→token-span conversion for the frozen SFT files.
 - ``stratify``— capacity-aware, capacity-capped water-fill allocation over cells.
 - ``validate``— probe-leakage / stratification / uniqueness checks + the
@@ -16,9 +17,18 @@ elicit-vs-teach comparison, so they are tested core:
 
 from __future__ import annotations
 
-from geode.arith.evals import exact_match, few_shot_prompt, format_valid, parse_answer
-from geode.arith.formats import OPS, digits, render, true_answer
-from geode.arith.labels import random_label
+from geode.arith.decode import greedy_completions
+from geode.arith.evals import (
+    exact_match,
+    exact_match_accuracy,
+    few_shot_prompt,
+    format_valid,
+    parse_answer,
+    text_exact_match,
+)
+from geode.arith.formats import OPS, digits, render, render_translate, true_answer
+from geode.arith.labels import permute_labels, random_label
+from geode.arith.load import load_frozen_parquet
 from geode.arith.spans import SftExample, token_label_span, tokenize_with_spans
 from geode.arith.stratify import DIGIT_BAND_SIZES, allocate, capacity
 from geode.arith.validate import cell_counts, order_hash, probe_leakage, uniqueness_by_cell
@@ -32,13 +42,19 @@ __all__ = [
     "cell_counts",
     "digits",
     "exact_match",
+    "exact_match_accuracy",
     "few_shot_prompt",
     "format_valid",
+    "greedy_completions",
+    "load_frozen_parquet",
     "order_hash",
     "parse_answer",
+    "permute_labels",
     "probe_leakage",
     "random_label",
     "render",
+    "render_translate",
+    "text_exact_match",
     "token_label_span",
     "tokenize_with_spans",
     "true_answer",

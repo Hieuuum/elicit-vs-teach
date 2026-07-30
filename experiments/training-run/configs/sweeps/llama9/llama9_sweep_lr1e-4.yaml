@@ -1,0 +1,6 @@
+# Llama installer LR sweep @ 1e-4 — upper bracket point. See
+# llama9_sweep_lr3e-6.yaml for the sweep design (bracket, winner rule)
+# and launch command; this file differs only in run_id and train.lr.
+run_id: evt-run9-sweep-lr1e-4
+train:
+  lr: 1.0e-4

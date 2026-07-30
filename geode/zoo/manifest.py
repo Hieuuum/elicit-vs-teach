@@ -6,7 +6,9 @@ required recursively; ``null`` is accepted only where the schema says
 the offending dotted path (e.g. ``training.optimizer.lr``). Unknown extra
 fields are permitted, ignored by validation, and preserved exactly through
 load/save (V0.2). JSON leniency: an ``int`` is accepted where ``float`` is
-declared.
+declared. ``training.stopping`` is a discriminated union (spec 00 §2,
+2026-07-21): presence of ``metric`` selects the behavioral-rule schema,
+absence the loss ε/k schema (V0.7).
 """
 
 from __future__ import annotations
@@ -30,7 +32,23 @@ class ManifestError(ValueError):
 # closed enums, a tuple of the allowed string values.
 
 _Leaf = tuple[str | tuple[str, ...], bool]
-_SchemaNode = dict[str, "_Leaf | dict"]
+_SchemaNode = dict[str, "_Leaf | dict | _Union"]
+
+
+@dataclass(frozen=True)
+class _Union:
+    """Discriminated union of object schemas, selected by a discriminant value.
+
+    The value validates against ``by_value[data[discriminant]]`` when
+    ``discriminant`` is a key of the object (an unlisted value is an error —
+    the discriminant stays a closed enum), else against ``if_absent``. Fields
+    of the unselected branch are neither required nor checked.
+    """
+
+    discriminant: str
+    by_value: dict[str, dict]
+    if_absent: dict
+
 
 _SCHEMA: _SchemaNode = {
     "schema_version": ("int", False),
@@ -64,8 +82,45 @@ _SCHEMA: _SchemaNode = {
             "name": ("str", False),
             "lr": ("float", False),
             "batch_size": ("int", False),
+            "micro_batch_size": ("int", True),
+            "betas": ("list[float]", True),
             "weight_decay": ("float", False),
+            "grad_clip": ("float", True),
         },
+        "lr_schedule": (("constant", "cosine"), False),
+        "min_lr": ("float", True),
+        "precision": (("fp32", "bf16"), False),
+        "eval_every": ("int", True),
+        "max_steps": ("int", True),
+        "stopping": _Union(
+            discriminant="metric",
+            by_value={
+                # Behavioral rule — format installers, spec 02 §6.
+                "format_validity": {
+                    "metric": (("format_validity",), False),
+                    "threshold": ("float", False),
+                    "k": ("int", False),
+                    "n_prompts": ("int", False),
+                    "prompt_seed": ("int", False),
+                },
+                # Full-dose training-loss ε/k rule — new-phase dose installers
+                # (2026-07-26, spec 02 §6). Same fields as the val-loss branch,
+                # named explicitly because the metric is NOT a held-out loss:
+                # nothing about a dose run's number is comparable to a val
+                # curve, and an unlabelled ε/k record would read as if it were.
+                "train_loss": {
+                    "metric": (("train_loss",), False),
+                    "eps_nats": ("float", False),
+                    "k": ("int", False),
+                    "min_steps": ("int", True),
+                },
+            },
+            if_absent={  # loss ε/k rule on a held-out val split
+                "eps_nats": ("float", True),
+                "k": ("int", True),
+                "min_steps": ("int", True),
+            },
+        ),
         "epochs_total": ("int", False),
         "seed": ("int", False),
     },
@@ -87,6 +142,10 @@ _TYPE_CHECKS = {
     "list[str]": lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
     "list[int]": lambda v: (
         isinstance(v, list) and all(isinstance(x, int) and not isinstance(x, bool) for x in v)
+    ),
+    "list[float]": lambda v: (
+        isinstance(v, list)
+        and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v)
     ),
 }
 
@@ -111,6 +170,19 @@ def _validate_node(data: dict, schema: _SchemaNode, prefix: str) -> None:
         if key not in data:
             raise ManifestError(f"missing required field '{path}'")
         value = data[key]
+        if isinstance(sub, _Union):
+            if not isinstance(value, dict):
+                raise ManifestError(f"field '{path}' must be an object, got {value!r}")
+            if sub.discriminant in value:
+                branch = value[sub.discriminant]
+                if branch not in sub.by_value:
+                    raise ManifestError(
+                        f"field '{path}.{sub.discriminant}' must be one of "
+                        f"{list(sub.by_value)}, got {branch!r}"
+                    )
+                sub = sub.by_value[branch]
+            else:
+                sub = sub.if_absent
         if isinstance(sub, dict):
             if not isinstance(value, dict):
                 raise ManifestError(f"field '{path}' must be an object, got {value!r}")

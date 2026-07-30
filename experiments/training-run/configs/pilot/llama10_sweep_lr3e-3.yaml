@@ -1,0 +1,15 @@
+# Llama target LR sweep @ 3e-3 — the TOP bracket, present so the
+# incumbent 1e-3 is not at a grid edge. This is the point most exposed to
+# reading rule 2 (plateau, not floor): the 38.7M sweep's 1e-2 point
+# "converged" at 1.867 nats, and an unstable high lr that flattens early
+# will be labelled converged by eps/k. See llama10_sweep_lr1e-4.yaml for
+# the sweep design and launch command; this file differs only in run_id
+# and train.lr.
+run_id: evt-run10-sweep-lr3e-3
+experiment:
+  match_data_order_with: null
+train:
+  lr: 3.0e-3
+  max_steps: 7813
+  snapshots:
+    n: 0

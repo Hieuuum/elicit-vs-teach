@@ -1,0 +1,77 @@
+# Run 2 — Arm A pre-teach: NL add/sub, correct labels (spec 02 §1 row 2, §6).
+# Full FT from the run-1 floor-1 checkpoint via scripts/train_sft.py.
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run1-base-v3-ext (2026-07-21: v3 hit its 30k ceiling still
+#      descending — stop_reason=max_steps, min val 1.1020 — so floor 1 is
+#      the extension's convergence point) must be complete — the launcher
+#      refuses until its manifest says status: complete (V0.6). NOTE: v3
+#      itself is status: complete despite not converging (it exited
+#      cleanly at the ceiling), so pinning v3 here would NOT be caught by
+#      the launcher — the pin must stay on the run that converged.
+#   2. DONE 2026-07-21: train.lr pinned to 3e-4, the re-run sweep winner
+#      (G1 0.9961; overlays in configs/pilot/run2_sweep_lr*.yaml;
+#      decisions.md 2026-07-21). This canonical run re-launches the
+#      winner's exact config with the 15-epoch ceiling.
+run_id: evt-run2-armA-algo
+experiment:
+  name: training-run
+  arm: A
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext  # floor 1 (v3 continuation, 2026-07-21)
+  parent_required_gates: []  # G0 removed 2026-07-20 (spec 02 §8); launcher
+                             # still requires parent status: complete (V0.6)
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as run 1
+
+task:
+  name: arith_nl_addsub        # TaskFormat for label_mask + masking_config_hash
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo.parquet         # 1M NL add/sub, correct labels, seed 20260717
+  # Pinned from data/full/report.json (frozen 2026-07-19); the launcher
+  # recomputes over the downloaded file and refuses on mismatch.
+  order_hash: 48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9
+  val_fraction: 0.005          # 5,000 held-out examples; questions are unique
+                               # across the file, so the split cannot leak
+  seed: 316
+
+train:
+  lr: 3.0e-4                   # PINNED from the 2026-07-21 re-run sweep
+                               # (post-V5.43): G1 0.9961, best of 4 arms
+                               # (decisions.md 2026-07-21)
+  batch_size: 128              # spec 02 §6 fixed table; 128×33 tokens fits a
+                               # 24 GB 4090 without grad accumulation
+  eval_every: 1000             # canonical cadence (owner 2026-07-21); ~7–8
+                               # evals/epoch, 5,000 val examples
+  max_steps: 116595            # cost CEILING = 15 epochs of 7,773 steps
+                               # ((1M − 5,000 val) // 128 drop-last; recompute
+                               # if val_fraction ever changes) — never a
+                               # planned stop. The old 7,773 cap misread the
+                               # paper's "1 epoch" as a training cap; the
+                               # paper trains to convergence and counts
+                               # bits/example on first exposure only (owner
+                               # 2026-07-21, spec 02 §1+§6).
+                               # stop_reason=max_steps = "did not converge":
+                               # investigate, don't ship
+  stopping:                    # canonical rule for all training runs (owner
+                               # 2026-07-21, spec 02 §6; supersedes the
+                               # 0.005/3 OPEN(3) close)
+    eps_nats: 0.002
+    k: 5
+    min_steps: 5000            # grace (V5.42) — earliest stop step 10,000,
+                               # ~1.3 epochs
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 15     # ceiling metadata; convergence expected earlier
+
+cost:
+  assumed_epochs_for_estimate: 15  # quote the ceiling (worst case), not the
+                                   # expected stop

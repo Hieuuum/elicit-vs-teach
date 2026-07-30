@@ -1,0 +1,66 @@
+# Llama-3.2-1B learning-curve probe (100K scale) — ARM B: WITH format installer.
+# Base Llama -> run-9 format installer (op-notation MULT, random labels: teaches
+# the I/O format without leaking add/sub) -> target task, over the FIRST 100,000
+# target examples. Paired with llama_probe100k_noinst.yaml; the two differ ONLY
+# in the parent (run-9 format-installed Llama here vs raw Llama there).
+# This scales the n=100 probe pair (llama_probe100_{noinst,inst}.yaml) to 100K.
+#
+# The installer is REUSED, not re-run: evt-run9-llama1b-inst-v2/model_merged
+# (already gated + merged; pulled from the relay). A wrapped checkpoint must
+# never be --init-from (zoo.load_model rule) — this points at the plain merged
+# dir. Same probe framing as the no-inst arm: one pass, no convergence stop, NOT
+# an EDL measurement. All train knobs (batch 8, LR 3e-4, eval cadence, stopping)
+# are MATCHED to the no-inst arm — the only difference is the parent. See the
+# no-inst config header for the batch-size and eval-cadence arithmetic.
+run_id: evt-llama-probe100k-inst
+experiment:
+  name: training-run
+  arm: llama                     # external-validity chain (regime "unknown")
+  role: target
+  parent_run_id: evt-run9-llama1b-inst-v2   # the format installer (reused)
+  external_base: null
+  parent_required_gates: []      # installer already validated (G4/G2); this is
+                                 # a probe, retention is evidence not a blocker
+  match_data_order_with: evt-llama-probe100k-noinst  # G7: check (order_hash, n)
+                                 # equal the no-inst arm — turns "identical stream
+                                 # by construction" into a guard (requires the
+                                 # no-inst arm to have run first; launcher order)
+
+model:                           # must match the merged parent checkpoint
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_op_addsub
+  format_version: v1
+
+data:                            # identical to the no-inst arm
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target.parquet
+  order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
+  n_examples: 100000
+  eval_file: D_target_eval.parquet
+  eval_order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8
+  seed: 316
+
+lora:
+  r: 64
+  alpha: 32
+
+train:
+  lr: 3.0e-4                     # MATCHED to the no-inst arm
+  precision: bf16
+  batch_size: 8                  # 100000/8 = 12500 steps; matched to the no-inst arm
+  eval_every: 100000             # > max_steps: only the ceiling stopping eval fires
+  max_steps: 12500               # one no-drop-last pass; stop_reason=max_steps INTENTIONAL
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 12500
+  snapshots:
+    n: 0
+    dense_until: 30
+  seed: 316

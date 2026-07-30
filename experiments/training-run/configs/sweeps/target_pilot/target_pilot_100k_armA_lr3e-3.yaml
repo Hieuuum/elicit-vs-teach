@@ -1,0 +1,28 @@
+# Arm-A 100K safety pilot @ lr 3e-3 (the B-only sweep safeguard,
+# decisions.md 2026-07-24): 3e-3 leads the 1M B-arm sweep but is the only
+# grid point never proven on Arm A (run 5 converged at 1e-3; the elicited
+# arm's risk at high lr is instability, not slowness). Before 3e-3 can be
+# pinned in ALL FOUR run yamls (one LR everywhere), verify Arm A still
+# converges cleanly at this lr on a cheap 100K prefix of the same frozen
+# order. Overlay over run7_target_1m.yaml:
+#     python train_target.py --config ../configs/run7_target_1m.yaml \
+#         --override ../configs/pilot/target_pilot_100k_armA_lr3e-3.yaml \
+#         --init-from $GEODE_STORE/runs/evt-run3-armA-inst/model --confirm-cost
+# PASS = stop_reason=converged AND a small min_val (run-5 reference:
+# min_val 0.00245 nats at 500K/lr 1e-3). "converged" ALONE is not PASS —
+# the ε/k rule fires on any plateau: the 1e-2 sweep point "converged" at
+# 1.86742 nats, i.e. flatlined at garbage. stop_reason=max_steps or a
+# high plateau = do NOT pin 3e-3 — the 1e-3 runner-up is only ~0.005 nats
+# behind at the shared budget; bring the numbers to the owner.
+run_id: evt-run7-pilotA-lr3e-3
+experiment:
+  match_data_order_with: null  # G7 binds the production pair, not pilots
+data:
+  n_examples: 100000           # 100K prefix of the frozen 1M order; the
+                               # order_hash is still checked on the full file
+train:
+  lr: 3.0e-3
+  max_steps: 4692              # 6 epochs of 100K at batch 128 (the family
+                               # ceiling rule rescaled); ε/k is the real stop
+  snapshots:
+    n: 0                       # pilot — no extraction value

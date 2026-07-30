@@ -1,0 +1,131 @@
+# Run 1 — TinyStories pretrain (spec 02 §1 row 1, §6.2).
+# ALL hyperparameters below marked OPEN(11) are documented placeholders:
+# pin at pilot before any --confirm-cost spend.
+# OPEN(8) closed 2026-07-18: pretrain from scratch (custom arch + tokenizer
+# match no external checkpoint).
+
+# 2026-07-19 retrain (v2): the constant-LR production run (evt-run1-base)
+# converged at its gradient-noise floor (1.1464 nats @ step 17000) and
+# FAILED gate G0 (~5/20 coherent vs >=16). Fix: cosine LR decay over the
+# same 17k-step horizon. New run_id so the failed run's artifacts survive
+# for the comparison — the pre-committed fallback is "better checkpoint
+# becomes floor 1" (decisions.md 2026-07-19).
+#
+# 2026-07-20 retrain (v3): back to constant LR from scratch — the paper's
+# fixed hyperparameter table (AdamW 0.9/0.999, wd 0.01, clip 1.0, bf16,
+# CONSTANT LR, stop on validation-loss convergence) must hold for the
+# training run, so the v2 cosine schedule is off-protocol. Gate G0 removed
+# the same day (spec 02 §8): whatever this recipe converges to IS floor 1.
+# Stopping rule = the rule that converged v2-ext to 1.1066 nats (eps 0.005,
+# k 3, eval_every 1000: converge when val improves < 0.005 nats over 3000
+# steps). New run_id again; v2/v2-ext artifacts survive for comparison.
+run_id: evt-run1-base-v3
+experiment:
+  name: training-run
+  arm: shared
+  role: pretrain
+  parent_run_id: null
+
+model:                      # custom small Llama-style arch (2026-07-18), random init
+  hidden_size: 512
+  intermediate_size: 2048   # 4×d
+  num_hidden_layers: 8
+  num_attention_heads: 8    # head_dim 64
+  num_key_value_heads: 8    # = heads: plain MHA (GQA unneeded at this scale)
+  rope_theta: 10000.0       # 2026-07-18: textbook small-model value; Llama's
+                            # 500000 was a long-context artifact, dropped
+                            # before floor 1 bakes it into downstream runs
+  max_position_embeddings: 1024   # > G5 16-shot worst case (593 tokens,
+                            # measured 2026-07-18); RoPE has no learned
+                            # positions so headroom is free. Packing stays
+                            # at data.seq_len.
+  tie_word_embeddings: true
+  # vocab_size comes from the tokenizer at build time (10K custom BPE)
+
+tokenizer:
+  # Frozen artifact built by scripts/make_tokenizer.py (2026-07-18): 10K
+  # byte-level BPE on TinyStories-v2, digits 0-9 single-token forced,
+  # Question:/Answer: plain BPE (owner decision), EOS <|endoftext|>,
+  # PAD <|pad|>. Provenance in tokenizer/meta.json. Relative paths resolve
+  # against this config's directory; an HF id also works.
+  path: ../tokenizer
+
+data:
+  # v2 (GPT-4-only) ships ONLY as this txt file inside the v1 repo — there
+  # is no TinyStoriesV2 repo and the repo's parquet config is v1 data
+  # (verified 2026-07-18, closing the OPEN(11) dataset-id check). Stories
+  # are split on <|endoftext|> delimiter lines (geode.train.split_documents);
+  # 2,717,495 stories, 532M tokens with the frozen tokenizer.
+  hf_id: roneneldan/TinyStories
+  file: TinyStoriesV2-GPT4-train.txt
+  seq_len: 512                      # pinned 2026-07-18: story p90=265 (>256),
+                                    # only 1.6% of stories exceed 512
+  val_fraction: 0.005               # pinned 2026-07-19 (sweep: 5225 val
+                                    # seqs give eval noise well under the
+                                    # stopping eps)
+  seed: 316
+
+train:
+  lr: 1.0e-3                        # pinned 2026-07-19, run-1 LR sweep:
+                                    # best val 1.4389 nats @2000 (vs 1.4552
+                                    # @3e-4), monotone descent, grad norms
+                                    # tame; 3e-3 unstable (grad spike 109),
+                                    # 1e-4 far behind
+  batch_size: 128                   # pinned 2026-07-19 (sweep ran at 128)
+  micro_batch_size: 32              # grad accumulation 4×32 (2026-07-19):
+                                    # a full 128-batch fwd+loss OOMs the
+                                    # 24 GB 4090 (fp32 logits at vocab 10K
+                                    # alone are ~2.6 GB); effective batch
+                                    # unchanged
+  lr_schedule: constant             # v3 (2026-07-20): paper protocol is
+                                    # constant LR; the v2 cosine G0 fix is
+                                    # off-protocol. No warmup: the sweep
+                                    # showed 1e-3 stable from step 0
+  min_lr: null                      # only meaningful with cosine
+                                    # (train_full raises otherwise)
+  eval_every: 1000                  # v3: matches the v2-ext convergence
+                                    # window (was 500 under cosine, where
+                                    # the plateau rule was inert anyway);
+                                    # halves eval overhead to ~1.5%
+  max_steps: 30000                  # cost CEILING (~$1), not a target —
+                                    # the plateau rule should fire first.
+                                    # v1 converged at 17k under the looser
+                                    # 0.005/1500-step rule; the stricter
+                                    # 0.005/3000-step rule needs headroom.
+                                    # stop_reason=max_steps here means "did
+                                    # not converge" — investigate, don't ship
+  stopping:                         # ACTIVE under constant LR: stop at the
+                                    # k-th consecutive eval that fails to beat
+                                    # the eps-gated best by > eps_nats.
+                                    # TIGHTENED 2026-07-21 (owner) from the
+                                    # 0.005/3 that v3 actually ran under (its
+                                    # manifest records that rule): 0.005/3
+                                    # abandons descent below eps/k = 1.7
+                                    # mnat/1k steps, and v3 hit the 30k
+                                    # ceiling still descending at 2.5-3.0;
+                                    # 0.002/5 holds on until 0.4 mnat/1k.
+                                    # Canonical for all run-1-family launches
+                                    # (v3-ext pins the same values in its
+                                    # overlay). Eval noise is well under eps
+                                    # even at 2 mnat: 5225 val seqs, and v3's
+                                    # curve was monotone through all 30 evals.
+    eps_nats: 0.002
+    k: 5
+    min_steps: 5000                 # one canonical rule for every training
+                                    # run (owner 2026-07-21, spec 02 §6);
+                                    # inert from scratch — descent through
+                                    # step 5k is far steeper than eps (V5.42
+                                    # grace still tracks min_nats)
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 4           # manifest metadata: 30000-step ceiling
+                                    # @ batch 128 ~= 3.7 epochs of 1.034M
+                                    # train seqs; plateau expected earlier
+
+cost:
+  # printed estimate = 6 * n_params * tokens_seen_per_step * steps guess;
+  # script recomputes from actual packed corpus size before asking for
+  # --confirm-cost.
+  assumed_epochs_for_estimate: 4    # v3: quote the 30000-step ceiling, not
+                                    # the expected plateau — the confirm
+                                    # gate should show worst-case spend

@@ -1,0 +1,52 @@
+# PHASE 3 practical embedding warm-start. This stage sees 512 correct-label NL
+# addition examples before the measured target stream, so it is NOT an Arm-A
+# elicitation result. It trains only the input rows selected by a p3/warm_*.yaml
+# overlay; lm_head is untied and frozen first.
+#
+# The four-LR sweep is selected only on this file's held-out suffix and the
+# operator-addition G2 protocol. Neither D_p3_nl_eval nor target EDL selects it.
+run_id: evt-p3-warm-sum  # overridden explicitly by every launcher arm
+experiment:
+  name: training-run
+  arm: warmstart
+  role: embedding_warmstart
+  parent_run_id: evt-p3-elicit-parent
+  parent_required_gates: [G1]
+
+model:
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_nl_add
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_p3_nl_warmstart.parquet
+  order_hash: 3a8383e69c50eaeedefcc51ea81fc3c0f6fa8f52d999fa63fd74f13e2b8d9e32
+  local_path: experiments/training-run/data/phase3/D_p3_nl_warmstart.parquet
+  n_examples: 4096
+  seed: 20260728
+
+warmstart:
+  tokens: ["Ġs", "um"]
+  rows: [261, 492]
+  lr_grid: [1.0e-3, 1.0e-2, 1.0e-1, 1.0]
+  train_rows: 512
+  selection_rows: 3584
+  steps: 200
+  micro_batch_size: 128
+  eval_batch_size: 128
+  seed: 20260728
+  operator_eval_config: p3_elicit_parent.yaml
+
+# The core runs fp32 and forces AdamW weight_decay=0 regardless of common.yaml:
+# a masked row has zero-but-not-None gradients, so decoupled decay would move
+# every row. Both resolved values are recorded in the manifest.
+
+cost:
+  assumed_epochs_for_estimate: 200

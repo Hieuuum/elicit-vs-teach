@@ -1,0 +1,36 @@
+# PHASE 3 eval-only data pin (owner 2026-07-27). No training run consumes this
+# config; it is what `gates.py g4 --prompt-config` and `gates.py g5` read, and
+# p3_elicit_target.yaml pins the same file as data.eval_file.
+#
+# D_p3_nl_eval is NATURAL-LANGUAGE ADDITION — the phase-3 target format — and
+# is question-disjoint from D_p3_on_add, D_p3_nl_add and D_p3_probe by
+# construction. Unlike D_target_eval, which was generated LAST against already
+# frozen training sets, this file is carved out FIRST (make_data.py --phase3).
+# That ordering matters here: addition-only halves the question space, and the
+# small cells are tiny in absolute terms — an eval generated afterwards would
+# have had zero rows in every cell a training set consumed whole, i.e. an eval
+# that could never test small operands. Carved first, it is stratified across
+# all 64 cells (1-8 digit operands), with a per-cell ceiling of cap/8 so it
+# cannot swallow cell 1x1's 81 questions.
+#
+# Row layout is the project-wide convention (spec 02 §5/§8), unchanged:
+#   rows 0-2047     in-loop epsilon/k stopping block (target runs only)
+#   rows 2048+      reporting block — G5, the harness's test loss, and the
+#                   fixed G4 --prompt-config slice [2048 : 2048+n_prompts]
+#   rows 2048-2063  G5's 16 shots;  rows 2064+  G5's questions
+# No reported number ever touches a row that drove a stop decision.
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-10
+
+task:
+  name: arith_nl_add           # for the shared-set test loss's label mask
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_p3_nl_eval.parquet   # 100K NL addition, disjoint from all phase-3
+                               # training data and from the phase-3 probe
+  order_hash: 3375e1dc997caf2f519d74d400f62c56fc488c5a5db6514a215a19eaec2bf3c7
+  # Owner-held until published; the hash is verified either way.
+  local_path: experiments/training-run/data/phase3/D_p3_nl_eval.parquet

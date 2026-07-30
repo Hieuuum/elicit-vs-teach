@@ -15,9 +15,12 @@ boundaries (specs/01 §1, V1.8).
 
 from __future__ import annotations
 
+import json
 import math
 from pathlib import Path
+from typing import Literal
 
+import numpy as np
 import pandas as pd
 
 from geode.zoo import (
@@ -27,6 +30,7 @@ from geode.zoo import (
     prequential_records,
     test_loss,
 )
+from geode.zoo.store import run_dir
 
 
 def _epoch1_totals(run_id: str, *, store: Path | None = None) -> tuple[float, int]:
@@ -120,6 +124,95 @@ def training_curve(run_id: str, *, store: Path | None = None) -> pd.DataFrame:
         )
         cumulative_examples += len(record.example_ids)
     return pd.DataFrame(rows, columns=columns)
+
+
+def _eval_log_records(run_id: str, *, store: Path | None = None) -> list[dict]:
+    """The launcher's in-loop eval curve — ``runs/<id>/eval_log.jsonl`` (spec 02 §6).
+
+    A script artifact (``train_target.py`` writes it), not a spec-00 geode log;
+    the prefix curve reads it only for the moving val floor and the eval-step grid.
+    """
+    path = run_dir(run_id, store=store) / "eval_log.jsonl"
+    with path.open() as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def _fixed_test_floor_nats(run_id: str, *, store: Path | None = None) -> float:
+    """The run's constant Eq. 3 floor (``eval/test_loss.json`` per-token loss),
+    guarded for train/test masking parity exactly as ``edl_nats`` (D-1, V0.5)."""
+    manifest = load_run(run_id, store=store)
+    train_hash = manifest.data.get("masking_config_hash")
+    if train_hash is None:
+        raise ConsistencyError(
+            f"run '{run_id}' manifest has no top-level 'masking_config_hash' "
+            "extra field: cannot verify train/test masking parity (D-1)"
+        )
+    check_masking_consistency(run_id, train_hash, store=store)
+    return test_loss(run_id, store=store).loss_per_label_token_nats
+
+
+def prefix_edl_curve(
+    run_id: str, *, floor: Literal["val", "test"], store: Path | None = None
+) -> pd.DataFrame:
+    """Prefix EDL at every in-loop eval step (spec 02 §6; V5.73).
+
+    Unifies the divergent hand-rolled cumsum sites. At each eval step ``e`` (from
+    ``eval_log.jsonl``) that still has an epoch-1 MDL prefix, the running
+    MDL/tokens/examples come from the epoch-1 ``prequential.jsonl`` records (stream
+    order) and ``EDL(e) = MDL(e) − tokens(e) · floor(e)``. ``floor`` is REQUIRED
+    (no default — omitting it is a ``TypeError``) and picks the subtrahend, hence
+    the curve's shape (the floor-artifact, decisions.md 2026-07-27): ``"val"`` is
+    the moving per-step val loss (``eval_log.jsonl``), ``"test"`` the run's one
+    constant ``eval/test_loss.json`` per-token loss (canonical Eq. 3, masking-parity
+    guarded).
+
+    Columns ``[step, examples, tokens, mdl_nats, val_nats, edl_nats,
+    edl_per_token_nats, edl_per_example_nats]`` (all nats), one row per in-range
+    eval step; ``val_nats`` is the moving val loss regardless of ``floor``.
+    ``df.attrs`` carries ``n_epoch1_steps`` and the full-epoch-1 ``epoch1_totals``
+    ``(loss, tokens, examples)`` — the last eval point need not reach the epoch-1
+    cut (spec 02 §6).
+    """
+    if floor not in ("val", "test"):
+        raise ValueError(f"prefix_edl_curve: floor must be 'val' or 'test', got {floor!r}")
+    epoch1 = sorted(
+        (r for r in prequential_records(run_id, store=store) if r.epoch == 1),
+        key=lambda r: r.step,
+    )
+    cum_loss = np.cumsum([r.loss_sum_nats for r in epoch1])
+    cum_tok = np.cumsum([r.label_token_count for r in epoch1])
+    cum_ex = np.cumsum([len(r.example_ids) for r in epoch1])
+
+    steps: list[int] = []
+    vals: list[float] = []
+    for row in sorted(_eval_log_records(run_id, store=store), key=lambda r: r["step"]):
+        e = row["step"]
+        if 1 <= e <= len(epoch1):  # evals past the epoch-1 cut have no MDL prefix
+            steps.append(e)
+            vals.append(row["val_loss_nats"])
+    idx = np.array(steps, dtype=int) - 1
+    val = np.array(vals, dtype=float)
+    mdl, tok, ex = cum_loss[idx], cum_tok[idx], cum_ex[idx]
+    subtrahend = val if floor == "val" else _fixed_test_floor_nats(run_id, store=store)
+    edl = mdl - tok * subtrahend
+
+    df = pd.DataFrame(
+        {
+            "step": np.array(steps, dtype=int),
+            "examples": ex,
+            "tokens": tok,
+            "mdl_nats": mdl,
+            "val_nats": val,
+            "edl_nats": edl,
+            "edl_per_token_nats": edl / tok,
+            "edl_per_example_nats": edl / ex,
+        }
+    )
+    df.attrs["n_epoch1_steps"] = len(epoch1)
+    df.attrs["epoch1_totals"] = (
+        (float(cum_loss[-1]), float(cum_tok[-1]), float(cum_ex[-1])) if epoch1 else (0.0, 0.0, 0.0)
+    )
+    return df
 
 
 def nats_to_bits(x_nats: float) -> float:

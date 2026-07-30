@@ -1,0 +1,108 @@
+# Run 9 — Llama-3.2-1B format installer (external-validity chain, owner
+# 2026-07-23, decisions.md): operator-notation mult, random labels, LoRA.
+# Mirrors run 3's role on the REAL pretrained model — Llama's own
+# pretraining stands in for the pre-teach stage (no run-1/run-2 analogue;
+# elicit-only, a pretrained model can't be un-taught). Via
+# scripts/train_sft.py with its LoRA + external-base support; stops on
+# behavior (in-loop G4 format validity), the frozen 2026-07-21 rule.
+# LIMITATION (recorded): install method is LoRA here vs full FT in runs
+# 3/4 (owner 2026-07-23) — cross-model install comparisons are
+# method-confounded.
+#
+# BEFORE LAUNCH (owner):
+#   1. `hf auth login` with an account that has accepted the Meta Llama
+#      license (gated repo), then run scripts/verify_llama_tokenizer.py —
+#      it must PASS (pad/EOS handling, vocab guard, span checks on the
+#      frozen parquets under Llama's 3-digit-chunking tokenizer).
+#   2. Smoke first: pilot/llama9_smoke.yaml (memory + plumbing, ~1 min).
+#   3. train.lr is PINNED 3e-6 from the installer retention sweep — the
+#      2026-07-24 fallback ("if G4 fails or zero-shot arithmetic degrades
+#      at that lr, revive the gentle sweep for run 9 only") FIRED on
+#      2026-07-25: v1 ran at the target pin 1e-3 and scored 0.0000 NL
+#      add/sub against base Llama's 0.3271 — format installed, arithmetic
+#      destroyed, so run 10 v1 measured teaching, not elicitation. Full
+#      sweep table + scope analysis in configs/lr_pin.yaml.
+#   4. After completion, BOTH gates before run 10 launches:
+#        gates.py g4 --run evt-run9-llama1b-inst-v2 \
+#            --config ../configs/run9_llama1b_inst.yaml
+#        gates.py g2 --run evt-run9-llama1b-inst-v2 \
+#            --config ../configs/eval_algo_data_llama.yaml --threshold 0.29
+#      G2 here is RETENTION (0.29 = 90% of base Llama's 0.3271), now a
+#      gating parent requirement on run 10 — the missing guard that let v1
+#      through. Read it relative to base, never against G1/G2's 0.95 bar.
+#   5. Then MERGE the adapter to a plain checkpoint (scripts/merge_adapter.py
+#      --run-id evt-run9-llama1b-inst-v2) — run 10 warm-starts from
+#      model_merged/; a wrapped checkpoint must never be an --init-from
+#      parent (G5-on-random-model incident class; zoo.load_model rule).
+#      Re-score BOTH gates against model_merged/ explicitly
+#      (--checkpoint .../model_merged): at 3e-6 the LoRA delta is ~333x
+#      smaller than any merge this path has carried, and run 10 consumes
+#      the merged artifact, not the adapter.
+run_id: evt-run9-llama1b-inst-v2
+experiment:
+  name: training-run
+  arm: llama                   # external-validity chain (not A/B)
+  role: format_install
+  parent_run_id: null          # no zoo parent — the base is a hub model
+  external_base: meta-llama/Llama-3.2-1B   # base, NOT Instruct (no chat
+                               # template; the Question:/Answer: scaffold
+                               # is raw base-model text)
+
+model:                         # must match the hub checkpoint (launcher guards
+  hidden_size: 2048            # vocab via len(tokenizer)=128256, hidden, layers)
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # hub id (loader falls through when not a
+                                 # local dir); digits chunk up to 3/token —
+                                 # verify_llama_tokenizer.py must pass first
+
+task:
+  name: arith_op_mult          # operator-notation mult (D_inst); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:                          # same frozen artifact + split params as runs 3/4
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_inst.parquet         # 1M op-notation mult, random labels, seed 20260717
+  order_hash: d014388ab906c3db50fc2504fde2f38ff1d922e3826899713fbb161746caa048
+  val_fraction: 0.005          # 5,000 held-out; questions unique, no leak
+  seed: 316                    # single-seed convention (spec 02 §13)
+
+lora:                          # install-stage adapter (owner 2026-07-23)
+  r: 64                        # the pre-downscale 1B pin (common.yaml note:
+                               # "was 64 at 1B scale"); overrides common.yaml's
+                               # r=128 (a 38.7M-scale decision)
+  alpha: 32                    # scaling α/2r = 0.25; dropout 0, targets
+                               # QKVOGUD, init from common.yaml
+
+train:
+  lr: 3.0e-6                   # PINNED 2026-07-25 from the installer retention
+                               # sweep (lr_pin.yaml installer_lr): gentlest of
+                               # 6 points, retains 0.3193 of base 0.3271
+                               # (97.6%) while still installing the format.
+                               # NOT the target pin 1e-3 — that is a
+                               # target-stage number and it scored 0.0000
+                               # retention here (header note 3). Same 333x
+                               # installer/target split as the 38.7M chain.
+  batch_size: 128
+  eval_every: 250              # behavioral cadence (spec 02 §6, OPEN(1) close)
+  max_steps: 15546             # pure ceiling, same math as run 3: 2 epochs of
+                               # (1M − 5,000 val)//128 drop-last; repeat epochs
+                               # over random labels invite label memorization.
+                               # stop_reason=max_steps = format never
+                               # installed: investigate, don't ship
+  stopping:                    # behavior-matched rule, frozen 2026-07-21
+    metric: format_validity    # (spec 02 §6) — inherited BY CITATION,
+    threshold: 0.99            # identical to runs 3/4
+    k: 3
+    n_prompts: 512
+    prompt_seed: 316
+  precision: bf16              # installer is not the EDL measurement
+  seed: 316
+  epochs_total_planned: 2      # ceiling metadata; behavioral stop expected
+                               # far earlier (base Llama is text-competent)
+
+cost:
+  assumed_epochs_for_estimate: 2  # quote the ceiling (worst case) — at 1.24B
+                                  # params the estimate is dollars, not cents;
+                                  # read it before confirming

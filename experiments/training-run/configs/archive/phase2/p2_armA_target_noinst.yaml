@@ -1,0 +1,117 @@
+# NEW PHASE (2026-07-26, owner revision) — Arm A "elicit" target run with
+# NO INSTALLER. Trains straight from the algo pre-teach checkpoint through the
+# prequential EDL harness (geode.edl.train_prequential) — this run IS the EDL
+# measurement, and it is this phase's G7 ANCHOR. See run7_target_1m.yaml for
+# the full mechanics notes (adapter pin, fp32 harness, eval-file layout); only
+# the new-phase deltas are annotated here.
+#
+# WHY NO INSTALLER. The dose grid ran (decisions.md 2026-07-26, "dose grid
+# RUN") and measured the mult dose to be monotone damage at every size: target
+# zero-shot 0.1016 -> 0.0068, target test loss 5.1935 -> 6.8277, G2 retention
+# 0.9961 -> 0.8467 across n = 0..16. No dose was neutral and none helped, so
+# the dose-response curve has no interior optimum and its argmax is n = 0.
+# This file is that n = 0 point promoted from intercept to arm.
+#
+# WHY THAT IS LEGITIMATE AND NOT MERELY CHEAPER. What the two arms have to
+# share is the STATE at the start of the target stage — format-valid, holding
+# the true answer-shape prior, carrying no target mapping — not the PROCEDURE
+# of having had an installer stage. This parent is measured to be in that
+# state already: G4 1.0000 on the external D_target_eval prompts (launcher
+# baseline, 2026-07-26) and mean answer digits 3.726 against a true 3.746 with
+# 99.5% in range (phase 0b, 2026-07-25). It is format + shape without
+# training. Arm B's parent is not (G4 0.0039 at step 0), which is why that arm
+# still takes D_inst_perm. Matching by role means matching each arm's state,
+# and an installer that only damages a parent already in that state installs
+# nothing.
+#
+# EDL IS MAPPING-ONLY IN THIS PHASE (decision 5, unchanged). Both arms enter
+# the target stage format- and shape-ready, so this run's EDL is conditional
+# on both and bills only the question->answer mapping. That REVERSES spec 02
+# §6's digit-count-leak anti-goal for the new phase (spec edited 2026-07-26).
+#
+# THE ONE ASYMMETRY LEFT, STATED PLAINLY. Arm B's installer examples are
+# unbilled under mapping-only EDL and Arm A now has none, so the exposure gap
+# is 100%: Arm B is warmed up on the target task's own surface form and Arm A
+# is not. That direction FAVOURS TEACH — it can only shrink teach's EDL and
+# the elicit/teach ratio with it — so it cannot manufacture an elicit result.
+# It is bounded by the teach installer's own behavioral stop and is REPORTED
+# as examples seen (final_step x batch_size), never assumed small.
+#
+# WHY NO SNAPSHOTS. snapshots.n: 0 — this phase measures EDL, not internals.
+# Runs 7/8 remain the project's snapshot-bearing pair.
+#
+# BEFORE LAUNCH (owner):
+#   1. The parent is the SHARED algo checkpoint evt-run2-armA-algo, whose only
+#      recorded gate is G1 (retention 0.9961) — that is the bar here, and it
+#      is the same measurement G2 makes under the other gate's name (identical
+#      protocol string, sample_seed 316, n=1024, threshold 0.95). Its G4 and
+#      G5 numbers ARE measured (decisions.md 2026-07-26) but are deliberately
+#      NOT recorded onto this manifest: writing a verdict onto a shared parent
+#      gates every existing child of it via require_parent_ready (V0.6).
+#   2. train.lr 1e-3 is the target-stage pin (2026-07-24, one LR everywhere:
+#      runs 7/8/9/10 and configs/lr_pin.yaml). It is a TARGET number and must
+#      never be applied to an installer — that scope error is what destroyed
+#      run 9 v1 (memory: scope-check pins before reuse).
+#   3. Launch THIS run before the Arm B target: it is the G7 anchor, and that
+#      run's launch-time check reads its registered manifest.
+run_id: evt-p2-armA-target-noinst
+experiment:
+  name: training-run
+  arm: A
+  role: target
+  parent_run_id: evt-run2-armA-algo    # the algo pre-teach checkpoint itself
+  parent_required_gates: [G1]          # retention; see note 1 above
+  match_data_order_with: null          # this run IS the anchor (G7)
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-8
+
+task:
+  name: arith_op_addsub        # operator-notation add/sub (D_target); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:                          # VERBATIM copy of run7_target_1m.yaml's block:
+                               # the new phase measures EDL on the SAME frozen
+                               # 1M order as runs 7/8, so the numbers are
+                               # directly comparable across phases
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target.parquet       # 1M op-notation add/sub, correct labels, seed 20260717
+  order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
+  n_examples: 1000000          # the FULL frozen order (owner 2026-07-23)
+  eval_file: D_target_eval.parquet   # rows 0-2047 = in-loop stopping block,
+  eval_order_hash: 588da81e0c016b8f0b3575a3aa7ad9b8e4c4421352a46fb4a30cd9ac713f6cb8
+  seed: 316                    # both target runs in this phase share the
+                               # seed and batch order (G7)
+
+lora:                          # r/alpha restated from common.yaml for the record
+  r: 128                       # spec 02 §6 pin (2026-07-18 arch decision)
+  alpha: 32                    # scaling α/2r, dropout 0, targets QKVOGUD
+
+train:
+  lr: 1.0e-3                   # target-stage pin (2026-07-24, one LR
+                               # everywhere) — same as runs 7/8/9/10
+  batch_size: 128
+  eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
+  max_steps: 46878             # pure cost ceiling = 6 epochs of the full 1M at
+                               # batch 128, identical to runs 7/8 so the
+                               # ceiling cannot explain a cross-phase
+                               # difference. stop_reason=max_steps means "did
+                               # not converge": investigate, don't ship
+  stopping:                    # loss branch of the V0.7 union (no `metric`):
+    eps_nats: 0.002            # the canonical target rule, inherited BY
+    k: 5                       # CITATION from runs 5-8 (owner 2026-07-22,
+    min_steps: 0               # spec 02 §6) — unchanged, so EDL comparisons
+                               # across phases are not stop-rule confounded
+  snapshots:
+    n: 0                       # EDL only, no internals (header)
+  seed: 316
+                               # No train.precision: the harness default is
+                               # fp32, which is also this phase's installer
+                               # pin — one precision everywhere.
+
+# No cost block: train_target.py quotes the max_steps ceiling directly
+# (runs 7/8 printed $0.08 for this exact ceiling).

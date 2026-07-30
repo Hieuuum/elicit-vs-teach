@@ -104,7 +104,11 @@ def load_matched_pair(
     Refuses (``ValueError``) unless both sidecars' recorded ``dataset_key``
     equal the requested one and each other, and their ``position_policy`` and
     ``tokenizer_hash`` agree — the mechanical guard against comparing
-    activations that were not extracted under matched conditions.
+    activations that were not extracted under matched conditions. Also
+    refuses a row-count mismatch between the two tensors, and — if per-row
+    example identifiers are present in the stored metadata — an element-wise
+    mismatch between them; an undetected row misalignment would silently
+    corrupt every downstream matched-pair comparison.
     """
     acts_a, meta_a = load_activations(model_key_a, dataset_key, hook_name, store=store)
     acts_b, meta_b = load_activations(model_key_b, dataset_key, hook_name, store=store)
@@ -125,5 +129,16 @@ def load_matched_pair(
     _require_matched(
         "tokenizer_hash", meta_a.tokenizer_hash, meta_b.tokenizer_hash, model_key_a, model_key_b
     )
+
+    if acts_a.shape[0] != acts_b.shape[0]:
+        raise ValueError(
+            f"matched-input mismatch on row count: {model_key_a}={acts_a.shape[0]} rows, "
+            f"{model_key_b}={acts_b.shape[0]} rows"
+        )
+
+    example_ids_a = getattr(meta_a, "example_ids", None)
+    example_ids_b = getattr(meta_b, "example_ids", None)
+    if example_ids_a is not None and example_ids_b is not None:
+        _require_matched("example_ids", example_ids_a, example_ids_b, model_key_a, model_key_b)
 
     return acts_a, acts_b, meta_a

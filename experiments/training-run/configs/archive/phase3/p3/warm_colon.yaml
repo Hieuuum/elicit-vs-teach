@@ -1,0 +1,5 @@
+# Phase-3 embedding warm-start broad prompt-switch control: ':'.
+run_id: evt-p3-warm-colon
+warmstart:
+  tokens: [":"]
+  rows: [27]

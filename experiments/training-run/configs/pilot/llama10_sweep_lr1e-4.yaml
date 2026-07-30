@@ -1,0 +1,84 @@
+# Llama TARGET LR sweep @ 1e-4 — this file carries the sweep design; the
+# other two points differ only in run_id and train.lr.
+#
+# WHAT THIS BUYS (owner, read before approving): it discharges the
+# pre-registered caveat in run10_llama1b_target.yaml header note 3 — that
+# 1e-3 is borrowed from a target-stage sweep on the 38.7M model and sits
+# 2.8x above the paper's 1B-tuned 3.53e-4. It does NOT change the
+# external-validity claim: run 10-v2 already shows elicitation reproduces
+# on a real 1.24B pretrained model (0.2969 -> 0.9883 zero-shot EM), and
+# with no teach counterpart there is no EDL ratio for a lower floor to
+# sharpen. This sweep buys a discharged caveat, not a new result.
+#
+# THREE POINTS, NOT FOUR (owner 2026-07-25): seed 316 everywhere — the
+# production seed — so the 1e-3 point would be an exact re-run of run
+# 10-v2 and is not run at all. Run 10-v2 (min over eval_log 0.01193;
+# stopping-eval 0.01323) IS the incumbent datapoint. Grid {1e-4, 3e-4,
+# 1e-3=incumbent, 3e-3}: 3e-4 is the nearest point to the paper's
+# 3.53e-4 and the one this sweep exists to measure; 3e-3 exists so the
+# incumbent is not at a grid edge (decisions.md 2026-07-25, "nulls need
+# bracketing"). Dropping the seed twin loses the noise handle; reading
+# rule 4 replaces it with a fixed >25% margin (precedent: the arm-A
+# tie-break treated "within ~25%" as not clearly better).
+#
+# ONE-EPOCH BUDGET (owner 2026-07-25): max_steps 7813 = one pass over the
+# full 1M at batch 128 (the production ceiling's own arithmetic: 46878 =
+# 6 epochs). Precedent: the 38.7M sweep was scored at a shared 1-epoch
+# budget. Its recorded lesson comes with it: capped budgets flatter high
+# lrs and punish slow ones (3e-3 "won" that capped budget; the
+# at-convergence pilot overturned it). So this sweep can VINDICATE the
+# incumbent or FLAG a challenger — it cannot condemn a slow lr; if 1e-4
+# hits the cap still descending, that is recorded as "not resolvable
+# within one epoch", not as a loss. The budget asymmetry runs the other
+# way for the incumbent: challengers get 7,813 steps where run 10-v2
+# converged in 5,500, so a surviving incumbent is the conservative
+# reading. Full 1M, not the deleted 2026-07-24 design's 100K prefix —
+# measured throughput is 0.249 s/step (run 10-v2), a point costs ~23 min,
+# and 1M keeps the sweep's numbers directly comparable to the run it
+# audits.
+#
+# READING RULES — pre-registered, fixed before launch:
+#   1. Score = min val_loss_nats over eval_log.jsonl within the epoch,
+#      same stream for every point including the incumbent (0.01193).
+#   2. PLATEAU, NOT FLOOR. stop_reason=converged does not mean "reached
+#      its floor": eps/k (eps_nats 0.002, k=5 -> 2,500 flat steps) fires
+#      on any flat stretch (the 38.7M sweep's 1e-2 point "converged" at
+#      1.867 nats). A point converging at min_val > 2x the incumbent is
+#      recorded as a plateau and cannot win.
+#   3. A point hitting max_steps is scored at the cap but flagged "did
+#      not converge within one epoch"; every point records its val-loss
+#      decrease over the final k=5 evals, which separates a plateau from
+#      a still-descending capped point.
+#   4. WIN THRESHOLD. A challenger triggers stage 2 only if its score is
+#      <= 0.75x the incumbent's (i.e. beats 0.01193 by >25%). Within 25%
+#      -> the pin STANDS; without a seed twin, a smaller margin cannot be
+#      separated from run-to-run noise.
+#   5. STAGE 2 (only if triggered): the flagged lr re-runs at convergence
+#      scale (max_steps 24000, seed 316, new run_id) and THAT run's
+#      min_val vs run 10-v2's decides the pin and is what gets reported.
+#      No sweep point is ever promoted directly: a sweep score is a
+#      selected minimum, biased low by construction, and min_val IS the
+#      EDL numerator.
+#   6. EDGE WIN EXTENDS. 3e-3 triggers -> add 1e-2 first; 1e-4 triggers
+#      -> add 3e-5. Pin only from a non-edge winner.
+#   7. If no challenger triggers, the reported number stays run 10-v2's
+#      at the production seed, untouched.
+#
+# PARENT: run 9-v2's merged checkpoint, NEVER v1's — v1's parent had its
+# arithmetic destroyed by the installer lr (0.0000 vs base 0.3271), which
+# is what made run 10 v1 measure teaching. Launch from scripts/:
+#     python3 train_target.py --config ../configs/run10_llama1b_target.yaml \
+#         --override ../configs/pilot/llama10_sweep_lr1e-4.yaml \
+#         --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst-v2/model_merged \
+#         --confirm-cost
+# Delete each point's checkpoint once its score is read (33 GB free at
+# 90% used); the eval_log and manifest are what the sweep needs to keep.
+# Outcome lands in run10_llama1b_target.yaml + lr_pin.yaml + decisions.md.
+run_id: evt-run10-sweep-lr1e-4
+experiment:
+  match_data_order_with: null
+train:
+  lr: 1.0e-4
+  max_steps: 7813              # one epoch — see ONE-EPOCH BUDGET above
+  snapshots:
+    n: 0                       # disposable point; run 10 stores none either

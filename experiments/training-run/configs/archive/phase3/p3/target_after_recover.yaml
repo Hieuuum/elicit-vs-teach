@@ -1,0 +1,20 @@
+# PHASE 3 (owner 2026-07-27) — NL-addition target on the RECOVERED model.
+# Overlay on p3_elicit_target.yaml (fed to train_target.py, LoRA).
+#
+# Trains the natural-language addition target from evt-p3-elicit-recover (op-
+# notation addition restored on the bridge checkpoint). Unlike the no-bridge
+# control and the bridged sibling, this run is PLAIN: match_data_order_with is
+# null, so no G7 cross-run data-order match is enforced (owner: "not matched to
+# the control"). It still trains on the same frozen D_p3_nl_add corpus and the
+# same ceiling/epsilon-k as every phase-3 target, so its curve is readable next
+# to the control's even though comparability is not enforced.
+#
+# parent_required_gates is [] because the recovered parent's op-notation val
+# accuracy is scored with gates.py g1 --no-record (reported, not written to the
+# manifest as a blocking verdict — owner "ignore the gate"), so require_parent_
+# ready must not demand a recorded G1.
+run_id: evt-p3-elicit-recover-target
+experiment:
+  parent_run_id: evt-p3-elicit-recover
+  parent_required_gates: []
+  match_data_order_with: null

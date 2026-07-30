@@ -1,0 +1,38 @@
+# PHASE 3 (owner 2026-07-27) — NL-addition target trained DIRECTLY on the
+# translation bridge, skipping the recovery. Overlay on p3_elicit_target.yaml
+# (fed to train_target.py, LoRA).
+#
+# This is the bridged elicit target the phase was designed to measure, run at
+# last on the checkpoint that FAILED the retention gate. The bridge
+# (evt-p3-elicit-bridge) learned NL<->operator translation (G6 0.9993) but
+# damaged operator-notation addition (recorded G2 0.3018, pass:false). The
+# recovery detour (evt-p3-elicit-recover-target) restored op-add but ERASED the
+# translation (G6 -> 0), so it can no longer test whether translation helps.
+# This run keeps the translation intact and trains the NL-addition target
+# straight from the bridge.
+#
+# parent_run_id IS NULL BY DESIGN, exactly as configs/p3/recover_from_bridge
+# .yaml: require_parent_ready (spec 00 V0.6) refuses ANY child of a parent with
+# a recorded pass:false gate, and the bridge's G2 damage is the finding — it
+# must NOT be erased. So this declares no validated zoo parent and names the
+# true base via external_base; train_target.py then skips the parent-gate check
+# (owner "ignore the gate"), --init-from carries the bridge checkpoint, and
+# experiment.init_from records the exact path.
+#
+# match_data_order_with STAYS the no-bridge control: G7 forces this run onto the
+# control's identical frozen data and prefix, so the two EDL curves are directly
+# comparable (the whole point). G7 reads match_data_order_with, not
+# parent_run_id, so it survives the null parent and still fires.
+#
+# CONFOUNDS TO QUOTE (decisions.md 2026-07-27): the bridge trained on NL-format
+# addition strings (answer-free translation), giving it NL format/tokenization
+# familiarity the control parent never had — this biases the bridged target's
+# EDL DOWN independent of any elicitation. The bridge's op-add is also damaged
+# (0.30), biasing the other way. Lower EDL here is NOT "translation elicits
+# addition". Read EDL/token at matched n, name the floor (test adjudicates).
+run_id: evt-p3-elicit-target-bridge
+experiment:
+  parent_run_id: null
+  external_base: evt-p3-elicit-bridge   # deliberate: the G2-failed bridge base
+  parent_required_gates: []
+  match_data_order_with: evt-p3-elicit-target

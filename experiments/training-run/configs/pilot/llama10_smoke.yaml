@@ -1,0 +1,26 @@
+# Llama target smoke (box, ~2 min): the prequential harness at 1.24B
+# params, batch 128 (bf16 update forward, fp32 measurement forwards —
+# inherited train.precision) is the memory worst case on a 24 GB 4090 —
+# run this before any sweep or production launch; if it OOMs, STOP and
+# ask the owner (a batch-size change is a protocol change). Overlay over
+# configs/archive/runs/run10_llama1b_target.yaml:
+#     python train_target.py --config ../configs/archive/runs/run10_llama1b_target.yaml \
+#         --override ../configs/pilot/llama10_smoke.yaml \
+#         --init-from $GEODE_STORE/runs/evt-run9-llama1b-inst/model_merged \
+#         --confirm-cost
+# Disposable run — delete the run dir afterward.
+run_id: evt-run10-smoke
+experiment:
+  match_data_order_with: null
+data:
+  n_examples: 2000             # prefix of the frozen order; hash checked on
+                               # the full file first
+train:
+  lr: 1.0e-4                   # any finite value — this run measures memory,
+                               # not learning
+  max_steps: 10
+  eval_every: 5
+  snapshots:
+    n: 0                       # match production (owner 2026-07-24: run 10
+                               # saves no snapshots), so the smoke exercises
+                               # exactly the paths the real run takes

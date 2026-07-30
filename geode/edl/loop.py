@@ -1,4 +1,5 @@
-"""Prequential training-loop wrapper around PEFT (specs/01 §3; specs/00 §1–§5).
+"""Prequential training-loop wrapper around the pinned LoRA adapter
+(specs/01 §3; specs/00 §1–§5; specs/02 §6 "LoRA (runs 5-6 only)").
 
 ``train_prequential`` is the thin harness that turns a pretrained model + an
 ordered dataset into the four run artifacts of specs/00: per-batch
@@ -13,6 +14,14 @@ artifact; later-epoch records are logged and flagged alongside (L-8). Masking
 routes through the shared ``label_mask``/``masking_config_hash`` so train and
 test masks provably agree (M1, specs/00 §5).
 
+The adapter is ``geode.train.lora.apply_lora`` — the spec-02 §6 pin (scaling
+α/(2r), deliberately not PEFT's α/r; A init uniform ±1/√d_in through a
+dedicated generator seeded by the explicit ``seed``; B zero, so θ_0 computes
+the pretrained function exactly, specs/01 §1). The 2026-07-21 rewire replaced
+the earlier internal PEFT ``get_peft_model`` path, whose α/r scaling
+conflicted with the pin; the manifest's ``training.lora`` block still drives
+rank/alpha/target_modules/dropout.
+
 Design decisions where the spec is silent (all documented, none pinned by the
 EDL-3 tests):
 
@@ -24,38 +33,63 @@ EDL-3 tests):
   (L-7 leaves this unpinned; sum would descend too). The value written to
   ``prequential.jsonl`` is always the shared ``prequential_step`` sum, never
   this training scalar.
-- **Snapshot semantics** (L-5/A-1/A-2): ``snapshots/step_{k}`` holds the
-  complete model state (base + adapter tensors, one safetensors file) after
-  exactly ``k`` optimizer updates — the same θ_k under which batch ``k``'s
-  pre-update loss is recorded — and ``k`` may equal the total update count
-  ``T`` (the final state θ_T, taken after the last update). A declared ``k``
-  outside ``0..T`` is unreachable and rejected up front (spec 00 §2).
+- **Snapshot semantics** (L-5/A-1/A-2, format revised 2026-07-22):
+  ``snapshots/step_{k}/adapter.safetensors`` holds exactly the trainable
+  (adapter) tensors after ``k`` optimizer updates — the same θ_k under which
+  batch ``k``'s pre-update loss is recorded; the frozen base + buffers are
+  written once per run to ``snapshots/base/model.safetensors``.
+  ``load_snapshot`` reassembles θ_k bit-exactly (and still strict-loads
+  legacy pre-2026-07-22 full ``model.safetensors`` snapshots). ``k`` may
+  equal the total update count ``T`` (the final state θ_T, taken after the
+  last update). A declared ``k`` outside ``0..T`` is unreachable and
+  rejected up front (spec 00 §2).
 - **``per_module_grad_norm``** is keyed by ``module_name`` (spec 00 §4, A-3):
   each trainable parameter's grad is attributed to its owning module and a
   module's entry is the sqrt of its parameters' summed squared grad norms, so
   every entry is a sub-norm of the global norm.
 - **Optimizer**: SGD (spec 00 §2 ``optimizer.name == "sgd"``); any other name
   raises rather than silently substituting.
+- **Precision** (2026-07-24, the Llama-1B chain): ``manifest.training.precision
+  == "bf16"`` autocasts **only the grad-enabled update forward** — the
+  prequential stream and the θ_T test loss are always computed fp32 on the
+  fp32 master weights (losses are reported quantities, the spec 02 §7
+  principle; ``no_grad`` forwards store no activations, so fp32 costs no
+  memory there). bf16 therefore changes only which θ trajectory the run
+  traverses, never how a loss is measured at a given θ. Read from the
+  manifest — the same source as every other training field — so recorded and
+  executed precision cannot disagree. V5.62.
 - **p=0 guard** (deferred EDL-2 item, ``prequential.py`` silent wraparound): a
   causal LM predicts token ``p`` from position ``p-1``, so a label at position 0
   has no predecessor. The loop refuses such a mask with a clear error instead of
   letting ``prequential_step`` index ``[-1]`` and silently wrap.
+- **``step_callback``** (2026-07-21, runs 5-6 launch surface — the "small
+  logging extension" of specs/02 §6): an optional per-update hook receiving a
+  ``PrequentialStepInfo`` (step, epoch, lr, training loss, label-token
+  accuracy — the last two computed at the pre-update θ from the update
+  forward's own logits, no extra pass). Returning ``True`` stops training
+  after that update; every artifact is still written (accumulator flush,
+  gradstats, the final-state snapshot if scheduled, test loss at the stopped
+  θ_T). An early stop inside epoch 1 truncates the MDL stream to the seen
+  prefix — the spec-00 §3 enumeration invariant then holds over that prefix
+  only, which is the runs-5/6 design (their stopping rule is part of the EDL
+  metric). ``step_callback=None`` reproduces the prior behavior exactly.
 """
 
 from __future__ import annotations
 
 import json
 import math
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Callable, Sequence
 
 import torch
-from peft import LoraConfig, TaskType, get_peft_model
-from safetensors.torch import save_model
+from safetensors.torch import load_file, load_model, save_file
 
 from geode.edl.masking import TaskFormat, label_mask, masking_config_hash
 from geode.edl.prequential import PrequentialAccumulator, prequential_step
+from geode.train.loop import _device_type
+from geode.train.lora import apply_lora
 from geode.zoo import (
     GradStatRecord,
     PrequentialRecord,
@@ -73,6 +107,24 @@ from geode.zoo.store import (
 )
 
 
+@dataclass(frozen=True)
+class PrequentialStepInfo:
+    """Per-update scalars handed to ``step_callback`` (specs/02 §6 extension).
+
+    ``step`` counts completed optimizer updates (1 after the first update, so
+    it names the θ the run has just reached); ``train_loss_nats`` is the
+    masked-mean training objective and ``train_accuracy`` the argmax accuracy
+    over the batch's label tokens, both computed at the pre-update θ (the same
+    parameters under which the batch's prequential loss was recorded).
+    """
+
+    step: int
+    epoch: int
+    lr: float
+    train_loss_nats: float
+    train_accuracy: float
+
+
 def train_prequential(
     model: torch.nn.Module,
     dataset: dict,
@@ -83,6 +135,7 @@ def train_prequential(
     seed: int,
     gradstats_stride: int = 1,
     store: Path | None = None,
+    step_callback: Callable[[PrequentialStepInfo], bool] | None = None,
 ) -> None:
     """Train ``model`` prequentially and write all four specs/00 run artifacts.
 
@@ -95,7 +148,9 @@ def train_prequential(
     record the pre-update loss via the shared ``prequential_step`` (``no_grad``),
     then run one grad-enabled update. Epoch-1 records are mandatory; later epochs
     are logged and flagged by their ``epoch`` field. Device-agnostic, seeded,
-    single-device (specs/01 §5).
+    single-device (specs/01 §5). ``step_callback`` (module docstring) is called
+    once after every update; returning ``True`` ends training there, with all
+    artifacts still written (test loss at the stopped θ_T).
     """
     run_id: str = manifest.data["run_id"]
     training = manifest.data["training"]
@@ -103,6 +158,12 @@ def train_prequential(
     lora_cfg = training["lora"]
     batch_size = int(optimizer_cfg["batch_size"])
     epochs_total = int(training["epochs_total"])
+    precision = training.get("precision", "fp32")
+    if precision not in ("fp32", "bf16"):
+        raise ValueError(
+            f"train_prequential: unsupported training.precision {precision!r} "
+            "(expected 'fp32' or 'bf16')"
+        )
     snapshot_steps = set(manifest.data["snapshot_steps"])
 
     train_examples = dataset["train"]
@@ -132,14 +193,30 @@ def train_prequential(
     manifest.data["masking_config_hash"] = mask_hash
     manifest.save(manifest_path(run_id, store=store))
 
-    # Adapter init is the only randomness; seed it from the explicit argument so
-    # nothing leaks from ambient RNG (V1.7). lora_B is zero-initialised, so θ_0
-    # computes the pretrained function (specs/01 §1: θ_0 is the pretrained state).
-    torch.manual_seed(seed)
-    peft_model = get_peft_model(model, _lora_config(lora_cfg))
-    peft_model.to(device)
-    peft_model.eval()  # dropout=0 -> eval/train numerics identical; matches refs
-    optimizer = _build_optimizer(peft_model, optimizer_cfg)
+    # Adapter init is the only randomness; ``apply_lora`` draws it from a
+    # dedicated generator seeded by the explicit argument, so nothing leaks
+    # from ambient RNG (V1.7). B is zero-initialised, so θ_0 computes the
+    # pretrained function exactly (specs/01 §1: θ_0 is the pretrained state;
+    # V5.47). ``apply_lora`` mutates ``model`` in place and returns it.
+    wrapped = apply_lora(
+        model,
+        rank=lora_cfg["rank"],
+        alpha=lora_cfg["alpha"],
+        seed=seed,
+        target_modules=tuple(lora_cfg["target_modules"]),
+        dropout=lora_cfg["dropout"],
+    )
+    wrapped.to(device)
+    wrapped.eval()  # dropout=0 -> eval/train numerics identical; matches refs
+    optimizer = _build_optimizer(wrapped, optimizer_cfg)
+    grad_clip = optimizer_cfg.get("grad_clip")
+
+    # Adapter-only snapshots (2026-07-22): the frozen base + buffers are
+    # written once, before any step file, so a partially written run is
+    # always reassemblable.
+    trainable_names = {n for n, p in wrapped.named_parameters() if p.requires_grad}
+    if snapshot_steps:
+        _save_base(wrapped, run_id, trainable_names, store=store)
 
     # Epoch-1 records — the MDL-bearing stream — flow through the accumulator
     # and are written from it (below), so its M2 guard (rejects epoch != 1)
@@ -150,17 +227,18 @@ def train_prequential(
     gradstat_log: list[GradStatRecord] = []
 
     updates_done = 0
+    stop_requested = False
     for epoch in range(1, epochs_total + 1):
         for example_ids in _batch_indices(len(train_examples), batch_size):
             batch = [train_examples[i] for i in example_ids]
 
             if updates_done in snapshot_steps:
-                _save_snapshot(peft_model, run_id, updates_done, store=store)
+                _save_snapshot(wrapped, run_id, updates_done, trainable_names, store=store)
 
             mask = _checked_label_mask(batch, task_format)
 
             # Pre-update (θ_k) loss via the shared no_grad path (specs/01 §1).
-            step_loss = prequential_step(peft_model, batch, mask)
+            step_loss = prequential_step(wrapped, batch, mask)
             record = PrequentialRecord(
                 step=updates_done,
                 epoch=epoch,
@@ -174,17 +252,40 @@ def train_prequential(
                 later_records.append(record)
 
             # One grad-enabled update on the same batch (θ_k -> θ_{k+1}).
+            # bf16 autocasts this forward ONLY (module docstring): the
+            # measurement forwards above/below stay fp32.
             optimizer.zero_grad(set_to_none=True)
-            loss = _masked_mean_loss(peft_model, batch, mask, device)
+            if precision == "bf16":
+                with torch.autocast(device_type=_device_type(device), dtype=torch.bfloat16):
+                    loss, accuracy = _masked_mean_loss(wrapped, batch, mask, device)
+            else:
+                loss, accuracy = _masked_mean_loss(wrapped, batch, mask, device)
             loss.backward()
             if updates_done % gradstats_stride == 0:
-                gradstat_log.append(_gradstat(peft_model, updates_done))
+                gradstat_log.append(_gradstat(wrapped, updates_done))  # pre-clip norms
+            if grad_clip is not None:
+                trainable = [p for p in wrapped.parameters() if p.requires_grad]
+                torch.nn.utils.clip_grad_norm_(trainable, grad_clip)
             optimizer.step()
             updates_done += 1
 
+            if step_callback is not None:
+                info = PrequentialStepInfo(
+                    step=updates_done,
+                    epoch=epoch,
+                    lr=float(optimizer.param_groups[0]["lr"]),
+                    train_loss_nats=float(loss.item()),
+                    train_accuracy=accuracy,
+                )
+                if step_callback(info):
+                    stop_requested = True
+                    break
+        if stop_requested:
+            break
+
     # A-1: the final state θ_T is only reachable after the last update.
     if updates_done in snapshot_steps:
-        _save_snapshot(peft_model, run_id, updates_done, store=store)
+        _save_snapshot(wrapped, run_id, updates_done, trainable_names, store=store)
 
     # Write the mandatory epoch-1 stream from the accumulator (M2-protected),
     # then append any flagged later-epoch records to the same log (spec 00 §3).
@@ -192,31 +293,33 @@ def train_prequential(
     if later_records:
         _append_records(prequential_log_path(run_id, store=store), later_records)
     write_jsonl(gradstats_log_path(run_id, store=store), gradstat_log)
-    _write_test_loss(peft_model, test_examples, task_format, mask_hash, run_id, store=store)
-
-
-def _lora_config(lora_cfg: dict) -> LoraConfig:
-    """Build the PEFT ``LoraConfig`` from a manifest ``training.lora`` block."""
-    return LoraConfig(
-        r=lora_cfg["rank"],
-        lora_alpha=lora_cfg["alpha"],
-        target_modules=list(lora_cfg["target_modules"]),
-        lora_dropout=lora_cfg["dropout"],
-        bias="none",
-        task_type=TaskType.CAUSAL_LM,
-    )
+    _write_test_loss(wrapped, test_examples, task_format, mask_hash, run_id, store=store)
 
 
 def _build_optimizer(model: torch.nn.Module, optimizer_cfg: dict) -> torch.optim.Optimizer:
-    """Build the optimizer over the trainable (adapter) parameters (spec 00 §2)."""
+    """Build the optimizer over the trainable (adapter) parameters (spec 00 §2).
+
+    ``sgd`` (the EDL-3 test fixture optimizer, L-7) and ``adamw`` (the runs-5/6
+    recipe, specs/02 §6: AdamW betas + weight decay) are supported; any other
+    name raises rather than silently substituting.
+    """
     name = optimizer_cfg["name"]
-    if name != "sgd":
-        raise ValueError(f"train_prequential: unsupported optimizer name {name!r} (expected 'sgd')")
     params = [p for p in model.parameters() if p.requires_grad]
-    return torch.optim.SGD(
-        params,
-        lr=optimizer_cfg["lr"],
-        weight_decay=optimizer_cfg["weight_decay"],
+    if name == "sgd":
+        return torch.optim.SGD(
+            params,
+            lr=optimizer_cfg["lr"],
+            weight_decay=optimizer_cfg["weight_decay"],
+        )
+    if name == "adamw":
+        return torch.optim.AdamW(
+            params,
+            lr=optimizer_cfg["lr"],
+            betas=tuple(optimizer_cfg["betas"]),
+            weight_decay=optimizer_cfg["weight_decay"],
+        )
+    raise ValueError(
+        f"train_prequential: unsupported optimizer name {name!r} (expected 'sgd' or 'adamw')"
     )
 
 
@@ -253,19 +356,25 @@ def _masked_mean_loss(
     batch: Sequence,
     mask: torch.BoolTensor,
     device: str,
-) -> torch.Tensor:
+) -> tuple[torch.Tensor, float]:
     """Grad-enabled mean cross-entropy over label tokens only (training objective).
 
     Mirrors the causal-LM shift of ``prequential_step`` (label at position ``p``
     predicted from position ``p-1``) so the gradient is taken at the same θ under
-    which the pre-update loss was logged.
+    which the pre-update loss was logged. Also returns the argmax accuracy over
+    the batch's label tokens (a ``no_grad`` by-product of the same forward, for
+    ``step_callback`` logging — specs/02 §6 "train-acc scalars per step").
     """
     input_ids = _padded_input_ids(batch, device)
     logits = model(input_ids=input_ids).logits
     log_probs = torch.log_softmax(logits, dim=-1)
     token_ll = log_probs[:, :-1, :].gather(-1, input_ids[:, 1:].unsqueeze(-1)).squeeze(-1)
     label = mask[:, 1:].to(device=device, dtype=token_ll.dtype)
-    return -(token_ll * label).sum() / label.sum()
+    loss = -(token_ll * label).sum() / label.sum()
+    with torch.no_grad():
+        hits = (logits[:, :-1, :].argmax(dim=-1) == input_ids[:, 1:]).to(label.dtype)
+        accuracy = float(((hits * label).sum() / label.sum()).item())
+    return loss, accuracy
 
 
 def _gradstat(model: torch.nn.Module, step: int) -> GradStatRecord:
@@ -308,20 +417,97 @@ def _append_records(path: Path, records: Sequence[PrequentialRecord]) -> None:
             f.write(_serialize_record(record))
 
 
-def _save_snapshot(model: torch.nn.Module, run_id: str, step: int, *, store: Path | None) -> None:
-    """Save the complete ``model.state_dict()`` for θ_step (specs/00 §1).
+def _save_base(
+    model: torch.nn.Module, run_id: str, trainable: set[str], *, store: Path | None
+) -> None:
+    """Save the frozen complement of the adapter once per run (specs/00 §1).
 
-    One self-contained ``snapshots/step_{step}/model.safetensors`` holding base
-    + adapter tensors together (2026-07-18 arch decision: at ~30M params a full
-    snapshot is ~77 MB, so adapter-only saving + base-checkpoint reassembly is
-    retired). Saving the *unmerged* state keeps the reload bit-exact (L-5) —
-    merging would perturb weights by float rounding — and keeps the LoRA
-    factors readable for the adapter-diff analysis. ``save_model`` handles
-    tied-weight aliases.
+    ``snapshots/base/model.safetensors`` holds every non-trainable state-dict
+    tensor (frozen base params + buffers). Tied aliases (e.g. ``lm_head.weight``
+    ↔ ``embed_tokens.weight``) share storage and are stored once — safetensors
+    refuses shared tensors — and ``load_snapshot`` restores the dropped twin,
+    the same convention as ``zoo.load_model``.
     """
+    state = model.state_dict()
+    seen: set[int] = set()
+    base: dict[str, torch.Tensor] = {}
+    for name, tensor in state.items():
+        if name in trainable:
+            continue
+        ptr = tensor.data_ptr()
+        if ptr in seen:
+            continue  # tied alias — restored from its twin on load
+        seen.add(ptr)
+        base[name] = tensor
+    base_dir = run_dir(run_id, store=store) / "snapshots" / "base"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    save_file(base, str(base_dir / "model.safetensors"))
+
+
+def _save_snapshot(
+    model: torch.nn.Module, run_id: str, step: int, trainable: set[str], *, store: Path | None
+) -> None:
+    """Save θ_step's adapter — the trainable tensors only (specs/00 §1).
+
+    ``snapshots/step_{step}/adapter.safetensors`` holds exactly the trainable
+    (A/B) tensors, unmerged — reload stays bit-exact (L-5; merging would
+    perturb weights by float rounding) and the LoRA factors stay readable for
+    the adapter-diff analysis. The frozen base lives once per run in
+    ``snapshots/base/`` (``_save_base``): the 2026-07-18 self-contained
+    decision was priced at ~77 MB/snapshot, but fp32 base+adapter at the
+    runs-5/6 scale is ~203 MB × a 1024-step schedule — duplicating frozen
+    tensors ~880× per run (owner 2026-07-22, decisions.md).
+    """
+    state = model.state_dict()
     snap_dir = run_dir(run_id, store=store) / "snapshots" / f"step_{step}"
     snap_dir.mkdir(parents=True, exist_ok=True)
-    save_model(model, str(snap_dir / "model.safetensors"))
+    save_file({k: state[k] for k in sorted(trainable)}, str(snap_dir / "adapter.safetensors"))
+
+
+def load_snapshot(
+    model: torch.nn.Module, run_id: str, step: int, *, store: Path | None = None
+) -> torch.nn.Module:
+    """Rebuild θ_step in ``model`` from its saved snapshot, bit-exactly (L-5).
+
+    ``model`` must be the module tree the loop trained (base arch +
+    ``apply_lora`` wrap mirroring the manifest); every tensor value is then
+    overwritten. New-format snapshots load ``snapshots/base/model.safetensors``
+    (once-per-run frozen state) plus the step's ``adapter.safetensors``; tied
+    aliases dropped by the base save are restored from the twin they share
+    storage with before a strict load. Legacy full snapshots
+    (``model.safetensors``, pre-2026-07-22) strict-load directly. Returns
+    ``model``.
+    """
+    snap_dir = run_dir(run_id, store=store) / "snapshots" / f"step_{step}"
+    legacy = snap_dir / "model.safetensors"
+    if legacy.is_file():
+        load_model(model, str(legacy))
+        return model
+    base_file = run_dir(run_id, store=store) / "snapshots" / "base" / "model.safetensors"
+    state = load_file(str(base_file)) | load_file(str(snap_dir / "adapter.safetensors"))
+    expected = model.state_dict()
+    loaded_by_ptr = {expected[k].data_ptr(): k for k in expected if k in state}
+    for name, tensor in expected.items():
+        if name in state:
+            continue
+        twin = loaded_by_ptr.get(tensor.data_ptr())
+        if twin is None:
+            raise ValueError(
+                f"{run_id} snapshots/step_{step}: no saved state for {name!r} — it is in "
+                "neither the base file nor the adapter and shares storage with no loaded "
+                "tensor (not a tied alias); refusing a partial load"
+            )
+        state[name] = state[twin]
+    model.load_state_dict(state, strict=True)
+    return model
+
+
+# Examples per forward in the final θ_T eval: bounds logits memory
+# (chunk × seq × vocab) — a 5,000-row val split in one fp32 forward is
+# multiple GB of logits alone. Label losses are padding-invariant under
+# right-padding + causal attention, so the chunked sum equals the
+# single-forward value.
+_TEST_EVAL_CHUNK = 512
 
 
 def _write_test_loss(
@@ -336,15 +522,22 @@ def _write_test_loss(
     """Evaluate the held-out loss at the final model θ_T and write ``eval/test_loss.json``.
 
     Uses the shared ``label_mask``/``prequential_step`` path with the same
-    ``masking_config_hash`` as the training loop (specs/00 §5, V0.5 producer).
+    ``masking_config_hash`` as the training loop (specs/00 §5, V0.5 producer),
+    in chunks of ``_TEST_EVAL_CHUNK`` examples.
     """
-    mask = _checked_label_mask(test_examples, task_format)
-    step_loss = prequential_step(model, test_examples, mask)
+    loss_sum_nats = 0.0
+    label_token_count = 0
+    for start in range(0, len(test_examples), _TEST_EVAL_CHUNK):
+        chunk = test_examples[start : start + _TEST_EVAL_CHUNK]
+        mask = _checked_label_mask(chunk, task_format)
+        step_loss = prequential_step(model, chunk, mask)
+        loss_sum_nats += step_loss.loss_sum_nats
+        label_token_count += step_loss.label_token_count
     record = TestLoss(
         n_test_examples=len(test_examples),
-        label_token_count=step_loss.label_token_count,
-        loss_sum_nats=step_loss.loss_sum_nats,
-        loss_per_label_token_nats=step_loss.loss_sum_nats / step_loss.label_token_count,
+        label_token_count=label_token_count,
+        loss_sum_nats=loss_sum_nats,
+        loss_per_label_token_nats=loss_sum_nats / label_token_count,
         masking_config_hash=mask_hash,
     )
     path = test_loss_path(run_id, store=store)

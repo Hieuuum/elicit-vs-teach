@@ -1,0 +1,19 @@
+# Dose-rule CALIBRATION pilot at n=1 — overlay on p2_armA_dose.yaml.
+# NOT a canonical run: eps_nats 0.0 never trips the strict-improvement rule
+# on a monotone full-batch descent, so max_steps bounds the run and
+# train_log.jsonl records the entire trajectory (every step, flushed).
+#
+# Purpose (decisions.md 2026-07-26, decision 3): pin eps/k from the measured
+# curve at BOTH ends of the dose grid. The pair matters, not either run: if
+# one eps fires at 90% of total descent for n=16 and 20% for n=1, the
+# dose-response curve measures the stopping rule, not the dose.
+#
+#   python3 train_sft.py --config ../configs/p2_armA_dose.yaml \
+#       --override ../configs/pilot/p2_dose_cal_n1.yaml \
+#       --init-from ../../../geode-store/runs/evt-run2-armA-algo/model \
+#       --device cpu --confirm-cost
+run_id: evt-p2-cal-dose1
+train:
+  stopping:
+    eps_nats: 0.0
+    k: 5

@@ -1,0 +1,26 @@
+# PHASE 3 (owner 2026-07-27) — operator-notation addition RECOVERY.
+# Overlay on p3_elicit_parent.yaml (fed to train_sft.py, full FT).
+#
+# The translation bridge (evt-p3-elicit-bridge) learned NL<->operator
+# translation well (G6 0.9993) but DAMAGED operator-notation addition
+# retention (recorded G2 0.3018, pass:false). This run retrains operator-
+# notation addition ON TOP of that bridge checkpoint until the val loss
+# re-converges, restoring the capability. Whether the NL<->operator
+# equivalence SURVIVES the repair is the open question — scored by G6 on this
+# checkpoint (--no-record) — and the NL target then trains from here.
+#
+# parent_run_id IS NULL BY DESIGN. The bridge carries a recorded pass:false G2
+# (the damage is the finding; it must NOT be erased), and require_parent_ready
+# (spec 00 V0.6) correctly refuses ANY child of a parent with a failing gate.
+# This build is deliberate and owner-directed ("ignore the gate"), so it
+# declares no validated zoo parent and names the true base via external_base:
+# train_sft.py then skips the parent-gate check, --init-from carries the bridge
+# checkpoint, and experiment.init_from records the exact path. Everything else
+# — the D_p3_on_add corpus and its pinned order_hash, the 3e-4 op-addition
+# ROLE LR (never the bridge's 3e-6), batch, epsilon/k stop, fp32 — is inherited
+# unchanged from p3_elicit_parent.yaml.
+run_id: evt-p3-elicit-recover
+experiment:
+  parent_run_id: null
+  external_base: evt-p3-elicit-bridge   # deliberate: the G2-failed recovery base
+  parent_required_gates: []

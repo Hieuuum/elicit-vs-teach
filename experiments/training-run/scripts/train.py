@@ -6,7 +6,7 @@ geode.zoo, prints a cost estimate, and refuses to train without
 geode.train; this file must stay thin.
 
 Usage:
-    python train.py --config configs/run1_pretrain.yaml [--override configs/pilot/run1_pretrain.yaml]
+    python3 train.py --config configs/archive/runs/run1_pretrain.yaml [--override configs/pilot/run1_pretrain.yaml]
         [--device cuda] [--init-from <checkpoint_dir>] [--confirm-cost]
 """
 
@@ -47,13 +47,28 @@ def deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
+def _find_common(start: Path) -> Path:
+    """Walk up from ``start`` to the ``configs/`` root, returning the first
+    ``common.yaml`` found.
+
+    Raises ``FileNotFoundError`` if none exists up to and including the
+    ``configs/`` root. The old silent ``{}`` fallback masked this: a config
+    moved into a ``configs/`` subdir (e.g. ``configs/archive/runs/``) would have
+    dropped every shared block without a word. A run config with no shared base
+    is a bug, so it now fails loudly. Behavior-preserving for a config sitting
+    directly in ``configs/``, whose first hit is the same ``configs/common.yaml``
+    the old same-dir lookup found."""
+    for directory in (start, *start.parents):
+        candidate = directory / "common.yaml"
+        if candidate.is_file():
+            return candidate
+        if directory.name == "configs":  # the configs/ root; never walk above it
+            break
+    raise FileNotFoundError(f"no common.yaml found walking up from {start} to the configs/ root")
+
+
 def load_config(config_path: Path, override_path: Path | None) -> dict:
-    here = config_path.parent
-    common = (
-        yaml.safe_load((here / "common.yaml").read_text())
-        if (here / "common.yaml").exists()
-        else {}
-    )
+    common = yaml.safe_load(_find_common(config_path.parent).read_text())
     cfg = deep_merge(common, yaml.safe_load(config_path.read_text()))
     if override_path is not None:
         cfg = deep_merge(cfg, yaml.safe_load(override_path.read_text()))
@@ -121,9 +136,25 @@ def git_commit() -> str:
 
 
 def manifest_fields(
-    cfg: dict, n_params: int, n_docs: int, est_usd: float, init_from: Path | None
+    cfg: dict,
+    n_params: int,
+    n_docs: int,
+    est_usd: float,
+    init_from: Path | None,
+    *,
+    tokenizer: Any,
+    precision: str,
+    n_train_seqs: int,
+    n_val_seqs: int,
 ) -> dict[str, Any]:
+    # The manifest alone must answer "how exactly was this trained" —
+    # spec 00 §2 (2026-07-20): record RESOLVED values, not config defaults
+    # (the v2 cosine-vs-constant question required digging through
+    # training_meta.json).
+    from geode.zoo import tokenizer_hash
+
     t = cfg["train"]
+    d = cfg["data"]
     return {
         "schema_version": 1,
         "run_id": cfg["run_id"],
@@ -133,9 +164,9 @@ def manifest_fields(
         "base_model": {"hf_id": "random-init/llama-arch-d512-L8", "revision": "none"},
         "task": {"name": "tinystories_pretrain", "format_version": "v1"},
         "dataset": {
-            "name": cfg["data"]["hf_id"],
+            "name": f"{d['hf_id']}:{d['file']}",
             "n_unique_examples": n_docs,
-            "seed": cfg["data"]["seed"],
+            "seed": d["seed"],
         },
         "training": {
             "method": "full_ft",
@@ -150,7 +181,20 @@ def manifest_fields(
                 "name": cfg["optimizer"]["name"],
                 "lr": t["lr"],
                 "batch_size": t["batch_size"],
+                "micro_batch_size": t.get("micro_batch_size") or t["batch_size"],
+                "betas": list(cfg["optimizer"]["betas"]),
                 "weight_decay": cfg["optimizer"]["weight_decay"],
+                "grad_clip": cfg["training"]["grad_clip"],
+            },
+            "lr_schedule": t.get("lr_schedule", "constant"),
+            "min_lr": t.get("min_lr"),
+            "precision": precision,
+            "eval_every": t["eval_every"],
+            "max_steps": t["max_steps"],
+            "stopping": {
+                "eps_nats": t["stopping"]["eps_nats"],
+                "k": t["stopping"]["k"],
+                "min_steps": t["stopping"].get("min_steps", 0),
             },
             "epochs_total": t["epochs_total_planned"],
             "seed": t["seed"],
@@ -162,7 +206,22 @@ def manifest_fields(
         # Extra fields below ride as preserved unknowns (spec 00 V0.2) until
         # the experiment-block validation task lands (spec 02 §4).
         "experiment": cfg["experiment"]
-        | {"gates": {}}
+        | {
+            "gates": {},
+            "model_config": dict(cfg["model"]) | {"vocab_size": len(tokenizer)},
+            "tokenizer": {
+                "path": str(cfg["tokenizer"]["path"]),
+                "sha256": tokenizer_hash(tokenizer),
+            },
+            "data_config": {
+                "file": d["file"],
+                "seq_len": d["seq_len"],
+                "val_fraction": d["val_fraction"],
+                "max_documents": d.get("max_documents"),
+                "n_train_seqs": n_train_seqs,
+                "n_val_seqs": n_val_seqs,
+            },
+        }
         | ({"init_from": str(init_from)} if init_from is not None else {}),
     }
 
@@ -204,7 +263,7 @@ def main() -> int:
     if not tok_path:
         print(
             "[evt] tokenizer.path is null — train the custom tokenizer first "
-            "(scripts/make_tokenizer.py; see configs/run1_pretrain.yaml). Exiting."
+            "(datagen/make_tokenizer.py; see configs/archive/runs/run1_pretrain.yaml). Exiting."
         )
         return 1
     # Relative paths resolve against the config dir; anything that doesn't
@@ -288,11 +347,28 @@ def main() -> int:
     # var internally and both must agree on one root.
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
     store = Path(os.environ["GEODE_STORE"])
-    manifest = register_run(manifest_fields(cfg, n_params, n_docs, est_usd, args.init_from))
-    out_dir = store / "runs" / cfg["run_id"] / "pretrain"
+    t = cfg["train"]
+    precision = t.get("precision", "bf16") if args.device != "cpu" else "fp32"
+    manifest = register_run(
+        manifest_fields(
+            cfg,
+            n_params,
+            n_docs,
+            est_usd,
+            args.init_from,
+            tokenizer=tokenizer,
+            precision=precision,
+            n_train_seqs=len(train_seqs),
+            n_val_seqs=len(val_seqs),
+        )
+    )
+    # Flat run layout (spec 00 §1, 2026-07-21): logs + training_meta.json at
+    # the run root, checkpoint at runs/<id>/model. Pre-migration runs keep a
+    # pretrain/ phase dir; readers accept both, migrate_store_layout.py
+    # converts explicitly.
+    out_dir = store / "runs" / cfg["run_id"]
     print(f"[evt] store={store}", flush=True)
 
-    t = cfg["train"]
     result = train_full(
         model.to(args.device),
         train_seqs,
@@ -300,7 +376,11 @@ def main() -> int:
         lr=t["lr"],
         batch_size=t["batch_size"],
         micro_batch_size=t.get("micro_batch_size"),
-        stopping=StoppingRule(eps_nats=t["stopping"]["eps_nats"], k=t["stopping"]["k"]),
+        stopping=StoppingRule(
+            eps_nats=t["stopping"]["eps_nats"],
+            k=t["stopping"]["k"],
+            min_steps=t["stopping"].get("min_steps", 0),
+        ),
         eval_every=t["eval_every"],
         max_steps=t["max_steps"],
         lr_schedule=t.get("lr_schedule", "constant"),
@@ -311,7 +391,7 @@ def main() -> int:
         device=args.device,
         seed=t["seed"],
         out_dir=out_dir,
-        precision=t.get("precision", "bf16") if args.device != "cpu" else "fp32",
+        precision=precision,
     )
 
     phase(6, "finalize — manifest + checkpoint")
@@ -329,7 +409,7 @@ def main() -> int:
     }
     manifest.save(store / "runs" / cfg["run_id"] / "manifest.json")
     print(
-        f"[evt] done: {result.stop_reason} at step {result.final_step}, "
+        f"[evt] {cfg['run_id']} done: {result.stop_reason} at step {result.final_step}, "
         f"min val {result.min_val_nats:.4f} nats "
         f"(eps-gated best {result.best_val_nats:.4f}) "
         f"in {datetime.timedelta(seconds=round(duration_s))}. "

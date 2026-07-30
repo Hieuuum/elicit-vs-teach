@@ -1,0 +1,66 @@
+# One-LR-everywhere pin record (owner 2026-07-24). This file is the chain
+# launcher's LR-guard evidence: the evt-run8-sweep-lr* run dirs were lost
+# with the old box, so the guard verifies the four run yamls against this
+# committed record instead (launch_chain_7_10.sh guard 1).
+#
+# Provenance — 1M B-arm sweep, shared 1-epoch budget (min_val nats):
+#   3e-4 0.1063 / 1e-3 0.0397 / 3e-3 0.0343 / 1e-2 1.8674 ("converged" on
+#   a plateau at garbage — edge-extension rule fired and resolved).
+# 3e-3 won the capped budget but was unproven on Arm A; the pre-registered
+# Arm-A 100K pilot pair (identical overlays, only the LR differs) overrode:
+#   evt-run7-pilotA-lr3e-3  converged @4500  min_val 0.0122 nats
+#   evt-run7-pilotA-lr1e-3  converged @3500  min_val 0.0039 nats
+# Pre-agreed rule (owner, decisions.md 2026-07-24): <=0.006 => pin 1e-3.
+# Arm A's floor is the EDL-ratio numerator; 3e-3's 0.0054-nat B-side edge
+# at the capped epoch does not justify a ~3x Arm-A floor inflation.
+lr: 1.0e-3
+pinned: 2026-07-24
+applies_to: [run7, run8, run10, p2-targets]   # TARGET stage only — see scope
+                                  # note below. p2-targets (2026-07-26) = the
+                                  # new phase's six target runs: same stage,
+                                  # same task, same frozen D_target order and
+                                  # the same prequential harness as runs 7/8,
+                                  # so the pin transfers by ROLE and not by
+                                  # convenience. Their installers take
+                                  # installer_lr, and launch_phase2.sh refuses
+                                  # if the two ever coincide.
+
+# SCOPE (2026-07-25): run9 was REMOVED from applies_to. Every number above
+# was measured on D_target through the prequential harness — target-stage
+# evidence, with no bearing on an installer. Run 9 is the Llama *installer*
+# (D_inst, random labels), whose binding constraint is not loss but
+# RETENTION of the base model's arithmetic, and 1e-3 destroyed it outright:
+# base Llama scored 0.3271 on NL add/sub, run 9 at 1e-3 scored 0.0000 (clean
+# but wrong — the D_inst random-label distribution). Run 10 then measured
+# teaching, not elicitation. This is the same 333x installer/target split the
+# 38.7M chain already has (run 3 = 3e-6, runs 5-8 = 1e-3): mirroring an arm
+# means matching each stage's ROLE, never a single number.
+installer_lr: 3.0e-6
+installer_pinned: 2026-07-25
+installer_applies_to: [run9]
+# Provenance — Llama installer sweep (5 points, D_inst, LoRA r=64 a/2r=0.25,
+# bf16), scored as NL add/sub retention on the same 1,024 D_algo questions
+# G1/G2 use (configs/eval_algo_data_llama.yaml) vs base Llama-3.2-1B 0.3271:
+#   3e-6 0.3193 (97.6% of base) | 1e-5 0.2900 | 3e-5 0.1816 | 1e-4 0.1729
+#   | 3e-4 0.0576 | 1e-3 0.0000
+# Monotone; ALL SIX install the format (stop_reason=behavior at every point),
+# so format validity does not discriminate and retention alone picks the
+# winner — the gentlest point, exactly the run-3 precedent. The grid-edge
+# extension rule does not bind: 3e-6 retains within 2.4% of base, leaving
+# almost nothing to find below it, and going gentler risks not installing.
+
+# LLAMA CHALLENGE (2026-07-25): the 1e-3 target pin was borrowed at 1.24B
+# (validated only at 38.7M — runs 7/8 are unaffected by everything below).
+# The revived Llama target sweep (pilot/llama10_sweep_lr*.yaml, owner design:
+# {1e-4, 3e-4, 3e-3}, seed 316, one-epoch cap 7,813; incumbent = run 10-v2's
+# eval-log min 0.01193) scored, min_val nats over eval_log:
+#   3e-4 0.00118 (converged @7000) | 1e-4 0.00483 (capped @7813, still
+#   descending — "not resolvable within one epoch") | 3e-3 0.59954 (plateau,
+#   min at step 1 — cannot win)
+# 3e-4 is a NON-EDGE winner 10.1x below the incumbent, past the <=0.75x
+# stage-2 threshold. Per the pre-registered rules the pin does NOT move on a
+# sweep point (selected minimum, biased low; min_val IS the EDL numerator):
+# stage 2 — 3e-4 at convergence scale (max_steps 24000, seed 316, new
+# run_id) — decides. STAGE 2 PENDING owner approval. Until it runs: 1e-3
+# stands for runs 7/8; for the LLAMA arm it is CHALLENGED — launch no new
+# Llama TARGET work at 1e-3 without reading decisions.md 2026-07-25.

@@ -20,6 +20,7 @@ from geode.zoo.manifest import (
     load_run,
     register_run,
 )
+from geode.zoo.model_io import load_model
 from geode.zoo.records import (
     GradStatRecord,
     PrequentialRecord,
@@ -34,6 +35,7 @@ from geode.zoo.results import (
     read_results,
     write_results,
 )
+from geode.zoo.store import checkpoint_dir
 
 __all__ = [
     "ActivationMeta",
@@ -46,10 +48,12 @@ __all__ = [
     "TestLoss",
     "check_epoch1_coverage",
     "check_masking_consistency",
+    "checkpoint_dir",
     "gradstat_records",
     "iter_runs",
     "load_activations",
     "load_matched_pair",
+    "load_model",
     "load_run",
     "prequential_records",
     "read_results",

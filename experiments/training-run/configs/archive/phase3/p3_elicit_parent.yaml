@@ -1,0 +1,97 @@
+# PHASE 3 (owner 2026-07-27) — elicit arm, pre-intervention stage.
+# Operator-notation ADDITION, positive operands, correct labels. Full FT from
+# the run-1 base via scripts/train_sft.py. This is the run-2 role, with the
+# notation swapped: phase 3 runs operator notation FIRST and natural language
+# as the target, the reverse of runs 2 and 5-8.
+#
+# WHY THE PHASE EXISTS. Two confounds, both measured, neither fixable inside
+# the old design:
+#   1. The +/- asymmetry (decisions.md 2026-07-26 audit, 2026-07-27 unlock).
+#      Under the frozen BPE the operator minus and the NL negative-answer sign
+#      are the SAME token ('Ġ-', id 1854) while '+' (id 12) is a bare byte with
+#      no 'Ġ+' merge. Dropping subtraction and keeping operands positive means
+#      no phase-3 example contains '-' at all — verified over all five frozen
+#      artifacts at generation time.
+#   2. The NL "difference between" label is signed a-b while the English reads
+#      |a-b| (memory: nl-difference-sign-ambiguity), which capped NL evals at
+#      0.7383. Addition has no such ambiguity: "the sum of a and b" is
+#      unambiguous and commutative.
+#
+# WHY THE SWAP SHOULD HELP THE TARGET STAGE. The unlock diagnostic
+# (2026-07-27) showed a capability can be present but unaddressable, and that
+# the strength of a handle tracks its SCOPE: a prompt-general token is an
+# unconditional mode switch, an operator token only a conditional one. The NL
+# target's handle "sum" tokenizes as 'Ġs' + 'um', both heavily trained by
+# TinyStories — prompt-general, i.e. the strong kind. Its one cost there
+# (it destroys the other operator) cannot bite when there is only one.
+#
+# LR IS INHERITED BY ROLE, NOT VALIDATED HERE. 3e-4 is run 2's swept winner
+# for "full FT of the run-1 base on a pre-intervention arithmetic set" — same
+# role, same parent checkpoint, same architecture, same batch. It was swept on
+# a DIFFERENT dataset (1M NL add/sub), so this is a role-match and not a
+# measurement (memory: scope-check pins before reuse). If this run's G1
+# lands materially below run 2's 0.9961, sweep before reading anything
+# downstream. min_steps is scaled to the same FRACTION of an epoch as run 2's
+# (5000/7773 = 0.64 epochs -> 2500 of 3886 here), not copied as a step count.
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run1-base-v3-ext must be status: complete (V0.6, launcher-enforced).
+#   2. The phase-3 artifacts are NOT on the hub yet, so data.local_path is
+#      used. The order_hash is still recomputed and still refuses on mismatch.
+#      Delete local_path once published.
+run_id: evt-p3-elicit-parent
+experiment:
+  name: training-run
+  arm: A
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext  # floor 1 (min_val_nats 1.0718)
+  parent_required_gates: []            # run 1: complete is the only bar
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-10
+
+task:
+  name: arith_op_add           # operator-notation addition; TaskFormat for
+  format_version: v1           # label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_p3_on_add.parquet    # 500K op-notation addition, 1-8 digit operands
+  # Pinned from data/phase3/report.json (regenerated 2026-07-27, seed 20260727,
+  # 8-digit bands). Any digit-range or size change moves this hash.
+  order_hash: f39523ed306e48801cb341c12b1d14cf190c9e5d11c01ce324f69c84969d7104
+  local_path: experiments/training-run/data/phase3/D_p3_on_add.parquet
+  val_fraction: 0.005          # 2,500 held-out; questions unique across the
+                               # file, so the split cannot leak
+  seed: 316                    # single-seed convention (spec 02 §13)
+
+train:
+  lr: 3.0e-4                   # ROLE-inherited from run 2; see header
+  batch_size: 128
+  eval_every: 500              # ~7.8 evals/epoch at 3,886 steps/epoch — run 2's
+                               # exact ratio (1000 at 7,773), matched in epochs
+                               # rather than copied as a step count
+  max_steps: 58290             # pure cost CEILING = 15 epochs of 3,886 steps
+                               # ((500,000 - 2,500) // 128 drop-last), the same
+                               # epoch ceiling run 2 carried.
+                               # stop_reason=max_steps = "did not converge":
+                               # investigate, don't ship
+  epochs_total_planned: 15     # REQUIRED by train_sft.py manifest_fields (bare
+                               # subscript, not .get) — manifest metadata only,
+                               # never read back as a cap. 58,290 / 3,886 = 15
+                               # exactly, so it agrees with
+                               # cost.assumed_epochs_for_estimate below.
+  stopping:                    # canonical loss rule (spec 02 §6)
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2500            # grace = 0.64 epochs, run 2's fraction
+  precision: fp32              # phase pin: the target harness is fp32, so no
+                               # stage in this phase carries a precision change
+  seed: 316
+
+cost:
+  assumed_epochs_for_estimate: 15  # quote the ceiling, not the expected stop

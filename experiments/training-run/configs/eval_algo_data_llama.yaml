@@ -1,0 +1,44 @@
+# Llama variant of run2_algo.yaml's eval data, for the run-9 RETENTION probe
+# (`gates.py g2` against a Llama installer checkpoint). Same relationship to
+# run2_algo.yaml that eval_target_data_llama.yaml has to eval_target_data.yaml:
+# identical D_algo pin and identical split params — ONLY the tokenizer differs,
+# because an eval's tokenizer must match the model under eval (2026-07-24 G5
+# incident). NEVER use this file for runs 1-8; those models use ../tokenizer.
+#
+# Why this file exists (2026-07-25): run 9 shipped with NO retention gate --
+# `run9_llama1b_inst.yaml` records "no G2/G3 analogue ... retention evidence is
+# recorded but not gating". But the 38.7M installer sweep found that *arithmetic
+# retention*, not format validity, is the binding constraint on installer LR
+# (decisions.md 2026-07-22: G4 hit 1.0 at every LR while retention ran
+# 3e-5 0.68 / 1e-4 0.42 / 3e-4 0.04 / 1e-3 0.00 against a 0.95 bar, forcing the
+# pin to 3e-6). Run 9 trained at 1e-3 -- a target-stage pin with no installer
+# evidence behind it -- so the one quantity that governs installer LR was never
+# measured on the Llama chain. This config makes it measurable.
+#
+# Read the number RELATIVELY, not against G1/G2's 0.95 bar. That bar exists
+# because run 2 *taught* NL add/sub to 0.9961; base Llama-3.2-1B was never
+# trained on this distribution and will sit far below it, with strong per-cell
+# structure (1x1 near ceiling, 4x4 near zero). The bar for the installer sweep
+# is therefore "retains X% of the BASE model's accuracy", and the base
+# measurement (evt-llama1b-base-ref) is what defines it.
+#
+# `val_fraction` + `seed` are copied from run2_algo.yaml deliberately: with
+# gates.py's default --sample-seed 316 this scores the SAME 1,024 questions
+# that run 2's G1 and run 3's G2 scored, so the Llama numbers sit on the same
+# question set as the 38.7M ones. (Llama trained on none of D_algo, so the
+# held-out split is not a leakage requirement here -- it is a comparability
+# one.)
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # the run-9/10 training tokenizer
+
+task:
+  name: arith_nl_addsub          # natural-language add/sub -- the RETENTION
+  format_version: v1             # task, NOT run 9's op-notation install task
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo.parquet           # 1M NL add/sub, correct labels, seed 20260717
+  order_hash: 48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9
+  val_fraction: 0.005            # identical split params to run2_algo.yaml so
+  seed: 316                      # the sampled question set matches G1/G2

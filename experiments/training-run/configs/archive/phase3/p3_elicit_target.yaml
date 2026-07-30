@@ -1,0 +1,124 @@
+# PHASE 3 (owner 2026-07-27) — elicit arm TARGET: natural-language addition,
+# through the prequential EDL harness (geode.edl.train_prequential). This run
+# IS the EDL measurement and is the phase's G7 anchor.
+#
+# PARENT IS CONDITIONAL. This file pins the NO-INSTALL path, which is the
+# expected one (see p3_elicit_inst.yaml: the scaffold is shared across both
+# notations, so the parent should already be format-valid on NL prompts). If
+# the pre-target G4 comes back below 0.90, launch_phase3.sh applies the overlay
+# configs/p3/target_after_inst.yaml, which repoints parent_run_id at the
+# installer. Nothing is generated at run time — both paths are files you can
+# read before spending anything.
+#
+# WHAT THIS RUN IS FOR. The p2 elicit arm produced a large EARLY spike in
+# running EDL per label token — 3.46 bits at n=1,536, against teach's 0.98 and
+# Llama's 1.05 (analysis/plot_edl_per_token.py, 2026-07-27). A spike that big
+# and that early is a fast ADDRESSING adaptation, not algorithm acquisition:
+# the 2026-07-27 unlock diagnostic moved held-out addition 0.0039 -> 0.3976 by
+# training 512 parameters, so the algorithm was already present and merely
+# unaddressed. Phase 3 removes the two things that made addressing expensive
+# (the +/- glyph asymmetry and the signed-"difference" ambiguity) and puts the
+# strong, prompt-general NL handle on the target side.
+#
+# READ THE CURVE UNDER BOTH FLOORS. plot_edl_per_token.py --floor val subtracts
+# the val loss AT each step and therefore CANNOT be monotone for any run;
+# --floor test subtracts the fixed eval/test_loss.json floor and is the paper's
+# Eq. 3. Monotonicity under the val floor is not the elicitation signature —
+# every run in this project, including the Llama arm, rises under it. The
+# discriminators are the LEVEL at matched n and where the information lands.
+#
+# PRE-EXPOSURE, STATED UP FRONT. Phase 3 keeps the V5.1 rule (owner
+# 2026-07-27): carve-outs are excluded from training by exact ordered triple,
+# but the parent and this target are water-filled independently and are NOT
+# disjoint from each other. Measured at generation: the parent has seen
+# 5.30% of these 500K target questions directly, 6.00% counting the commuted
+# twin — and for ADDITION the twin carries the IDENTICAL answer, so the second
+# number is the one that bounds item recall. What is left is almost entirely
+# structural: the six smallest digit cells (63-7,032 questions in total) are
+# 100% pre-exposed and account for 22,465 of the 26,476 shared questions, so
+# only ~0.8% of the target is samplable overlap. Widening the operands to 8
+# digits is what bought this — at a 4-digit ceiling the same 500K/500K split
+# measured 31.95% / 41.09%. Per-cell figures are in data/phase3/report.json
+# under pre_exposure.by_cell. Quote both numbers or neither.
+#
+# WHY NO SNAPSHOTS. snapshots.n: 0 — this phase measures EDL, not internals.
+# Runs 7/8 remain the project's only snapshot-bearing pair.
+#
+# BEFORE LAUNCH (owner):
+#   1. train.lr 1e-3 is the TARGET-stage pin (configs/lr_pin.yaml, one LR
+#      everywhere: runs 7/8/9/10 and both p2 targets). It must never be applied
+#      to an installer.
+#   2. The ceiling is byte-identical to runs 7/8 and the p2 targets, so a
+#      cross-phase difference can never be explained by the stopping ceiling.
+run_id: evt-p3-elicit-target
+experiment:
+  name: training-run
+  arm: A
+  role: target
+  parent_run_id: evt-p3-elicit-parent  # no-install path; see header
+  parent_required_gates: [G1]          # the parent's addition retention
+  match_data_order_with: null          # this run IS the anchor (G7)
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer           # frozen 2026-07-18; same artifact as runs 1-10
+
+task:
+  name: arith_nl_add           # natural-language addition (D_p3_nl_add)
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_p3_nl_add.parquet    # 500K NL addition, 1-8 digit operands, correct
+  order_hash: 3ebd264ca93e204270fb5db2cdf42d95cabb1de19856b1f7d545e67f6d7ab2bf
+  local_path: experiments/training-run/data/phase3/D_p3_nl_add.parquet
+  n_examples: 500000           # the FULL frozen order. NOT 1M: the prequential
+                               # stream therefore ends at n=500,000, so this run
+                               # has no value at the n=576,000 the p2 and runs
+                               # 7/8 ratios are quoted at. Comparisons are
+                               # within phase 3 (vs its own teach arm, once
+                               # built) or at n <= 500,000; never against a
+                               # 4-digit add/sub run at "the" matched n.
+  eval_file: D_p3_nl_eval.parquet    # rows 0-2047 = in-loop stopping block,
+  eval_order_hash: 3375e1dc997caf2f519d74d400f62c56fc488c5a5db6514a215a19eaec2bf3c7
+  eval_local_path: experiments/training-run/data/phase3/D_p3_nl_eval.parquet
+  seed: 316
+
+lora:                          # r/alpha restated from common.yaml for the record
+  r: 128                       # spec 02 §6 pin (2026-07-18 arch decision)
+  alpha: 32                    # scaling α/2r, dropout 0, targets QKVOGUD
+
+train:
+  lr: 1.0e-3                   # target-stage pin (lr_pin.yaml)
+  batch_size: 128
+  eval_every: 500              # loss-rule cadence (runs-5/6 rule, spec 02 §6)
+  max_steps: 23442             # pure cost ceiling = 6 epochs of the full 500K
+                               # at batch 128 (ceil(500000/128)=3907), the same
+                               # SIX-epoch ceiling runs 7/8 and both p2 targets
+                               # carried — matched in epochs, not steps.
+                               # stop_reason=max_steps means "did not
+                               # converge": investigate, don't ship
+  stopping:                    # loss branch of the V0.7 union (no `metric`):
+    eps_nats: 0.002            # inherited BY CITATION from runs 5-8 and p2
+    k: 5                       # (owner 2026-07-22, spec 02 §6), unchanged so
+    min_steps: 0               # EDL is not stop-rule confounded across phases
+  snapshots:
+    n: 0                       # EDL only, no internals (header). The FINAL
+                               # LoRA state is still written unconditionally to
+                               # runs/<id>/model (train_target.py, save_pretrained)
+                               # — n: 0 suppresses the intermediate snapshots,
+                               # not the end state.
+  gradstats_stride: 500        # owner 2026-07-27: no gradient analysis is
+                               # planned for this phase, and logging per-module
+                               # grad norms every step costs 112 device syncs
+                               # inside the inner loop. At 500 (= eval_every)
+                               # gradstats.jsonl still gets step 0 and a coarse
+                               # trace. Raise to max_steps+1 for step 0 only;
+                               # runs 1-10 all ran at the default 1, so their
+                               # logs are unaffected and remain the dense ones.
+  seed: 316
+                               # No train.precision: the harness default is
+                               # fp32, which is also this phase's stage pin.
