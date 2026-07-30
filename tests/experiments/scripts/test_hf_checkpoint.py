@@ -6,6 +6,13 @@ pushed — the logic launchers used to inline as a Python heredoc. This is a
 smoke test, not a property test: it pins the contract that verification passes
 on a matching hub sha256 and fails LOUDLY on a mismatched or missing one,
 using a fake ``HfApi`` (CPU-only, no network) and a temp store.
+
+``push``'s ``--no-weights`` (added for launch_fig2_llama.sh's push stage,
+which archives weights for only 2 of 39 runs) gets its own smoke tests below:
+it must exclude ``*.safetensors`` from the upload and — the actual point of
+the flag — must NOT require a local checkpoint to exist, since the runs it is
+for may already have had their local ``model/`` pruned by the time this push
+runs. The default (weights-included) path keeps requiring one.
 """
 
 from __future__ import annotations
@@ -83,3 +90,59 @@ def test_hub_lfs_sha256_reads_the_stored_digest(monkeypatch: pytest.MonkeyPatch)
     assert hfc.hub_lfs_sha256("repo/id", "runs/x/model/model.safetensors") == "abc123"
     _fake_hub(monkeypatch, None)
     assert hfc.hub_lfs_sha256("repo/id", "runs/x/model/model.safetensors") is None
+
+
+class _FakeUploadApi:
+    """Stand-in for ``HfApi`` during ``push()``: records ``upload_folder``'s
+    kwargs instead of hitting the network."""
+
+    def __init__(self) -> None:
+        self.upload_calls: list[dict] = []
+
+    def create_repo(self, repo_id: str, private: bool, exist_ok: bool) -> None:
+        pass
+
+    def upload_folder(self, **kwargs) -> None:
+        self.upload_calls.append(kwargs)
+
+
+def test_push_no_weights_excludes_safetensors_without_a_local_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rid = "evt-smoke-run"
+    run_dir = tmp_path / "runs" / rid
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text("{}")  # no model/ — already pruned locally
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    assert hfc.push(tmp_path, rid, "repo/id", public=False, no_weights=True) == 0
+
+    assert len(fake.upload_calls) == 1
+    ignore = fake.upload_calls[0]["ignore_patterns"]
+    assert ignore is not None and "*.safetensors" in ignore
+
+
+def test_push_with_weights_uploads_without_excluding_safetensors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rid = "evt-smoke-run"
+    _flat_checkpoint(tmp_path, rid)
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    assert hfc.push(tmp_path, rid, "repo/id", public=False) == 0
+
+    ignore = fake.upload_calls[0]["ignore_patterns"]
+    assert ignore is not None and "*.safetensors" not in ignore
+
+
+def test_push_with_weights_fails_loudly_without_a_local_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rid = "evt-smoke-run"
+    (tmp_path / "runs" / rid).mkdir(parents=True)
+    monkeypatch.setattr(hfc, "HfApi", lambda: _FakeUploadApi())
+
+    with pytest.raises(SystemExit):
+        hfc.push(tmp_path, rid, "repo/id", public=False)

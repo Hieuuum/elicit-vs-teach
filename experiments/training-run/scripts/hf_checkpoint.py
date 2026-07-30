@@ -14,6 +14,9 @@ Usage:
     python3 hf_checkpoint.py pull --run-id <run-id>
     # laptop, logs/manifest only — no *.safetensors (analysis without weights):
     python3 hf_checkpoint.py pull --run-id <run-id> --no-weights
+    # push manifest/logs/gates only — no weights uploaded (bulk-sweep runs
+    # whose checkpoint is intentionally never archived to the relay):
+    python3 hf_checkpoint.py push --run-id <run-id> --no-weights
     # either direction: snapshots/ is SKIPPED by default (multi-GB, needed
     # only for extraction) — opt in explicitly:
     python3 hf_checkpoint.py pull --run-id <run-id> --with-snapshots
@@ -98,10 +101,24 @@ def verify_hub_checkpoint(store: Path, run_id: str, repo_id: str = DEFAULT_REPO_
     return local
 
 
-def push(store: Path, run_id: str, repo_id: str, public: bool, with_snapshots: bool = False) -> int:
+def push(
+    store: Path,
+    run_id: str,
+    repo_id: str,
+    public: bool,
+    with_snapshots: bool = False,
+    no_weights: bool = False,
+) -> int:
     src = store / "runs" / run_id
-    ckpt = find_checkpoint(store, run_id)
-    print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
+    # Mirrors pull's ignore-list construction below: same two knobs, same
+    # patterns, so push and pull can never silently drift apart.
+    ignore = [] if with_snapshots else ["snapshots/*"]
+    if no_weights:
+        ignore.append("*.safetensors")
+        print("[hf] --no-weights: *.safetensors excluded from push (manifest/logs/gates only)")
+    else:
+        ckpt = find_checkpoint(store, run_id)
+        print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
     if not with_snapshots:
         print("[hf] snapshots/ skipped (default; pass --with-snapshots to include)")
     api = HfApi()
@@ -111,10 +128,13 @@ def push(store: Path, run_id: str, repo_id: str, public: bool, with_snapshots: b
         folder_path=src,
         path_in_repo=f"runs/{run_id}",
         commit_message=f"{run_id} run artifacts",
-        ignore_patterns=None if with_snapshots else ["snapshots/*"],
+        ignore_patterns=ignore or None,
     )
     print(f"[hf] pushed {src} -> https://huggingface.co/{repo_id}/tree/main/runs/{run_id}")
-    print("[hf] next, on the box: python3 hf_checkpoint.py pull")
+    if no_weights:
+        print("[hf] next: push again without --no-weights when this run's weights are needed on the hub")
+    else:
+        print("[hf] next, on the box: python3 hf_checkpoint.py pull")
     return 0
 
 
@@ -177,8 +197,9 @@ def main() -> int:
     parser.add_argument(
         "--no-weights",
         action="store_true",
-        help="pull only: also skip *.safetensors (the final model) — "
-        "manifest/logs/gates land for laptop-side analysis",
+        help="skip *.safetensors (the final model) either direction — "
+        "push: upload manifest/logs/gates only; pull: manifest/logs/gates "
+        "land for laptop-side analysis without the weights",
     )
     parser.add_argument(
         "--with-snapshots",
@@ -190,7 +211,9 @@ def main() -> int:
     if args.no_weights and args.with_snapshots:
         parser.error("--no-weights and --with-snapshots contradict (snapshots are weights)")
     if args.cmd == "push":
-        return push(args.store, args.run_id, args.repo_id, args.public, args.with_snapshots)
+        return push(
+            args.store, args.run_id, args.repo_id, args.public, args.with_snapshots, args.no_weights
+        )
     return pull(args.store, args.run_id, args.repo_id, args.no_weights, args.with_snapshots)
 
 

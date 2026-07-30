@@ -98,6 +98,34 @@ G6_THRESHOLD = 0.95
 G3_LEAK_THRESHOLD = 0.02
 
 
+def gate_record_decision(passed: bool, no_record: bool, record_only_pass: bool) -> tuple[bool, int]:
+    """Whether a gate should write its verdict to the manifest, and the exit
+    code to return either way. Pure function (no manifest/checkpoint/model
+    needed) so this decision has a direct unit test —
+    tests/experiments/scripts/test_gates.py.
+
+    Three modes, purely additive over the pre-2026-07-30 default:
+    - default (both False): always records, pass or fail — existing callers
+      rely on this (e.g. a deliberately-recorded G3 FAIL is the pass case).
+    - ``no_record``: never writes, whatever the verdict — score a shared
+      parent as a baseline before deciding whether to commit anything.
+    - ``record_only_pass``: writes only on a pass; a fail writes nothing and
+      exits nonzero. For the RECORDING call after a --no-record scoring pass
+      already read PASS: without this, that second call recomputes its own
+      verdict and would unconditionally write it, so a near-threshold
+      recompute divergence could still land a FAIL on a shared parent's
+      manifest — exactly what the --no-record pre-check exists to prevent
+      (2026-07-30 fig2-installer review). On divergence the caller sees a
+      nonzero exit with nothing recorded and can retry the whole score+record
+      block rather than hand-editing the manifest.
+    """
+    if no_record:
+        return False, (0 if passed else 1)
+    if record_only_pass and not passed:
+        return False, 1
+    return True, (0 if passed else 1)
+
+
 def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = False) -> int:
     cfg = load_config(args.config, None)
     os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
@@ -175,14 +203,21 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = Fal
     )
     if invert:
         protocol += "; pass = accuracy <= threshold: random labels didn't leak"
-    if getattr(args, "no_record", False):
-        # Same reason G4/G5 have this: a recorded sub-threshold verdict on a
-        # shared parent makes require_parent_ready (V0.6) refuse every child of
-        # it, and un-recording is manual surgery on a manifest. Scoring first
-        # and recording second lets a launcher stop on a bad number instead of
-        # poisoning the checkpoint with it.
-        print("[evt] --no-record: nothing written to any manifest")
-        return 0 if passed else 1
+    # Same reason G4/G5 have --no-record: a recorded sub-threshold verdict on
+    # a shared parent makes require_parent_ready (V0.6) refuse every child of
+    # it, and un-recording is manual surgery on a manifest. --record-only-pass
+    # closes the remaining gap (gate_record_decision docstring): the RECORDING
+    # call after a passing --no-record score must not itself write a FAIL if
+    # its own recompute diverges near the threshold.
+    should_record, exit_code = gate_record_decision(
+        passed, getattr(args, "no_record", False), getattr(args, "record_only_pass", False)
+    )
+    if not should_record:
+        if getattr(args, "no_record", False):
+            print("[evt] --no-record: nothing written to any manifest")
+        else:
+            print(f"[evt] --record-only-pass: {gate} did not pass — nothing written to any manifest")
+        return exit_code
     manifest.data.setdefault("experiment", {}).setdefault("gates", {})[gate] = {
         "pass": passed,
         "accuracy": accuracy,
@@ -195,7 +230,7 @@ def run_exact_match_gate(args: argparse.Namespace, gate: str, invert: bool = Fal
     }
     manifest.save(store / "runs" / args.run / "manifest.json")
     print(f"[evt] {gate} verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")
-    return 0 if passed else 1
+    return exit_code
 
 
 def _reject_translate_config(cfg: dict, gate: str) -> None:
@@ -304,14 +339,20 @@ def run_g4(args: argparse.Namespace) -> int:
         f"{'PASS' if passed else 'FAIL'} (threshold {threshold})"
     )
 
-    if args.no_record:
-        # Baseline mode (2026-07-26): score a checkpoint WITHOUT writing a
-        # verdict. The new phase needs the dose parent's G4 before the dose
-        # runs, and recording it on that parent's manifest would be unsafe —
-        # a sub-threshold verdict there makes require_parent_ready refuse
-        # every existing child of it (V0.6).
-        print("[evt] --no-record: nothing written to any manifest")
-        return 0 if passed else 1
+    # Baseline mode (2026-07-26): --no-record scores a checkpoint WITHOUT
+    # writing a verdict — a sub-threshold verdict on a shared parent would
+    # make require_parent_ready refuse every existing child of it (V0.6).
+    # --record-only-pass closes the remaining gap for the RECORDING call that
+    # follows a passing --no-record score (gate_record_decision docstring).
+    should_record, exit_code = gate_record_decision(
+        passed, args.no_record, getattr(args, "record_only_pass", False)
+    )
+    if not should_record:
+        if args.no_record:
+            print("[evt] --no-record: nothing written to any manifest")
+        else:
+            print("[evt] --record-only-pass: G4 did not pass — nothing written to any manifest")
+        return exit_code
 
     manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G4"] = {
         "pass": passed,
@@ -324,7 +365,7 @@ def run_g4(args: argparse.Namespace) -> int:
     }
     manifest.save(store / "runs" / args.run / "manifest.json")
     print(f"[evt] G4 verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")
-    return 0 if passed else 1
+    return exit_code
 
 
 def run_g5(args: argparse.Namespace) -> int:
@@ -597,12 +638,21 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--n", type=int, default=1024)
         p.add_argument("--sample-seed", type=int, default=316)
         p.add_argument("--threshold", type=float, default=threshold)
-        p.add_argument(
+        record_mode = p.add_mutually_exclusive_group()
+        record_mode.add_argument(
             "--no-record",
             action="store_true",
             help="print the accuracy but write no verdict — score a shared parent "
             "before committing a pass/fail to its manifest (a recorded failure "
             "there would block every child)",
+        )
+        record_mode.add_argument(
+            "--record-only-pass",
+            action="store_true",
+            help="record the verdict only if it passes; on a fail, write nothing "
+            "and exit nonzero — for the RECORDING call after an already-passing "
+            "--no-record score, so a recompute that diverges near the threshold "
+            "can never land a FAIL on a shared parent's manifest",
         )
         p.add_argument(
             "--dump",
@@ -630,11 +680,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="default: the run config's stopping threshold; required when it has none",
     )
-    g4.add_argument(
+    g4_record_mode = g4.add_mutually_exclusive_group()
+    g4_record_mode.add_argument(
         "--no-record",
         action="store_true",
         help="print the rate but write no verdict — for scoring a shared parent "
         "checkpoint as a baseline (a recorded failure there would block its children)",
+    )
+    g4_record_mode.add_argument(
+        "--record-only-pass",
+        action="store_true",
+        help="record the verdict only if it passes; on a fail, write nothing "
+        "and exit nonzero — for the RECORDING call after an already-passing "
+        "--no-record score, so a recompute that diverges near the threshold "
+        "can never land a FAIL on a shared parent's manifest",
     )
     g4.set_defaults(func=run_g4)
 
