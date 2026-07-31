@@ -837,7 +837,11 @@ def test_testloss_chunked_eval_matches_single_forward(
     tl = test_loss("run-chunked")
     assert tl.n_test_examples == 3
     assert tl.label_token_count == ref.label_token_count == 6
-    assert tl.loss_sum_nats == pytest.approx(ref.loss_sum_nats, rel=1e-9, abs=1e-9)
+    # rel=1e-6, not 1e-9: chunked vs single-forward float32 accumulation order
+    # varies with the BLAS/torch build (2026-07-30: a cu130 box agreed only to
+    # ~3e-8 rel); a real chunking bug (dropped/double-counted token) moves the
+    # sum by whole loss units, far above this bar.
+    assert tl.loss_sum_nats == pytest.approx(ref.loss_sum_nats, rel=1e-6)
 
 
 # ---------------------------------------------------------------------------
