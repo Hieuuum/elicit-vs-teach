@@ -436,6 +436,31 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    sum-specific lexical lock and not clean elicitation. Moving-validation-floor
    curves tell the same level story but remain floor-dependent diagnostics.
 
+10. **Fig-2 Llama dataset-size sweep — noinst arm DONE 2026-07-31;
+   installer arm DISCARDED (owner).** The paper's Figure-2 protocol on
+   D_target, Llama-3.2-1B, 19 log-spaced prefix-nested sizes
+   (1,000 → 1,000,000), LoRA r64/α32 @ 3.53e-4, each run fresh from base
+   to val convergence. **All 19 converged** (`evt-llama-fig2-noinst-n*`;
+   per-size stopping schedule worked — no max_steps stop anywhere).
+   Converged val loss falls 0.5294 → 0.0076 bits/label-token and
+   saturates at the floor from n≈100K; EDL/label-token is monotone
+   0.23049 → 0.03277 nats; n=1M: min_val 0.005282 nats, G5 zero-shot EM
+   0.9951 / 16-shot 0.6543, shared-set test loss 0.0063 nats.
+   `results/dataset_size_sweep.parquet` (114 rows) +
+   `analysis/figures/dataset_size_sweep.png` (1-curve). The **inst arm
+   died twice at the installer gates** (decisions.md 2026-07-31): full-FT
+   @ 3.53e-4 diverged outright (collapsed model, G4 0.0000); the
+   owner-corrected 2.0e-5 absorbed the 1-example dose cleanly (step 12,
+   4.531 → 0.0002 nats) and held format (G4 1.0000) but destroyed
+   arithmetic retention — G2 0.0732 vs bar 0.29 (base 0.3271) —
+   catastrophic forgetting from ONE example at a conservative LR.
+   Standing owner fallback executed: inst arm discarded, no third LR;
+   the figure ships noinst-only. Weights policy (owner 2026-07-31):
+   n=1M full checkpoint + 90MB adapter-only sidecar (base-equality
+   verified vs public Llama) + installer checkpoint on the relay, all
+   sha256-verified; future LoRA runs save/push adapter sidecars by
+   default. Total sweep cost ≈ $3.44.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

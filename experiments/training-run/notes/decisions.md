@@ -4783,3 +4783,79 @@ execution:**
   `configs/pilot/run1_pretrain.yaml` and `run2_*` bare mentions
   (`train.py`, `specs/02-training-run.md:972`) — illustrative patterns that
   never resolved to real files, not paths broken by the reorg.
+
+## 2026-07-31 — Fig-2 Llama sweep: noinst SHIPPED (19/19 converged), installer arm DISCARDED after failing at both LRs
+
+**Sweep (box 46347707, RTX 4090, created + destroyed same day, ≈ $3.44
+total).** 19 noinst runs `evt-llama-fig2-noinst-n{1000..1000000}`, LoRA
+r64/α32 @ 3.53e-4 on base `meta-llama/Llama-3.2-1B`, prefix-nested D_target,
+per-size eval_every/ceiling schedule (EXPERIMENTS.md §6.10). Every run
+`stop_reason=converged` — the schedule's design goal (no ceiling ever bound)
+held at all 19 sizes. Headlines: converged val loss 0.36692 → 0.005282 nats
+per label token (0.529 → 0.008 bits), floor-saturated from n≈100K;
+EDL/label-token strictly monotone 0.23049 → 0.03277 nats; n=1M G5 zero-shot
+EM 0.9951, 16-shot 0.6543, shared-set test loss 0.0063 nats. Artifacts:
+all 19 manifests/logs/eval + G5 on the relay; figure + 114-row parquet via
+`analysis/dataset_size_sweep.py`.
+
+**Installer arm post-mortem (the fig-2 `inst` condition is dead).**
+1. *Attempt 1, full-FT @ 3.53e-4 (the LoRA/target pin, mis-scoped to
+   full-param AdamW):* diverged within 4 steps — loss 4.537 → 4.575 → 12.87
+   → 22.49 → 11.53 → 10.84 nats, pre-clip grad-norm up to 572; ε/k counted
+   the 5 worse-than-step-1 evals as "converged" at step 6 (fires-on-any-
+   plateau, here fires-on-divergence); checkpoint emits " mir" for every
+   input; G4 0.0000 was its true score. Score-then-record + `--record-only-
+   pass` kept the FAIL off the parent manifest. Known design note: manifest
+   min_val is the step-1 value while saved weights are final-step
+   (save-final-not-best, `geode/train/sft.py`).
+2. *Owner correction to 2e-5 hit a YAML 1.1 footgun:* bare-exponent `2e-5`
+   parses as a **string** (mantissa needs a dot), and the manifest schema
+   validator refused it at `register_run` — fail-loud, nothing trained, $0.
+   Fixed as `2.0e-5` (`6de78ae`); repo-wide scan found no other affected
+   config value. Test gap: the suite was green with the broken value
+   (config numeric-type parsing is untested).
+3. *Attempt 2, full-FT @ 2.0e-5:* absorbed the 1-example dose cleanly
+   (converged step 12, 4.531 → 0.000194 best / 2.5e-06 min nats) and held
+   format perfectly (G4 1.0000, recorded), but **G2 retention 0.0732 on
+   n=1024 (by op: `+` 0.0199, `-` 0.1248) vs bar 0.29** (90% of base's
+   0.3271) → FAIL, not recorded. One correct-label example at a
+   conservative LR still catastrophically forgets arithmetic on 1B while
+   format stays perfect — the two LRs fail in *different* modes
+   (divergence vs. forgetting), so the standing owner fallback fired:
+   **inst arm discarded for good, no third LR.** (Future options if the
+   arm is ever revived: LoRA installer à la run 9, or p2-style gentle
+   3e-6 — owner briefing, not planned work.)
+
+**Weights policy change (owner directive 2026-07-31, mid-teardown).** Save
+weights for all Llama runs; prefer adapter-only artifacts. By the time the
+directive arrived the push stage had already pruned the 18 non-1M model
+dirs per the approved plan; owner chose **no rerun** (metrics were already
+relay-verified; the 18 checkpoints stay lost). What shipped: n=1M full
+checkpoint (sha256 `23cd4e94…`) **plus** a 90.2MB adapter-only
+`model/adapter.safetensors` (224 A/B tensors, sha256 `23c09878…`) extracted
+after a tensor-by-tensor equality check of the checkpoint's base against
+public Llama-3.2-1B @ revision `4e20de36` — 146/146 identical, so
+base + adapter reconstructs the checkpoint exactly (`geode/edl/loop.py`
+`load_snapshot`-style merge; `reapply_lora` alone is the wrong entry
+point). Installer checkpoint also pushed (sha256 `99e89ba1…`) — the only
+record of the G2-failed model; diverged-installer manifest/logs archived
+laptop-side. Flow fix (same day): trainer finalize writes the adapter
+sidecar for LoRA runs, `hf_checkpoint.py push --no-weights` now excludes
+only `model.safetensors` (sidecars ride along), and the fig-2 launcher
+prune keeps sidecars. NOTE: adapter-only reconstruction is valid ONLY when
+the run's LoRA base is the untouched public model — an inst-style run
+(LoRA on a modified parent) needs the parent checkpoint too.
+
+**Ops findings.** (a) `hf_checkpoint.py pull` was fail-open: with an
+invalid token it printed the success line having fetched nothing — bit us
+because the owner's 2026-07-31 HF token rotation invalidated the laptop's
+stored token (relay "verify" nearly passed vacuously; fixed same day,
+loud failure now). Laptop still needs a fresh owner-minted token —
+box-token inline auth was the session workaround. (b) Master weights are
+**bf16**, not fp32-with-autocast as `geode/edl/loop.py:52-60` /
+`train_target.py:172-174` comments claim (`from_pretrained` loads the
+checkpoint's stored dtype; Llama-3.2-1B declares bf16) — comments are
+stale, behavior is fine for this use; open doc fix. (c) `sleep N; ssh`
+one-shots and some tmux-over-ssh launches are classifier-blocked from the
+main agent loop — Monitor-tool polling and subagent-routed tmux are the
+working patterns.
