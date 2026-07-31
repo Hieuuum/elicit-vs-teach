@@ -1,4 +1,4 @@
-"""Figure-2 dataset-size sweep: converged loss vs. training-set size (Llama pair).
+"""Figure-2 dataset-size sweep: EDL/D vs. training-set size (Llama pair).
 
 Reproduces the paper's Figure-2 protocol on the Llama target stage: 19
 log-spaced prefix-nested dataset sizes (``n = round(10**(3 + i/6))``,
@@ -64,8 +64,9 @@ CONDITIONS = {"noinst": "base", "inst": "format-installed"}
 SIZES: tuple[int, ...] = tuple(round(10 ** (3 + i / 6)) for i in range(19))
 RUN_ID_RE = re.compile(rf"^{re.escape(RUN_ID_PREFIX)}-(noinst|inst)-n(\d+)$")
 
-# The headline "converged loss vs dataset size" metric for the figure.
-HEADLINE_METRIC = "min_val_nats"
+# The headline "EDL/D vs dataset size" metric for the figure — D = training
+# label tokens in the epoch-1 stream (edl_epoch1_nats / epoch-1 label tokens).
+HEADLINE_METRIC = "edl_per_label_token_nats"
 # Per-run scalar metrics read straight off experiment.target_result.
 TARGET_RESULT_METRICS = (
     "min_val_nats",
@@ -172,7 +173,7 @@ def run_rows(run_id: str, store: Path) -> list[dict] | None:
 
 
 def plot(df: pd.DataFrame, out: Path) -> None:
-    """Converged val loss (bits/label token) vs. dataset size, log-x, one curve per condition."""
+    """EDL/D (bits/label token) vs. dataset size, log-x, one curve per condition."""
     fig, ax = plt.subplots(figsize=(8, 6))
     colors = {"noinst": "tab:blue", "inst": "tab:orange"}
 
@@ -208,8 +209,8 @@ def plot(df: pd.DataFrame, out: Path) -> None:
 
     ax.set_xscale("log")
     ax.set_xlabel("training examples (log scale)")
-    ax.set_ylabel("converged val loss (bits/label token)")
-    ax.set_title("Figure 2 sweep: converged loss vs. dataset size (Llama-3.2-1B)")
+    ax.set_ylabel("EDL/D (bits per label token; D = training label tokens)")
+    ax.set_title("Figure 2 sweep: EDL/D vs. dataset size (Llama-3.2-1B)")
     ax.grid(True, which="both", alpha=0.2)
     ax.legend(fontsize=8)
     fig.tight_layout()
