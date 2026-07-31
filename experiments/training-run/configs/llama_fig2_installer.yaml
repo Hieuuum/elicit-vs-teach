@@ -61,7 +61,7 @@ data:
   # external frozen prompts instead.
 
 train:
-  lr: 2e-5                     # full-FT installer pin (owner-corrected
+  lr: 2.0e-5                   # full-FT installer pin (owner-corrected
                                # 2026-07-31): the earlier 3.53e-4 was the
                                # LoRA/target-stage pin and DIVERGES under
                                # full-param AdamW on 1B (collapsed at step 6,
