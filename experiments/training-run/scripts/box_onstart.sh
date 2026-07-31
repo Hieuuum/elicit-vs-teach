@@ -17,6 +17,11 @@
 #   NTFY         optional ping URL (ntfy.sh/<topic>) — the SAME variable
 #                every launcher and guide uses (owner 2026-07-24: one ntfy
 #                variable everywhere; NTFY_TOPIC retired).
+#   NTFY_AUTO    opt-in gate for the automatic "box ready" ping below: unset
+#                (default) means silent — per owner 2026-07-31, automatic
+#                notification defaults off; the operating agent pings
+#                manually when it decides one is warranted. Set to "1" to
+#                restore the old automatic-ping behavior.
 #
 # vast.ai FAQ notes (2026-07-24): template env vars are NOT visible inside
 # SSH/Jupyter sessions unless written to /etc/environment (done below), and
@@ -140,6 +145,7 @@ python3 -m pip install -q -e ".[dev]"
 if ! grep -q GEODE_STORE ~/.bashrc 2>/dev/null; then
   echo "export GEODE_STORE=/workspace/elicit-vs-teach/geode-store  # store INSIDE the clone" >>~/.bashrc
   [[ -n ${NTFY:-} ]] && echo "export NTFY=$NTFY" >>~/.bashrc
+  [[ -n ${NTFY_AUTO:-} ]] && echo "export NTFY_AUTO=$NTFY_AUTO" >>~/.bashrc
 fi
 
 # vast SSH often lands INSIDE a tmux session already (their default entry
@@ -205,6 +211,6 @@ fi
 
 hash=$(git rev-parse --short HEAD)
 echo "ready: $hash suite=$suite gpu=$gpu venv=$venv (box hash must match laptop before any launch)"
-[[ -n ${NTFY:-} ]] && curl -sd "box ready: $hash suite=$suite gpu=$gpu venv=$venv" "$NTFY" >/dev/null
+[[ -n ${NTFY:-} && ${NTFY_AUTO:-0} == 1 ]] && curl -sd "box ready: $hash suite=$suite gpu=$gpu venv=$venv" "$NTFY" >/dev/null
 echo "=== onstart done ==="
 exit 0
