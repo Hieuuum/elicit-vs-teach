@@ -22,6 +22,9 @@
 # full per-size ee/max_steps schedule (baked into the sweep overlays, not
 # derived here) and the EDL manifest fields train_target.py records.
 # Runs ON THE BOX only (--confirm-cost).
+# --noinst-only (owner decision 2026-07-31): the installer arm is DISCARDED
+# — run tokenizer verify + the 19 noinst targets + G5 + push, all scoped to
+# the noinst runs only; installer/gates/inst stages are skipped entirely.
 #
 # Token: huggingface_hub reads $HF_TOKEN directly. It must belong to an
 # account that (a) accepted the Meta Llama-3.2 license (gated pull of the
@@ -45,6 +48,7 @@ echo "[fig2] max_steps ceiling: ~28 GPU-h ~= \$10-12.50 @ \$0.35-0.45/h."
 }
 STAGE=all
 PUSH=0
+NOINST_ONLY=0
 PREV=""
 for arg in "$@"; do
   [[ $arg == --stage=* ]] && {
@@ -53,6 +57,7 @@ for arg in "$@"; do
   }
   [[ $PREV == --stage ]] && STAGE=$arg
   [[ $arg == --push ]] && PUSH=1
+  [[ $arg == --noinst-only ]] && NOINST_ONLY=1
   PREV=$arg
 done
 case $STAGE in all | train | push) ;;
@@ -81,6 +86,7 @@ done
 
 milestone "repo $(git log --oneline -1)"
 milestone "store=$GEODE_STORE stage=$STAGE push=$PUSH sizes=${#SIZES[@]}"
+((NOINST_ONLY)) && milestone "noinst_only=1 (installer + inst arm SKIPPED — owner decision 2026-07-31)"
 
 # Train (or resume-skip) one run. First arg is the run_id; the rest is the
 # exact trainer invocation (train_sft.py for the installer, train_target.py
@@ -182,67 +188,69 @@ if [[ $STAGE == all || $STAGE == train ]]; then
   # installer's D_dose_mult.parquet, so it does not cover the installer's
   # data at all. Checked separately right below.
   python3 verify_llama_tokenizer.py || fail "tokenizer verification"
-  DOSE_MULT=$REPO_ROOT/experiments/training-run/data/full/D_dose_mult.parquet
-  [[ -f $DOSE_MULT ]] ||
-    fail "installer data file missing: $DOSE_MULT — local-only file, scp from laptop or regenerate; gitignored, never on the box by default"
+  if ((NOINST_ONLY == 0)); then
+    DOSE_MULT=$REPO_ROOT/experiments/training-run/data/full/D_dose_mult.parquet
+    [[ -f $DOSE_MULT ]] ||
+      fail "installer data file missing: $DOSE_MULT — local-only file, scp from laptop or regenerate; gitignored, never on the box by default"
 
-  # ---- stage 2: shared format installer, then its gates ------------------
-  train_or_skip "$INSTALLER_RID" \
-    python3 train_sft.py --config ../configs/llama_fig2_installer.yaml \
-      --init-from meta-llama/Llama-3.2-1B --confirm-cost
+    # ---- stage 2: shared format installer, then its gates ------------------
+    train_or_skip "$INSTALLER_RID" \
+      python3 train_sft.py --config ../configs/llama_fig2_installer.yaml \
+        --init-from meta-llama/Llama-3.2-1B --confirm-cost
 
-  # G4/G2 on the installer (a shared parent for all 19 inst runs — a
-  # recorded FAIL makes require_parent_ready (V0.6) refuse every one of
-  # them, recoverable only by hand): score with --no-record first (parsed
-  # from the printed line, never trusted from the exit code alone); only on
-  # a pass, re-run WITHOUT --no-record but WITH --record-only-pass to
-  # persist it. --record-only-pass is what keeps a near-threshold RECOMPUTE
-  # divergence in that second call from writing a FAIL anyway (gates.py
-  # gate_record_decision) — plain --no-record-then-plain-record (the
-  # archive/launch_phase3.sh 2026-07-27 pattern) does not close that gap.
-  # Resume is pass-AWARE (gate_verdict), not presence-aware: a recorded
-  # non-pass verdict (from this launcher or anywhere else) halts loudly
-  # rather than being silently skipped.
-  G4_VERDICT=$(gate_verdict "$INSTALLER_RID" G4)
-  if [[ $G4_VERDICT == pass ]]; then
-    milestone "gate_skip run=$INSTALLER_RID gate=G4 status=recorded_pass"
-  elif [[ $G4_VERDICT == missing ]]; then
-    G4_OUT=$(python3 gates.py g4 --run "$INSTALLER_RID" \
-      --config ../configs/llama_fig2_installer.yaml \
-      --prompt-config ../configs/eval_target_data_llama.yaml \
-      --threshold 0.90 --no-record 2>&1)
-    echo "$G4_OUT"
-    G4_SCORE=$(gate_score "$G4_OUT" G4 format_validity)
-    [[ -n $G4_SCORE ]] || fail "$INSTALLER_RID G4 printed no format_validity score (output above)"
-    gate_passed "$G4_OUT" G4 format_validity ||
-      fail "$INSTALLER_RID G4 format_validity $G4_SCORE < 0.90 — NOT recorded, no targets from an ungated parent"
-    python3 gates.py g4 --run "$INSTALLER_RID" \
-      --config ../configs/llama_fig2_installer.yaml \
-      --prompt-config ../configs/eval_target_data_llama.yaml \
-      --threshold 0.90 --record-only-pass ||
-      fail "$INSTALLER_RID G4 DIVERGENCE: --no-record scored $G4_SCORE (PASS) but the recording pass recomputed a FAIL — nothing was written (--record-only-pass refused it); rerun the gate block"
-    milestone "gate_pass run=$INSTALLER_RID gate=G4 format_validity=$G4_SCORE"
-  else
-    fail "$INSTALLER_RID gate=G4 verdict='$G4_VERDICT' (expected pass or missing) — inspect $GEODE_STORE/runs/$INSTALLER_RID/manifest.json before rerunning"
-  fi
+    # G4/G2 on the installer (a shared parent for all 19 inst runs — a
+    # recorded FAIL makes require_parent_ready (V0.6) refuse every one of
+    # them, recoverable only by hand): score with --no-record first (parsed
+    # from the printed line, never trusted from the exit code alone); only on
+    # a pass, re-run WITHOUT --no-record but WITH --record-only-pass to
+    # persist it. --record-only-pass is what keeps a near-threshold RECOMPUTE
+    # divergence in that second call from writing a FAIL anyway (gates.py
+    # gate_record_decision) — plain --no-record-then-plain-record (the
+    # archive/launch_phase3.sh 2026-07-27 pattern) does not close that gap.
+    # Resume is pass-AWARE (gate_verdict), not presence-aware: a recorded
+    # non-pass verdict (from this launcher or anywhere else) halts loudly
+    # rather than being silently skipped.
+    G4_VERDICT=$(gate_verdict "$INSTALLER_RID" G4)
+    if [[ $G4_VERDICT == pass ]]; then
+      milestone "gate_skip run=$INSTALLER_RID gate=G4 status=recorded_pass"
+    elif [[ $G4_VERDICT == missing ]]; then
+      G4_OUT=$(python3 gates.py g4 --run "$INSTALLER_RID" \
+        --config ../configs/llama_fig2_installer.yaml \
+        --prompt-config ../configs/eval_target_data_llama.yaml \
+        --threshold 0.90 --no-record 2>&1)
+      echo "$G4_OUT"
+      G4_SCORE=$(gate_score "$G4_OUT" G4 format_validity)
+      [[ -n $G4_SCORE ]] || fail "$INSTALLER_RID G4 printed no format_validity score (output above)"
+      gate_passed "$G4_OUT" G4 format_validity ||
+        fail "$INSTALLER_RID G4 format_validity $G4_SCORE < 0.90 — NOT recorded, no targets from an ungated parent"
+      python3 gates.py g4 --run "$INSTALLER_RID" \
+        --config ../configs/llama_fig2_installer.yaml \
+        --prompt-config ../configs/eval_target_data_llama.yaml \
+        --threshold 0.90 --record-only-pass ||
+        fail "$INSTALLER_RID G4 DIVERGENCE: --no-record scored $G4_SCORE (PASS) but the recording pass recomputed a FAIL — nothing was written (--record-only-pass refused it); rerun the gate block"
+      milestone "gate_pass run=$INSTALLER_RID gate=G4 format_validity=$G4_SCORE"
+    else
+      fail "$INSTALLER_RID gate=G4 verdict='$G4_VERDICT' (expected pass or missing) — inspect $GEODE_STORE/runs/$INSTALLER_RID/manifest.json before rerunning"
+    fi
 
-  G2_VERDICT=$(gate_verdict "$INSTALLER_RID" G2)
-  if [[ $G2_VERDICT == pass ]]; then
-    milestone "gate_skip run=$INSTALLER_RID gate=G2 status=recorded_pass"
-  elif [[ $G2_VERDICT == missing ]]; then
-    G2_OUT=$(python3 gates.py g2 --run "$INSTALLER_RID" \
-      --config ../configs/eval_algo_data_llama.yaml --threshold 0.29 --no-record 2>&1)
-    echo "$G2_OUT"
-    G2_SCORE=$(gate_score "$G2_OUT" G2 accuracy)
-    [[ -n $G2_SCORE ]] || fail "$INSTALLER_RID G2 printed no accuracy score (output above)"
-    gate_passed "$G2_OUT" G2 accuracy ||
-      fail "$INSTALLER_RID G2 retention $G2_SCORE < 0.29 — NOT recorded, no targets from an ungated parent"
-    python3 gates.py g2 --run "$INSTALLER_RID" \
-      --config ../configs/eval_algo_data_llama.yaml --threshold 0.29 --record-only-pass ||
-      fail "$INSTALLER_RID G2 DIVERGENCE: --no-record scored $G2_SCORE (PASS) but the recording pass recomputed a FAIL — nothing was written (--record-only-pass refused it); rerun the gate block"
-    milestone "gate_pass run=$INSTALLER_RID gate=G2 accuracy=$G2_SCORE"
-  else
-    fail "$INSTALLER_RID gate=G2 verdict='$G2_VERDICT' (expected pass or missing) — inspect $GEODE_STORE/runs/$INSTALLER_RID/manifest.json before rerunning"
+    G2_VERDICT=$(gate_verdict "$INSTALLER_RID" G2)
+    if [[ $G2_VERDICT == pass ]]; then
+      milestone "gate_skip run=$INSTALLER_RID gate=G2 status=recorded_pass"
+    elif [[ $G2_VERDICT == missing ]]; then
+      G2_OUT=$(python3 gates.py g2 --run "$INSTALLER_RID" \
+        --config ../configs/eval_algo_data_llama.yaml --threshold 0.29 --no-record 2>&1)
+      echo "$G2_OUT"
+      G2_SCORE=$(gate_score "$G2_OUT" G2 accuracy)
+      [[ -n $G2_SCORE ]] || fail "$INSTALLER_RID G2 printed no accuracy score (output above)"
+      gate_passed "$G2_OUT" G2 accuracy ||
+        fail "$INSTALLER_RID G2 retention $G2_SCORE < 0.29 — NOT recorded, no targets from an ungated parent"
+      python3 gates.py g2 --run "$INSTALLER_RID" \
+        --config ../configs/eval_algo_data_llama.yaml --threshold 0.29 --record-only-pass ||
+        fail "$INSTALLER_RID G2 DIVERGENCE: --no-record scored $G2_SCORE (PASS) but the recording pass recomputed a FAIL — nothing was written (--record-only-pass refused it); rerun the gate block"
+      milestone "gate_pass run=$INSTALLER_RID gate=G2 accuracy=$G2_SCORE"
+    else
+      fail "$INSTALLER_RID gate=G2 verdict='$G2_VERDICT' (expected pass or missing) — inspect $GEODE_STORE/runs/$INSTALLER_RID/manifest.json before rerunning"
+    fi
   fi
 
   # ---- stage 3: noinst sweep, ascending n ---------------------------------
@@ -258,18 +266,22 @@ if [[ $STAGE == all || $STAGE == train ]]; then
   # G7 (identical data order across the matched pair) is enforced by
   # train_target.py itself via match_data_order_with — satisfied here only
   # because the same-n noinst run above always completes first.
-  [[ -f $INSTALLER_MODEL/model.safetensors ]] ||
-    fail "no installer checkpoint at $INSTALLER_MODEL (installer stage must complete before the inst sweep)"
-  for n in "${SIZES[@]}"; do
-    rid=evt-llama-fig2-inst-n${n}
-    train_or_skip "$rid" \
-      python3 train_target.py --config ../configs/llama_fig2_inst.yaml \
-        --override "../configs/sweeps/llama_fig2/llama_fig2_inst_n${n}.yaml" \
-        --init-from "$INSTALLER_MODEL" --confirm-cost
-  done
+  if ((NOINST_ONLY == 0)); then
+    [[ -f $INSTALLER_MODEL/model.safetensors ]] ||
+      fail "no installer checkpoint at $INSTALLER_MODEL (installer stage must complete before the inst sweep)"
+    for n in "${SIZES[@]}"; do
+      rid=evt-llama-fig2-inst-n${n}
+      train_or_skip "$rid" \
+        python3 train_target.py --config ../configs/llama_fig2_inst.yaml \
+          --override "../configs/sweeps/llama_fig2/llama_fig2_inst_n${n}.yaml" \
+          --init-from "$INSTALLER_MODEL" --confirm-cost
+    done
+  fi
 
   # ---- stage 5: G5 evidence (zero-shot EM + test loss) per completed run -
-  for rid in "$INSTALLER_RID" "${NOINST_RIDS[@]}" "${INST_RIDS[@]}"; do
+  G5_RIDS=("$INSTALLER_RID" "${NOINST_RIDS[@]}" "${INST_RIDS[@]}")
+  ((NOINST_ONLY)) && G5_RIDS=("${NOINST_RIDS[@]}")
+  for rid in "${G5_RIDS[@]}"; do
     if gate_recorded "$rid" G5; then
       milestone "gate_skip run=$rid gate=G5"
       continue
@@ -282,11 +294,11 @@ fi
 
 # ---- stage 6: push (separate; needs a WRITE-scoped token) -----------------
 if ((PUSH)); then
-  push_manifest_only "$INSTALLER_RID"
+  ((NOINST_ONLY)) || push_manifest_only "$INSTALLER_RID"
   for n in "${SIZES[@]}"; do
     [[ $n == "$BIG_N" ]] && continue
     push_manifest_only "evt-llama-fig2-noinst-n${n}"
-    push_manifest_only "evt-llama-fig2-inst-n${n}"
+    ((NOINST_ONLY)) || push_manifest_only "evt-llama-fig2-inst-n${n}"
   done
   # Only the two n=1,000,000 runs get their weights archived to the relay
   # (39 full Llama-3.2-1B checkpoints locally would be ~100GB; every LoRA
@@ -295,11 +307,13 @@ if ((PUSH)); then
   # disk-space step, not a "confirm this copy" step, since those weights are
   # deliberately never archived anywhere.
   push_weights_verified "$BIG_NOINST_RID"
-  push_weights_verified "$BIG_INST_RID"
+  ((NOINST_ONLY)) || push_weights_verified "$BIG_INST_RID"
 
   for n in "${SIZES[@]}"; do
     [[ $n == "$BIG_N" ]] && continue
-    for rid in "evt-llama-fig2-noinst-n${n}" "evt-llama-fig2-inst-n${n}"; do
+    prune_rids=("evt-llama-fig2-noinst-n${n}")
+    ((NOINST_ONLY)) || prune_rids+=("evt-llama-fig2-inst-n${n}")
+    for rid in "${prune_rids[@]}"; do
       model_dir=$GEODE_STORE/runs/$rid/model
       if [[ -d $model_dir ]]; then
         rm -rf "$model_dir"
