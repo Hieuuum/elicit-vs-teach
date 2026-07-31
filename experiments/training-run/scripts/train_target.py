@@ -54,7 +54,7 @@ from geode.edl.metrics import (
 from geode.probe import snapshot_steps
 from geode.train import ConvergenceTracker, StoppingRule, evaluate_sft_nll_nats
 from geode.zoo import checkpoint_dir, load_run, register_run, require_parent_ready, tokenizer_hash
-from train import REPO_ROOT, git_commit, load_config, phase
+from train import REPO_ROOT, git_commit, load_config, lora_adapter_state_dict, phase
 
 # Regimes attach to the target runs. Run 10 (arm "llama") records "unknown"
 # (spec 00: regime is design-known at creation; whether real Llama holds the
@@ -107,21 +107,6 @@ def lora_trainable_param_count(model: torch.nn.Module, lora_cfg: dict) -> int:
         for name, m in model.named_modules()
         if isinstance(m, torch.nn.Linear) and name.rsplit(".", 1)[-1] in targets
     )
-
-
-def lora_adapter_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-    """The adapter-only subset of a wrapped LoRA ``state_dict()``.
-
-    Exactly the tensors ``geode.train.lora.LoRALinear`` trains — keys ending
-    in ``.A.weight`` or ``.B.weight`` (dtype unchanged, base tensors dropped).
-    This is the filter behind the ``adapter.safetensors`` sidecar written in
-    ``finalize`` below (owner directive 2026-07-31): a ~90MB artifact every
-    LoRA run ships in addition to the ~2.5GB self-contained ``model/`` save,
-    so weights stay recoverable without moving the full state dict.
-    """
-    return {
-        k: v for k, v in state_dict.items() if k.endswith(".A.weight") or k.endswith(".B.weight")
-    }
 
 
 def manifest_fields(

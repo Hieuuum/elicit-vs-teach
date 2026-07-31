@@ -28,6 +28,12 @@ store layout — runs/<run-id>/... — so every run lands as its own folder
 in the one repo; --run-id selects which run moves. Idempotent both ways:
 Xet dedups unchanged chunks, so re-runs are cheap. Pull verifies
 model.safetensors against the hub's stored sha256.
+
+model_merged/ (scripts/merge_adapter.py's plain-checkpoint fold of a LoRA
+install run's adapter, for a later stage's --init-from) is EXCLUDED from
+every push, weights or no-weights (2026-07-31): it is a derivable artifact,
+regenerable from model/ in seconds on any box, so archiving it to the
+relay is pure waste.
 """
 
 from __future__ import annotations
@@ -115,6 +121,15 @@ def push(
     # Mirrors pull's ignore-list construction below: same two knobs, same
     # patterns, so push and pull can never silently drift apart.
     ignore = [] if with_snapshots else ["snapshots/*"]
+    # model_merged/ (scripts/merge_adapter.py) is a derivable artifact — a
+    # LoRA install run's base + adapter folded into plain weights, purely for
+    # a later stage's --init-from — never worth shipping to the relay
+    # (≈2.5GB, regenerable from model/ in seconds on any box). Excluded from
+    # EVERY push, weights or no-weights: --no-weights already caught it by
+    # coincidence (its "*model.safetensors" pattern matches any path ending
+    # that way, nested or not), but a plain weights-included push had no
+    # exclusion for it at all.
+    ignore.append("model_merged/*")
     if no_weights:
         ignore.append("*model.safetensors")
         print(

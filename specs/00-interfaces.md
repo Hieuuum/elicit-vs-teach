@@ -61,12 +61,14 @@ layouts; a store converts only explicitly, via
 `experiments/training-run/scripts/migrate_store_layout.py`, after its
 runs finish — never implicitly, and never mid-training.
 
-Adapter sidecar (2026-07-31): every LoRA target run (`train_target.py`)
-writes an OPTIONAL `runs/{run_id}/model/adapter.safetensors` immediately
-after the self-contained `model.safetensors` save above — full-FT runs
-never write this file. It holds exactly the trainable `.A.weight`/
-`.B.weight` tensors (`train_target.lora_adapter_state_dict`), unmerged, same
-dtype as trained — the same filter `geode.edl.loop` uses for
+Adapter sidecar (2026-07-31): every LoRA run — whether launched via
+`train_target.py` (LoRA target runs) or `train_sft.py` (LoRA install runs,
+e.g. the fig-2 Llama installer, 2026-07-31) — writes an OPTIONAL
+`runs/{run_id}/model/adapter.safetensors` immediately after the
+self-contained `model.safetensors` save above — full-FT runs never write
+this file. It holds exactly the trainable `.A.weight`/`.B.weight` tensors
+(`train.lora_adapter_state_dict`, the shared filter both launchers import),
+unmerged, same dtype as trained — the same filter `geode.edl.loop` uses for
 `snapshots/step_{k}/adapter.safetensors`. Safetensors metadata (str -> str):
 `base_model` (the run's resolved base identifier, `manifest.base_model.hf_id`),
 `base_revision` (`manifest.base_model.revision`; `"none"` means the default
@@ -80,8 +82,9 @@ adapter assembly `load_snapshot` does for
 `snapshots/step_{k}/adapter.safetensors` (there `strict=True`, because its
 paired base file supplies every other key; here there is no base file, so
 `strict=False`). Purpose is cheap recoverability (~90MB vs ~2.5GB) for
-`hf_checkpoint.py push --no-weights`, which now excludes only
-`model.safetensors` so this sidecar still ships on metadata-scale pushes;
+`hf_checkpoint.py push --no-weights`, which excludes `model.safetensors`
+(plus, always, the derivable `model_merged/` — 2026-07-31) so this sidecar
+still ships on metadata-scale pushes;
 `model.safetensors` remains the pinned, canonical self-contained checkpoint
 every loader (`zoo.load_model` V0.9) targets — this sidecar is never a
 substitute for it.

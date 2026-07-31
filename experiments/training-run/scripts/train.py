@@ -135,6 +135,23 @@ def git_commit() -> str:
         return "unknown"
 
 
+def lora_adapter_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """The adapter-only subset of a wrapped LoRA ``state_dict()``.
+
+    Exactly the tensors ``geode.train.lora.LoRALinear`` trains — keys ending
+    in ``.A.weight`` or ``.B.weight`` (dtype unchanged, base tensors dropped).
+    This is the filter behind the ``adapter.safetensors`` sidecar (owner
+    directive 2026-07-31): a ~90MB artifact every LoRA run ships in addition
+    to the ~2.5GB self-contained ``model/`` save, so weights stay recoverable
+    without moving the full state dict. Shared here (promoted 2026-07-31)
+    because both ``train_target.py`` (LoRA target runs) and ``train_sft.py``
+    (LoRA installer runs, e.g. the fig-2 Llama installer) write this sidecar.
+    """
+    return {
+        k: v for k, v in state_dict.items() if k.endswith(".A.weight") or k.endswith(".B.weight")
+    }
+
+
 def manifest_fields(
     cfg: dict,
     n_params: int,

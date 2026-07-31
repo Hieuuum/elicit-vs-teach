@@ -92,6 +92,26 @@ def test_embedding_warmstart_configs_build_a_manifest(override: str) -> None:
     assert manifest["experiment"]["embedding_warmstart"]["final"]["operator_accuracy"] == 0.0
 
 
+def test_llama_fig2_installer_opts_into_lora_via_own_lora_block() -> None:
+    """Pins the CRITICAL gating footgun train_sft.py's ``own_lora_block``
+    docstring warns about: common.yaml merges a default ``lora:`` block into
+    every config (including full-FT ones), so gating on the merged
+    ``cfg["lora"]`` — instead of the run's OWN ``lora:`` key — would silently
+    switch every full-FT launch to LoRA (and, post-2026-07-31, write a bogus
+    adapter sidecar for weights that were never LoRA-trained). The
+    redesigned fig-2 installer must opt in via its own key; a genuine
+    full-FT config must not."""
+    train_sft = load("train_sft")
+
+    lora_path = CONFIGS / "llama_fig2_installer.yaml"
+    lora_cfg = train_sft.own_lora_block(load_config(lora_path, None), lora_path, None)
+    assert lora_cfg is not None
+    assert (lora_cfg["r"], lora_cfg["alpha"]) == (64, 32)
+
+    full_ft_path = CONFIGS / "archive/phase2/p2_armB_instperm.yaml"
+    assert train_sft.own_lora_block(load_config(full_ft_path, None), full_ft_path, None) is None
+
+
 @pytest.mark.parametrize("config", FULL_FT)
 def test_full_ft_configs_build_a_manifest(config: str) -> None:
     train_sft = load("train_sft")

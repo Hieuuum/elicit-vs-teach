@@ -149,6 +149,33 @@ def test_push_with_weights_uploads_without_excluding_safetensors(
     assert ignore is not None and "*.safetensors" not in ignore
 
 
+def test_push_excludes_model_merged_from_every_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``model_merged/`` (``scripts/merge_adapter.py``) is a derivable
+    artifact — a LoRA install run's adapter folded into plain weights,
+    purely for a later stage's ``--init-from`` — and must never ship to the
+    relay in EITHER push mode (2026-07-31, fig-2 Llama installer redesign):
+    it is regenerable from ``model/`` in seconds on any box, so shipping its
+    ≈2.5GB weights (or even its small config files) is pure waste."""
+    rid = "evt-smoke-run"
+    _flat_checkpoint(tmp_path, rid)
+    merged = tmp_path / "runs" / rid / "model_merged" / "model.safetensors"
+    merged.parent.mkdir(parents=True)
+    merged.write_bytes(b"fake merged payload")
+    (merged.parent / "config.json").write_text("{}")
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    for no_weights in (False, True):
+        fake.upload_calls.clear()
+        assert hfc.push(tmp_path, rid, "repo/id", public=False, no_weights=no_weights) == 0
+        ignore = fake.upload_calls[0]["ignore_patterns"]
+        assert ignore is not None
+        assert any(fnmatch.fnmatch("model_merged/model.safetensors", p) for p in ignore)
+        assert any(fnmatch.fnmatch("model_merged/config.json", p) for p in ignore)
+
+
 def test_push_with_weights_fails_loudly_without_a_local_checkpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
