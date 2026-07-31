@@ -436,30 +436,32 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    sum-specific lexical lock and not clean elicitation. Moving-validation-floor
    curves tell the same level story but remain floor-dependent diagnostics.
 
-10. **Fig-2 Llama dataset-size sweep — noinst arm DONE 2026-07-31;
-   installer arm DISCARDED (owner).** The paper's Figure-2 protocol on
-   D_target, Llama-3.2-1B, 19 log-spaced prefix-nested sizes
-   (1,000 → 1,000,000), LoRA r64/α32 @ 3.53e-4, each run fresh from base
-   to val convergence. **All 19 converged** (`evt-llama-fig2-noinst-n*`;
-   per-size stopping schedule worked — no max_steps stop anywhere).
-   Converged val loss falls 0.5294 → 0.0076 bits/label-token and
-   saturates at the floor from n≈100K; EDL/label-token is monotone
-   0.23049 → 0.03277 nats; n=1M: min_val 0.005282 nats, G5 zero-shot EM
-   0.9951 / 16-shot 0.6543, shared-set test loss 0.0063 nats.
-   `results/dataset_size_sweep.parquet` (114 rows) +
-   `analysis/figures/dataset_size_sweep.png` (1-curve). The **inst arm
-   died twice at the installer gates** (decisions.md 2026-07-31): full-FT
-   @ 3.53e-4 diverged outright (collapsed model, G4 0.0000); the
-   owner-corrected 2.0e-5 absorbed the 1-example dose cleanly (step 12,
-   4.531 → 0.0002 nats) and held format (G4 1.0000) but destroyed
-   arithmetic retention — G2 0.0732 vs bar 0.29 (base 0.3271) —
-   catastrophic forgetting from ONE example at a conservative LR.
-   Standing owner fallback executed: inst arm discarded, no third LR;
-   the figure ships noinst-only. Weights policy (owner 2026-07-31):
-   n=1M full checkpoint + 90MB adapter-only sidecar (base-equality
-   verified vs public Llama) + installer checkpoint on the relay, all
-   sha256-verified; future LoRA runs save/push adapter sidecars by
-   default. Total sweep cost ≈ $3.44.
+10. **Fig-2 Llama dataset-size sweep — BOTH ARMS DONE 2026-07-31.** The
+   paper's Figure-2 protocol on D_target, Llama-3.2-1B, 19 log-spaced
+   prefix-nested sizes (1,000 → 1,000,000) × 2 conditions (base vs
+   1-example format-installed parent), LoRA r64/α32 @ 3.53e-4 targets,
+   each run fresh to val convergence. **All 38 converged** (per-size
+   stopping schedule never bound). Result
+   (`results/dataset_size_sweep.parquet`, 228 rows;
+   `analysis/figures/dataset_size_sweep.png`, 2-curve EDL/D): the
+   format-install pays off at SMALL n — EDL/label-token 0.14714 (inst)
+   vs 0.23049 (noinst) nats at n=1000, −36% — the advantage decays
+   through n≈4642, the curves interleave mid-range, and converge by
+   n=1M (0.03050 vs 0.03277). G5 zero-shot EM never separates the arms
+   (≈0.63–0.66 at n=1000; ≥0.99 from n≈100K in both) — endpoint
+   accuracy is blind to the installed format; early-data codelength
+   shows it. Both arms share a non-monotone EDL bump at n≈6813 (ee
+   schedule steps 5→10 there); cross-arm deltas at matched n stay fair
+   (G7-matched data order). The **installer took three designs**
+   (decisions.md 2026-07-31 ×2): full-FT @ 3.53e-4 diverged (G4
+   0.0000); full-FT @ 2.0e-5 absorbed the dose but destroyed retention
+   (G2 0.0732 vs bar 0.29); the owner-picked **LoRA r64/α32 @ 3.0e-6**
+   (run-9-v2 recipe) passed everything — absorption 0.00893 nats, G4
+   0.9531, G2 0.3447 (above base's 0.3271, zero forgetting) — and its
+   merged checkpoint parented the inst sweep. Relay: 39 records; full
+   weights for both n=1M runs (sha-verified); installer = adapter
+   sidecar only (stale full-FT relay record deliberately deleted
+   pre-push). Total sweep cost ≈ $5.6 across two boxes.
 
 ## 7. Budget
 
