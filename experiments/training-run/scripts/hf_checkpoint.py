@@ -14,8 +14,10 @@ Usage:
     python3 hf_checkpoint.py pull --run-id <run-id>
     # laptop, logs/manifest only — no *.safetensors (analysis without weights):
     python3 hf_checkpoint.py pull --run-id <run-id> --no-weights
-    # push manifest/logs/gates only — no weights uploaded (bulk-sweep runs
-    # whose checkpoint is intentionally never archived to the relay):
+    # push manifest/logs/gates + any adapter.safetensors sidecar — no
+    # model.safetensors (bulk-sweep runs whose full checkpoint is
+    # intentionally never archived to the relay, but a LoRA run's compact
+    # adapter still rides along so its weights stay cheaply recoverable):
     python3 hf_checkpoint.py push --run-id <run-id> --no-weights
     # either direction: snapshots/ is SKIPPED by default (multi-GB, needed
     # only for extraction) — opt in explicitly:
@@ -114,8 +116,11 @@ def push(
     # patterns, so push and pull can never silently drift apart.
     ignore = [] if with_snapshots else ["snapshots/*"]
     if no_weights:
-        ignore.append("*.safetensors")
-        print("[hf] --no-weights: *.safetensors excluded from push (manifest/logs/gates only)")
+        ignore.append("*model.safetensors")
+        print(
+            "[hf] --no-weights: model.safetensors excluded from push "
+            "(adapter.safetensors sidecars still included, if present)"
+        )
     else:
         ckpt = find_checkpoint(store, run_id)
         print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
@@ -156,7 +161,17 @@ def pull(
     )
     if no_weights:
         # No checkpoint landed, so there is nothing to sha-verify; a later
-        # plain pull fills in the weights (snapshot_download resumes).
+        # plain pull fills in the weights (snapshot_download resumes). But
+        # snapshot_download itself is fail-open (e.g. a bad/expired token can
+        # silently fetch nothing), so check that SOMETHING landed before
+        # printing success — a run dir with no manifest.json means the pull
+        # got nothing at all.
+        manifest_path = store / "runs" / run_id / "manifest.json"
+        if not manifest_path.is_file():
+            raise SystemExit(
+                f"[hf] pull landed nothing at {manifest_path} — check HF auth "
+                f"(`hf auth whoami`) and that '{run_id}' exists on {repo_id}"
+            )
         print(f"[hf] pulled runs/{run_id} manifest/logs only (*.safetensors skipped)")
         return 0
     ckpt = find_checkpoint(store, run_id)
@@ -197,9 +212,10 @@ def main() -> int:
     parser.add_argument(
         "--no-weights",
         action="store_true",
-        help="skip *.safetensors (the final model) either direction — "
-        "push: upload manifest/logs/gates only; pull: manifest/logs/gates "
-        "land for laptop-side analysis without the weights",
+        help="push: exclude model.safetensors (the full state dict) but still "
+        "include any adapter.safetensors sidecar, so a LoRA run's weights stay "
+        "cheaply recoverable even from a metadata-scale push; pull: manifest/"
+        "logs/gates land for laptop-side analysis without any weights",
     )
     parser.add_argument(
         "--with-snapshots",

@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from safetensors.torch import save_file
 
 from geode.arith import load_frozen_parquet as _load_frozen_parquet, tokenize_with_spans
 from geode.edl import EVAL_STOP_ROWS
@@ -106,6 +107,21 @@ def lora_trainable_param_count(model: torch.nn.Module, lora_cfg: dict) -> int:
         for name, m in model.named_modules()
         if isinstance(m, torch.nn.Linear) and name.rsplit(".", 1)[-1] in targets
     )
+
+
+def lora_adapter_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    """The adapter-only subset of a wrapped LoRA ``state_dict()``.
+
+    Exactly the tensors ``geode.train.lora.LoRALinear`` trains — keys ending
+    in ``.A.weight`` or ``.B.weight`` (dtype unchanged, base tensors dropped).
+    This is the filter behind the ``adapter.safetensors`` sidecar written in
+    ``finalize`` below (owner directive 2026-07-31): a ~90MB artifact every
+    LoRA run ships in addition to the ~2.5GB self-contained ``model/`` save,
+    so weights stay recoverable without moving the full state dict.
+    """
+    return {
+        k: v for k, v in state_dict.items() if k.endswith(".A.weight") or k.endswith(".B.weight")
+    }
 
 
 def manifest_fields(
@@ -526,6 +542,33 @@ def main() -> int:
     # complete state_dict, base + adapter tensors — same save path as
     # geode.train (save_pretrained); reload via geode.train.reapply_lora.
     model.save_pretrained(str(out_dir / "model"))
+    # Compact adapter-only sidecar (owner directive 2026-07-31): every LoRA
+    # run — train_target.py trains no other kind — also ships a cheap-to-move
+    # adapter.safetensors alongside the self-contained save above. Reconstruction
+    # contract (NOT geode.train.lora.reapply_lora — that needs a FULL strict
+    # state dict, and this sidecar holds only the A/B tensors): from_pretrained
+    # the sidecar's base_model (its base_revision, if not "none"), then
+    # geode.train.lora.apply_lora with this sidecar's lora_rank/lora_alpha, then
+    # load_state_dict(these A/B tensors, strict=False) on top — the same
+    # base-then-adapter assembly geode.edl.loop.load_snapshot does for
+    # snapshots/step_{k}/adapter.safetensors (there strict=True only because its
+    # base file supplies every remaining key; here there is no base file, so
+    # strict=False). model.safetensors remains the pinned, canonical
+    # self-contained checkpoint (specs/00 §1); this sidecar is a cheap-recovery
+    # convenience, never a replacement.
+    if "lora" in cfg:
+        lora_cfg = cfg["lora"]
+        save_file(
+            lora_adapter_state_dict(model.state_dict()),
+            str(out_dir / "model" / "adapter.safetensors"),
+            metadata={
+                "base_model": manifest.data["base_model"]["hf_id"],
+                "base_revision": manifest.data["base_model"]["revision"],
+                "lora_rank": str(lora_cfg["r"]),
+                "lora_alpha": str(lora_cfg["alpha"]),
+            },
+        )
+        print(f"[evt] adapter sidecar: {out_dir / 'model' / 'adapter.safetensors'}", flush=True)
     taken = sorted(
         int(p.name.removeprefix("step_"))
         for p in (out_dir / "snapshots").glob("step_*")

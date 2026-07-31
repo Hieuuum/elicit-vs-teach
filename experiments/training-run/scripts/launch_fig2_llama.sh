@@ -303,9 +303,11 @@ if ((PUSH)); then
   # Only the two n=1,000,000 runs get their weights archived to the relay
   # (39 full Llama-3.2-1B checkpoints locally would be ~100GB; every LoRA
   # target run saves the complete base+adapter state_dict, spec 00 §1, not
-  # just the adapter). Every other run's model/ is pruned below — a local
-  # disk-space step, not a "confirm this copy" step, since those weights are
-  # deliberately never archived anywhere.
+  # just the adapter). Every other run's model.safetensors is pruned below —
+  # a local disk-space step, not a "confirm this copy" step, since those
+  # weights are deliberately never archived anywhere. adapter.safetensors
+  # (+ config.json/generation_config.json) is kept: the compact recovery
+  # artifact already rode along on the --no-weights push above.
   push_weights_verified "$BIG_NOINST_RID"
   ((NOINST_ONLY)) || push_weights_verified "$BIG_INST_RID"
 
@@ -315,9 +317,9 @@ if ((PUSH)); then
     ((NOINST_ONLY)) || prune_rids+=("evt-llama-fig2-inst-n${n}")
     for rid in "${prune_rids[@]}"; do
       model_dir=$GEODE_STORE/runs/$rid/model
-      if [[ -d $model_dir ]]; then
-        rm -rf "$model_dir"
-        milestone "pruned run=$rid dir=$model_dir"
+      if [[ -f $model_dir/model.safetensors ]]; then
+        rm -f "$model_dir/model.safetensors"
+        milestone "pruned run=$rid file=$model_dir/model.safetensors (adapter.safetensors kept)"
       fi
     done
   done
@@ -325,9 +327,9 @@ fi
 
 echo "[fig2] MILESTONE analysis_commands"
 echo "[fig2]   analysis/dataset_size_sweep.py reads all 39 manifests via geode.zoo (once built)"
-# Deliverable-only ntfy (owner convention, MEMORY.md ntfy-topic note; matches
-# launch_llama_probe100k.sh, which pings once at the end, not per stage —
-# fail() already pings on any halt, gate+score included, so failures are
-# covered without adding success pings at every boundary).
+# Silent unless NTFY_AUTO=1 (owner 2026-07-31: automatic pings default off;
+# notify()'s NTFY_AUTO gate in launch_common.sh covers this call and fail()'s
+# alike). The session-end owner ping is sent manually by the agent, not by
+# this script.
 notify "fig2 launcher done: stage=$STAGE push=$PUSH"
 echo "[fig2] TERMINAL_SUCCESS stage=$STAGE push=$PUSH"

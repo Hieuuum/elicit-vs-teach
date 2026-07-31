@@ -9,14 +9,21 @@ using a fake ``HfApi`` (CPU-only, no network) and a temp store.
 
 ``push``'s ``--no-weights`` (added for launch_fig2_llama.sh's push stage,
 which archives weights for only 2 of 39 runs) gets its own smoke tests below:
-it must exclude ``*.safetensors`` from the upload and — the actual point of
-the flag — must NOT require a local checkpoint to exist, since the runs it is
-for may already have had their local ``model/`` pruned by the time this push
-runs. The default (weights-included) path keeps requiring one.
+it must exclude ``model.safetensors`` (but ride any ``adapter.safetensors``
+LoRA sidecar along, 2026-07-31 — so every run's weights stay cheaply
+recoverable) from the upload and — the actual point of the flag — must NOT
+require a local checkpoint to exist, since the runs it is for may already
+have had their local ``model/`` pruned by the time this push runs. The
+default (weights-included) path keeps requiring one.
+
+``pull``'s ``--no-weights`` gets one loud-failure smoke test too: it must
+refuse (nonzero exit) rather than print success when the download landed
+nothing at all — the fail-open a bad/expired HF token produces silently.
 """
 
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 import pytest
@@ -106,7 +113,7 @@ class _FakeUploadApi:
         self.upload_calls.append(kwargs)
 
 
-def test_push_no_weights_excludes_safetensors_without_a_local_checkpoint(
+def test_push_no_weights_excludes_model_but_keeps_adapter_without_a_local_checkpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rid = "evt-smoke-run"
@@ -120,7 +127,12 @@ def test_push_no_weights_excludes_safetensors_without_a_local_checkpoint(
 
     assert len(fake.upload_calls) == 1
     ignore = fake.upload_calls[0]["ignore_patterns"]
-    assert ignore is not None and "*.safetensors" in ignore
+    assert ignore is not None
+    # Excludes the full state dict but rides any adapter.safetensors sidecar
+    # along (2026-07-31): a metadata-scale push still leaves a LoRA run's
+    # weights cheaply recoverable.
+    assert any(fnmatch.fnmatch("model/model.safetensors", p) for p in ignore)
+    assert not any(fnmatch.fnmatch("model/adapter.safetensors", p) for p in ignore)
 
 
 def test_push_with_weights_uploads_without_excluding_safetensors(
@@ -146,3 +158,16 @@ def test_push_with_weights_fails_loudly_without_a_local_checkpoint(
 
     with pytest.raises(SystemExit):
         hfc.push(tmp_path, rid, "repo/id", public=False)
+
+
+def test_pull_no_weights_fails_loudly_when_nothing_lands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad/expired token can make ``snapshot_download`` fetch nothing without
+    raising (fail-open); ``pull --no-weights`` must refuse loudly rather than
+    print its success line over an empty run dir."""
+    rid = "evt-smoke-run"
+    monkeypatch.setattr(hfc, "snapshot_download", lambda **kwargs: tmp_path)
+
+    with pytest.raises(SystemExit, match="auth"):
+        hfc.pull(tmp_path, rid, "repo/id", no_weights=True)
