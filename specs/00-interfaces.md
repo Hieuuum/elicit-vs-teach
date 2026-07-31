@@ -121,6 +121,47 @@ Optional lifecycle metadata (2026-07-26) — two extra fields may follow
 Both are advisory archive metadata for humans and analysis scripts; zoo
 gating never consults them.
 
+Target-run result extras (2026-07-30) — the LoRA target launcher
+(`train_target.py`) records an `experiment.target_result` object at finalize
+(an unknown-extra field, spec-preserved but not required by every trainer):
+
+```json
+"target_result": {
+  "final_step": "int",
+  "stop_reason": "converged | max_steps",
+  "best_val_nats": "float|null",
+  "min_val_nats": "float",
+  "edl_epoch1_nats": "float",
+  "edl_per_label_token_nats": "float",
+  "edl_per_example_nats": "float"
+}
+```
+
+All loss/EDL values are **nats**; bits only at reporting boundaries (V1.8).
+
+- `min_val_nats`: the **global minimum** `val_loss_nats` over every row of
+  `eval_log.jsonl` — stopping evals AND curve evals alike — NOT the value at
+  the run's stop time. (`best_val_nats` stays the ε-gated stopping-tracker
+  quantity used for the convergence decision itself; it can differ from
+  `min_val_nats` whenever a denser curve eval dips lower between stopping
+  evals.) Computed by `geode.edl.metrics.min_val_nats_from_eval_log`.
+- `edl_epoch1_nats`: EDL over the run's own epoch-1 `prequential.jsonl`
+  stream, floored against `min_val_nats` rather than the held-out
+  `eval/test_loss.json` loss that `geode.edl.metrics.edl_nats` (specs/01 §1)
+  uses — i.e.
+  `(Σ epoch-1 loss_sum_nats) − (Σ epoch-1 label_token_count) · min_val_nats`.
+  The floor is **this run's own global minimum in-loop val loss per label
+  token** (the quantity above), not `n_val_examples · min_val_nats` — a
+  training-stream MDL is dimensioned in training-stream label tokens, not
+  held-out eval tokens (Eq. 3, owner-accepted 2026-07-30). Computed by
+  `geode.edl.metrics.edl_epoch1_nats`.
+- `edl_per_label_token_nats`: `edl_epoch1_nats` divided by the epoch-1
+  label-token count (token-weighted). Computed by
+  `geode.edl.metrics.edl_epoch1_per_label_token`.
+- `edl_per_example_nats`: `edl_epoch1_nats` divided by the epoch-1 example
+  count (example-weighted, not token-weighted — distinct denominator from
+  the field above). Computed by `geode.edl.metrics.edl_epoch1_per_example`.
+
 Rationale: `regime` is recorded at creation from experimental design, so
 analysis code can group runs without re-deriving it. `snapshot_steps` is
 declared up front — the checkpoint schedule is designed before training

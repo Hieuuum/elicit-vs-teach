@@ -51,10 +51,16 @@ import torch
 
 from geode.edl import TaskFormat, label_mask
 from geode.edl.metrics import (
+    edl_epoch1_nats,
+    edl_epoch1_per_example,
+    edl_epoch1_per_label_token,
+    edl_from_totals,
     edl_nats,
     edl_per_label_token,
     edl_per_param,
+    epoch1_totals,
     mdl_nats,
+    min_val_nats_from_eval_log,
     nats_to_bits,
     pgr,
     training_curve,
@@ -491,3 +497,135 @@ def test_prequential_step_sums_masked_tokens_only_nats(tiny_llama) -> None:
     assert isinstance(step.loss_sum_nats, float)
     # Pre-update / no_grad contract: nothing accumulated gradients on the model.
     assert all(p.grad is None for p in model.parameters())
+
+
+# ---------------------------------------------------------------------------
+# spec 00 §2 `target_result` — edl_from_totals / epoch1_totals / min_val_nats_
+# from_eval_log / edl_epoch1_nats + its normalizations (train_target.py finalize,
+# 2026-07-30). Core EDL algebra earns property tests per the tested-core policy
+# (silent failure here would corrupt the target-run headline metric).
+# ---------------------------------------------------------------------------
+
+
+def test_edl_from_totals_constant_loss_stream_exact() -> None:
+    """Pure algebra: on a constant-per-label-token loss, ``edl_from_totals``
+    equals ``(loss − floor) · tokens`` exactly, and a floor equal to that same
+    constant loss collapses EDL to exactly 0 (not merely close to zero).
+    """
+    per_token_loss = 0.8
+    tokens = 37
+    total_loss_nats = per_token_loss * tokens
+    floor = 0.3
+    assert edl_from_totals(total_loss_nats, tokens, floor) == pytest.approx(
+        (per_token_loss - floor) * tokens
+    )
+    assert edl_from_totals(total_loss_nats, tokens, per_token_loss) == 0.0
+
+
+def test_epoch1_totals_then_edl_from_totals_constant_loss_stream(geode_store: Path) -> None:
+    """The realistic pipeline — ``epoch1_totals`` read from a written
+    ``prequential.jsonl``, then ``edl_from_totals`` — reproduces the same exact
+    (loss − floor)·tokens identity on a stream with varying batch/example sizes
+    but a CONSTANT per-label-token loss throughout (proving per-batch
+    ``loss_sum_nats`` values combine correctly, not just aggregated totals).
+    Also checks ``epoch1_totals``'s new third element: the epoch-1 example
+    count, distinct from the label-token count (6 examples, 17 tokens).
+    """
+    per_token = 0.4
+    records = [
+        PrequentialRecord(
+            step=0, epoch=1, example_ids=[0, 1], label_token_count=5, loss_sum_nats=5 * per_token
+        ),
+        PrequentialRecord(
+            step=1, epoch=1, example_ids=[2], label_token_count=3, loss_sum_nats=3 * per_token
+        ),
+        PrequentialRecord(
+            step=2, epoch=1, example_ids=[3, 4, 5], label_token_count=9, loss_sum_nats=9 * per_token
+        ),
+    ]
+    _register(geode_store, "run-const-loss", n_unique=6)
+    _write_preq(geode_store / "runs" / "run-const-loss", records)
+
+    mdl, n_label, n_examples = epoch1_totals("run-const-loss")
+    assert n_label == 17  # 5 + 3 + 9
+    assert n_examples == 6  # 2 + 1 + 3
+    floor = 0.1
+    assert edl_from_totals(mdl, n_label, floor) == pytest.approx((per_token - floor) * n_label)
+    assert edl_from_totals(mdl, n_label, per_token) == pytest.approx(0.0, abs=1e-9)
+
+
+def test_min_val_nats_from_eval_log_covers_curve_evals_not_just_stopping(geode_store: Path) -> None:
+    """spec 00 §2 ``target_result.min_val_nats``: the global minimum spans EVERY
+    ``eval_log.jsonl`` row (stopping AND curve evals), not just stopping evals.
+    Constructed so the true minimum sits on a ``stopping_eval: false`` (curve)
+    row a stopping-only reduction would miss.
+    """
+    run_dir = _register(geode_store, "run-minval", n_unique=4)
+    rows = [
+        {"step": 1, "val_loss_nats": 2.0, "stopping_eval": True},
+        {"step": 5, "val_loss_nats": 0.25, "stopping_eval": False},  # curve-only, the true min
+        {"step": 10, "val_loss_nats": 1.5, "stopping_eval": True},
+    ]
+    (run_dir / "eval_log.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    assert min_val_nats_from_eval_log("run-minval") == pytest.approx(0.25)
+
+
+def test_edl_epoch1_nats_floors_against_own_min_val_not_test_loss(geode_store: Path) -> None:
+    """spec 00 §2 ``target_result.edl_epoch1_nats``: floors the epoch-1 MDL
+    stream against the run's OWN global-min in-loop val loss
+    (``eval_log.jsonl``), NOT the held-out ``eval/test_loss.json`` loss that
+    ``edl_nats`` uses — constructed so the two floors (0.2 vs 0.9) differ,
+    proving ``edl_epoch1_nats`` reads the right one and the two metrics
+    genuinely diverge on identical epoch-1 data.
+    """
+    records = [
+        PrequentialRecord(
+            step=0, epoch=1, example_ids=[0, 1], label_token_count=4, loss_sum_nats=5.0
+        ),
+        PrequentialRecord(
+            step=1, epoch=1, example_ids=[2, 3], label_token_count=6, loss_sum_nats=3.0
+        ),
+    ]
+    run_dir = _register(
+        geode_store, "run-epoch1-floor", n_unique=4, extra={"masking_config_hash": HASH_A}
+    )
+    _write_preq(run_dir, records)
+    _write_test_loss(run_dir, mask_hash=HASH_A, l_test=0.9)  # edl_nats's floor
+    (run_dir / "eval_log.jsonl").write_text(
+        json.dumps({"step": 1, "val_loss_nats": 0.2, "stopping_eval": True}) + "\n"
+    )  # min_val_nats_from_eval_log's floor: 0.2, deliberately != 0.9
+
+    mdl = 8.0  # 5.0 + 3.0
+    n_label = 10  # 4 + 6
+    assert edl_epoch1_nats("run-epoch1-floor") == pytest.approx(mdl - n_label * 0.2)
+    assert edl_epoch1_nats("run-epoch1-floor") != pytest.approx(mdl - n_label * 0.9)
+    # Sanity: edl_nats (the DIFFERENT, test-floor metric) uses 0.9 as expected.
+    assert edl_nats("run-epoch1-floor") == pytest.approx(mdl - n_label * 0.9)
+    assert edl_epoch1_nats("run-epoch1-floor") != pytest.approx(edl_nats("run-epoch1-floor"))
+
+
+def test_edl_epoch1_normalizations_token_weighted_vs_example_weighted_differ(
+    geode_store: Path,
+) -> None:
+    """``edl_epoch1_per_label_token`` divides by the epoch-1 label-token count,
+    ``edl_epoch1_per_example`` by the epoch-1 example count — deliberately
+    different denominators (10 label tokens over 3 examples) so a token/example
+    swap bug cannot reproduce both expected values.
+    """
+    records = [
+        PrequentialRecord(
+            step=0, epoch=1, example_ids=[0, 1], label_token_count=4, loss_sum_nats=5.0
+        ),
+        PrequentialRecord(step=1, epoch=1, example_ids=[2], label_token_count=6, loss_sum_nats=3.0),
+    ]
+    run_dir = _register(geode_store, "run-epoch1-norms", n_unique=3)
+    _write_preq(run_dir, records)
+    (run_dir / "eval_log.jsonl").write_text(
+        json.dumps({"step": 1, "val_loss_nats": 0.5, "stopping_eval": True}) + "\n"
+    )
+
+    # MDL=8, N_label=10, min_val=0.5 -> edl_epoch1_nats = 8 - 10*0.5 = 3.0; 3 examples.
+    edl = 3.0
+    assert edl_epoch1_nats("run-epoch1-norms") == pytest.approx(edl)
+    assert edl_epoch1_per_label_token("run-epoch1-norms") == pytest.approx(edl / 10)
+    assert edl_epoch1_per_example("run-epoch1-norms") == pytest.approx(edl / 3)

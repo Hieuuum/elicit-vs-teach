@@ -1,0 +1,9 @@
+# Fig-2 sweep point i=2/18: n=2154 (log-spaced prefix of D_target,
+# order_hash 69e3b09e... — see llama_fig2_noinst.yaml). Overlay over
+# ../../llama_fig2_noinst.yaml.
+run_id: evt-llama-fig2-noinst-n2154
+data:
+  n_examples: 2154
+train:
+  eval_every: 5
+  max_steps: 500

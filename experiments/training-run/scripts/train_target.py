@@ -44,6 +44,12 @@ from geode.arith import load_frozen_parquet as _load_frozen_parquet, tokenize_wi
 from geode.edl import EVAL_STOP_ROWS
 from geode.edl.loop import PrequentialStepInfo, train_prequential
 from geode.edl.masking import TaskFormat, masking_config_hash
+from geode.edl.metrics import (
+    edl_epoch1_nats,
+    edl_epoch1_per_example,
+    edl_epoch1_per_label_token,
+    min_val_nats_from_eval_log,
+)
 from geode.probe import snapshot_steps
 from geode.train import ConvergenceTracker, StoppingRule, evaluate_sft_nll_nats
 from geode.zoo import checkpoint_dir, load_run, register_run, require_parent_ready, tokenizer_hash
@@ -538,12 +544,24 @@ def main() -> int:
     # Scheduled steps past the stopping point never materialize; the emergent
     # truncation is recorded here (declared schedule stays in snapshot_steps).
     manifest.data["snapshots_taken"] = taken
+    # min_val_nats is the GLOBAL minimum over every eval_log.jsonl row (stopping
+    # AND curve evals) — explicitly not tracker.min_nats, which only sees
+    # stopping evals and so misses any lower point a curve eval recorded
+    # in between (spec 00 §2). edl_epoch1_nats/_per_label_token/_per_example
+    # are the epoch-1 MDL stream floored against that same run-own minimum
+    # (Eq. 3, owner-accepted: the subtraction term is epoch-1 label tokens
+    # times a per-label-token floor, not n_val times floor) — see
+    # geode.edl.metrics for the shared math these reuse.
+    run_id = cfg["run_id"]
     manifest.data["experiment"]["target_result"] = {
         "final_step": state["final_step"],
         "stop_reason": stop_reason,
         # null if the run stopped before its first in-loop eval (JSON has no inf)
         "best_val_nats": None if math.isinf(tracker.best_nats) else tracker.best_nats,
-        "min_val_nats": None if math.isinf(tracker.min_nats) else tracker.min_nats,
+        "min_val_nats": min_val_nats_from_eval_log(run_id, store=store),
+        "edl_epoch1_nats": edl_epoch1_nats(run_id, store=store),
+        "edl_per_label_token_nats": edl_epoch1_per_label_token(run_id, store=store),
+        "edl_per_example_nats": edl_epoch1_per_example(run_id, store=store),
     }
     manifest.save(out_dir / "manifest.json")
     print(

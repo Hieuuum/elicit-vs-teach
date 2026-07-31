@@ -25,6 +25,26 @@ and `--per` flag semantics, not by a literal string match.
 | `edl_per_token.png` | `b3d16e19d3809f9ab9f348c10f5647d0383f24d2a603f839de4145a49022a253` | 194,927 | `plot_edl_per_token.py` (default `--out`, `--floor val`) |
 | `phase3_teach_vs_elicit_edl_per_token_moving_validation_floor_from_first_batch.png` | `57e5d31ea7970492755d56ae23557ce07a8276b7977ca2c6b114d44c816b60dd` | 136,853 | `plot_edl_per_token.py` (`--floor val`; custom `--out`) |
 | `phase3_teach_vs_elicit_edl_per_token_test_floor_from_first_batch.png` | `fc6efa60209b497fa759b954bcc85bc8e66f87325833822c075d00c83391cae5` | 158,012 | `plot_edl_per_token.py` (`--floor test`; custom `--out`) |
+| `run8_teach_edl_per_token_logy.png` | `837813b343f09146b61b99b1cb034758370eab674ed9717d6f047d2d86937788` | 114,050 | `plot_edl_per_token.py --floor val --logy --smooth 7 --plain-ticks --run-id evt-run8-armB-target-1m` |
+
+**2026-07-30 — the two `phase3_teach_vs_elicit_*` figures' "teach" curve has NO
+verified source.** The actual phase-3 teaching arm (`evt-p3-teach-inst` ->
+`evt-p3-teach-target`) was built but never launched (`docs/runbooks/
+phase3-runbook.md`, decisions.md "Phase-3 teaching arm built (unrun)"; no
+`evt-p3-teach-*` directory exists under `geode-store/runs/`). Reproducing
+`--floor val` against every real phase-3 run that has training logs
+(`evt-p3-elicit-recover-target`, `evt-p3-elicit-target-bridge`, the three
+embedding-warmstart targets) matches none of the shown "teach" curve's shape
+(it rises from near-zero and spikes late, unlike any of those runs, which all
+peak early and decline under the moving-val floor per this script's own
+docstring). The two PNGs' title/axis-label/legend text also doesn't match
+this script's current output format (legend shows "Phase 3 elicit"/"Phase 3
+teach", not a run-id), so they were produced by a different, uncommitted
+script. Treat both `phase3_teach_vs_elicit_*` files as **unverified** until
+their source is found; `run8_teach_edl_per_token_logy.png` above is a
+verified substitute (real `evt-run8-armB-target-1m` data, the main project's
+armB_teach 1M-scale target run — cross-phase, not phase-3 data, labeled
+plainly by run-id rather than an "elicit"/"teach" gloss).
 
 **Deviation from the original plan draft:** the plan guessed
 `edl_per_example_n1*.png` came from `learning_curves.py`. Grepping both

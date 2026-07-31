@@ -33,21 +33,42 @@ from geode.zoo import (
 from geode.zoo.store import run_dir
 
 
-def _epoch1_totals(run_id: str, *, store: Path | None = None) -> tuple[float, int]:
-    """Sum ``loss_sum_nats`` and ``label_token_count`` over epoch-1 records only."""
+def epoch1_totals(run_id: str, *, store: Path | None = None) -> tuple[float, int, int]:
+    """Sum ``loss_sum_nats``, ``label_token_count``, and example count over
+    epoch-1 ``prequential.jsonl`` records only.
+
+    Returns ``(total_loss_nats, total_label_tokens, total_examples)`` — the
+    same epoch-1 stream underlies both the token-weighted and example-weighted
+    EDL normalizations, so both denominators are exposed from one pass.
+    """
     total_loss_nats = 0.0
     total_label_tokens = 0
+    total_examples = 0
     for record in prequential_records(run_id, store=store):
         if record.epoch != 1:
             continue
         total_loss_nats += record.loss_sum_nats
         total_label_tokens += record.label_token_count
-    return total_loss_nats, total_label_tokens
+        total_examples += len(record.example_ids)
+    return total_loss_nats, total_label_tokens, total_examples
+
+
+def edl_from_totals(total_loss_nats: float, total_label_tokens: int, floor_nats: float) -> float:
+    """EDL algebra: ``total_loss_nats − total_label_tokens · floor_nats``.
+
+    The specs/01 §1 identity generalized to any per-label-token floor, in nats.
+    ``edl_nats`` applies this with the held-out ``eval/test_loss.json`` loss as
+    floor; ``edl_epoch1_nats`` applies it with a run's own global-min in-loop
+    val loss (spec 00 §2) instead. On a constant-per-token-loss stream this is
+    exactly ``(loss − floor) · tokens``; a floor equal to that constant loss
+    yields exactly 0.
+    """
+    return total_loss_nats - total_label_tokens * floor_nats
 
 
 def mdl_nats(run_id: str, *, store: Path | None = None) -> float:
     """Prequential MDL: Σ ``loss_sum_nats`` over epoch-1 ``prequential.jsonl`` records."""
-    total_loss_nats, _ = _epoch1_totals(run_id, store=store)
+    total_loss_nats, _, _ = epoch1_totals(run_id, store=store)
     return total_loss_nats
 
 
@@ -67,15 +88,15 @@ def edl_nats(run_id: str, *, store: Path | None = None) -> float:
         )
     check_masking_consistency(run_id, train_hash, store=store)
 
-    mdl, n_label = _epoch1_totals(run_id, store=store)
+    mdl, n_label, _ = epoch1_totals(run_id, store=store)
     l_test = test_loss(run_id, store=store).loss_per_label_token_nats
-    return mdl - n_label * l_test
+    return edl_from_totals(mdl, n_label, l_test)
 
 
 def edl_per_label_token(run_id: str, *, store: Path | None = None) -> float:
     """EDL/D: ``edl_nats`` divided by the epoch-1 label-token count ``N_label``."""
     edl = edl_nats(run_id, store=store)
-    _, n_label = _epoch1_totals(run_id, store=store)
+    _, n_label, _ = epoch1_totals(run_id, store=store)
     return edl / n_label
 
 
@@ -130,11 +151,58 @@ def _eval_log_records(run_id: str, *, store: Path | None = None) -> list[dict]:
     """The launcher's in-loop eval curve — ``runs/<id>/eval_log.jsonl`` (spec 02 §6).
 
     A script artifact (``train_target.py`` writes it), not a spec-00 geode log;
-    the prefix curve reads it only for the moving val floor and the eval-step grid.
+    read for the moving val floor and the eval-step grid (``prefix_edl_curve``)
+    and for the run's own global-min val loss (``min_val_nats_from_eval_log``).
     """
     path = run_dir(run_id, store=store) / "eval_log.jsonl"
     with path.open() as f:
         return [json.loads(line) for line in f if line.strip()]
+
+
+def min_val_nats_from_eval_log(run_id: str, *, store: Path | None = None) -> float:
+    """Global minimum ``val_loss_nats`` over ALL rows of ``eval_log.jsonl``
+    (spec 02 §6) — stopping evals AND curve evals alike, explicitly NOT the
+    value at the run's stop time (``ConvergenceTracker.min_nats`` only sees
+    stopping evals; this reads the full logged curve). Used as the
+    ``target_result.min_val_nats`` manifest field (spec 00 §2) and as the
+    floor for ``edl_epoch1_nats``.
+
+    No masking-hash guard (unlike ``edl_nats``'s test floor): every row comes
+    from the same in-process ``task_format``/tokenizer as training within a
+    single script run, so train/eval masking parity cannot diverge here.
+    """
+    return min(row["val_loss_nats"] for row in _eval_log_records(run_id, store=store))
+
+
+def edl_epoch1_nats(run_id: str, *, store: Path | None = None) -> float:
+    """EDL over the epoch-1 stream against the run's OWN global-min in-loop val
+    loss as floor (spec 00 §2 ``target_result.edl_epoch1_nats``) — the Eq. 3
+    subtraction term is ``(epoch-1 label tokens) · min_val_nats_from_eval_log``,
+    NOT ``n_val · floor`` (owner-accepted: a training-stream MDL is dimensioned
+    in training-stream tokens, not held-out eval tokens). Distinct from
+    ``edl_nats``, which floors against the held-out ``eval/test_loss.json``
+    loss and enforces masking-hash parity; this floor needs no such guard
+    (see ``min_val_nats_from_eval_log``).
+    """
+    mdl, n_label, _ = epoch1_totals(run_id, store=store)
+    floor = min_val_nats_from_eval_log(run_id, store=store)
+    return edl_from_totals(mdl, n_label, floor)
+
+
+def edl_epoch1_per_label_token(run_id: str, *, store: Path | None = None) -> float:
+    """``edl_epoch1_nats`` divided by the epoch-1 label-token count (token-weighted;
+    spec 00 §2 ``target_result.edl_per_label_token_nats``)."""
+    edl = edl_epoch1_nats(run_id, store=store)
+    _, n_label, _ = epoch1_totals(run_id, store=store)
+    return edl / n_label
+
+
+def edl_epoch1_per_example(run_id: str, *, store: Path | None = None) -> float:
+    """``edl_epoch1_nats`` divided by the epoch-1 example count (example-weighted,
+    NOT token-weighted; spec 00 §2 ``target_result.edl_per_example_nats``)."""
+    edl = edl_epoch1_nats(run_id, store=store)
+    _, _, n_examples = epoch1_totals(run_id, store=store)
+    return edl / n_examples
 
 
 def _fixed_test_floor_nats(run_id: str, *, store: Path | None = None) -> float:
