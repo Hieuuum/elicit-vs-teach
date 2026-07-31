@@ -61,10 +61,12 @@ data:
   # external frozen prompts instead.
 
 train:
-  lr: 3.53e-4                  # paper's 1B pin (owner 2026-07-30) — NOT
-                               # p2_armA_dose's 3e-6 installer-retention pin;
-                               # this run is gated on G2 retention itself
-                               # rather than assuming a gentle LR suffices
+  lr: 2e-5                     # full-FT installer pin (owner-corrected
+                               # 2026-07-31): the earlier 3.53e-4 was the
+                               # LoRA/target-stage pin and DIVERGES under
+                               # full-param AdamW on 1B (collapsed at step 6,
+                               # G4 0.0000 — evidence in decisions.md); still
+                               # gated on G4/G2 either way
   batch_size: 1                # == the dose (V5.65 refuses batch != n_train)
   eval_every: 1                # per-step: the step's own loss IS the metric,
                                # so the cadence costs no extra forward pass
