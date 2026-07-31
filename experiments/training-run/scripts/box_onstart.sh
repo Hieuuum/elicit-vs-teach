@@ -52,7 +52,13 @@ fi
 # `python ...` in SSH sessions.
 command -v python >/dev/null 2>&1 || ln -s "$(command -v python3)" /usr/local/bin/python
 
-exec >>/workspace/onstart.log 2>&1
+# Dual-sink logging (2026-07-31): tee to BOTH the durable on-box file AND
+# container stdout — `vastai logs` shows only container stdout, and the old
+# file-only redirect (`exec >>file`) made everything from here on (including
+# the ready line) invisible remotely: a boot watcher greping `vastai logs`
+# timed out while the box sat ready and idle-billing for ~30 min. One
+# stream, two sinks; /workspace/onstart.log remains byte-complete.
+exec > >(tee -a /workspace/onstart.log) 2>&1
 echo "=== onstart $(date -u +%Y-%m-%dT%H:%M:%SZ) ==="
 if [[ -d "$HOME/workspace" && ! /workspace -ef "$HOME/workspace" ]]; then
   echo "WARNING: /workspace and $HOME/workspace both exist and differ — using /workspace; check where the real data lives"
