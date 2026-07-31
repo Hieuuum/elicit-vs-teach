@@ -2,6 +2,8 @@
 # vast.ai "On-start Script" — paste into the instance template (or run once
 # by hand on a fresh box). Provisions a geode box; NEVER launches training
 # (budget rule: every GPU spend needs a human --confirm-cost).
+# Provisions a python3.11 uv venv at /workspace/venv (vast images may ship
+# an older python) and runs all installs and the suite inside it.
 #
 # Idempotent: safe on every container (re)start. Clones once and NEVER
 # auto-pulls — code sync stays the manual `git pull` + laptop-hash check in
@@ -55,6 +57,33 @@ BRANCH=cut-to-core
 cd /workspace
 [[ -d elicit-vs-teach ]] || git clone -b "$BRANCH" https://github.com/Hieuuum/elicit-vs-teach.git
 cd elicit-vs-teach
+
+# py>=3.11 venv (2026-07-31: the vast pytorch image shipped python 3.10, so
+# the editable install + suite failed on system python; geode needs >=3.11).
+# Always provision a python3.11 venv at /workspace/venv with uv and run
+# everything below inside it. Marker mirrors .geode_torch_ok: create once
+# per box; a container restart re-activates but never half-recreates.
+venv=FAILED
+if [[ ! -f /workspace/.geode_venv_ok ]]; then
+  rm -rf /workspace/venv
+  command -v uv >/dev/null 2>&1 || python3 -m pip install -q uv
+  uv venv /workspace/venv --python 3.11 --seed && touch /workspace/.geode_venv_ok
+fi
+if [[ -f /workspace/.geode_venv_ok ]]; then
+  set +u  # not every generator's activate script is `set -u`-clean
+  source /workspace/venv/bin/activate
+  set -u
+  python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' && venv=ok
+fi
+if [[ $venv == ok ]]; then
+  # Login shells / tmux windows must land in the venv too — appended BEFORE
+  # the other bashrc exports below (fig2 fresh-box plan).
+  if ! grep -q 'workspace/venv/bin/activate' ~/.bashrc 2>/dev/null; then
+    echo "source /workspace/venv/bin/activate" >>~/.bashrc
+  fi
+else
+  echo "WARNING: py3.11 venv provisioning FAILED — continuing on system $(python3 -V 2>&1); editable install/suite will likely fail on py<3.11 (hand-fix: uv venv /workspace/venv --python 3.11 --seed, activate, then rerun this script)"
+fi
 
 # CUDA-matched torch preflight (2026-07-29/30 incidents; see memory
 # reference-vastai-box-env-fix.md): an unpinned `pip install` resolves torch
@@ -175,7 +204,7 @@ PYEOF
 fi
 
 hash=$(git rev-parse --short HEAD)
-echo "ready: $hash suite=$suite gpu=$gpu (box hash must match laptop before any launch)"
-[[ -n ${NTFY:-} ]] && curl -sd "box ready: $hash suite=$suite gpu=$gpu" "$NTFY" >/dev/null
+echo "ready: $hash suite=$suite gpu=$gpu venv=$venv (box hash must match laptop before any launch)"
+[[ -n ${NTFY:-} ]] && curl -sd "box ready: $hash suite=$suite gpu=$gpu venv=$venv" "$NTFY" >/dev/null
 echo "=== onstart done ==="
 exit 0
