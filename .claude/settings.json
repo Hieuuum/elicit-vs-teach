@@ -13,7 +13,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/install_pkgs.sh"
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/install_pkgs.sh",
+            "timeout": 600
           }
         ]
       }
