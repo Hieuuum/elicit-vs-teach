@@ -4928,3 +4928,125 @@ and even an Agent-spawn whose prompt contained the hub deletion were
 blocked; scp-a-script-then-run passed cleanly and is the pattern for
 box-side hub surgery. (c) Cost: box 46402000 ran 5.19 h ≈ **$2.11**
 (credit $8.45 → $6.34); fig-2 total across both boxes ≈ **$5.6**.
+
+## 2026-08-03 — fig2nl: Fig-2 NL replication sweep design locked (owner; PLANNED, not yet launched)
+
+Eight decisions taken by the owner for the new fig2nl family — a
+replication of the paper's Figure-2 dataset-size-sweep protocol,
+retargeted onto a natural-language target task (EXPERIMENTS.md §6.11).
+Nothing has launched; this entry records the design so the launcher,
+datagen, and tokenizer-verification work (concurrent, separate agents)
+build against one locked spec.
+
+**Decision 1 — target task.** NL add/sub on the frozen `D_algo`
+(2026-07-19), not a new dataset and not the paper's DeepMind Mathematics
+corpus.
+
+**Decision 2 — LoRA everywhere, r512/α32.** Both target arms (noinst,
+inst) AND the installer use LoRA r512/α32 — no full-FT anywhere in this
+family. geode's scaling is α/(2r), not PEFT's α/r (V5.47 pin), so
+α32/r512 ⇒ scaling **1/32**.
+
+**Decision 3 — LR.** Target LR 3.53e-4, unchanged from §6.10. Installer
+LR 3.53e-4 too — paper-style (the paper's installer and target share one
+rate); NOT the run-9-family installer-retention pin (3.0e-6,
+`lr_pin.yaml installer_lr`), which stays scoped to run9 only (see the
+`lr_pin.yaml` comment added same day).
+
+**Decision 4 — batch.** Local batch 128 kept, no gradient accumulation
+— this is deviation 1 of the register (EXPERIMENTS.md §6.11): effective
+batch stays 8× smaller than the paper's 1024.
+
+**Decision 5 — seed.** 1 seed (316), matching every other Llama run in
+the project. The paper uses 3; deferred, not dropped.
+
+**Decision 6 — new eval set.** `D_algo_eval.parquet`, 100K NL add/sub,
+question-disjoint from `D_target ∪ D_algo ∪ D_target_eval ∪ probe`.
+
+**Decision 7 — G2 retention bar raised to 0.31.** ~95% of the 0.3271
+base-Llama reference (`evt-llama1b-base-ref`), up from the op-sweep's
+0.29 (§4 G2 bar). Rationale: in fig2nl, NL add/sub retention is not just
+a leak/forgetting check — it is the target capability itself, so the bar
+now caps how much handicap the pre-elicit (inst) parent may already
+carry on the exact skill being measured. A looser bar would let a
+partially-damaged installer still pass and confound "installed format,
+some arithmetic loss" with "elicitation from full retention."
+
+**Decision 8 — scope: sweep only, analysis cut.** The deliverable is 39
+converged runs with gates passed and data on the relay. No figure, no
+EDL analysis, no `analysis/dataset_size_sweep.py` change — deferred, not
+dropped.
+
+**G4 rationale — why the installer dose stays operator-notation
+MULT.** Per the paper, the installer and the NL target should share ONLY
+the output convention (a bare numeral), not the operation or the
+notation — the installer teaches "answer with a number," nothing about
+add/sub or natural language. The fig2nl installer dose is
+`Question: 3354 * 3459\nAnswer: 11601486` (row 0 of `D_dose_mult`,
+correct-label operator multiplication). G4, scored on NL prompts, then
+measures exactly whether that bare-numeral convention generalizes across
+both an operation change (mult → add/sub) and a notation change (operator
+→ NL). This is the paper's "differs in operation AND format" design,
+**which the shipped §6.10 op sweep did not have** — §6.10's installer
+dose (`D_dose_mult`, same source) fed an op-notation target, so only the
+operation differed there, not the notation.
+
+**Ceiling doubling.** Per-size `max_steps` doubled family-wide vs §6.10.
+Rationale: in the shipped sweep, n=68129 hit 85% of its ceiling and its
+old ceiling (3200) was anomalously below n=46416's (5500) — the schedule
+was already tight in places, and r512 (8× the shipped r64) shifts step
+counts under a bigger update per step. Ceilings remain pure cost caps:
+`stop_reason=max_steps` is still a bug signal, never an expected outcome,
+across both families.
+
+**Installer ladder, pre-authorized.** If G4 or G2 fails at 3.53e-4
+(scored `--no-record`, nothing lands on the manifest), delete the
+installer run dir and retry at 1e-4, then at 8.5e-6 — a √8-compensated
+transfer of the validated r64 3.0e-6 pin (run-9-v2 / §6.10 installer):
+ΔW ∝ α·lr/(2√r), **not** α²/(4r), so r512/r64 = 8× calls for lr scaled
+by √8 ≈ 2.83, giving 3.0e-6 × 2.83 ≈ 8.5e-6. First rung that clears
+absorption + G4 + G2 together wins; each rung costs cents at this scale.
+All three rungs failing halts the family for owner triage — no fourth LR
+invented in the field.
+
+**Measured finding — `D_algo_eval` / `D_inst_perm` overlap (tripwire,
+not a defect here).** `D_algo_eval` overlaps the on-disk `D_inst_perm`
+(operator add/sub, permuted labels, from the role-matched-installer
+phase, §6.8) by **40,469 / 100,000 = 40.47%**, with cells `1x4, 2x3,
+3x2, 4x1` **100%** overlapped. This does NOT contaminate fig2nl: no arm
+of this sweep trains on `D_inst_perm` — the installer's dose is operator
+MULT, which cannot collide with an add/sub triple by construction — so
+`D_algo_eval` is provably never-trained-on anywhere in this family.
+Record as a standing tripwire: **never reuse `D_algo_eval` against a
+parent trained on `D_inst_perm`** (a future teach-style arm would need a
+different eval). Also record what was tried and rejected: adding
+`D_inst_perm` to `D_algo_eval`'s exclusion set was measured and
+**REJECTED** — it drives 4 more cells to zero (10 of 16 empty, all
+large-operand-only), which was judged worse than the current 6-empty-cell
+eval (deviation 5, EXPERIMENTS.md §6.11) for no safety benefit in a
+family that never touches `D_inst_perm`.
+
+**Three more properties of `D_algo_eval`, measured 2026-08-03 at PR
+close (all clean; recorded so nobody has to re-derive them).**
+
+1. **Row order is shuffled, not cell-blocked.** This was worth checking
+   because `train_target.py` takes its ε/k stopping block from rows
+   0–2047 and `gates.py --prompt-config` takes G4's 512 prompts from
+   rows 2048–2559: had the generator written cell-by-cell, every one of
+   the 38 runs would have converged against a single operand cell and
+   G4 would have scored one cell, invisibly. It does not — both slices
+   draw all 10 non-empty cells in near-equal proportion (each cell
+   174–221 of the first 2,048) at ~50/50 `+`/`-`. `D_target_eval`
+   behaves identically, so the shipped sweep is clean on this too.
+2. **Exact disjointness holds.** 0 shared `(a, op, b)` triples against
+   the full 1M `D_algo`, recomputed over the whole product rather than
+   trusted from the generator's exclusion logic.
+3. **Commuted-twin exposure 12.65%** (12,652 / 100,000): answer-
+   identical `b+a` twins of an addition question in `D_algo`. Per the
+   phase-3 norm (2026-07-27) this is quoted ALONGSIDE the 0% direct
+   figure, never instead of it. It is **inherited from the
+   capacity-capped water-fill**, not a fig2nl defect — the shipped
+   `D_target`/`D_target_eval` pair measures 0% / **12.64%** on the same
+   test, so the property is common to both families and cannot explain
+   any difference between them. Subtraction contributes zero twins
+   (`b−a` has a different answer, so it is not an answer leak).

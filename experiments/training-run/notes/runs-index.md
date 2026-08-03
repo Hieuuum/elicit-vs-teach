@@ -7,7 +7,9 @@ Relay = HF `mhieuuu/geode-store` (private), mirroring `runs/<run_id>/…`.
 Residency hub-verified 2026-07-26. Artifacts column: **both** = local
 store + relay; **relay** = relay only (no local run dir); **local** =
 local store only, not yet pushed (new-phase runs, 2026-07-26); **lost** =
-no run dir anywhere (results survive in decisions.md / EXPERIMENTS.md).
+no run dir anywhere (results survive in decisions.md / EXPERIMENTS.md);
+**none (planned)** = not yet launched, no run dir anywhere yet — distinct
+from **lost**, which had one and no longer does.
 For rows with no locally edited manifest, the lifecycle shown is
 index-only (the manifest, if any, predates the field; absent ⇒ canonical
 per spec 00 §2).
@@ -91,3 +93,6 @@ per spec 00 §2).
 | evt-llama-fig2-installer | fig-2 1-example format installer, LoRA r64/α32 @3.0e-6 (run-9-v2 recipe) — absorption 0.00893 nats, G4 0.9531 / G2 0.3447 PASS recorded, G5 recorded; shared parent of the 19 inst runs. (Both failed full-FT predecessors live in the laptop archive; their relay record was deliberately deleted 2026-07-31 before this record was pushed) | canonical | both — manifest/logs + adapter sidecar (no full weights; merged model regenerable from public Llama + adapter) | decisions.md 2026-07-31 "Fig-2 Llama sweep COMPLETE" |
 | evt-llama-fig2-inst-n1000 … -n681292 (18 runs, same sizes as noinst) | fig-2 Llama sweep, inst arm (LoRA on merged installer, G7 data order matched to noinst twin), all converged | canonical | both — metadata + adapter sidecars (weights not pushed; base = merged installer, itself regenerable) | decisions.md 2026-07-31 "Fig-2 Llama sweep COMPLETE"; EXPERIMENTS.md §6.10 |
 | evt-llama-fig2-inst-n1000000 | fig-2 inst arm top size, n=1M (min_val 0.00289 nats, EDL/label-token 0.03050, G5 0.9932) | canonical | both — full weights on relay, sha `a9d47f6d…` verified | decisions.md 2026-07-31 "Fig-2 Llama sweep COMPLETE"; EXPERIMENTS.md §6.10 |
+| evt-llama-fig2nl-installer | fig2nl NL-replication installer, LoRA r512/α32 @ 3.53e-4 on row 0 of `D_dose_mult` (operator-notation MULT dose); shared parent of the 19 inst runs | planned | none (planned) — not yet launched | decisions.md 2026-08-03 "fig2nl design locked"; EXPERIMENTS.md §6.11 |
+| evt-llama-fig2nl-noinst-n1000 … -n1000000 (19 runs: n=1000, 1468, 2154, 3162, 4642, 6813, 10000, 14678, 21544, 31623, 46416, 68129, 100000, 146780, 215443, 316228, 464159, 681292, 1000000) | fig2nl NL-replication sweep, noinst arm, base Llama → fresh LoRA r512/α32 → `D_algo[:n]`, one run per size | planned | none (planned) — not yet launched | decisions.md 2026-08-03 "fig2nl design locked"; EXPERIMENTS.md §6.11 |
+| evt-llama-fig2nl-inst-n1000 … -n1000000 (19 runs, same sizes as noinst) | fig2nl NL-replication sweep, inst arm, merged installer checkpoint → fresh LoRA r512/α32 → `D_algo[:n]`, G7 data-order matched to its noinst twin (arm-serial ascending, noinst fully first) | planned | none (planned) — not yet launched | decisions.md 2026-08-03 "fig2nl design locked"; EXPERIMENTS.md §6.11 |

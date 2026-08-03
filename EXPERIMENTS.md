@@ -463,6 +463,91 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    sidecar only (stale full-FT relay record deliberately deleted
    pre-push). Total sweep cost ≈ $5.6 across two boxes.
 
+11. **Fig-2 NL replication sweep (fig2nl) — PLANNED 2026-08-03.** A
+    replication of the paper's Figure-2 dataset-size-sweep protocol
+    (§6.10's design, same 19 log-spaced sizes and base
+    `meta-llama/Llama-3.2-1B`), retargeted from the shipped op-notation
+    sweep onto a **natural-language add/sub target task** on our frozen
+    `D_algo` (2026-07-19). Two conditions, arm-serial ascending so G7
+    data-order matching is pre-satisfied by construction (noinst runs
+    fully before inst, never interleaved): noinst = base Llama → fresh
+    LoRA r512/α32 → `D_algo[:n]`; inst = merged installer checkpoint →
+    fresh LoRA r512/α32 → `D_algo[:n]`. Installer: LoRA r512/α32 @
+    3.53e-4 on row 0 of `D_dose_mult` (operator-notation MULT — the same
+    dose source as §6.8/§6.10, unchanged), gated on absorption ≤0.1 nats
+    training loss, G4 format ≥0.90 scored on NL prompts, and **G2
+    retention ≥0.31** (raised from §6.10's 0.29 — rationale in
+    decisions.md 2026-08-03). Targets: LR 3.53e-4 unchanged, local batch
+    128 (no gradient accumulation), bf16, seed 316 (single seed,
+    deferred not dropped), ε/k 0.002/k5/min0, per-size `max_steps`
+    ceilings **doubled** vs §6.10 (rationale: decisions.md 2026-08-03).
+    New eval set `D_algo_eval.parquet`, 100K NL add/sub,
+    question-disjoint from `D_target ∪ D_algo ∪ D_target_eval ∪ probe`.
+    Run ids: `evt-llama-fig2nl-installer`,
+    `evt-llama-fig2nl-{noinst,inst}-n<size>` over the 19 sizes (1,000 →
+    1,000,000); 39 runs total. **Analysis is CUT for this family**
+    (owner 2026-08-03): the deliverable is 39 converged runs with gates
+    passed and data pushed to the relay — no figure, no EDL analysis, no
+    `analysis/dataset_size_sweep.py` change. The shipped §6.10
+    op-notation sweep is untouched, immutable history — fig2nl runs
+    alongside it, never in place of it.
+
+    **Deviation register** (fig2nl vs the paper's Figure-2 protocol; all
+    owner-accepted 2026-08-03 unless noted otherwise):
+    1. Effective batch 128 vs the paper's 1024 (no gradient
+       accumulation) ⇒ optimization behavior differs; 3.53e-4 is 8×
+       hotter per example than the paper's rate at matched batch.
+       Owner-accepted ("assume full utilization on a 4090").
+    2. 1 seed (316) vs the paper's 3. Deferred, not dropped.
+    3. Installer = LoRA r512 @ 3.53e-4, not the paper's full-FT @ 2e-5.
+       r512 = **360,710,144 trainable params = 29% of the 1.24B model
+       (37% of non-embedding)** and is **FULL RANK for k_proj/v_proj**
+       (out_features 512) — nearer full-FT than "LoRA" suggests. Stated
+       plainly here; it is the deviation most likely to be misread.
+    4. Dataset = our `D_algo` (4×4-digit operand grid), not DeepMind
+       Mathematics. Its signed subtraction convention (the NL prompt
+       reads as |a−b| but the label is a−b) puts a hard ceiling on any
+       model answering with absolute values, equal to the non-negative
+       share of whichever set is scored. Quote the set, never a single
+       number: **0.7383** is the G1/G2 1,024-question set (268 negative,
+       decisions.md 2026-07-25) — that is the set the 0.31 G2 bar and
+       the 0.3271 base-ref live on. `D_algo` itself is 250,110/1,000,000
+       negative (ceiling **0.7499**) and the new `D_algo_eval` is
+       25,004/100,000 (ceiling **0.7500**) — both MEASURED 2026-08-03,
+       and the latter is what caps G5 exact-match for this family.
+    5. `D_algo_eval` is **empty in exactly 6 of 16 operand cells** —
+       `1x1, 1x2, 1x3, 2x1, 2x2, 3x1` — because the frozen 1M sets
+       exhausted the small-operand question space. MEASURED, not
+       predicted: the generation dry-run allocated the full 100,000
+       evenly as 10,000 across the 10 non-empty cells, and adding
+       `D_target_eval` to the exclusion killed no additional cell.
+       Consequence: EDL floor / test loss / G5 are scored on
+       large-operand questions only — shared by both arms, so cross-arm
+       comparisons stay fair. Row order is shuffled, verified 2026-08-03:
+       the ε/k stopping block (rows 0–2047) and G4's 512 prompts (rows
+       2048–2559) each draw all 10 non-empty cells in near-equal
+       proportion at ~50/50 ops, so no stage is scored on a single
+       operand cell. `D_target_eval` behaves identically.
+    6. No fp32 master weights anywhere in the Llama chain: checkpoints
+       load and save bf16, so the V5.62 "fp32 measurement" note holds
+       for the loss *compute* dtype, not the weights (decisions.md
+       2026-07-31). This is **also true of the shipped §6.10 op
+       sweep** — it is recorded, not fixed, because fixing it would
+       fork comparability. `eps_nats 0.002` sits near bf16 resolution.
+    7. Denser 19-point size grid vs the paper's ~3 points per decade.
+    8. **Commuted-twin exposure.** `D_algo_eval` shares **zero** exact
+       `(a, op, b)` triples with `D_algo` — the exclusion is
+       exact-triple, and 0 collisions were verified over the full
+       1M × 100K product — but **12,652 of its 100,000 rows (12.65%)**
+       are answer-identical commuted twins (`b+a` for a training `a+b`).
+       Quote both numbers or neither (the phase-3 norm, decisions.md
+       2026-07-27). Subtraction contributes none: `b−a` has a different
+       answer, so it is not an answer leak. This is **inherited from the
+       capacity-capped water-fill, not new to fig2nl** — the shipped op
+       sweep's `D_target`/`D_target_eval` pair measures 0% / 12.64% on
+       the identical test (both MEASURED 2026-08-03), so it does not
+       differentiate the two families.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
