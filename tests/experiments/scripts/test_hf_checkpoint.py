@@ -135,6 +135,38 @@ def test_push_no_weights_excludes_model_but_keeps_adapter_without_a_local_checkp
     assert not any(fnmatch.fnmatch("model/adapter.safetensors", p) for p in ignore)
 
 
+def test_push_metadata_only_excludes_the_adapter_sidecar_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--metadata-only is strictly stronger than --no-weights: NO *.safetensors ships.
+
+    The distinction is load-bearing for the fig2nl sweep (owner 2026-08-03):
+    --no-weights would have carried 39 x ~0.72 GB of r512 adapter sidecars to
+    the relay. If this flag ever silently degraded to --no-weights semantics,
+    the push would succeed and just cost ~27 GB, so nothing else would catch it.
+    """
+    rid = "evt-smoke-run"
+    run_dir = tmp_path / "runs" / rid
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text("{}")
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    assert hfc.push(tmp_path, rid, "repo/id", public=False, metadata_only=True) == 0
+
+    ignore = fake.upload_calls[0]["ignore_patterns"]
+    assert ignore is not None
+    for weight_path in (
+        "model/model.safetensors",
+        "model/adapter.safetensors",
+        "model_merged/model.safetensors",
+    ):
+        assert any(fnmatch.fnmatch(weight_path, p) for p in ignore), weight_path
+    # ...while everything the EDL/n figure reads still goes up.
+    for kept in ("manifest.json", "logs/train_log.jsonl", "eval/test_loss.json"):
+        assert not any(fnmatch.fnmatch(kept, p) for p in ignore), kept
+
+
 def test_push_with_weights_uploads_without_excluding_safetensors(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

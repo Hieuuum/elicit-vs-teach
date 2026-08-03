@@ -19,6 +19,11 @@ Usage:
     # intentionally never archived to the relay, but a LoRA run's compact
     # adapter still rides along so its weights stay cheaply recoverable):
     python3 hf_checkpoint.py push --run-id <run-id> --no-weights
+    # push manifest/logs/gates/eval ONLY — not one byte of *.safetensors,
+    # adapter sidecars included (a sweep whose runs are deliberately not
+    # recoverable: the relay keeps the measurement, the weights die with
+    # the box). Strictly stronger than --no-weights; the two are exclusive:
+    python3 hf_checkpoint.py push --run-id <run-id> --metadata-only
     # either direction: snapshots/ is SKIPPED by default (multi-GB, needed
     # only for extraction) — opt in explicitly:
     python3 hf_checkpoint.py pull --run-id <run-id> --with-snapshots
@@ -116,6 +121,7 @@ def push(
     public: bool,
     with_snapshots: bool = False,
     no_weights: bool = False,
+    metadata_only: bool = False,
 ) -> int:
     src = store / "runs" / run_id
     # Mirrors pull's ignore-list construction below: same two knobs, same
@@ -130,7 +136,19 @@ def push(
     # that way, nested or not), but a plain weights-included push had no
     # exclusion for it at all.
     ignore.append("model_merged/*")
-    if no_weights:
+    if metadata_only:
+        # Strictly stronger than --no-weights: that flag's "*model.safetensors"
+        # deliberately lets adapter.safetensors ride along, which at LoRA r512
+        # is ~0.72 GB per run — the dominant relay cost of a 39-run sweep, and
+        # larger in total than the full checkpoints it excludes. This branch
+        # ships the measurement (manifest/logs/gates/eval) and nothing else.
+        ignore.append("*.safetensors")
+        print(
+            "[hf] --metadata-only: ALL *.safetensors excluded from push "
+            "(adapter sidecars too) — these run weights are not recoverable "
+            "from the relay"
+        )
+    elif no_weights:
         ignore.append("*model.safetensors")
         print(
             "[hf] --no-weights: model.safetensors excluded from push "
@@ -151,7 +169,9 @@ def push(
         ignore_patterns=ignore or None,
     )
     print(f"[hf] pushed {src} -> https://huggingface.co/{repo_id}/tree/main/runs/{run_id}")
-    if no_weights:
+    if metadata_only:
+        print("[hf] metadata-only push complete: no weights on the relay for this run")
+    elif no_weights:
         print("[hf] next: push again without --no-weights when this run's weights are needed on the hub")
     else:
         print("[hf] next, on the box: python3 hf_checkpoint.py pull")
@@ -233,6 +253,13 @@ def main() -> int:
         "logs/gates land for laptop-side analysis without any weights",
     )
     parser.add_argument(
+        "--metadata-only",
+        action="store_true",
+        help="push only: exclude EVERY *.safetensors, adapter sidecars included "
+        "— manifest/logs/gates/eval reach the relay and the run's weights do "
+        "not survive box teardown. Stronger than --no-weights; exclusive with it",
+    )
+    parser.add_argument(
         "--with-snapshots",
         action="store_true",
         help="include runs/<run-id>/snapshots/ (skipped by default both ways — "
@@ -241,9 +268,23 @@ def main() -> int:
     args = parser.parse_args()
     if args.no_weights and args.with_snapshots:
         parser.error("--no-weights and --with-snapshots contradict (snapshots are weights)")
+    if args.metadata_only and args.with_snapshots:
+        parser.error("--metadata-only and --with-snapshots contradict (snapshots are weights)")
+    if args.metadata_only and args.no_weights:
+        parser.error("--metadata-only and --no-weights are exclusive (pick one exclusion policy)")
+    if args.metadata_only and args.cmd == "pull":
+        parser.error(
+            "--metadata-only is push-only; pull --no-weights already excludes *.safetensors"
+        )
     if args.cmd == "push":
         return push(
-            args.store, args.run_id, args.repo_id, args.public, args.with_snapshots, args.no_weights
+            args.store,
+            args.run_id,
+            args.repo_id,
+            args.public,
+            args.with_snapshots,
+            args.no_weights,
+            args.metadata_only,
         )
     return pull(args.store, args.run_id, args.repo_id, args.no_weights, args.with_snapshots)
 

@@ -180,31 +180,25 @@ else:
 PY
 }
 
-push_manifest_only() {
+# The ONLY push helper in this family (owner 2026-08-03): --metadata-only, not
+# --no-weights. --no-weights would let each run's adapter.safetensors ride
+# along, which at r512 is ~0.72 GB x 39 ~= 27 GB of relay — more than the full
+# checkpoints it excludes. Nothing weight-bearing is archived here.
+push_metadata_only() {
   local rid=$1
   [[ $(status_of "$rid") == complete ]] || fail "cannot push $rid: not complete"
-  milestone "push_start run=$rid weights=no"
+  milestone "push_start run=$rid weights=none"
   HF_TOKEN=${HF_WRITE_TOKEN:-${HF_TOKEN:?no HF_TOKEN/HF_WRITE_TOKEN in env}} \
-    python3 hf_checkpoint.py push --run-id "$rid" --no-weights || fail "$rid HF push (no-weights)"
+    python3 hf_checkpoint.py push --run-id "$rid" --metadata-only ||
+    fail "$rid HF push (metadata-only)"
 }
 
-push_weights_verified() {
-  local rid=$1
-  [[ $(status_of "$rid") == complete ]] || fail "cannot push $rid: not complete"
-  milestone "push_start run=$rid weights=yes"
-  HF_TOKEN=${HF_WRITE_TOKEN:-${HF_TOKEN:?no HF_TOKEN/HF_WRITE_TOKEN in env}} \
-    python3 hf_checkpoint.py push --run-id "$rid" || fail "$rid HF push"
-  python3 - "$rid" <<'PY' || fail "$rid relay sha256 verify"
-import os, sys
-from pathlib import Path
-from hf_checkpoint import verify_hub_checkpoint
-
-rid = sys.argv[1]
-store = Path(os.environ["GEODE_STORE"])
-sha = verify_hub_checkpoint(store, rid)
-print(f"[fig2nl] MILESTONE push_verified run={rid} sha256={sha}")
-PY
-}
+# NOTE: there is deliberately no weights-push helper here. The shipped
+# op-notation launcher had one (push_weights_verified: full push + a hub
+# sha256 compare via hf_checkpoint.verify_hub_checkpoint); it is dropped
+# because no run in this family archives weights. If a late decision reverses
+# that for one run, push it by hand before teardown:
+#   HF_TOKEN=$HF_WRITE_TOKEN python3 hf_checkpoint.py push --run-id <rid>
 
 if [[ $STAGE == all || $STAGE == train ]]; then
   DOSE_MULT=$REPO_ROOT/experiments/training-run/data/full/D_dose_mult.parquet
@@ -453,24 +447,32 @@ PY
 fi
 
 # ---- stage 6: push (separate; needs a WRITE-scoped token) -----------------
+# METADATA ONLY, all 39 runs (owner 2026-08-03). Manifests, train logs, gate
+# records and eval/test_loss.json reach the relay; no *.safetensors does,
+# adapter sidecars included. Two consequences, both irreversible at teardown:
+#   * The deliverable SURVIVES: every field the EDL/n figure reads
+#     (experiment.target_result, experiment.gates.G5, eval/test_loss.json)
+#     is manifest-side, so dataset_size_sweep.py --family nl works off a
+#     `pull --no-weights` on any machine, forever.
+#   * NO run in this family is RECOVERABLE. Re-running the sweep is the only
+#     route back to any of these weights. The adapter sidecars alone would
+#     have been ~27 GB at r512 — larger than the full checkpoints beside
+#     them — which is why the whole class was dropped rather than trimmed.
+# No sha256 verify step exists here by design: verification compares a local
+# model.safetensors against its hub copy, and nothing is being uploaded.
 if ((PUSH)); then
-  push_manifest_only "$INSTALLER_RID"
+  push_metadata_only "$INSTALLER_RID"
   for n in "${SIZES[@]}"; do
-    [[ $n == "$BIG_N" ]] && continue
-    push_manifest_only "evt-llama-fig2nl-noinst-n${n}"
-    push_manifest_only "evt-llama-fig2nl-inst-n${n}"
+    push_metadata_only "evt-llama-fig2nl-noinst-n${n}"
+    push_metadata_only "evt-llama-fig2nl-inst-n${n}"
   done
-  # Only the two n=1,000,000 runs get their weights archived to the relay
-  # (39 full Llama-3.2-1B checkpoints locally would be ~100GB; every LoRA
-  # target run saves the complete base+adapter state_dict, spec 00 §1, not
-  # just the adapter). Every other run's model.safetensors is pruned below —
-  # a local disk-space step, not a "confirm this copy" step, since those
-  # weights are deliberately never archived anywhere. adapter.safetensors
-  # (+ config.json/generation_config.json) is kept: the compact recovery
-  # artifact already rode along on the --no-weights push above.
-  push_weights_verified "$BIG_NOINST_RID"
-  push_weights_verified "$BIG_INST_RID"
 
+  # Local disk reclaim only — these weights are archived nowhere, so this is
+  # the point of no return for them. The two n=1,000,000 runs are SPARED
+  # (unchanged from the op family, but for a new reason): they are the
+  # endpoint of each arm and the likeliest late "actually, keep that one",
+  # so their local copy is left standing until the box is destroyed. Push one
+  # by hand (command above the push helper) if that call gets made.
   for n in "${SIZES[@]}"; do
     [[ $n == "$BIG_N" ]] && continue
     prune_rids=("evt-llama-fig2nl-noinst-n${n}" "evt-llama-fig2nl-inst-n${n}")
@@ -478,14 +480,20 @@ if ((PUSH)); then
       model_dir=$GEODE_STORE/runs/$rid/model
       if [[ -f $model_dir/model.safetensors ]]; then
         rm -f "$model_dir/model.safetensors"
-        milestone "pruned run=$rid file=$model_dir/model.safetensors (adapter.safetensors kept)"
+        milestone "pruned run=$rid file=$model_dir/model.safetensors"
       fi
     done
   done
+  milestone "prune_spared runs=$BIG_NOINST_RID,$BIG_INST_RID (local weights kept until teardown; on the relay: nothing)"
 fi
 
 echo "[fig2nl] MILESTONE analysis_commands"
-echo "[fig2nl]   no analysis script is wired to this family — analysis work is CUT from this plan"
+echo "[fig2nl]   the ONE figure for this family is EDL/D vs n (owner 2026-08-03):"
+echo "[fig2nl]     python3 ../analysis/dataset_size_sweep.py --family nl"
+echo "[fig2nl]   CPU-only, no network, no weights needed — runs here off \$GEODE_STORE,"
+echo "[fig2nl]   or anywhere after 'hf_checkpoint.py pull --run-id <rid> --no-weights'."
+echo "[fig2nl]   Writes results/dataset_size_sweep_nl.parquet + analysis/figures/dataset_size_sweep_nl.png"
+echo "[fig2nl]   (the _nl stem cannot overwrite the shipped op-notation outputs). scp BOTH down before teardown."
 # Silent unless NTFY_AUTO=1 (owner 2026-07-31: automatic pings default off;
 # notify()'s NTFY_AUTO gate in launch_common.sh covers this call and fail()'s
 # alike). The session-end owner ping is sent manually by the agent, not by

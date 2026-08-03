@@ -4975,7 +4975,60 @@ some arithmetic loss" with "elicitation from full retention."
 **Decision 8 — scope: sweep only, analysis cut.** The deliverable is 39
 converged runs with gates passed and data on the relay. No figure, no
 EDL analysis, no `analysis/dataset_size_sweep.py` change — deferred, not
-dropped.
+dropped. **AMENDED same day by decisions 9 and 10 below** — one figure
+came back, and the relay push got narrower.
+
+**Decision 9 (2026-08-03, amends 8) — exactly one figure: EDL/D vs. n,
+computed as in §6.10.** Owner: "the only figure i want is edl/n which is
+calc similarly to fig2 sweep." That is already the sole plot
+`analysis/dataset_size_sweep.py` draws — `edl_per_label_token_nats` from
+`experiment.target_result`, nats → bits at the reporting boundary, log-x,
+one curve per condition, hollow red markers for any run that did not
+converge. So the script was parameterised rather than rewritten: a new
+`--family {op,nl}` flag selects the run-id prefix AND the output stem.
+
+- `op` (default, unchanged behaviour): `evt-llama-fig2-` →
+  `results/dataset_size_sweep.parquet`, `figures/dataset_size_sweep.png`.
+- `nl`: `evt-llama-fig2nl-` → `results/dataset_size_sweep_nl.parquet`,
+  `figures/dataset_size_sweep_nl.png`.
+
+The separate stem is not cosmetic. `geode.zoo.write_results` is
+overwrite-by-name (OQ-6), so pointing this family at the default stem
+would have silently destroyed the shipped §6.10 table — a 228-row result
+that cost real GPU budget and can never be regenerated (its box is gone).
+The two run-id families cannot cross-match either: `RUN_ID_RE` now reads
+`^evt-llama-fig2(?:nl)?-(noinst|inst)-n(\d+)$`, and the `nl` infix means
+an id satisfies exactly one reading. Both properties are tested
+(`test_nl_family_run_ids_are_disjoint_from_op`,
+`test_nl_family_writes_a_separate_table_from_the_shipped_op_one`).
+Everything else stays cut: no floor/per-token work, no cross-family
+comparison, no §6.10 re-analysis.
+
+**Decision 10 (2026-08-03, amends 8) — relay push is METADATA ONLY.**
+Owner: "no need to push the weights to hf for w9." Applied to the whole
+weight class, not just the full checkpoints, after the sizes were put in
+front of the owner: the plan's `--no-weights` push deliberately carries
+each run's `adapter.safetensors` sidecar, which at LoRA r512 is ~0.72 GB
+× 39 ≈ **27 GB — larger than the 2 × ~2.5 GB of full checkpoints it was
+excluding**. Owner chose metadata only over keeping all 39 adapters
+(~27 GB) or just the two n=1M ones (~1.4 GB).
+
+`hf_checkpoint.py push` gained `--metadata-only` (ignores `*.safetensors`
+outright; exclusive with `--no-weights`, which keeps its old
+sidecar-preserving meaning for every other caller). The fig2nl launcher
+uses it for all 39 runs and no longer has a weights-push helper at all —
+`push_weights_verified` and its hub sha256 compare were deleted, since
+there is nothing to verify when nothing is uploaded.
+
+Irreversibility, recorded deliberately: **no run in this family will be
+recoverable from the relay.** Re-running the sweep is the only route back
+to any of these weights. This does NOT threaten the deliverable — every
+field the EDL/n figure reads (`experiment.target_result`,
+`experiment.gates.G5`, `eval/test_loss.json`) is manifest-side, so the
+figure regenerates from `hf_checkpoint.py pull --no-weights` on any
+machine, forever. One hedge kept: the launcher's local prune still spares
+the two n=1,000,000 runs, so their weights survive on the box until
+teardown and a late reversal can push one by hand.
 
 **G4 rationale — why the installer dose stays operator-notation
 MULT.** Per the paper, the installer and the NL target should share ONLY

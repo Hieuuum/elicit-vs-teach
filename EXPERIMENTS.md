@@ -485,12 +485,40 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     question-disjoint from `D_target ∪ D_algo ∪ D_target_eval ∪ probe`.
     Run ids: `evt-llama-fig2nl-installer`,
     `evt-llama-fig2nl-{noinst,inst}-n<size>` over the 19 sizes (1,000 →
-    1,000,000); 39 runs total. **Analysis is CUT for this family**
-    (owner 2026-08-03): the deliverable is 39 converged runs with gates
-    passed and data pushed to the relay — no figure, no EDL analysis, no
-    `analysis/dataset_size_sweep.py` change. The shipped §6.10
-    op-notation sweep is untouched, immutable history — fig2nl runs
-    alongside it, never in place of it.
+    1,000,000); 39 runs total. The shipped §6.10 op-notation sweep is
+    untouched, immutable history — fig2nl runs alongside it, never in
+    place of it.
+
+    **Deliverable, narrowed twice by the owner on 2026-08-03.** The first
+    pass cut analysis entirely; the second restored exactly one figure:
+
+    - **ONE figure: EDL/D vs. n**, computed the same way as §6.10 —
+      `edl_per_label_token_nats` off each run's
+      `experiment.target_result`, converted to bits at the reporting
+      boundary, log-x, one curve per condition.
+      `analysis/dataset_size_sweep.py` gained `--family {op,nl}` for it;
+      `--family nl` reads the `evt-llama-fig2nl-` prefix and writes
+      `results/dataset_size_sweep_nl.parquet` +
+      `analysis/figures/dataset_size_sweep_nl.png`. The distinct `_nl`
+      stem is load-bearing: `write_results` is overwrite-by-name (OQ-6),
+      so a shared stem would let this family silently replace §6.10's
+      shipped table. Default stays `op`, so every existing path and
+      output name is unchanged. Nothing else is analysed — no
+      per-token/floor work, no cross-family comparison.
+    - **Relay push is METADATA ONLY** — manifests, train logs, gate
+      records, `eval/test_loss.json`; not one byte of `*.safetensors`,
+      adapter sidecars included. `hf_checkpoint.py push` gained
+      `--metadata-only` for this (`--no-weights` deliberately keeps the
+      sidecar, which at r512 is ~0.72 GB × 39 ≈ 27 GB — *larger* than the
+      full checkpoints it excludes, which is what made the distinction
+      worth a flag). Consequence, stated because it is irreversible at
+      teardown: **no run in this family is recoverable from the relay**;
+      re-running the sweep is the only route back to any of these
+      weights. The figure is unaffected — every field it reads is
+      manifest-side, so it regenerates from a `pull --no-weights` on any
+      machine. The launcher spares the two n=1,000,000 runs from its
+      local prune so a late reversal can still push one by hand before
+      the box dies.
 
     **Deviation register** (fig2nl vs the paper's Figure-2 protocol; all
     owner-accepted 2026-08-03 unless noted otherwise):
