@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
+# ARCHIVED 2026-08-03 (superseded by ../launch_fig2nl_llama.sh, the NL-target
+# family). History artifact, NOT runnable from here: its `../configs/...`
+# paths resolved from scripts/, and its configs moved to
+# configs/archive/{runs,sweeps}/ in the same commit. Same convention as every
+# other launcher in this directory. The runs it produced (evt-llama-fig2-*)
+# are shipped and immutable — decisions.md 2026-07-31, EXPERIMENTS.md §6.10.
 # Figure-2 dataset-size sweep (Llama-3.2-1B pair) — the paper's Figure-2
 # protocol rerun on D_target (operator add/sub, frozen 1M, order_hash
 # 69e3b09e...): 19 log-spaced prefix-nested sizes n = round(10^(3+i/6)),
