@@ -287,30 +287,43 @@ PY
     fail "$INSTALLER_RID gate=G4 verdict='$G4_VERDICT' (expected pass or missing) — inspect $GEODE_STORE/runs/$INSTALLER_RID/manifest.json before rerunning"
   fi
 
-  # G2 bar RAISED to 0.31 (owner 2026-08-03, up from the old family's 0.29):
-  # NL add/sub is now the target task itself, not a held-out retention check
-  # on a different notation, so this bar caps how much handicap the
-  # pre-elicit parent is allowed to carry on the very capability being
-  # measured. eval_algo_data_llama.yaml's config name is UNCHANGED — the bar
-  # is calibrated on its seeded question set (base-ref 0.3271).
-  G2_VERDICT=$(gate_verdict "$INSTALLER_RID" G2)
-  if [[ $G2_VERDICT == pass ]]; then
-    milestone "gate_skip run=$INSTALLER_RID gate=G2 status=recorded_pass"
-  elif [[ $G2_VERDICT == missing ]]; then
-    G2_OUT=$(python3 gates.py g2 --run "$INSTALLER_RID" \
-      --config ../configs/eval_algo_data_llama.yaml --threshold 0.31 --no-record 2>&1)
-    echo "$G2_OUT"
-    G2_SCORE=$(gate_score "$G2_OUT" G2 accuracy)
-    [[ -n $G2_SCORE ]] || fail "$INSTALLER_RID G2 printed no accuracy score (output above)"
-    gate_passed "$G2_OUT" G2 accuracy ||
-      fail "$INSTALLER_RID G2 retention $G2_SCORE < 0.31 — NOT recorded, no targets from an ungated parent"
-    python3 gates.py g2 --run "$INSTALLER_RID" \
-      --config ../configs/eval_algo_data_llama.yaml --threshold 0.31 --record-only-pass ||
-      fail "$INSTALLER_RID G2 DIVERGENCE: --no-record scored $G2_SCORE (PASS) but the recording pass recomputed a FAIL — nothing was written (--record-only-pass refused it); rerun the gate block"
-    milestone "gate_pass run=$INSTALLER_RID gate=G2 accuracy=$G2_SCORE"
-  else
-    fail "$INSTALLER_RID gate=G2 verdict='$G2_VERDICT' (expected pass or missing) — inspect $GEODE_STORE/runs/$INSTALLER_RID/manifest.json before rerunning"
-  fi
+  # G2 IS NO LONGER A GATE (owner decision 2026-08-03, mid-launch): "just do
+  # 3.53e-4 for lr, don't care about g2 at all, use the paper and don't care
+  # about g2, just do the sweep". The installer LR reverts to the paper pin
+  # 3.53e-4 (this config's own value — the retry ladder is retired, not
+  # deleted: the executed rungs 1e-4/7e-5/8.5e-6 stay under
+  # configs/sweeps/llama_fig2nl/ as the record of the search).
+  #
+  # WHAT WAS MEASURED BEFORE THE BAR WAS DROPPED (4 rungs, all on the same
+  # seeded 1,024-question set; base Llama = 0.3271):
+  #   lr 3.53e-4  G4-NL 0.9609  G2 0.1719
+  #   lr 1.0e-4   G4-NL 0.9141  G2 0.2812
+  #   lr 7.0e-5   G4-NL 0.8828  G2 0.3242   <- G4 on OP prompts: 0.9922
+  #   lr 8.5e-6   G4-NL 0.8340  G2 not reached
+  # The 7e-5 op-prompt reading proves the output convention DOES install; the
+  # binding constraint was its transfer to NL prompt framing. No LR cleared
+  # G4-NL >= 0.90 and G2 >= 0.31 together.
+  #
+  # G2 is still SCORED and printed here, deliberately: --no-record only, so
+  # the number lands in this log and in decisions.md as evidence, while NO
+  # pass/fail verdict is written to the installer manifest. Recording a
+  # verdict we are not honouring would be a lie in the artifact; skipping the
+  # measurement entirely would throw away the one number that says how
+  # handicapped the inst arm's parent is. A sub-threshold score no longer
+  # halts anything.
+  #
+  # CONSEQUENCE, for whoever reads the figure: at 3.53e-4 the inst arm's
+  # parent starts with NL retention ~0.1719 vs base 0.3271 — roughly half its
+  # NL arithmetic gone. That handicaps INST, so an inst/teach win survives it
+  # (won despite the damage) while a noinst/elicit win is confounded with it.
+  # Same one-sided-conservatism shape as the phase-2 arms entering 3.1 nats
+  # apart (decisions.md 2026-07-26). Direction matters; magnitude is unknown.
+  G2_OUT=$(python3 gates.py g2 --run "$INSTALLER_RID" \
+    --config ../configs/eval_algo_data_llama.yaml --threshold 0.31 --no-record 2>&1)
+  echo "$G2_OUT"
+  G2_SCORE=$(gate_score "$G2_OUT" G2 accuracy)
+  [[ -n $G2_SCORE ]] || fail "$INSTALLER_RID G2 printed no accuracy score (output above) — the measurement is still required even though the bar is not"
+  milestone "gate_measured_not_gating run=$INSTALLER_RID gate=G2 accuracy=$G2_SCORE bar_dropped_by_owner=2026-08-03"
 
   # LoRA installer → plain checkpoint for the inst sweep's --init-from
   # (train_target.py init is plain from_pretrained; the wrapped model/

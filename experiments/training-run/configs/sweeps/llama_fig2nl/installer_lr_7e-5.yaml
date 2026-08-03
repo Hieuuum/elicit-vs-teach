@@ -1,0 +1,19 @@
+# fig2nl installer retry ladder, rung 4 — added 2026-08-03 AFTER rungs 1-3 all
+# failed, on owner instruction to keep searching the installer learning rate
+# rather than move a gate bar or the target LR.
+#
+# 7.0e-5 is the midpoint of the only window the first three rungs leave open:
+#   rung 1  3.53e-4  G4 0.9609 PASS   G2 0.1719 FAIL
+#   rung 2  1.0e-4   G4 0.9141 PASS   G2 0.2812 FAIL
+#   rung 3  8.5e-6   G4 0.8340 FAIL   G2 not reached
+# G4 falls ~0.075/decade as LR drops (crosses 0.90 near 6.5e-5); G2 rises
+# ~0.199/decade (crosses 0.31 near 7.2e-5). CAVEAT, recorded so no one reads a
+# pass here as solid: that window is ~0.05 decades wide, but gate noise (G4
+# SE ~0.013 at n=512, G2 SE ~0.014 at n=1024) is worth ~0.18 and ~0.07 decades
+# of LR respectively — the window is narrower than the uncertainty in its own
+# edges, so a pass at this rung is a threshold crossing, not a settled state
+# ([[feedback-threshold-crossings-need-persistence]]). Do NOT raise --n to
+# beat the noise: the 0.31 bar is calibrated on eval_algo_data_llama's seeded
+# 1,024-question set and a different n is a different set.
+train:
+  lr: 7.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

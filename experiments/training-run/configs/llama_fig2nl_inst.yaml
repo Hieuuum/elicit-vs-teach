@@ -26,10 +26,17 @@ experiment:
   role: target
   parent_run_id: evt-llama-fig2nl-installer   # the format installer
   external_base: null
-  parent_required_gates: [G4, G2]  # G4 format >=0.90 on NL prompts, G2
-                                   # retention >=0.31 (RAISED from the shipped
-                                   # family's 0.29: NL add/sub is now the
-                                   # target task itself), owner 2026-08-03
+  parent_required_gates: [G4]      # G4 format >=0.90 on NL prompts ONLY.
+                                   # G2 retention was dropped as a gate by the
+                                   # owner mid-launch 2026-08-03 ("don't care
+                                   # about g2 at all ... just do the sweep")
+                                   # after 4 installer LRs failed to clear
+                                   # G4-NL and G2@0.31 together. G2 is still
+                                   # MEASURED (--no-record) by the launcher and
+                                   # logged; it is simply not gating. Leaving
+                                   # G2 listed here would make
+                                   # require_parent_ready (V0.6) refuse all 19
+                                   # inst runs, since no G2 verdict is written.
   match_data_order_with: null    # placeholder; every overlay points this at
                                  # the SAME-SIZE noinst run (G7): identical
                                  # stream by construction, checked as a guard

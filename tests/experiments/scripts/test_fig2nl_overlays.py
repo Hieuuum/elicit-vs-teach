@@ -49,7 +49,18 @@ SCHEDULE: dict[int, tuple[int, int]] = {
     1000000: (500, 93756),
 }
 
-LADDER_RUNGS = ("installer_lr_1e-4.yaml", "installer_lr_8p5e-6.yaml")
+# Every installer LR actually EXECUTED during the 2026-08-03 launch, kept as
+# the record of the search. 7e-5 was added mid-launch, after the original two
+# rungs failed, and is the one that produced the decisive diagnostic (G2 0.3242
+# PASS, G4 on NL prompts 0.8828 FAIL, G4 on OP prompts 0.9922 PASS — the output
+# convention installs, but does not transfer to NL prompt framing). The search
+# ended when the owner dropped the G2 bar and pinned the paper's 3.53e-4, which
+# lives in llama_fig2nl_installer.yaml itself and so needs no rung file here.
+LADDER_RUNGS = (
+    "installer_lr_1e-4.yaml",
+    "installer_lr_7e-5.yaml",
+    "installer_lr_8p5e-6.yaml",
+)
 
 
 def test_overlay_directory_is_fully_discovered() -> None:
@@ -58,9 +69,9 @@ def test_overlay_directory_is_fully_discovered() -> None:
     reports as green)."""
     files = sorted(p.name for p in SWEEP_DIR.glob("*.yaml"))
     assert files, f"no .yaml files found under {SWEEP_DIR} — this suite would vacuously pass"
-    assert len(files) == 40, (
-        f"expected 38 sweep overlays + 2 ladder rungs == 40 files under {SWEEP_DIR}, "
-        f"found {len(files)}"
+    assert len(files) == 38 + len(LADDER_RUNGS), (
+        f"expected 38 sweep overlays + {len(LADDER_RUNGS)} executed ladder rungs == "
+        f"{38 + len(LADDER_RUNGS)} files under {SWEEP_DIR}, found {len(files)}"
     )
     for rung in LADDER_RUNGS:
         assert rung in files, f"{rung} not found under {SWEEP_DIR}"
