@@ -5103,3 +5103,66 @@ close (all clean; recorded so nobody has to re-derive them).**
    test, so the property is common to both families and cannot explain
    any difference between them. Subtraction contributes zero twins
    (`b−a` has a different answer, so it is not an answer leak).
+
+## 2026-08-03 — fig2nl installer: the G4/G2 gate pair is jointly unsatisfiable at r512; owner de-gates G2
+
+**Owner decision, mid-launch:** "just do 3.53e-4 for lr don't care about g2
+at all use the paper and don't care about g2 just do the sweep." The installer
+takes the paper pin **3.53e-4** and **G2 stops being a gate**. This supersedes
+the 2026-08-03 locked decisions 3 (installer LR + ladder) and 7 (G2 bar 0.31).
+
+**What was measured before the bar was dropped.** Four installer learning
+rates, each a full train + gate cycle on box 46743685. G4 on NL prompts
+(`eval_nl_target_data_llama`), retention on `eval_algo_data_llama`'s seeded
+1,024-question set, base Llama = 0.3271:
+
+| installer lr | absorption | G4 (NL prompts) | G2 retention | G2 by op (+ / −) |
+|---|---|---|---|---|
+| 3.53e-4 | 0.000236 PASS | 0.9609 PASS | 0.1719 FAIL | 0.2485 / 0.0979 |
+| 1.0e-4 | 0.000186 PASS | 0.9141 PASS | 0.2812 FAIL | 0.4771 / 0.0921 |
+| 7.0e-5 | 0.000322 PASS | 0.8828 FAIL | **0.3242 PASS** | 0.5249 / 0.1305 |
+| 8.5e-6 | 0.01514 PASS | 0.8340 FAIL | not reached | — |
+
+The two gates are monotone in opposite directions and their pass regions do
+not overlap: G4 ≥ 0.90 needs lr ≳ 8.5e-5, G2 ≥ 0.31 needs lr ≲ 7e-5.
+
+**The diagnostic (the part worth keeping).** Scored on the 7e-5 checkpoint,
+no retraining: **G4 on operator-notation prompts = 0.9922**, against 0.8828 on
+NL prompts. The bare-numeral output convention *installs correctly*. What
+fails is its **transfer to NL prompt framing**. That is exactly the question
+this family's G4 was redesigned to ask — the plan moved G4 onto NL prompts
+deliberately so that "the installer shares only the output convention with the
+target task" would be tested rather than assumed. The shipped op-notation
+family (§6.10) passed its own G4 at 0.9531 because it was only ever asked the
+operator-notation version. **The installer was never defective; the gate pair
+was jointly unsatisfiable at r512.**
+
+Two shape facts, both measured, both contradicting a mid-search prediction of
+mine (recorded because the prediction was wrong, not because it was right):
+G4 is steep near its bar (−0.202/decade between 1e-4 and 7e-5) but flat below
+it (−0.053/decade); and G2 does **not** saturate as it approaches base — it
+went 0.2812 → 0.3242 over that same interval, where I had predicted ~0.29 from
+a saturation argument built on the run-9 r64 dose sweep. The r64 retention
+curve does not transfer to r512 by any constant LR offset.
+
+**Implementation (commit `7b5159c`).** G2 is **de-gated, not deleted**: the
+launcher still scores it `--no-record`, prints it, and emits milestone
+`gate_measured_not_gating run=... accuracy=... bar_dropped_by_owner=2026-08-03`,
+but writes **no verdict** to the installer manifest. Recording a pass we are
+not honouring would put a false verdict into an artifact that outlives the
+session; dropping the measurement would discard the one number that says how
+handicapped the inst parent is. `llama_fig2nl_inst.yaml`'s
+`parent_required_gates` goes `[G4, G2] → [G4]` — mandatory, since
+`require_parent_ready` (spec 00 V0.6) refuses a child whose parent lacks a
+listed gate's verdict, which would have halted the sweep at the first inst run.
+`installer_lr_7e-5.yaml` is kept as the record of the executed search; a
+drafted-but-never-executed 8e-5 rung was deleted rather than left behind as
+false record.
+
+⚠️ **Confound, stated for whoever reads the figure.** At 3.53e-4 the inst
+arm's parent enters the sweep with NL retention **0.1719 against base 0.3271**
+— roughly half its NL arithmetic gone. This handicaps **inst**, so the
+asymmetry is one-sided: an inst/teach win survives it (it won despite the
+damage), while a **noinst/elicit win is confounded with it** and cannot be
+read as elicitation beating teaching. Same shape as the phase-2 arms entering
+the target stage 3.1 nats apart (2026-07-26). Direction known, magnitude not.

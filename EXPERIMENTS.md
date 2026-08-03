@@ -575,6 +575,44 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
        sweep's `D_target`/`D_target_eval` pair measures 0% / 12.64% on
        the identical test (both MEASURED 2026-08-03), so it does not
        differentiate the two families.
+    9. **G2 retention is NOT a gate for this family** (owner, mid-launch
+       2026-08-03), and the installer runs at the paper pin 3.53e-4.
+       This supersedes the planned decisions 3 and 7 (G2 bar 0.31). Four
+       installer LRs were measured first; **no LR clears G4-on-NL-prompts
+       ≥ 0.90 and G2 ≥ 0.31 together** (base Llama = 0.3271; retention on
+       `eval_algo_data_llama`'s seeded 1,024-question set):
+
+       | installer lr | G4 (NL prompts) | G2 retention |
+       |---|---|---|
+       | 3.53e-4 | 0.9609 PASS | 0.1719 FAIL |
+       | 1.0e-4 | 0.9141 PASS | 0.2812 FAIL |
+       | 7.0e-5 | 0.8828 FAIL | **0.3242 PASS** |
+       | 8.5e-6 | 0.8340 FAIL | not reached |
+
+       **The diagnostic that explains it**, measured on the 7e-5
+       checkpoint: G4 scores **0.9922 on operator-notation prompts** vs
+       0.8828 on NL prompts. The bare-numeral output convention *does*
+       install; what fails is its **transfer to NL prompt framing** —
+       precisely the harder question this family's G4 was redesigned to
+       ask. The shipped §6.10 op sweep passed its own G4 at 0.9531
+       because it was only ever asked the operator-notation version. The
+       installer is not defective; the gate pair was jointly
+       unsatisfiable at r512.
+       G2 is still **measured** each launch (`--no-record`, milestone
+       `gate_measured_not_gating`) and logged, but **no verdict is written
+       to the installer manifest** — recording a pass we are not honouring
+       would put a false verdict in a lasting artifact.
+       `llama_fig2nl_inst.yaml`'s `parent_required_gates` is `[G4]`; leaving
+       `G2` listed would make `require_parent_ready` (spec 00 V0.6) refuse
+       all 19 inst runs for a missing verdict.
+       ⚠️ **Consequence for reading the figure:** the inst arm's parent
+       enters the sweep at NL retention **0.1719 vs base 0.3271** —
+       roughly half its NL arithmetic gone. This handicaps **inst**, so an
+       inst/teach win survives the confound (it won *despite* the damage)
+       while a **noinst/elicit win is confounded with it**. Same
+       one-sided-conservatism shape as the phase-2 arms entering 3.1 nats
+       apart (decisions.md 2026-07-26). Direction is known; magnitude is
+       not. Commit `7b5159c`.
 
 ## 7. Budget
 
