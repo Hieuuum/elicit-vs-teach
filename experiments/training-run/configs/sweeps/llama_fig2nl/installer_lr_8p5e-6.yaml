@@ -1,0 +1,8 @@
+# fig2nl installer retry ladder, rung 3 of 3 (last) — 8.5e-6 ~= a sqrt(8)-
+# compensated transfer of the VALIDATED r64 3.0e-6 installer-retention pin to
+# r512: LoRA's update scales as dW ∝ alpha·lr/(2·sqrt(r)) under common.yaml's
+# alpha_over_2r, NOT alpha²/(4r), so r 64->512 needs lr x sqrt(8) ≈ 2.83 to
+# hold the same effective step. Apply MANUALLY via train_sft.py --override
+# after deleting the failed run dir (launch_fig2nl_llama.sh header).
+train:
+  lr: 8.5e-6      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

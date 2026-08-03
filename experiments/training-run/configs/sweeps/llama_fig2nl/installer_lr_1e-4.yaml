@@ -1,0 +1,4 @@
+# fig2nl installer retry ladder, rung 2 of 3 — apply MANUALLY via train_sft.py
+# --override after deleting the failed run dir (launch_fig2nl_llama.sh header).
+train:
+  lr: 1.0e-4      # dot-mantissa: bare `1e-4` parses as a STRING (YAML 1.1)
