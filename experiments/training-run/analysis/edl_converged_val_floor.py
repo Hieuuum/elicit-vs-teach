@@ -184,17 +184,31 @@ def plot(df: pd.DataFrame, out: Path, family_tag: str) -> None:
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
     ax.legend(fontsize=9, frameon=False)
+
+    # A short arm is a stopped sweep, not a diverging curve — say so on the
+    # figure, else the gap reads as a result (fig2nl's inst arm ends at n=1e5).
+    reach = df.groupby("condition")["n"].max()
+    note = ""
+    if reach.nunique() > 1:
+        short = reach.idxmin()
+        note = (
+            f"\n{STYLE[short][1]} arm ends at n={int(reach.min()):,} — "
+            "sweep stopped there, not a diverging curve."
+        )
+
     fig.text(
         0.5,
         0.005,
         r"Floor = each run's OWN converged ($\theta_T$) validation loss: "
-        r"EDL$(n)$ = MDL$_{\rm epoch1}(n) - D(n)\cdot L^{\rm val}_{\rm conv}(n)$. "
-        "No floor is shared between dataset sizes.",
+        r"EDL$(n)$ = MDL$_{\rm epoch1}(n) - D(n)\cdot L^{\rm val}_{\rm conv}(n)$."
+        "\nNo floor is shared between dataset sizes." + note,
         ha="center",
+        va="bottom",
         fontsize=8,
         color="#555555",
+        linespacing=1.5,
     )
-    fig.tight_layout(rect=(0, 0.04, 1, 1))
+    fig.tight_layout(rect=(0, 0.10 if note else 0.06, 1, 1))
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150)
     plt.close(fig)
