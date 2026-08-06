@@ -656,7 +656,9 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     with no error bars cannot separate them either way.
 
     **Floor caveat.** The deliverable figure is floored on each run's
-    **moving min-val** loss; the fixed-**test**-floor version (canonical
+    **global-min val** loss (`min_val_nats_from_eval_log`, a single scalar
+    per run over every `eval_log.jsonl` row — *not* the per-step moving
+    floor used by `prefix_edl_curve`); the fixed-**test**-floor version (canonical
     Eq. 3, `L_test` at the stopping-step model θ_T — there is no
     restore-to-best) is materially different in height. Never quote
     curve shape without naming the floor (decisions.md 2026-07-27).

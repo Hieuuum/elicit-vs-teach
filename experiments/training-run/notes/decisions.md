@@ -5207,7 +5207,10 @@ same one-sided-conservatism shape as the phase-2 installer redesign
 (2026-07-26).
 
 **Floor caveat, and the two analyses added because of it.** The §6.11
-deliverable figure floors EDL on each run's **moving min-val** loss. The
+deliverable figure floors EDL on each run's **global-min val** loss — one
+scalar per run, `min_val_nats_from_eval_log` over every `eval_log.jsonl` row
+(NOT the per-step *moving* floor that `prefix_edl_curve` uses; different
+quantity, same word "val"). The
 canonical Eq. 3 floor is the **fixed test** loss, and `eval/test_loss.json` is
 evaluated at the stopping-step model θ_T — there is no restore-to-best
 anywhere in the loop — so the two floors are not interchangeable and give
