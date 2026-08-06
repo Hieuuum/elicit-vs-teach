@@ -5166,3 +5166,65 @@ asymmetry is one-sided: an inst/teach win survives it (it won despite the
 damage), while a **noinst/elicit win is confounded with it** and cannot be
 read as elicitation beating teaching. Same shape as the phase-2 arms entering
 the target stage 3.1 nats apart (2026-07-26). Direction known, magnitude not.
+
+## 2026-08-04 — fig2nl STOPPED by the owner at 33/39 runs; arms not separated
+
+**Owner decision:** *"Wait for the current training run to finish and tear down
+the box right away after that. Don't proceed with the experiment anymore."*
+Executed as stated: waited for `inst-n100000` to complete, killed the launcher
+tmux so it could not start `inst-n146780`, confirmed the run's metadata push,
+destroyed box 46743685 (9.39 h, ≈$3.65). The sweep is **over** — not paused.
+
+**Final extent: 33 of 39 runs.** Installer + 19/19 noinst + 13/19 inst (inst
+through n=100,000). All 33 `stop_reason=converged`; no `max_steps` ceiling
+bound anywhere, so convergence set the cost throughout. Relay: 33/33 with
+`manifest.json`, 0 push failures.
+
+**Two structural consequences of stopping mid-inst-arm**, both permanent:
+
+1. **No G5 verdicts exist for this family.** The G5 zero-shot loop is launcher
+   stage 5, which runs *after* both arms; stages 5 and 6 never executed. This
+   does not damage the deliverable — `dataset_size_sweep.py` degrades
+   gracefully on a missing G5 (`no G5 zero-shot EM recorded — metric skipped`),
+   and the skip is **metric-level, not row-dropping**: each run still yields
+   its full 5 metric rows. But no zero-shot exact-match number can be quoted
+   for any fig2nl run, and §6.10's op-sweep G5 values are a different family.
+2. **Weights are unrecoverable.** Decision 10 made the relay push
+   metadata-only, so no fig2nl run was ever recoverable from it; teardown
+   forfeited nothing that was not already forfeit. Re-running is the only
+   route back.
+
+**The result: arms are NOT separated, and the observed direction is the
+confounded one.** The format-installed arm sits *above* base (higher EDL/D =
+worse) at every matched n, converging toward base by n≈10⁵. That is precisely
+the direction predicted by the installer handicap recorded in the 2026-08-03
+de-gating entry above: the inst parent entered at NL retention **0.1719
+against base 0.3271**, roughly half its NL arithmetic gone. An inst/teach win
+would have survived that handicap; a base/"elicit" win is inseparable from it.
+With one seed (316) and no error bars there is no separation claim available
+in either direction. Recorded as a null, not as an elicitation finding — the
+same one-sided-conservatism shape as the phase-2 installer redesign
+(2026-07-26).
+
+**Floor caveat, and the two analyses added because of it.** The §6.11
+deliverable figure floors EDL on each run's **moving min-val** loss. The
+canonical Eq. 3 floor is the **fixed test** loss, and `eval/test_loss.json` is
+evaluated at the stopping-step model θ_T — there is no restore-to-best
+anywhere in the loop — so the two floors are not interchangeable and give
+materially different heights (2026-07-27, the EDL/n floor-artifact entry).
+Added, both CPU-only and reading the local store:
+
+- `analysis/fig2nl_edl_test_floor.py` → `fig2nl_edl_test_floor.csv`
+  (committed, 32 rows): per run, epoch-1 MDL, D, `L_test`, test-floored EDL in
+  nats and bits, and `overshoot_ratio` = final val ÷ that run's own val
+  minimum. Both scripts assert the recomputed EDL against
+  `geode.edl.metrics.edl_nats` to ≤1e-6 as a label-masking parity guard.
+- `analysis/plot_fig2nl_sweep_floors.py` → `figures/fig2nl_sweep_floors.png`:
+  both floors side by side on a shared y-axis, with overshooting runs ringed.
+
+**Measured:** **11 of 32 runs stopped ≥1.5× above their own val minimum, worst
+7.92×** (noinst n=1,000,000; three more sit between 1.35× and 1.5×). EDL/D is
+linear in the floor, so those points are depressed by the stopping rule rather
+than by the data. Consequence for anyone reading either figure: an isolated
+dip is overshoot, not signal, and **curve shape must never be quoted without
+naming the floor.**

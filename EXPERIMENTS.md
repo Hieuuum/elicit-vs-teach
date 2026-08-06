@@ -463,7 +463,9 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    sidecar only (stale full-FT relay record deliberately deleted
    pre-push). Total sweep cost ≈ $5.6 across two boxes.
 
-11. **Fig-2 NL replication sweep (fig2nl) — PLANNED 2026-08-03.** A
+11. **Fig-2 NL replication sweep (fig2nl) — STOPPED 2026-08-04 by the
+    owner at 33/39 runs; box destroyed. Outcome below the deviation
+    register; do not resume.** A
     replication of the paper's Figure-2 dataset-size-sweep protocol
     (§6.10's design, same 19 log-spaced sizes and base
     `meta-llama/Llama-3.2-1B`), retargeted from the shipped op-notation
@@ -613,6 +615,62 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
        one-sided-conservatism shape as the phase-2 arms entering 3.1 nats
        apart (decisions.md 2026-07-26). Direction is known; magnitude is
        not. Commit `7b5159c`.
+
+    **OUTCOME — STOPPED 2026-08-04 by the owner, 33 of 39 runs.**
+    Installer + **19/19 noinst** + **13/19 inst** (inst reached
+    n=100,000). Stopped mid-inst-arm, so the launcher's **stage 5 (G5
+    loop) and stage 6 (end-of-sweep push/prune) never ran**: there are
+    **no G5 verdicts anywhere in this family**. Per-run metadata push
+    covered the relay instead — 33/33 present with `manifest.json`, 0
+    push failures. All 33 stopped with `stop_reason=converged`; no
+    `max_steps` ceiling bound anywhere. Box 46743685 destroyed the same
+    day (≈$3.65, 9.39 h).
+
+    ⚠️ **Weights are gone permanently.** Decision 10 (metadata-only
+    push) meant no fig2nl run was ever recoverable from the relay, so
+    teardown forfeited nothing that was not already forfeit —
+    **re-running the sweep is the only route back to any of these
+    weights.**
+
+    **Surviving artifacts** (metadata regenerates the figure on any
+    machine from a `pull --no-weights`):
+    - `results/dataset_size_sweep_nl.parquet` — 160 rows = 32 sweep runs
+      × 5 metrics, **13 matched noinst/inst pairs** through n=100,000,
+      noinst alone from n=146,780 to 1,000,000.
+    - `analysis/figures/dataset_size_sweep_nl.png` — the §6.11
+      deliverable figure (EDL/D vs. n, min-val floor), from
+      `analysis/dataset_size_sweep.py --family nl`. Figures are
+      gitignored; this one lives on the laptop only.
+    - `notes/logs/fig2nl_{train,push}.log` — launcher + push-watcher
+      logs, pulled before teardown. They were never on the relay and are
+      the only record of per-run wall-clock and the installer ladder's
+      absorption values.
+
+    ⚠️ **READING THE FIGURE — this is the CONFOUNDED direction, not a
+    result.** The format-installed arm sits **above** base (higher EDL/D
+    = worse) at every matched n, converging toward base by n≈10⁵. But
+    the inst parent entered at NL retention **0.1719 vs base 0.3271**
+    (deviation 9), which handicaps **inst** — so a base/"elicit" win is
+    exactly the direction the handicap predicts. Read as **arms not
+    separated**, never as an elicitation result. A single seed (316)
+    with no error bars cannot separate them either way.
+
+    **Floor caveat.** The deliverable figure is floored on each run's
+    **moving min-val** loss; the fixed-**test**-floor version (canonical
+    Eq. 3, `L_test` at the stopping-step model θ_T — there is no
+    restore-to-best) is materially different in height. Never quote
+    curve shape without naming the floor (decisions.md 2026-07-27).
+    Both floors are plotted side by side by
+    `analysis/plot_fig2nl_sweep_floors.py` →
+    `figures/fig2nl_sweep_floors.png`, and the per-run numbers behind
+    the test-floored panel are tabulated by
+    `analysis/fig2nl_edl_test_floor.py` →
+    `analysis/fig2nl_edl_test_floor.csv` (committed). That table carries
+    each run's `overshoot_ratio` (final val ÷ own val minimum):
+    **11 of 32 runs stopped ≥1.5× above their own val minimum, worst
+    7.92×** (noinst n=1,000,000). EDL/D is linear in the floor, so those
+    points are depressed by the stopping rule rather than by the data —
+    an isolated dip there is overshoot, not signal.
 
 ## 7. Budget
 
