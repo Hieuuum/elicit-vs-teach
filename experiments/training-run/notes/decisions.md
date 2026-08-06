@@ -5231,3 +5231,69 @@ linear in the floor, so those points are depressed by the stopping rule rather
 than by the data. Consequence for anyone reading either figure: an isolated
 dip is overshoot, not signal, and **curve shape must never be quoted without
 naming the floor.**
+
+## 2026-08-06 — EDL/label-token floor is the run's OWN CONVERGED val loss (owner; STANDING DEFAULT)
+
+**Owner directive:** every EDL-per-label-token number subtracts, for each
+dataset size, **that same run's converged (θ_T) validation loss** — the val
+loss of the model the run actually stopped at. "From now on, only use the EDL
+label token that I suggested."
+
+    EDL(n) = MDL_epoch1(n) − D(n) · L_val_converged(n)
+
+**Naming clarification that caused the confusion, recorded so it stops
+recurring.** `min_val_nats_from_eval_log`'s docstring calls its result the
+"global minimum" val loss. "Global" there means *over that run's entire eval
+curve*, as opposed to the per-step **moving** floor — it does **not** mean one
+value shared across dataset sizes. The function takes a `run_id`; fig2nl noinst
+floors are 0.400788 / 0.174154 / 0.034905 / 0.002055 at n = 1k / 10k / 100k /
+1M, four different numbers. Per-run-ness was never the defect. **The defect was
+`min` vs `converged`:** with no restore-to-best anywhere in `geode/edl/loop.py`
+or `train_target.py`, the minimum is generally hit at an interior step and then
+left behind, so the min-floored figure subtracts a loss belonging to weights
+that **do not exist at the end of the run**. `evt-llama-fig2nl-noinst-n1000`
+bottoms at 0.400788 (step 16) and stops at 0.471583 (step 35).
+
+**Four floors now exist. Always name which one:**
+
+| floor | per run? | value @ fig2nl noinst n=1000 | used by |
+|---|---|---|---|
+| moving / per-step | yes | varies by step | `prefix_edl_curve` only |
+| min-over-curve | yes | 0.400788 | `dataset_size_sweep.py` (legacy) |
+| **converged val, θ_T** | **yes** | **0.471583** | **`edl_converged_val_floor.py` — DEFAULT** |
+| fixed test, θ_T | yes | (test set) | `fig2nl_edl_test_floor.py` |
+
+**Implemented:** `analysis/edl_converged_val_floor.py`, both families, 70/70
+runs (op 38, nl 32). VERIFIED first: the last `eval_log.jsonl` step equals the
+manifest `final_step` in **all 70 runs**, so the last eval row really is θ_T's
+own number. Keeps the test-floor identity assertion as a masking-parity guard
+(D-1), so `epoch1_totals` and the label-masking path stay checked independently
+of the floor applied. Writes `edl_converged_val_floor_{op,nl}.{csv,png}` —
+**new stems**, so the shipped §6.10 `dataset_size_sweep.{parquet,png}` cannot be
+overwritten; that driver is never invoked from this script.
+
+**Measured — no run goes negative** under the new floor (0/70), so the
+converged val loss stays below the epoch-1 prequential mean everywhere.
+
+**The floor choice changes per-size verdicts, which is why it had to be
+settled.** Comparing "which arm has lower EDL/D" at each matched size:
+
+- **op** (19 matched sizes): inst better at 15/19 under min-over-curve →
+  **12/19** under converged val; the sign **flips at 7 sizes** (6813, 10000,
+  14678, 21544, 316228, 464159, 681292). Install still pays clearly at the
+  smallest sizes (n=1000: 0.02302 vs 0.10670 nats) and the arms still converge
+  by n=1M (0.02827 vs 0.02961).
+- **nl** (13 matched sizes): inst better at 2/13 under both floors, but the
+  sign flips at 10000 and 21544. The headline is unchanged and unchanged in
+  meaning: inst sits **above** base almost everywhere, which is the
+  **confounded** direction (parent entered at NL retention 0.1719 vs base
+  0.3271) ⇒ still read as **arms not separated**, not as an elicitation result.
+
+Mean effect of the floor swap on EDL/D: **−0.0286 nats** (op) and **−0.0511
+nats** (nl) — the converged floor is higher, so EDL is uniformly lower.
+
+⚠️ **Overshoot stops being a caveat under this floor.** The ringed markers and
+the "an isolated dip is overshoot" warning belong to the *min-over-curve* and
+*test* floors, where θ_T sat above the floor. Here the stopping point **is**
+the floor, so `overshoot_ratio` is retained in the CSV as provenance only and
+is not a distortion to warn about.
