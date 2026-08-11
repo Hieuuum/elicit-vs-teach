@@ -66,10 +66,13 @@ LADDER_RUNGS = (
     "installer_lr_8p5e-6.yaml",
 )
 # fig2nl2's rungs are its manual retry ladder (primary 7e-5 lives in
-# llama_fig2nl2_installer.yaml itself, so it needs no rung file).
+# llama_fig2nl2_installer.yaml itself, so it needs no rung file). The dose16
+# file is the post-ladder structural variant (16-row NL dose, batch 16),
+# added 2026-08-12 after the single-example window measured empty.
 LADDER_RUNGS2 = (
     "installer_lr_1e-4.yaml",
     "installer_lr_3p53e-4.yaml",
+    "installer_dose16_7e-5.yaml",
 )
 
 # family stem -> (sweep dir, run-id prefix, ladder rungs). Both families share

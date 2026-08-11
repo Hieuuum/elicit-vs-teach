@@ -5381,3 +5381,50 @@ metadata can be pushed by hand per run if wanted. Optional `--prune` deletes
 each sweep run's model.safetensors after its G5 records (adapter sidecars
 kept → weights re-derivable from base + sidecar; both n=1M runs spared),
 capping peak disk at ~25 GB vs ~126 GB without.
+
+## 2026-08-12 — fig2nl2 installer ladder CLOSED EMPTY at n_dose=1; format-transfer hypothesis falsified; dose16 variant authorized as the structural next step
+
+Measured on the owner's cluster (single NL-dose example, r512/α32, gates
+scored --no-record, nothing on any manifest):
+
+| lr    | G4-NL (bar 0.90)              | G2 (bar 0.31)                    |
+|-------|-------------------------------|----------------------------------|
+| 7e-5  | 0.8848 FAIL (−0.015, ~1.2 SE) | 0.3096 FAIL (−0.0014, in noise)  |
+| 1e-4  | 0.9043 PASS (+0.004, in noise)| 0.2773 FAIL (−0.033, ~2.3 SE)    |
+
+Op-dose (fig2nl 2026-08-03) at the same LRs: G4-NL 0.8828 / 0.9141, G2
+0.3242 / 0.2812. Absorption passed at both rungs (0.0004 and 0.0003 nats;
+converged step 38 and 29). Rung 3 (3.53e-4) deliberately NOT run: G2 is
+monotone-decreasing in LR and already fails at 1e-4; the op dose's 0.1719
+makes the outcome known.
+
+**Finding 1 — dose surface format does not move G4-NL at matched LR** (+0.002
+at 7e-5, −0.010 at 1e-4; both within gate noise). The fig2nl installer
+header's central bet — that the op dose's G4-NL miss was an op→NL
+format-transfer failure — is falsified from both sides: an NL dose scores the
+same. G4-NL tracks dose strength (LR), not dose framing. The §6.12 cause-1
+story is dead; cause 2 (retention damage) stands.
+
+**Finding 2 — the G2 damage concentrates on subtraction.** By-op at 1e-4:
+'+' 0.4195, '−' 0.1401 (at 7e-5: 0.4732 / 0.1516). Any install strong enough
+to move G4-NL burns '−' first.
+
+**Consequence:** at r512 with a 1-example dose there is NO LR clearing both
+bars, either dose format — the launcher's halt condition fired as designed;
+no bar was moved (the fig2nl lesson). The G2 miss at 7e-5 (0.3096 vs 0.31)
+is within a single SE and would flip on a re-seed
+([[feedback-threshold-crossings-need-persistence]]); it is recorded as FAIL.
+
+**Authorized next step: dose16** (`sweeps/llama_fig2nl2/
+installer_dose16_7e-5.yaml`): all 16 D_dose_mult_nl rows, batch == n_train ==
+16, lr 7e-5. Rationale: the output convention is the structure SHARED across
+all 16 rows while mult content varies, so per unit of format installed, less
+gradient lands on anything that damages add/sub. Deviation from the paper's
+"single example" pre-elicit design, owner-visible here. Protocol unchanged:
+delete installer run dir, retrain with the override, score G4+G2 --no-record.
+If dose16 also fails jointly, the §6.12 falsification arm is the result: the
+fig2nl inversion is not explained by a fixable installer at r512, and the
+paper's own ungated-retention installer becomes the leading suspect for why
+their Fig-2 pre-elicit curve sits low (their parent may be damaged too, and
+their curve BENEFITS from it via the EDL floor — a reading to test in
+analysis, not with more installs).

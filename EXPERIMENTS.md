@@ -717,6 +717,18 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     4090-class GPU ($0, owner hardware). Still single-seed (316): a
     replication of curve SHAPE, not an error-barred separation claim.
 
+    **STATUS 2026-08-12 — installer ladder closed empty at n_dose=1; sweep
+    not yet launched.** Measured (single NL-dose example, r512): 7e-5 →
+    G4-NL 0.8848 FAIL / G2 0.3096 FAIL(noise-level); 1e-4 → G4-NL 0.9043
+    PASS / G2 0.2773 FAIL(real). Dose surface format does NOT move G4-NL
+    at matched LR (op-dose readings equal within noise) — the §6.12
+    cause-1 (format-transfer) story is falsified; cause 2 (retention
+    damage, concentrated on subtraction: '−' 0.140 vs '+' 0.419 at 1e-4)
+    stands. No bar moved; launcher halted as designed. Authorized next:
+    the **dose16** variant (`installer_dose16_7e-5.yaml`, 16-row NL dose,
+    batch 16) — full rationale and the falsification-arm reading in
+    decisions.md 2026-08-12.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
