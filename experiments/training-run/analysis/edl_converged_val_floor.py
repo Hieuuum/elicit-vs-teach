@@ -1,4 +1,9 @@
-"""EDL per label token floored on each run's OWN CONVERGED (theta_T) val loss.
+"""EDL per label token under the OCV floor (Own-Converged-Validation).
+
+"OCV floor" (named 2026-08-11) is the canonical term for this floor: **O**wn =
+that one run's, never shared across dataset sizes; **C**onverged = the last
+``eval_log.jsonl`` row (theta_T, the model the stopping rule left), never the
+min over the curve; **V**alidation = val loss, never test.
 
 Owner-specified floor, 2026-08-06, and the standing default from here on:
 
@@ -37,9 +42,11 @@ curve is quoted (decisions.md 2026-07-27):
 Because the converged floor is >= the min-over-curve floor by construction,
 EDL here is <= the min-floored EDL for every run; the gap is exactly
 D * (L_val_converged - L_val_min). ``overshoot_ratio`` is carried in the CSV
-for provenance, but it is no longer a caveat on the number: under this floor
-the stopping point IS the floor, so overshoot is absorbed rather than
-distorting the curve.
+because overshoot's caveat REVERSES SIGN under this floor rather than
+vanishing (decisions.md 2026-08-11): a run whose stopping rule fired on a
+HIGH plateau subtracts a larger floor and gets an artificially LOW EDL/D, so
+an isolated dip means "run stopped high", not "fast elicitation". Cross-check
+``overshoot_ratio`` before quoting any outlier.
 
 Covers both sweep families; writes only ``edl_converged_val_floor*`` names, so
 the shipped, immutable §6.10 ``dataset_size_sweep.{parquet,png}`` cannot be

@@ -5292,8 +5292,40 @@ settled.** Comparing "which arm has lower EDL/D" at each matched size:
 Mean effect of the floor swap on EDL/D: **−0.0286 nats** (op) and **−0.0511
 nats** (nl) — the converged floor is higher, so EDL is uniformly lower.
 
-⚠️ **Overshoot stops being a caveat under this floor.** The ringed markers and
+⚠️ **Overshoot stops being a caveat under this floor.** *(Superseded
+2026-08-11 — the caveat reverses sign rather than vanishing; see the OCV entry
+below.)* The ringed markers and
 the "an isolated dip is overshoot" warning belong to the *min-over-curve* and
 *test* floors, where θ_T sat above the floor. Here the stopping point **is**
 the floor, so `overshoot_ratio` is retained in the CSV as provenance only and
 is not a distortion to warn about.
+
+## 2026-08-11 — the converged-val floor is named the "OCV floor" (Own-Converged-Validation)
+
+**Canonical term** for the 2026-08-06 standing default, so the floor can be
+named unambiguously in figures, notes, and prose: the **OCV floor** —
+**O**wn-**C**onverged-**V**alidation. Say "EDL/D under the OCV floor". Each
+word is load-bearing and rules out one prior confusion:
+
+- **Own** — that one run's floor. The n=10,000 point subtracts the n=10,000
+  run's loss. Never a floor shared across dataset sizes.
+- **Converged** — the LAST `eval_log.jsonl` row = θ_T, the model the stopping
+  rule actually left. Never the min over the curve, never the per-step moving
+  floor.
+- **Validation** — val loss. Never the fixed test-θ_T floor.
+
+Implementation unchanged: `analysis/edl_converged_val_floor.py` and its
+`edl_converged_val_floor_{op,nl}.{csv,png}` outputs.
+
+**Correction to the 2026-08-06 entry's last paragraph: overshoot's caveat
+REVERSES SIGN under the OCV floor — it does not vanish.** The floor is a real,
+existing model, so overshoot no longer *inflates* EDL the way it did under the
+min/test floors. But EDL is `MDL − D·floor`: a run whose ε/k rule fired on a
+HIGH plateau subtracts a *larger* floor and gets an artificially **LOW**
+EDL/D. Under the OCV floor an isolated dip therefore means "this run stopped
+high above its own best", not "fast elicitation".
+Concrete case: `evt-llama-fig2nl-noinst-n21544` stopped at val 0.2346 vs its
+own min 0.0972 (`overshoot_ratio` 2.41) and lands 3–5× below its neighbours on
+the curve — an early-stop artifact, not signal. `overshoot_ratio` in the CSV
+is therefore not decoration: **cross-check it before quoting any outlier**,
+in either direction, on any floor.
