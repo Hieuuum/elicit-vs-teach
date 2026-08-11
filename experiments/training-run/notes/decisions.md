@@ -5428,3 +5428,27 @@ paper's own ungated-retention installer becomes the leading suspect for why
 their Fig-2 pre-elicit curve sits low (their parent may be damaged too, and
 their curve BENEFITS from it via the EDL floor — a reading to test in
 analysis, not with more installs).
+
+## 2026-08-12 (later) — dose16 CLEARS BOTH BARS decisively; fig2nl2 sweep is GO
+
+Measured (16-row NL dose, batch 16, lr 7e-5, r512; converged step 63,
+absorption 0.0010 nats; gates --no-record):
+
+- **G4-NL 0.9785 PASS** (bar 0.90; single-dose at the same LR: 0.8848) —
+  ~6 SE clear, not a threshold crossing.
+- **G2 0.3516 PASS** (bar 0.31; base 0.3271; single-dose: 0.3096) — ~3 SE
+  clear and ABOVE base: the installer costs zero net arithmetic. By-op
+  '+' 0.5050 / '−' 0.2035, both up from the single-dose readings.
+
+Same LR, same dose content class — only n_dose changed 1 → 16. This
+confirms the dose16 rationale (the shared format signal installs harder
+per unit damage when the mult-specific content varies) and completes the
+installer picture: single-example installs at r512 have an empty
+G4×G2 window in BOTH dose formats; 16 examples open it wide. The paper's
+"single example" pre-elicit design is the one deviation this family
+carries at the installer (recorded; everything else per §6.12).
+
+Sweep launch authorized: resubmit launch_fig2nl2_llama.sh unchanged — it
+skips the completed installer, re-scores and RECORDS both gates
+(--record-only-pass), merges, verifies the merge, and runs the 38-run
+sweep with inline G5 + prune.
