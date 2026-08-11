@@ -270,6 +270,31 @@ def test_nl_family_run_ids_are_disjoint_from_op(tmp_path: Path) -> None:
     assert dss.RUN_ID_RE.match("evt-llama-fig2nlx-inst-n1000") is None
 
 
+def test_nl2_family_run_ids_are_disjoint_from_both_others(tmp_path: Path) -> None:
+    """--family nl2 (the redesigned-installer redo, §6.12) never cross-matches
+    op or nl: three same-shape sweeps share one driver, so a loose prefix would
+    silently mix families into one curve."""
+    op_ids = dss.default_run_ids("op")
+    nl_ids = dss.default_run_ids("nl")
+    nl2_ids = dss.default_run_ids("nl2")
+
+    assert len(nl2_ids) == 38
+    assert not set(nl2_ids) & (set(op_ids) | set(nl_ids))
+    assert all(rid.startswith("evt-llama-fig2nl2-") for rid in nl2_ids)
+    assert "evt-llama-fig2nl2-noinst-n1000" in nl2_ids
+    assert "evt-llama-fig2nl2-inst-n1000000" in nl2_ids
+    # nl2 ids parse; near-miss prefixes still do not.
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl2-inst-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl2x-inst-n1000") is None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl22-inst-n1000") is None
+    # The nl2 stem is distinct from both shipped stems (overwrite-by-name).
+    assert len({dss.FAMILIES[f][1] for f in ("op", "nl", "nl2")}) == 3
+    # And an nl2 id round-trips through run_rows with the right condition.
+    _write_run(tmp_path, "evt-llama-fig2nl2-inst-n1000", n=1000)
+    rows = dss.run_rows("evt-llama-fig2nl2-inst-n1000", tmp_path)
+    assert rows and all(r["condition"] == "inst" for r in rows)
+
+
 def test_nl_family_writes_a_separate_table_from_the_shipped_op_one(tmp_path: Path) -> None:
     """The nl stem must not overwrite the shipped op outputs (write_results is overwrite-by-name)."""
     from geode.zoo import write_results

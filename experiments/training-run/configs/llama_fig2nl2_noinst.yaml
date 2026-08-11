@@ -1,0 +1,86 @@
+# Llama-3.2-1B Figure-2 dataset-size sweep, NL-TARGET family v2 (fig2nl2) —
+# ARM A: NO format installer. Base Llama -> target task directly, on D_algo
+# (natural-language add/sub). BASE config for 19 log-spaced prefix-nested
+# sizes (configs/sweeps/llama_fig2nl2/llama_fig2nl2_noinst_n<size>.yaml
+# overlays set run_id/n_examples/eval_every/max_steps per size); this file is
+# never launched standalone.
+#
+# The TARGET-ARM PROTOCOL IS UNCHANGED from fig2nl (llama_fig2nl_noinst.yaml
+# carries the full rationale: NL target on D_algo, D_algo_eval scoring, LoRA
+# r512, doubled per-size ceilings, the effective-batch deviation from the
+# paper). This family redoes ONLY the installer side (see
+# llama_fig2nl2_installer.yaml's header for the two measured causes of the
+# fig2nl inversion) — so this noinst arm is a same-protocol repeat of a curve
+# that already replicated the paper's base curve well (test-floor EDL/D
+# 0.203 bits at n=1000 down to 0.015 at n=1M). It is re-run rather than
+# reused because fig2nl's weights are gone, single-seed curves carry no error
+# bars, and a same-box, same-code pair keeps the cross-arm comparison free of
+# environment drift. EXPERIMENTS §6.12; decisions.md 2026-08-11.
+#
+# Defaults below are the LARGEST size's row (i=18) so an accidental
+# standalone launch trains the full 1M rather than failing on a missing key;
+# every overlay overrides all three.
+run_id: evt-llama-fig2nl2-noinst
+experiment:
+  name: training-run
+  arm: llama                     # external-validity chain (regime "unknown")
+  role: target
+  parent_run_id: null            # no zoo parent — base is a gated hub model
+  external_base: meta-llama/Llama-3.2-1B   # base, NOT Instruct
+  parent_required_gates: []
+  match_data_order_with: null    # this arm is the reference stream; the inst
+                                 # overlay for the matching size points back
+                                 # at this run (G7)
+
+model:                           # must match the hub checkpoint
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # gated; box needs HF_TOKEN with gated read
+
+task:
+  name: arith_nl_addsub          # natural-language add/sub (D_algo) — the
+  format_version: v1             # TARGET task of this family
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo.parquet           # 1M NL add/sub, correct labels, seed 20260717;
+                                 # published on the public HF repo above, or
+                                 # regenerated bit-identically by
+                                 # datagen/make_data.py (hash verified either way)
+  order_hash: 48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9
+  n_examples: 1000000            # placeholder = largest size; every overlay
+                                 # sets its own prefix of the frozen order
+  eval_file: D_algo_eval.parquet # question-disjoint from D_algo; rows 0-2047 =
+                                 # stopping block, 2048+ = reporting block
+  eval_order_hash: 5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3
+  # LOAD-BEARING: D_algo_eval is local-only, never on the hub; resolved
+  # against REPO_ROOT via load_frozen_parquet (V5.70), hash still verified.
+  eval_local_path: experiments/training-run/data/full/D_algo_eval.parquet
+  seed: 316
+
+lora:
+  r: 512                         # paper's fig-2 adapter class (overrides
+  alpha: 32                      # common.yaml r=128); dropout 0, QKVOGUD
+
+train:
+  lr: 3.53e-4                    # paper's 1B pin, unchanged from fig2nl.
+                                 # Dot-mantissa form is mandatory (YAML 1.1)
+  precision: bf16
+  batch_size: 128                # local batch, no accumulation — the fig2nl
+                                 # effective-batch deviation, unchanged; both
+                                 # arms carry it identically
+  eval_every: 500                # placeholder; every overlay sets the per-size
+                                 # ee (5-500) that feeds the ε/k tracker
+  max_steps: 93756               # placeholder = largest size's ceiling; every
+                                 # overlay sets its own (fig2nl's doubled
+                                 # schedule, unchanged)
+  stopping:                      # loss branch of the V0.7 union (no `metric`):
+    eps_nats: 0.002              # canonical loss rule (spec 02 §6)
+    k: 5
+    min_steps: 0
+  snapshots:
+    n: 0                         # no extraction dumps; behavioral EDL only
+    dense_until: 30              # unused when n:0 (kept for parity)
+  seed: 316

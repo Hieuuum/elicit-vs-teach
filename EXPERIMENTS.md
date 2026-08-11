@@ -674,6 +674,49 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     points are depressed by the stopping rule rather than by the data —
     an isolated dip there is overshoot, not signal.
 
+12. **Fig-2 NL replication v2 (fig2nl2) — PLANNED 2026-08-11; owner's GPU,
+    not a rented box.** The §6.11 sweep's deliverable figure came out
+    INVERTED vs the paper's Figure 2 — the pre-elicit arm ABOVE base at
+    every matched n (test-floor EDL/D at n=1000: inst 0.508 vs noinst
+    0.203 bits/label-token) where the paper has it roughly an order of
+    magnitude BELOW — while the noinst arm alone replicated the paper's
+    base curve well (0.203 bits at n=1000, monotone to 0.015 at n=1M).
+    Both causes are installer-side and MEASURED (§6.11 deviation 9): the
+    op-notation dose's output convention did not transfer to NL prompt
+    framing (G4 0.9922 on op prompts vs 0.8828 on NL at 7e-5), and the
+    3.53e-4 installer halved the parent's NL retention (G2 0.1719 vs base
+    0.3271). fig2nl2 redoes ONLY the installer:
+    - **Dose:** `D_dose_mult_nl.parquet` row 0 — the frozen D_dose_mult
+      re-rendered in NL by `datagen/make_nl_dose.py` (same operands,
+      "What is the product of 3354 and 3459?"; order_hash c7fc6300…,
+      derivation hash-verified against the D_dose_mult pin). The dose now
+      SHARES the target's NL surface framing and differs only in
+      operation — the conservative reading of the paper's "single
+      multiplication problem … to establish output format".
+    - **Installer LR 7.0e-5** (r512/α32 kept) — the only §6.11 ladder
+      rung that preserved retention (G2 0.3242). Its G4-NL 0.8828 miss
+      was an op-dose transfer artifact the NL dose removes. Manual retry
+      ladder under `configs/sweeps/llama_fig2nl2/`: 1e-4, then 3.53e-4.
+    - **Both installer gates ENFORCED and recorded** (G4-NL ≥ 0.90, G2 ≥
+      0.31; `parent_required_gates: [G4, G2]`) — an undamaged,
+      NL-format-installed parent is the precondition for reading the
+      figure as a replication; no mid-launch bar-dropping this time.
+    Target arms byte-identical to §6.11 (19 sizes, r512/α32 @ 3.53e-4,
+    batch 128, seed 316, ε/k 0.002/5, doubled ceilings, D_algo/
+    D_algo_eval); run ids `evt-llama-fig2nl2-*`. Data is REGENERATED on
+    the box by the launcher — datagen verified 2026-08-11 to reproduce
+    every frozen pin bit-for-bit (D_algo 48d4feff…, D_algo_eval
+    5e422daf…, D_dose_mult 8ddda6d6…) — so nothing is scp'd. Launcher
+    `scripts/launch_fig2nl2_llama.sh` (no relay push; optional `--prune`
+    keeps peak disk ~25 GB by deleting each run's model.safetensors
+    after its G5, adapter sidecars kept, both n=1M runs spared).
+    Figure: `analysis/dataset_size_sweep.py --family nl2` →
+    `results/dataset_size_sweep_nl2.parquet` +
+    `figures/dataset_size_sweep_nl2.png`. §6.11's runs and outputs stay
+    immutable alongside. Cost: ~8–9 h train + ~1–2 h gates on a
+    4090-class GPU ($0, owner hardware). Still single-seed (316): a
+    replication of curve SHAPE, not an error-barred separation claim.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

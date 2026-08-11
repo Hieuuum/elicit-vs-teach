@@ -19,6 +19,10 @@ and every metric are identical, only the target task differs:
   ``evt-llama-fig2nl-{noinst,inst}-n<size>``, EXPERIMENTS §6.11. Writes to the
   distinct ``_nl`` stem, so an NL run can never overwrite the ``op`` outputs
   (``write_results`` is overwrite-by-name, OQ-6).
+- ``nl2`` — same NL target, redesigned installer (NL-format dose at the
+  retention-preserving LR, both installer gates enforced), run ids
+  ``evt-llama-fig2nl2-{noinst,inst}-n<size>``, EXPERIMENTS §6.12. Distinct
+  ``_nl2`` stem for the same overwrite-by-name reason.
 
 38 target runs per family (the family's installer run is not a sweep point).
 
@@ -80,13 +84,18 @@ SIZES: tuple[int, ...] = tuple(round(10 ** (3 + i / 6)) for i in range(19))
 FAMILIES: dict[str, tuple[str, str, str]] = {
     "op": ("evt-llama-fig2", "dataset_size_sweep", "operator notation, D_target"),
     "nl": ("evt-llama-fig2nl", "dataset_size_sweep_nl", "natural language, D_algo"),
+    "nl2": (
+        "evt-llama-fig2nl2",
+        "dataset_size_sweep_nl2",
+        "natural language, D_algo; NL-dose installer",
+    ),
 }
 DEFAULT_FAMILY = "op"
 
-# Both families in one pattern. They cannot cross-match: the "nl" infix means
-# an "evt-llama-fig2nl-..." id fails the op reading and vice versa, so each id
-# parses unambiguously without the caller declaring which family it belongs to.
-RUN_ID_RE = re.compile(r"^evt-llama-fig2(?:nl)?-(noinst|inst)-n(\d+)$")
+# All families in one pattern. They cannot cross-match: the "nl"/"nl2" infix
+# means an "evt-llama-fig2nl-..." id fails the op reading and vice versa, so
+# each id parses unambiguously without the caller declaring its family.
+RUN_ID_RE = re.compile(r"^evt-llama-fig2(?:nl2?)?-(noinst|inst)-n(\d+)$")
 
 # The headline "EDL/D vs dataset size" metric for the figure — D = training
 # label tokens in the epoch-1 stream (edl_epoch1_nats / epoch-1 label tokens).

@@ -1,0 +1,11 @@
+# fig2nl2 sweep point i=16/18: n=464159. Paired with
+# llama_fig2nl2_noinst_n464159.yaml (G7: identical D_algo stream). Overlay over
+# ../../llama_fig2nl2_inst.yaml.
+run_id: evt-llama-fig2nl2-inst-n464159
+experiment:
+  match_data_order_with: evt-llama-fig2nl2-noinst-n464159
+data:
+  n_examples: 464159
+train:
+  eval_every: 500
+  max_steps: 43524

@@ -22,6 +22,10 @@ from tests._scriptloader import repo_root
 
 CONFIGS = repo_root() / "experiments" / "training-run" / "configs"
 SWEEP_DIR = CONFIGS / "sweeps" / "llama_fig2nl"
+# fig2nl2 (EXPERIMENTS §6.12): same per-size schedule, redesigned installer.
+# Its overlays were machine-generated from the SAME hand-transcribed table
+# below, so they carry the same transposed-row risk and get the same guard.
+SWEEP_DIR2 = CONFIGS / "sweeps" / "llama_fig2nl2"
 
 ARMS = ("noinst", "inst")
 
@@ -61,36 +65,53 @@ LADDER_RUNGS = (
     "installer_lr_7e-5.yaml",
     "installer_lr_8p5e-6.yaml",
 )
+# fig2nl2's rungs are its manual retry ladder (primary 7e-5 lives in
+# llama_fig2nl2_installer.yaml itself, so it needs no rung file).
+LADDER_RUNGS2 = (
+    "installer_lr_1e-4.yaml",
+    "installer_lr_3p53e-4.yaml",
+)
+
+# family stem -> (sweep dir, run-id prefix, ladder rungs). Both families share
+# SCHEDULE verbatim.
+SWEEPS = {
+    "llama_fig2nl": (SWEEP_DIR, "evt-llama-fig2nl", LADDER_RUNGS),
+    "llama_fig2nl2": (SWEEP_DIR2, "evt-llama-fig2nl2", LADDER_RUNGS2),
+}
 
 
-def test_overlay_directory_is_fully_discovered() -> None:
+@pytest.mark.parametrize("family", sorted(SWEEPS))
+def test_overlay_directory_is_fully_discovered(family: str) -> None:
     """Guard the guard: a rename that empties or shrinks the glob must not
     silently pass every parametrized case below (a vacuous parametrize list
     reports as green)."""
-    files = sorted(p.name for p in SWEEP_DIR.glob("*.yaml"))
-    assert files, f"no .yaml files found under {SWEEP_DIR} — this suite would vacuously pass"
-    assert len(files) == 38 + len(LADDER_RUNGS), (
-        f"expected 38 sweep overlays + {len(LADDER_RUNGS)} executed ladder rungs == "
-        f"{38 + len(LADDER_RUNGS)} files under {SWEEP_DIR}, found {len(files)}"
+    sweep_dir, _, rungs = SWEEPS[family]
+    files = sorted(p.name for p in sweep_dir.glob("*.yaml"))
+    assert files, f"no .yaml files found under {sweep_dir} — this suite would vacuously pass"
+    assert len(files) == 38 + len(rungs), (
+        f"expected 38 sweep overlays + {len(rungs)} ladder rungs == "
+        f"{38 + len(rungs)} files under {sweep_dir}, found {len(files)}"
     )
-    for rung in LADDER_RUNGS:
-        assert rung in files, f"{rung} not found under {SWEEP_DIR}"
+    for rung in rungs:
+        assert rung in files, f"{rung} not found under {sweep_dir}"
 
 
+@pytest.mark.parametrize("family", sorted(SWEEPS))
 @pytest.mark.parametrize("n", sorted(SCHEDULE))
 @pytest.mark.parametrize("arm", ARMS)
-def test_overlay_matches_schedule(arm: str, n: int) -> None:
+def test_overlay_matches_schedule(family: str, arm: str, n: int) -> None:
+    sweep_dir, prefix, _ = SWEEPS[family]
     eval_every, max_steps = SCHEDULE[n]
-    path = SWEEP_DIR / f"llama_fig2nl_{arm}_n{n}.yaml"
+    path = sweep_dir / f"{family}_{arm}_n{n}.yaml"
     cfg = yaml.safe_load(path.read_text())
 
-    assert cfg["run_id"] == f"evt-llama-fig2nl-{arm}-n{n}"
+    assert cfg["run_id"] == f"{prefix}-{arm}-n{n}"
     assert cfg["data"]["n_examples"] == n
     assert cfg["train"]["eval_every"] == eval_every
     assert cfg["train"]["max_steps"] == max_steps
 
     if arm == "inst":
-        assert cfg["experiment"]["match_data_order_with"] == f"evt-llama-fig2nl-noinst-n{n}"
+        assert cfg["experiment"]["match_data_order_with"] == f"{prefix}-noinst-n{n}"
     else:
         assert "match_data_order_with" not in cfg.get("experiment", {}), (
             f"{path.name}: noinst overlay must not set match_data_order_with "
@@ -99,14 +120,18 @@ def test_overlay_matches_schedule(arm: str, n: int) -> None:
         )
 
 
-@pytest.mark.parametrize("rung", LADDER_RUNGS)
-def test_ladder_rung_lr_parses_as_float(rung: str) -> None:
+@pytest.mark.parametrize(
+    ("sweep_dir", "rung"),
+    [(SWEEP_DIR, r) for r in LADDER_RUNGS] + [(SWEEP_DIR2, r) for r in LADDER_RUNGS2],
+    ids=lambda v: v.name if hasattr(v, "name") else v,
+)
+def test_ladder_rung_lr_parses_as_float(sweep_dir, rung: str) -> None:
     """A bare-exponent YAML literal (``1e-4`` with no decimal point) parses
     as a *string* under YAML 1.1, and the manifest validator refuses it —
     but only after the box is already up and the checkpoint is loaded. This
     footgun cost a launch on 2026-07-31 (decisions.md); both retry-ladder
     rungs must use the dot-mantissa form."""
-    cfg = yaml.safe_load((SWEEP_DIR / rung).read_text())
+    cfg = yaml.safe_load((sweep_dir / rung).read_text())
     assert isinstance(cfg["train"]["lr"], float), (
         f"{rung}: train.lr parsed as {type(cfg['train']['lr']).__name__}, not float "
         "— use the dot-mantissa form (e.g. 1.0e-4, not 1e-4)"

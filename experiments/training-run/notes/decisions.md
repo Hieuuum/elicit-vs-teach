@@ -5329,3 +5329,55 @@ own min 0.0972 (`overshoot_ratio` 2.41) and lands 3–5× below its neighbours o
 the curve — an early-stop artifact, not signal. `overshoot_ratio` in the CSV
 is therefore not decoration: **cross-check it before quoting any outlier**,
 in either direction, on any floor.
+
+## 2026-08-11 — fig2nl2: installer redesigned around the two measured causes of the fig2nl inversion (EXPERIMENTS §6.12)
+
+The fig2nl deliverable figure is inverted vs the paper's Figure 2 (inst ABOVE
+noinst at every matched n; the paper's pre-elicit curve sits ~an order of
+magnitude BELOW base at small n), while the noinst arm alone tracks the
+paper's base curve closely (test-floor EDL/D 0.203 bits at n=1000 → 0.015 at
+n=1M). Both causes are installer-side and were already measured in this file
+(2026-08-03 entries):
+
+1. **Format-transfer failure.** The op-notation dose installed the
+   bare-numeral convention (G4 0.9922 on op prompts at 7e-5) but it did not
+   transfer to NL prompt framing (G4-NL 0.8828) — the paper's pre-elicit
+   mechanism ("format learning is already complete") never fired for the NL
+   target. The fig2nl bet that the dose should differ in operation AND
+   surface format was explicit (llama_fig2nl_installer.yaml header); it is
+   now measured not to produce the paper's pre-elicit behavior.
+2. **Retention damage.** At 3.53e-4 the installer halved the parent's NL
+   arithmetic (G2 0.1719 vs base 0.3271) after the G2 bar was dropped
+   mid-launch — the §6.11 outcome note already flags the figure as
+   confounded in exactly the direction observed.
+
+**fig2nl2 changes the installer only** (target arms byte-identical, same
+per-size schedule):
+
+- Dose = `D_dose_mult_nl.parquet` row 0 (`datagen/make_nl_dose.py`: the
+  frozen D_dose_mult re-rendered in NL, same operands/labels/order;
+  order_hash c7fc6300f2d5…, source pin verified). Shares the target's NL
+  framing, differs only in operation.
+- Installer LR 7.0e-5, the one ladder rung that preserved retention; r512
+  kept. Retry ladder (manual): 1e-4, then 3.53e-4, under
+  `configs/sweeps/llama_fig2nl2/`.
+- G4-NL ≥ 0.90 AND G2 ≥ 0.31 both ENFORCED and recorded
+  (`parent_required_gates: [G4, G2]`); all rungs failing halts the family —
+  bars do not move this time.
+
+**Prediction that makes this falsifiable:** if the NL dose fixes G4 transfer
+at 7e-5 and the parent enters undamaged, the paper's mechanism predicts the
+inst curve drops below noinst at small n. If the arms still do not separate
+with an undamaged parent, that is evidence the inversion was not (only) the
+installer — a finding either way.
+
+**Data logistics:** datagen verified bit-faithful on 2026-08-11 (fresh
+regeneration from seed 20260717 reproduced every frozen pin: D_algo
+48d4feff…, D_algo_eval 5e422daf…, D_dose_mult 8ddda6d6…, D_target_eval
+588da81e…, probe 2b6d51c2…), so `launch_fig2nl2_llama.sh` regenerates data
+in place on any machine instead of scp'ing laptop files. Runs on the owner's
+own GPU ($0; ~8–9 h train + ~1–2 h gates at 4090-class); no relay push —
+metadata can be pushed by hand per run if wanted. Optional `--prune` deletes
+each sweep run's model.safetensors after its G5 records (adapter sidecars
+kept → weights re-derivable from base + sidecar; both n=1M runs spared),
+capping peak disk at ~25 GB vs ~126 GB without.
