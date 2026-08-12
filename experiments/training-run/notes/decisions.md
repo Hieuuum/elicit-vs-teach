@@ -5452,3 +5452,45 @@ Sweep launch authorized: resubmit launch_fig2nl2_llama.sh unchanged — it
 skips the completed installer, re-scores and RECORDS both gates
 (--record-only-pass), merges, verifies the merge, and runs the 38-run
 sweep with inline G5 + prune.
+
+## 2026-08-12 — fig2nl2 sweep COMPLETE (38/38 converged): arms COINCIDE with an undamaged parent; the paper's pre-elicit gap is absent because the Question:/Answer: scaffold pre-elicits BOTH arms
+
+Sweep ran end-to-end on the owner's A100 (TERMINAL_SUCCESS, all 38
+stop_reason=converged, no ceiling bound; G5 on every run; per-run prune, both
+n=1M weights kept). Deliverable written: results/dataset_size_sweep_nl2.parquet
+(228 rows, 38/38) + figures/dataset_size_sweep_nl2.png.
+
+**Result: arms not separated — cleanly this time.** EDL/label-token (min-val
+floor): inst 0.237 vs noinst 0.255 nats at n=1000 (inst 7% BELOW), then
+interleaving within ±5–25% through the range, inst 21% above at n=1M
+(0.0300 vs 0.0248). Same picture under the Eq.-3 test floor (inst −21% at
+n=1000, ±few % elsewhere). Single seed; treat as indistinguishable. Contrast
+fig2nl: its damaged parent sat 2.5× ABOVE at n=1000. The two-cause
+decomposition closes: installer damage explained fig2nl's inversion
+(dose16 removed it), and with damage removed there is NO pre-elicit gap —
+nothing like the paper's ~10× at small n.
+
+**Why (measured, not conjectured):** the paper's Fig-2 pre-elicit effect
+exists because their base models score 0% zero-shot — bare prompts are
+"text to continue", and early training pays a large format transient that
+the 1-example install removes. Our frozen data design never put base Llama
+in that regime: every D_algo/D_algo_eval example carries the
+"Question: …\nAnswer: " scaffold (owner decision 2026-07-17, OPEN(9),
+hash-frozen), so base Llama enters at ~0.31 zero-shot EM and ~0.83 format
+validity (the 8.5e-6 near-no-op rung's G4-NL reading). Both arms start
+~83% format-installed; the installer buys only 0.83→0.98 — a handful of
+bits, invisible against hundreds of nats of MDL. The paper's installer
+buys 0→~1.
+
+**Standing conclusions:**
+1. The paper's BASE curve replicates well under this design (monotone
+   decreasing EDL/D, 0.37→0.036 bits over n=1000→1M) — elicitation-regime
+   learning as predicted.
+2. The paper's PRE-ELICIT GAP is a statement about scaffold-free prompt
+   formats; under an answer-scaffolded design it is measured absent. Any
+   future attempt at the gap needs a scaffold-free task variant (bare NL
+   question, answer as continuation, base ≈0% zero-shot) — new TaskFormat,
+   new frozen artifacts, owner-level redesign.
+3. G5 endpoint accuracy stays blind throughout (n=1000: 0.60 vs 0.62),
+   consistent with §6.10's finding that codelength, not accuracy, carries
+   the signal.

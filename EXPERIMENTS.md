@@ -729,6 +729,24 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     batch 16) — full rationale and the falsification-arm reading in
     decisions.md 2026-08-12.
 
+    **OUTCOME 2026-08-12 — COMPLETE, 38/38 converged; ARMS COINCIDE.**
+    dose16 cleared both bars decisively (G4-NL 0.9785, G2 0.3516 — above
+    base's 0.3271, zero net damage) and the full sweep ran end-to-end on
+    the owner's A100. With the certified-undamaged parent, inst ≈ noinst
+    at every n (inst −7% at n=1000, ±5–25% through the range, +21% at
+    n=1M; same picture under the Eq.-3 test floor; single seed). fig2nl's
+    2.5× inversion is gone — it WAS installer damage — but **no
+    paper-like pre-elicit gap exists**. Cause, measured: the frozen
+    "Question:/Answer:" scaffold pre-elicits BOTH arms (base enters at
+    ~0.31 zero-shot EM, ~0.83 format validity vs the paper's 0% base),
+    so the installer buys only 0.83→0.98 format validity — bits invisible
+    at MDL scale, where the paper's installer buys 0→1. The paper's BASE
+    curve replicates well; its PRE-ELICIT GAP requires a scaffold-free
+    prompt format and is measured ABSENT under this design. Details +
+    standing conclusions: decisions.md 2026-08-12 (later). Deliverables:
+    `results/dataset_size_sweep_nl2.parquet` (228 rows) +
+    `figures/dataset_size_sweep_nl2.png` on the cluster.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
