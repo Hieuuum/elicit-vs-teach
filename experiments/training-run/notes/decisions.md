@@ -5583,3 +5583,21 @@ single-dose ladder, which measured EMPTY. `installer_lr_5e-5.yaml` added at
 the geometric midpoint (projected G4 ~0.93, G2 ~0.32). If a bar still
 misses at 5e-5, bisect toward the failing side — the window demonstrably
 exists; halting is not yet indicated.
+
+## 2026-08-12 (fig2nl3, bisect rung) — 5e-5 CLEARS BOTH BARS; sweep is GO
+
+Bisect rung 5e-5 (bare dose16): absorbed at step 94 (0.0022 nats);
+**G4 0.9707 PASS** (bar 0.90, ~5 SE clear) / **G2 0.3242 PASS** (bar 0.31,
+~1 SE clear; 0.003 below base 0.3271 — essentially undamaged). Landed inside
+the interpolated window [4.4e-5, 6.2e-5] as projected. The complete bare
+dose16 ladder: 3e-5 → 0.8184/0.3408; 5e-5 → 0.9707/0.3242; 7e-5 →
+1.0000/0.3047 — a clean monotone dose-response on both gates, and the first
+installer in any family to clear both bars in the regime where G4 measures
+the FULL install (base = 0.0000 on bare prompts).
+
+Sweep launch: resubmit launch_fig2nl3_llama.sh unchanged. The completed
+5e-5 installer sits in the store; train_or_skip skips it, the gate blocks
+re-score the actual checkpoint and RECORD the passes (--record-only-pass),
+merge + verify + premise guard re-run, then the 38-run sweep. The
+installer's manifest carries lr 5e-5 from the training-time override; the
+config's 7e-5 primary is superseded by this entry for any future re-run.
