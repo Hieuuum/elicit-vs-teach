@@ -79,9 +79,15 @@ LADDER_RUNGS2 = (
 # installer (bare dose16 @ 7e-5) lives in llama_fig2nl3_installer.yaml, so
 # only the two hotter rungs need files.
 SWEEP_DIR3 = CONFIGS / "sweeps" / "llama_fig2nl3"
+# The two hot rungs pre-date the first launch (G4-miss branch, never used);
+# the two COLD rungs were added 2026-08-12 after 7e-5 measured G4 1.0000 /
+# G2 0.3047 — retention, not install strength, is the binding constraint
+# bare, so the ladder extends downward.
 LADDER_RUNGS3 = (
     "installer_lr_1e-4.yaml",
     "installer_lr_3p53e-4.yaml",
+    "installer_lr_3e-5.yaml",
+    "installer_lr_1p5e-5.yaml",
 )
 
 # family stem -> (sweep dir, run-id prefix, ladder rungs). All families share

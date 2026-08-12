@@ -1,0 +1,8 @@
+# fig2nl3 installer retry ladder, COLDEST rung — use only if 3e-5 still
+# misses G2 (expected ~0.317 here by the same interpolation). At this LR the
+# bare dose16 absorption slows but stays well inside max_steps 6000 (7e-5
+# converged at step 80). The binding question flips back to G4: whether the
+# bare install still clears 0.90 this cold. If BOTH rungs fail jointly, halt
+# for owner triage — bars do not move (the fig2nl lesson).
+train:
+  lr: 1.5e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

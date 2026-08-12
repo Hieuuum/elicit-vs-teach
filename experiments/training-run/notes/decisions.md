@@ -5540,3 +5540,26 @@ real and priced; (b) inst well BELOW noinst at small n, converging by
 premise guard's PASS and both parent gates recorded = a genuine discrepancy
 with the paper — report it, do not iterate installers. Single seed (316):
 shape claims only.
+
+## 2026-08-12 (fig2nl3, first launch) — premise CONFIRMED (base 0.0000 EM / 0.0000 format on bare prompts); bare install TOTAL (G4 1.0000); G2 0.3047 noise-level miss — ladder extended COLD
+
+First fig2nl3 launch, measured: the premise guard passed at the strongest
+possible reading — base Llama scores exact_match 0.0000 and format_validity
+0.0000 on 256 bare prompts (greedy completions are the literal text
+'Answer:' — the model knows the scaffold and emits it instead of a number).
+The paper's "0% zero-shot base" regime holds bare, exactly as §6.13 requires.
+
+Installer (bare dose16 @ 7e-5): absorbed at step 80 (0.0012 nats); **G4
+1.0000 on bare prompts** — the full 0->1 install the scaffolded families
+could never show; **G2 0.3047 FAIL** vs 0.31 (miss 0.006, under half a gate
+SE; by-op '+' 0.4334 / '−' 0.1804 — the same subtraction-first damage
+pattern as every prior installer). Launcher halted, nothing recorded.
+
+**Ladder direction correction:** the pre-built rungs (1e-4, 3.53e-4) serve a
+G4 miss and point the wrong way here — G4 has maximal headroom and G2 needs
+recovery. Two COLD rungs added: installer_lr_3e-5.yaml (interpolated G2
+~0.314, marginal) then installer_lr_1p5e-5.yaml (~0.317; the open question
+that cold is whether G4 stays >= 0.90). Protocol unchanged: delete the
+installer run dir, retrain with the rung --override, score both gates
+--no-record. A rung wins only by clearing BOTH bars; all failing jointly
+halts the family for owner triage.
