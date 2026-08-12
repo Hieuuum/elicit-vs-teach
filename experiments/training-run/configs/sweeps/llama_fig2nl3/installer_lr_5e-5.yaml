@@ -1,0 +1,12 @@
+# fig2nl3 installer retry ladder, BISECT rung — added 2026-08-12 after the
+# cold rung measured the bracket:
+#   3e-5  G4 0.8184 FAIL   G2 0.3408 PASS (above base 0.3271)
+#   7e-5  G4 1.0000 PASS   G2 0.3047 FAIL (miss 0.006)
+# Log-LR interpolation puts G4's 0.90 crossing near 4.4e-5 and G2's 0.31
+# crossing near 6.2e-5 — an OPEN window ~0.15 decades wide (unlike the
+# scaffolded single-dose ladders, which measured empty). 5e-5 is its
+# geometric midpoint; projected G4 ~0.93, G2 ~0.32, both clearing with
+# margin. If either still misses, the bracket data says bisect again toward
+# the failing side rather than halt — the window demonstrably exists.
+train:
+  lr: 5.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

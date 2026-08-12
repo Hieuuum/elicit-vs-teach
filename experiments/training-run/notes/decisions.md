@@ -5563,3 +5563,23 @@ that cold is whether G4 stays >= 0.90). Protocol unchanged: delete the
 installer run dir, retrain with the rung --override, score both gates
 --no-record. A rung wins only by clearing BOTH bars; all failing jointly
 halts the family for owner triage.
+
+## 2026-08-12 (fig2nl3, cold rung) — bracket measured, window OPEN; bisect rung 5e-5 added
+
+Cold rung 3e-5 (bare dose16): absorbed at step 138 (0.0046 nats); G4 0.8184
+FAIL / **G2 0.3408 PASS — above base 0.3271**. With the 7e-5 reading the
+bracket is:
+
+| lr   | G4-bare (0.90)  | G2 (0.31)                    |
+|------|-----------------|------------------------------|
+| 3e-5 | 0.8184 FAIL     | 0.3408 PASS (above base)     |
+| 7e-5 | 1.0000 PASS     | 0.3047 FAIL (miss 0.006)     |
+
+Log-LR interpolation: G4 crosses 0.90 near 4.4e-5 (~0.49/decade), G2
+crosses 0.31 near 6.2e-5 (~-0.10/decade) — the joint window is **OPEN**,
+roughly [4.4e-5, 6.2e-5] (~0.15 decades; G2's edge carries ~±0.15 dec of
+gate noise, so treat the edges as soft). Contrast every scaffolded
+single-dose ladder, which measured EMPTY. `installer_lr_5e-5.yaml` added at
+the geometric midpoint (projected G4 ~0.93, G2 ~0.32). If a bar still
+misses at 5e-5, bisect toward the failing side — the window demonstrably
+exists; halting is not yet indicated.

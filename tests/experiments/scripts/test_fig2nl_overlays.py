@@ -88,6 +88,7 @@ LADDER_RUNGS3 = (
     "installer_lr_3p53e-4.yaml",
     "installer_lr_3e-5.yaml",
     "installer_lr_1p5e-5.yaml",
+    "installer_lr_5e-5.yaml",
 )
 
 # family stem -> (sweep dir, run-id prefix, ladder rungs). All families share
