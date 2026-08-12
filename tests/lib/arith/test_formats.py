@@ -84,6 +84,52 @@ def test_nl_add_sub_rendering_is_byte_frozen():
     )
 
 
+def test_bare_nl_answer_char_span_is_exact():
+    full, (start, end) = render(23, 45, "+", 68, "bare_nl")
+    assert full == "What is the sum of 23 and 45?\n68"
+    assert full[start:end] == "68"
+    assert full[:start] == "What is the sum of 23 and 45?\n"
+
+
+def test_bare_nl_span_covers_negative_sign():
+    full, (start, end) = render(23, 45, "-", -22, "bare_nl")
+    assert full == "What is the difference between 23 and 45?\n-22"
+    assert full[start:end] == "-22"
+
+
+def test_bare_nl_mult_uses_product_wording():
+    full, (start, end) = render(3354, 3459, "*", 11601486, "bare_nl")
+    assert full == "What is the product of 3354 and 3459?\n11601486"
+    assert full[start:end] == "11601486"
+
+
+def test_bare_nl_has_no_scaffold():
+    """The format's whole point (fig2nl3): no Question:/Answer: cue anywhere —
+    the scaffold measurably pre-installs the output convention in BOTH sweep
+    arms (EXPERIMENTS §6.12 outcome), which is exactly what this format
+    removes. A scaffold leaking back in would silently re-void the family."""
+    for op, ans in (("+", 68), ("-", -22), ("*", 1035)):
+        full, (start, _) = render(23, 45, op, ans, "bare_nl")
+        assert "Question:" not in full
+        assert "Answer:" not in full
+        assert full[:start].endswith("?\n")
+
+
+def test_bare_nl_body_reuses_frozen_nl_phrasing():
+    """bare_nl must ask the byte-identical question the frozen nl sets ask —
+    only the scaffold differs — so cross-format comparisons stay same-question."""
+    nl_full, (nl_start, _) = render(572, 9875, "+", 10447, "nl")
+    bare_full, (bare_start, _) = render(572, 9875, "+", 10447, "bare_nl")
+    nl_body = nl_full[:nl_start].removeprefix("Question: ").removesuffix("\nAnswer: ")
+    bare_body = bare_full[:bare_start].removesuffix("\n")
+    assert nl_body == bare_body == "What is the sum of 572 and 9875?"
+
+
+def test_bare_nl_rejects_unknown_op():
+    with pytest.raises(ValueError):
+        render(3, 4, "/", 12, "bare_nl")
+
+
 def test_nl_rejects_unknown_op():
     with pytest.raises(ValueError):
         render(3, 4, "/", 12, "nl")

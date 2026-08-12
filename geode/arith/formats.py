@@ -12,6 +12,27 @@ decision 2026-07-17, freezing OPEN(9)); only the question body differs:
 - ``nl`` — natural language, add/sub/mult:
   ``"Question: What is the sum of 23 and 45?\nAnswer: 68"``
 
+A third format deliberately BREAKS that scaffold (fig2nl3, 2026-08-12 —
+spec 02 §4): the fig2nl2 sweep measured that the ``Question:/Answer:``
+scaffold alone pre-installs the output convention (base Llama: ~0.31
+zero-shot EM, ~0.83 format validity before any training), which removes the
+format-learning transient the paper's Figure-2 pre-elicit intervention
+exists to remove — so under the scaffold the intervention has nothing to
+buy and the paper's gap cannot appear. ``bare_nl`` restores the paper's
+regime: the bare question, a newline, and the answer as plain continuation.
+
+- ``bare_nl`` — natural language, NO scaffold, add/sub/mult:
+  ``"What is the sum of 23 and 45?\n68"``
+
+The two scaffolded formats stay byte-frozen exactly as on 2026-07-17;
+``bare_nl`` is additive and reuses ``_NL_PHRASE`` verbatim, so its question
+bodies can never drift from the frozen NL sets'. The answer char span works
+identically (the trailing run after the final ``"\n"`` here); the span→token
+boundary is safe under the frozen Llama-3 byte-level BPE because its
+pre-tokenizer merges ``"?\n"`` into the prompt-side punctuation token and
+starts a fresh numeric (or sign) token at the answer — the same
+whitespace-overhang-only rule V5.38 verifies.
+
 The mult phrasing arrived 2026-07-27 for the phase-3 format installer, which
 needs an NL-format set whose *operation* cannot disturb the parent's addition
 (see ``datagen/make_data.py`` --phase3). The add/sub phrasings are byte-frozen:
@@ -89,6 +110,16 @@ def render(a: int, b: int, op: str, shown_answer: int, fmt: str) -> tuple[str, t
         if op not in _OPERATOR_SYMBOL:
             raise ValueError(f"unknown op {op!r}")
         body = _operator_body(a, b, op)
+    elif fmt == "bare_nl":
+        if op not in _NL_PHRASE:
+            raise ValueError(f"bare_nl format has no phrasing for op {op!r}")
+        # No Question:/Answer: scaffold (module docstring): the bare question,
+        # a newline, the answer as plain continuation — the paper's regime.
+        body = _nl_body(a, b, op)
+        prompt = f"{body}\n"
+        answer_text = str(shown_answer)
+        full = prompt + answer_text
+        return full, (len(prompt), len(full))
     else:
         raise ValueError(f"unknown format {fmt!r}")
     prompt = f"Question: {body}\nAnswer: "

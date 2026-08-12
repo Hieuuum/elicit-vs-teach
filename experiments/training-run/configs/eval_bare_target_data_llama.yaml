@@ -1,0 +1,32 @@
+# Bare-format (scaffold-free) analogue of eval_nl_target_data_llama.yaml, for
+# the fig2nl3 family: gates.py g5 on the 38 bare sweep runs, g4
+# --prompt-config on the fig2nl3 installer, and scripts/check_bare_baseline.py
+# (the family's premise guard). Same relationship to llama_fig2nl3_* that
+# eval_nl_target_data_llama.yaml has to the fig2nl/fig2nl2 families.
+#
+# D_algo_eval_bare.parquet is DERIVED, not sampled: datagen/make_bare_sets.py
+# re-renders the frozen D_algo_eval row-by-row in the bare_nl format (same
+# triples, same order, same question bodies — only the Question:/Answer:
+# scaffold is dropped), source hash-verified against D_algo_eval's pin. Every
+# disjointness guarantee carries over. LOCAL-ONLY like its source; local_path
+# is load-bearing (V5.70 resolves it against REPO_ROOT, hash still verified).
+#
+# Rows 0-2047 are the STOPPING block the target runs consume in-loop; rows
+# 2048+ are the REPORTING block (g4's fixed prompt slice, g5's questions and
+# the shared final test loss). No val_fraction, deliberately — both consumers
+# slice FIXED rows (see eval_nl_target_data_llama.yaml's note).
+#
+# The tokenizer must match the MODEL under eval (2026-07-24 incident).
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # the fig2nl3 training tokenizer
+
+task:
+  name: arith_bare_addsub        # for the shared-set test loss's label mask
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_eval_bare.parquet # 100k bare NL add/sub, question-disjoint from
+                                 # D_algo/D_algo_bare (derived from D_algo_eval)
+  order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet

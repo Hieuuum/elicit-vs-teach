@@ -5494,3 +5494,49 @@ buys 0→~1.
 3. G5 endpoint accuracy stays blind throughout (n=1000: 0.60 vs 0.62),
    consistent with §6.10's finding that codelength, not accuracy, carries
    the signal.
+
+## 2026-08-12 (fig2nl3) — bare-format family built: the scaffold-free replication attempt (EXPERIMENTS §6.13)
+
+§6.12's outcome stands as the motivation: the Question:/Answer: scaffold
+pre-elicits both arms, so no scaffolded family can show the paper's Figure-2
+gap. fig2nl3 removes the scaffold and nothing else.
+
+**Core change (tested core, property tests in this commit):** new ADDITIVE
+format `bare_nl` in geode/arith/formats.py — bare NL question, newline,
+answer as plain continuation ("What is the sum of 23 and 45?\n68"). Reuses
+_NL_PHRASE byte-identically (test_bare_nl_body_reuses_frozen_nl_phrasing);
+both frozen formats untouched (byte-frozen tests unchanged and passing).
+Span alignment VERIFIED against the frozen Llama tokenizer artifact
+(tokenizer.json loaded directly): 15/15 grid cases exact; the boundary
+tokenizes as prompt-side `?`,`\n` with the answer token starting at the
+span — the V5.38 whitespace-overhang rule holds. Spec 02 §4 updated in this
+commit (additive format paragraph); V5.38 grid test extended to bare_nl.
+
+**Data:** datagen/make_bare_sets.py derives D_algo_bare (order_hash
+946b5d02a8f9…), D_algo_eval_bare (e419baa213bb…), D_dose_mult_bare
+(ca46ea72a335…) from the frozen artifacts, each source hash-verified
+against its pin — same triples/order/bodies, scaffold dropped, so every
+disjointness + G7 guarantee carries over. Deterministic, no RNG.
+
+**Premise guard (new failure mode closed):** scripts/check_bare_baseline.py
+measures base Llama zero-shot EM on the bare eval slice BEFORE any training
+and halts the launcher unless EM <= 0.05. The family's entire point is that
+the paper's "0% zero-shot base" regime holds bare; if it doesn't, we must
+not spend a GPU-day confirming nothing. The guard also re-proves bare span
+alignment on the box tokenizer.
+
+**Installer:** the dose16 recipe transferred verbatim (16 examples, batch
+16, lr 7e-5, r512/α32), dose re-rendered bare. G4 >= 0.90 now scored on
+BARE eval prompts — base scores ~0 there, so G4 measures the full install
+for the first time, not the last sliver above the scaffold's 0.83 head
+start. G2 >= 0.31 stays on the SCAFFOLDED set (retention of the
+pre-existing capability). Both enforced; ladder 1e-4 / 3.53e-4; bars do
+not move.
+
+**Reading the outcome in advance** (so no one improvises when the figure
+lands): (a) noinst small-n EDL/D ABOVE fig2nl2's noinst = the transient is
+real and priced; (b) inst well BELOW noinst at small n, converging by
+~10^5 = the paper's Figure 2 reproduced; (c) arms coincide AGAIN, with the
+premise guard's PASS and both parent gates recorded = a genuine discrepancy
+with the paper — report it, do not iterate installers. Single seed (316):
+shape claims only.

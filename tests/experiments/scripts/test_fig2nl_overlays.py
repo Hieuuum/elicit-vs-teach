@@ -75,11 +75,21 @@ LADDER_RUNGS2 = (
     "installer_dose16_7e-5.yaml",
 )
 
-# family stem -> (sweep dir, run-id prefix, ladder rungs). Both families share
+# fig2nl3 (EXPERIMENTS §6.13, bare format): same schedule again; its primary
+# installer (bare dose16 @ 7e-5) lives in llama_fig2nl3_installer.yaml, so
+# only the two hotter rungs need files.
+SWEEP_DIR3 = CONFIGS / "sweeps" / "llama_fig2nl3"
+LADDER_RUNGS3 = (
+    "installer_lr_1e-4.yaml",
+    "installer_lr_3p53e-4.yaml",
+)
+
+# family stem -> (sweep dir, run-id prefix, ladder rungs). All families share
 # SCHEDULE verbatim.
 SWEEPS = {
     "llama_fig2nl": (SWEEP_DIR, "evt-llama-fig2nl", LADDER_RUNGS),
     "llama_fig2nl2": (SWEEP_DIR2, "evt-llama-fig2nl2", LADDER_RUNGS2),
+    "llama_fig2nl3": (SWEEP_DIR3, "evt-llama-fig2nl3", LADDER_RUNGS3),
 }
 
 
@@ -125,7 +135,9 @@ def test_overlay_matches_schedule(family: str, arm: str, n: int) -> None:
 
 @pytest.mark.parametrize(
     ("sweep_dir", "rung"),
-    [(SWEEP_DIR, r) for r in LADDER_RUNGS] + [(SWEEP_DIR2, r) for r in LADDER_RUNGS2],
+    [(SWEEP_DIR, r) for r in LADDER_RUNGS]
+    + [(SWEEP_DIR2, r) for r in LADDER_RUNGS2]
+    + [(SWEEP_DIR3, r) for r in LADDER_RUNGS3],
     ids=lambda v: v.name if hasattr(v, "name") else v,
 )
 def test_ladder_rung_lr_parses_as_float(sweep_dir, rung: str) -> None:

@@ -747,6 +747,43 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `results/dataset_size_sweep_nl2.parquet` (228 rows) +
     `figures/dataset_size_sweep_nl2.png` on the cluster.
 
+13. **Fig-2 replication v3 (fig2nl3) — the BARE-FORMAT family; PLANNED
+    2026-08-12, owner's GPU.** §6.12's outcome located the mechanism: the
+    frozen `Question:/Answer:` scaffold alone pre-installs the output
+    convention in both arms (base Llama ~0.31 zero-shot EM, ~0.83 format
+    validity untrained vs the paper's 0% base), so the paper's Figure-2
+    pre-elicit transient never existed in any scaffolded family. fig2nl3
+    changes exactly one thing: **the scaffold is removed** (new additive
+    format `bare_nl`, spec 02 §4 — bare NL question, newline, answer as
+    plain continuation; property-tested, and span alignment verified
+    against the frozen Llama tokenizer: `?`/`\n` stay prompt-side, the
+    answer token starts exactly at the span).
+    - **Data:** hash-pinned derivations of the frozen artifacts
+      (`datagen/make_bare_sets.py`): `D_algo_bare` (946b5d02…),
+      `D_algo_eval_bare` (e419baa2…), `D_dose_mult_bare` (ca46ea72…) —
+      same triples, same order, same question bodies; every disjointness
+      and G7 guarantee carries over.
+    - **PREMISE GUARD** (new, `scripts/check_bare_baseline.py`, runs
+      before any training): base Llama zero-shot EM on bare prompts must
+      be ≤ 0.05, else the family halts — the transient it measures would
+      not exist. Also proves bare span alignment on the box tokenizer.
+    - **Installer:** the §6.12-winning dose16 recipe re-rendered bare
+      (16 bare-NL mult, batch 16, lr 7e-5, r512/α32). Gates BOTH
+      enforced: G4 ≥ 0.90 on BARE eval prompts (base ≈ 0 there — the
+      full 0→0.90+ install, for the first time) and G2 ≥ 0.31 on the
+      SCAFFOLDED eval_algo set (base 0.3271). Ladder: 1e-4, 3.53e-4.
+    - **Target arms:** protocol byte-held from §6.11/§6.12 (19 sizes,
+      r512/α32 @ 3.53e-4, batch 128, seed 316, ε/k 0.002/5, doubled
+      ceilings); run ids `evt-llama-fig2nl3-*`; launcher
+      `scripts/launch_fig2nl3_llama.sh` (premise guard inline, per-run
+      G5 + `--prune`); figure `dataset_size_sweep.py --family nl3`.
+    - **Prediction, falsifiable both ways:** in this regime the paper's
+      gap (pre-elicit well BELOW base at small n) should appear, and the
+      noinst arm's small-n EDL/D should sit ABOVE §6.12's (the transient
+      is extra information). If the arms still coincide — premise
+      verified, parent gated undamaged — that is a genuine discrepancy
+      with the paper, reportable as such.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

@@ -1,0 +1,8 @@
+# fig2nl3 installer retry ladder, rung 2 — use only if the primary bare
+# dose16 @ 7.0e-5 misses a gate (G4-on-bare >= 0.90 AND G2 >= 0.31 must BOTH
+# pass; see llama_fig2nl3_installer.yaml). With the scaffolded dose16 this
+# recipe was never needed (7e-5 cleared both ~6/~3 SE deep); the bare install
+# is a harder ask (base starts near 0 format validity on bare prompts), so a
+# hotter rung may be. Hotter raises G4 and burns G2.
+train:
+  lr: 1.0e-4      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

@@ -295,6 +295,22 @@ def test_nl2_family_run_ids_are_disjoint_from_both_others(tmp_path: Path) -> Non
     assert rows and all(r["condition"] == "inst" for r in rows)
 
 
+def test_nl3_family_run_ids_are_disjoint_from_all_others() -> None:
+    """--family nl3 (the bare-format family, §6.13) never cross-matches any
+    of the other three same-shape sweeps."""
+    all_other = set().union(*(dss.default_run_ids(f) for f in ("op", "nl", "nl2")))
+    nl3_ids = dss.default_run_ids("nl3")
+
+    assert len(nl3_ids) == 38
+    assert not set(nl3_ids) & all_other
+    assert all(rid.startswith("evt-llama-fig2nl3-") for rid in nl3_ids)
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl3-noinst-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl3x-inst-n1000") is None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl4-inst-n1000") is None
+    # All four stems distinct (write_results is overwrite-by-name).
+    assert len({dss.FAMILIES[f][1] for f in dss.FAMILIES}) == 4
+
+
 def test_nl_family_writes_a_separate_table_from_the_shipped_op_one(tmp_path: Path) -> None:
     """The nl stem must not overwrite the shipped op outputs (write_results is overwrite-by-name)."""
     from geode.zoo import write_results
