@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# fig2nl3s — SNAPSHOT re-run of the fig2nl3 sweep for the internals analysis
-# (owner 2026-08-13): identical training (same base configs, data, schedule,
+# fig2nl3s — SNAPSHOT re-run of the fig2nl3 ENDPOINT pair (n=1,000,000 only,
+# owner 2026-08-13: trajectory evidence for the final run of each Fig-2
+# curve, both Llama arms; the TinyStories pair follows in its own family).
+# Identical training to the shipped runs (same base configs, data, schedule,
 # seed 316, same installer parent) under NEW run ids, with 128 adapter
 # snapshots per run. The shipped fig2nl3 runs stay immutable; this family
 # exists ONLY to produce weight-trajectory evidence (gradient/update
@@ -8,22 +10,19 @@
 # the existing alignment analyses).
 #
 # STORE-IN-HF-THEN-DELETE (owner): after each run completes, its whole run
-# dir INCLUDING snapshots/ is pushed to a PER-RUN HF repo
-# ($HF_NAMESPACE/<run_id>, private), the upload is verified via the relay
-# sha256 check hf_checkpoint.py already performs, and then snapshots + full
-# weights are deleted locally (adapter sidecar kept, manifest/logs kept).
-# Peak local disk ~= one run's snapshots (~95 GB at r512 x 128) instead of
-# ~3.5 TB. Per-run repos keep each repo well under HF's per-repo comfort
-# zone; total footprint on HF ~= 3.5 TB across 38 private repos.
+# dir INCLUDING snapshots/ is pushed to a PER-RUN private HF repo
+# ($HF_NAMESPACE/<run_id>), the main checkpoint is sha256-verified against
+# the hub, and then snapshots + full weights are deleted locally (adapter
+# sidecar, manifest, and logs kept). Footprint: ~95 GB per run (128 x
+# 0.72 GB adapters) — ~190 GB on HF for this pair, peak local disk ~100 GB.
 #
 # NO gates, NO figure: EDL/G5 evidence lives in the shipped fig2nl3 family.
 # The inst arm's parent is the EXISTING evt-llama-fig2nl3-installer (gates
 # recorded); require_parent_ready enforces it as usual. train_target's G7
 # check pins each inst run to the SAME-SIZE fig2nl3s noinst run.
 #
-# Cost: ~9-11 h GPU (sweep re-run + ~10 min/run snapshot I/O) + upload
-# bandwidth (~3.5 TB total; uploads run inline between runs — expect the
-# wall-clock to be upload-bound on slow links).
+# Cost: ~2 h GPU (the two n=1M runs re-train in ~50 min each + snapshot
+# I/O) + ~190 GB upload (inline between runs).
 #
 # Token: $HF_WRITE_TOKEN or $HF_TOKEN must have WRITE scope (repo creation).
 set -uo pipefail
@@ -31,8 +30,8 @@ cd "$(dirname "$0")"
 source lib/launch_common.sh
 TAG=fig2nl3s
 
-echo "[fig2nl3s] estimated cost: ~9-11 h GPU + ~3.5 TB upload across 38"
-echo "[fig2nl3s] per-run private HF repos; peak local disk ~100 GB."
+echo "[fig2nl3s] estimated cost: ~2 h GPU + ~190 GB upload (two per-run"
+echo "[fig2nl3s] private HF repos); peak local disk ~100 GB."
 
 [[ " $* " == *" --confirm-cost "* ]] || {
   echo "launch_fig2nl3s_llama.sh: --confirm-cost required (budget rule)" >&2
@@ -48,7 +47,10 @@ HF_NAMESPACE=${HF_NAMESPACE:-mhieuuu}
 
 INSTALLER_RID=evt-llama-fig2nl3-installer   # REUSED from the shipped family
 INSTALLER_MODEL=$GEODE_STORE/runs/$INSTALLER_RID/model_merged
-SIZES=(1000 1468 2154 3162 4642 6813 10000 14678 21544 31623 46416 68129 100000 146780 215443 316228 464159 681292 1000000)
+# n=1,000,000 ONLY (owner 2026-08-13): snapshots for the ENDPOINT run of
+# each Fig-2 curve — the two Llama curves here; the two TinyStories curves
+# get the same treatment in their own family's launcher.
+SIZES=(1000000)
 
 milestone "repo $(git log --oneline -1)"
 milestone "store=$GEODE_STORE namespace=$HF_NAMESPACE sizes=${#SIZES[@]}"

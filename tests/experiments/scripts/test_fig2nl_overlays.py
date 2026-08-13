@@ -97,10 +97,31 @@ SWEEPS = {
     "llama_fig2nl": (SWEEP_DIR, "evt-llama-fig2nl", LADDER_RUNGS),
     "llama_fig2nl2": (SWEEP_DIR2, "evt-llama-fig2nl2", LADDER_RUNGS2),
     "llama_fig2nl3": (SWEEP_DIR3, "evt-llama-fig2nl3", LADDER_RUNGS3),
-    # fig2nl3s: the snapshot re-run (2026-08-13) — same schedule, new ids,
-    # snapshots.n 128; no installer of its own, so no rung files.
-    "llama_fig2nl3s": (CONFIGS / "sweeps" / "llama_fig2nl3s", "evt-llama-fig2nl3s", ()),
 }
+
+# fig2nl3s (2026-08-13): the snapshot re-run covers ONLY the n=1,000,000
+# endpoint pair (owner-narrowed from the full sweep), so it does not join
+# the 38-overlay parametrization above — it gets its own check.
+SNAP_DIR = CONFIGS / "sweeps" / "llama_fig2nl3s"
+
+
+def test_fig2nl3s_is_exactly_the_endpoint_pair() -> None:
+    files = sorted(p.name for p in SNAP_DIR.glob("*.yaml"))
+    assert files == [
+        "llama_fig2nl3s_inst_n1000000.yaml",
+        "llama_fig2nl3s_noinst_n1000000.yaml",
+    ]
+    n = 1000000
+    ee, ms = SCHEDULE[n]
+    for arm in ARMS:
+        cfg = yaml.safe_load((SNAP_DIR / f"llama_fig2nl3s_{arm}_n{n}.yaml").read_text())
+        assert cfg["run_id"] == f"evt-llama-fig2nl3s-{arm}-n{n}"
+        assert cfg["data"]["n_examples"] == n
+        assert cfg["train"]["eval_every"] == ee
+        assert cfg["train"]["max_steps"] == ms
+        assert cfg["train"]["snapshots"] == {"n": 128, "dense_until": 30}
+        if arm == "inst":
+            assert cfg["experiment"]["match_data_order_with"] == f"evt-llama-fig2nl3s-noinst-n{n}"
 
 
 @pytest.mark.parametrize("family", sorted(SWEEPS))

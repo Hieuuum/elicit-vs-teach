@@ -5723,3 +5723,9 @@ directions derive from snapshot deltas; raw per-step gradients at r512 are
   identical to the shipped runs (GPU nondeterminism); trajectory analyses
   use the fig2nl3s runs' own logged losses, never mix curves across the
   two families.
+
+**CORRECTION (same day, owner):** fig2nl3s narrowed from the full 38-run
+sweep to the n=1,000,000 ENDPOINT PAIR only — snapshots for the final run
+of each Fig-2 curve (both Llama arms here, ~190 GB on HF; the two
+TinyStories endpoint runs get identical treatment in the fig2ts family).
+The 36 other overlays are deleted; launcher SIZES=(1000000).
