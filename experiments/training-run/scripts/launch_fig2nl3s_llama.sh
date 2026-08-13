@@ -46,7 +46,10 @@ export REPO_ROOT
 export PYTHONPATH=$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}
 export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 export HF_TOKEN=${HF_WRITE_TOKEN:-${HF_TOKEN:?need HF_TOKEN or HF_WRITE_TOKEN (write scope)}}
-HF_NAMESPACE=${HF_NAMESPACE:-mhieuuu}
+# Account split (owner 2026-08-13): mhieuuu (teammate) owns the geode-store
+# relay + the arith dataset repo; bulk NEW storage (per-run snapshot repos)
+# goes under the owner's own account.
+HF_NAMESPACE=${HF_NAMESPACE:-podhajskimarcin}
 
 INSTALLER_RID=evt-llama-fig2nl3-installer   # REUSED from the shipped family
 INSTALLER_MODEL=$GEODE_STORE/runs/$INSTALLER_RID/model_merged
