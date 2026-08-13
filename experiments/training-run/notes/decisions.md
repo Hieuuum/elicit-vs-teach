@@ -5669,3 +5669,32 @@ Verified against the PDF (repo root), for the fig2nl3 write-up:
   r512 LoRA @ 5e-5 (vs full-FT ~1 step) — forced by the measured empty
   1-example G4×G2 window at r512 across three dose formats; plus the §6.11
   inherited deviations (batch 128 vs 1024, single seed, D_algo vs DMM).
+
+## 2026-08-13 — fig2ts opened: TinyStories-1B twin pretrain (owner chose paper-faithful 1B over reusing the 38.7M run-1)
+
+Goal: Fig 2's other two curves — TinyStories-1B (base, ↑↓ peak ~300K) and
+(pre-teach format, ↑↓ peak ~150K), paper Table 5 p.20. Owner decision:
+pretrain the true 1B twin (App. D p.15 protocol) rather than sweep the
+38.7M run-1 (r512 is full-rank at d=512; not Fig 2's capacity regime).
+
+Stage 1 shipped: `configs/ts1b_pretrain.yaml` (`evt-ts1b-base`) — exact
+Llama-3.2-1B dims (2048/8192/16L/32H/8KV GQA, rope 5e5, tied), Llama
+tokenizer (keeps D_algo_bare + all eval configs byte-identical
+downstream), TinyStories-v2 @ seq 512, paper Table-1 protocol (AdamW,
+constant LR, bf16, clip 1.0, val-convergence stop 0.002/5/min5000),
+ceiling 30K steps ≈ 3.6 epochs ≈ 25-37 h on one A100. LR is NOT
+inherited from run-1's 38.7M pin: mini-sweep rungs
+`sweeps/ts1b/lrsweep_{1e-3,5e-4,3e-4}.yaml` (2000-step probes,
+stop_reason=max_steps EXPECTED there) pin it before the production run.
+
+Stage 2 (build while pretraining): pre-teach-format installer per paper
+E.1.2 (random-label op-notation mult = frozen D_inst, behavioral stop —
+runs-3/4 protocol) + the 19x2 bare sweep family (fig2ts) reusing the
+fig2nl3 target protocol verbatim; gates G4-on-bare (measure first,
+--no-record) + G3 no-label-leak for the pre-teach parent (G2 retention
+is meaningless for a model with no arithmetic).
+
+Also shipped: `scripts/push_fig2_families.sh` — archives fig2nl2+fig2nl3
+to the relay (full weights installer+n=1M, adapter sidecars for the
+rest, ~60 GB; "gradients" are not stored — training evidence =
+train/eval logs in every push + runs-5-8 snapshots already on the relay).
