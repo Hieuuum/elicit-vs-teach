@@ -784,6 +784,26 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
       verified, parent gated undamaged — that is a genuine discrepancy
       with the paper, reportable as such.
 
+    **OUTCOME 2026-08-13 — COMPLETE, 38/38 converged: THE GAP APPEARS.**
+    Premise guard passed at the strongest reading (base 0.0000 EM /
+    0.0000 format validity on bare prompts; completions are the literal
+    string 'Answer:'). Installer ladder resolved at **5e-5** (G4 0.9707
+    on bare prompts — the full 0→0.97 install — G2 0.3242, ~base;
+    ladder: 3e-5 → 0.8184/0.3408, 7e-5 → 1.0000/0.3047). Sweep: at
+    n=1000 pre-elicit 0.967 vs base 3.549 bits/label-token — **3.7×
+    below** (test floor 5.2×) — advantage decaying monotonically and
+    arms converged from n≈1.5×10⁵ to 1M. Both predictions confirmed:
+    the bare base transient is real (3.549 vs §6.12's scaffolded 0.368
+    at n=1000 — the scaffold hid ~3.2 bits/token) and the paper's
+    Figure-2 elicitation signature reproduces under its own premises.
+    The three-family arc (inverted → null → gap;
+    `figures/fig2_replication_arc.png`) localizes the mechanism: the
+    pre-elicit gap is a prompt-format-transient effect — remove the
+    transient and it vanishes; damage the parent and it inverts.
+    Magnitude 3.7–5× vs the paper's ~10× (single seed, D_algo vs
+    DeepMind Mathematics, r512-LoRA installer). Full record:
+    decisions.md 2026-08-13.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

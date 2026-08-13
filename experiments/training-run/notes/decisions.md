@@ -5601,3 +5601,41 @@ re-score the actual checkpoint and RECORD the passes (--record-only-pass),
 merge + verify + premise guard re-run, then the 38-run sweep. The
 installer's manifest carries lr 5e-5 from the training-time override; the
 config's 7e-5 primary is superseded by this entry for any future re-run.
+
+## 2026-08-13 — fig2nl3 sweep COMPLETE (38/38 converged): THE PAPER'S FIGURE-2 GAP REPRODUCED under its own premises
+
+Full sweep ran on the owner's A100, all 38 runs stop_reason=converged.
+Deliverables: results/dataset_size_sweep_nl3.parquet (228 rows) +
+figures/dataset_size_sweep_nl3.png; the three-family summary is
+figures/fig2_replication_arc.png.
+
+**Result (min-val floor, bits/label-token):** at n=1000 the pre-elicit arm
+sits at 0.967 vs base 3.549 — **3.7× below** (Eq.-3 test floor: 5.2×). The
+advantage decays monotonically (ratio 0.27 → 0.39 → 0.57 → 0.77 across
+n=1000→46K) and the arms converge by n≈1.5×10⁵, staying merged to n=1M
+(ratio ~0.94-1.02). Qualitatively the paper's Figure 2: initial
+high-information regime suppressed by the format install, decaying
+advantage, convergence at scale. Magnitude 3.7-5× vs the paper's "~an order
+of magnitude" — single seed, different dataset (D_algo vs DeepMind
+Mathematics), r512-LoRA installer vs theirs; shape claims only per the
+standing single-seed rule.
+
+**The transient, priced:** bare base at n=1000 costs 3.549 bits/token where
+the scaffolded fig2nl2 base cost 0.368 — the Question:/Answer: scaffold was
+worth ~3.2 bits/token of hidden format learning at small n, and the
+16-example installer bought back most of it (0.97). G5 endpoint EM stays
+blind as always (n=1000: 0.60 both arms).
+
+**The arc's standing conclusion (three families, one mechanism):** the
+pre-elicit gap exists exactly when the format transient exists —
+  1. fig2nl: damaged installer -> INVERTED gap (artifact);
+  2. fig2nl2: clean installer, scaffolded prompts -> NO gap (transient
+     pre-paid for both arms by the data design);
+  3. fig2nl3: clean installer, bare prompts, premise verified (base
+     0.0000 EM) -> the gap, 3.7-5× at n=1000, converging by ~10⁵.
+This replicates Donoway et al.'s Figure-2 elicitation signature AND
+localizes its mechanism: the gap is a statement about prompt-format
+transients, not about arithmetic knowledge — remove the transient (by
+scaffold or by installer) and the gap vanishes; damage the parent and it
+inverts. Caveat inherited from §6.11 deviations: batch 128 vs 1024, one
+seed, D_algo's signed-subtraction convention.
