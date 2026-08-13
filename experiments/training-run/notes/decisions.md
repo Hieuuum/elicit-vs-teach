@@ -5698,3 +5698,28 @@ Also shipped: `scripts/push_fig2_families.sh` — archives fig2nl2+fig2nl3
 to the relay (full weights installer+n=1M, adapter sidecars for the
 rest, ~60 GB; "gradients" are not stored — training evidence =
 train/eval logs in every push + runs-5-8 snapshots already on the relay).
+
+## 2026-08-13 — fig2nl3s: snapshot re-run of the fig2nl3 sweep for internals (owner: capture = adapter snapshots, coverage = full 38-run sweep, store-in-HF-then-delete)
+
+The internals analysis needs weight-trajectory evidence for the Llama
+fine-tuning runs. Design per the runs-7/8 precedent (gradient/update
+directions derive from snapshot deltas; raw per-step gradients at r512 are
+0.72 GB/step — infeasible, and nothing downstream needs pre-Adam gradients):
+
+- NEW family `fig2nl3s`: identical training to fig2nl3 (same base configs,
+  data prefixes, schedule, seed 316, SAME installer parent —
+  evt-llama-fig2nl3-installer with its recorded gates) under new run ids;
+  the shipped family stays immutable. `snapshots: n 128 / dense_until 30`
+  per run (runs stopping early truncate the schedule — expected at small n).
+- `launch_fig2nl3s_llama.sh`: per size, noinst then inst (G7 pins the
+  same-size fig2nl3s noinst); after each run, push the run WITH snapshots
+  to a PER-RUN private HF repo ($HF_NAMESPACE/<run_id>; ~95 GB each, 38
+  repos, ~3.5 TB total — per-run repos keep each under HF's per-repo
+  comfort zone), sha256-verify the main checkpoint against the hub, then
+  delete local snapshots + full weights (adapter/manifest/logs kept). Peak
+  local disk ~100 GB. No gates, no figure — EDL/G5 evidence lives in the
+  shipped family.
+- Caveat, stated in advance: re-runs are same-seed but not bit-guaranteed
+  identical to the shipped runs (GPU nondeterminism); trajectory analyses
+  use the fig2nl3s runs' own logged losses, never mix curves across the
+  two families.

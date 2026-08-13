@@ -97,6 +97,9 @@ SWEEPS = {
     "llama_fig2nl": (SWEEP_DIR, "evt-llama-fig2nl", LADDER_RUNGS),
     "llama_fig2nl2": (SWEEP_DIR2, "evt-llama-fig2nl2", LADDER_RUNGS2),
     "llama_fig2nl3": (SWEEP_DIR3, "evt-llama-fig2nl3", LADDER_RUNGS3),
+    # fig2nl3s: the snapshot re-run (2026-08-13) — same schedule, new ids,
+    # snapshots.n 128; no installer of its own, so no rung files.
+    "llama_fig2nl3s": (CONFIGS / "sweeps" / "llama_fig2nl3s", "evt-llama-fig2nl3s", ()),
 }
 
 

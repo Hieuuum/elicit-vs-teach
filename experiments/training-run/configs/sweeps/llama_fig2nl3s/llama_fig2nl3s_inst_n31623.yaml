@@ -1,0 +1,15 @@
+# fig2nl3s snapshot re-run, point i=9/18: n=31623. IDENTICAL training to
+# the shipped fig2nl3 run (same base config, data prefix, schedule, seed)
+# plus 128 adapter snapshots for the internals analysis (owner
+# 2026-08-13). New run_id: the original run stays immutable.
+run_id: evt-llama-fig2nl3s-inst-n31623
+experiment:
+  match_data_order_with: evt-llama-fig2nl3s-noinst-n31623
+data:
+  n_examples: 31623
+train:
+  eval_every: 40
+  max_steps: 8000
+  snapshots:
+    n: 128
+    dense_until: 30
