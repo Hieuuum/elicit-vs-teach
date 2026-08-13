@@ -5639,3 +5639,33 @@ transients, not about arithmetic knowledge — remove the transient (by
 scaffold or by installer) and the gap vanishes; damage the parent and it
 inverts. Caveat inherited from §6.11 deviations: batch 128 vs 1024, one
 seed, D_algo's signed-subtraction convention.
+
+## 2026-08-13 — paper-format reference check (appendix read): bare_nl matches the paper's target format; the op-notation dose was E.1.1's actual design; dose-format irrelevance is the paper's own claim
+
+Verified against the PDF (repo root), for the fig2nl3 write-up:
+
+- **Target task format** = ours (bare_nl): App. B p.13 "Problems are presented
+  in natural language (e.g., 'What is the sum of 23 and 45?') with numerical
+  answers"; App. F p.16 "we score only the numerical answer tokens. The
+  prompt … and any formatting tokens are excluded from both MDL computation
+  and test loss evaluation"; §4.1 p.5 base models at 0% zero-shot "completing
+  'What is 2+2?' with 'What is 3+5?'" — bare-prompt behavior, incompatible
+  with a scaffolded prompt (our scaffolded base measures 0.31 zero-shot; bare
+  measures 0.0000 with §4.1's exact completion pathology). No verbatim
+  delimited target example appears in the paper; the empirical match is the
+  evidence.
+- **Pre-elicit dose (Llama)** = App. E.1.1 p.15: a SINGLE multiplication
+  problem in OPERATOR notation ("different domain and prompt format than the
+  target task"), full-FT to convergence (~1 step, fn.5); "similar results
+  using LoRA vs. full fine-tuning". So fig2nl's op-notation dose design WAS
+  paper-faithful; its failure in our hands was execution (r512 LoRA at LRs
+  that damaged retention), not design.
+- **Dose-format irrelevance** — App. E.1.2 p.16: "similar results regardless
+  of the pre-training domain or prompt (input) formatting used, as long as
+  the output format is the same as the target task" — the paper's own
+  version of our fig2nl2 Finding 1 (dose format moved G4-NL by nothing at
+  matched LR).
+- **Remaining stated deviations of fig2nl3 vs E.1.1**: dose n=16 (vs 1),
+  r512 LoRA @ 5e-5 (vs full-FT ~1 step) — forced by the measured empty
+  1-example G4×G2 window at r512 across three dose formats; plus the §6.11
+  inherited deviations (batch 128 vs 1024, single seed, D_algo vs DMM).
