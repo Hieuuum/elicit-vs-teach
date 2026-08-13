@@ -9,12 +9,15 @@
 # directions derive from snapshot deltas — the runs-7/8 protocol, which fed
 # the existing alignment analyses).
 #
-# STORE-IN-HF-THEN-DELETE (owner): after each run completes, its whole run
-# dir INCLUDING snapshots/ is pushed to a PER-RUN private HF repo
-# ($HF_NAMESPACE/<run_id>), the main checkpoint is sha256-verified against
-# the hub, and then snapshots + full weights are deleted locally (adapter
-# sidecar, manifest, and logs kept). Footprint: ~95 GB per run (128 x
-# 0.72 GB adapters) — ~190 GB on HF for this pair, peak local disk ~100 GB.
+# STREAM-TO-HF-THEN-DELETE (owner: "after every snap, not after the whole
+# run"): stream_snapshots.py runs BESIDE training and uploads each snapshot
+# to a PER-RUN private HF repo ($HF_NAMESPACE/<run_id>) as soon as a newer
+# snapshot proves it fully written, sha256-verifies it against the hub's
+# LFS record, and deletes it locally. After training the streamer drains
+# the tail (incl. snapshots/base/), then the run's metadata + weights are
+# pushed and the local full weights dropped (adapter/manifest/logs kept).
+# Footprint: ~95 GB per run ON HF (128 x 0.72 GB adapters), ~190 GB for the
+# pair; peak LOCAL disk only a few snapshots (~5-10 GB).
 #
 # NO gates, NO figure: EDL/G5 evidence lives in the shipped fig2nl3 family.
 # The inst arm's parent is the EXISTING evt-llama-fig2nl3-installer (gates
@@ -74,22 +77,37 @@ train_or_skip() {
   milestone "train_complete run=$rid"
 }
 
-# Push one completed run WITH its snapshots to its own private HF repo, then
-# reclaim local disk: snapshots/ and model/model.safetensors go; the adapter
-# sidecar, manifest, and logs stay. Resume-safe: a run whose snapshots dir is
-# already gone was pushed on a previous pass — skip silently.
-push_and_prune() {
-  local rid=$1 run_dir=$GEODE_STORE/runs/$1
-  if [[ ! -d $run_dir/snapshots ]]; then
-    milestone "push_skip run=$rid (snapshots already pushed+pruned)"
-    return 0
-  fi
-  milestone "push_start run=$rid repo=$HF_NAMESPACE/$rid"
-  python3 hf_checkpoint.py push --run-id "$rid" --with-snapshots \
-    --repo-id "$HF_NAMESPACE/$rid" || fail "$rid snapshot push"
-  # Deleting ~95 GB on the strength of an upload demands verification first:
-  # sha256-compare the main checkpoint against its hub copy (snapshot files
-  # are integrity-checked per-file by the hub's LFS upload path itself).
+# Train one run with the snapshot STREAMER beside it (owner: "delete locally
+# after every snap, not after the whole run"): stream_snapshots.py uploads
+# each snapshot to the per-run repo, sha256-verifies it, and deletes it
+# locally as soon as a newer snapshot proves it complete. Local disk stays
+# ~flat (a couple of snapshots + the model). After training: touch the DONE
+# marker so the streamer drains the tail (incl. snapshots/base/), wait for
+# it, then push the rest of the run dir (plain push — snapshots are skipped
+# by default and are already up), verify the main checkpoint's hub sha, and
+# drop the local full weights.
+train_streamed() {
+  local rid=$1 init=$2 cfg=$3 overlay=$4
+  local run_dir=$GEODE_STORE/runs/$rid marker
+  marker=$run_dir.stream-done
+  rm -f "$marker"
+  python3 stream_snapshots.py --run-id "$rid" --repo-id "$HF_NAMESPACE/$rid" \
+    --done-marker "$marker" > "stream_${rid}.log" 2>&1 &
+  local stream_pid=$!
+  milestone "streamer_start run=$rid pid=$stream_pid repo=$HF_NAMESPACE/$rid"
+
+  train_or_skip "$rid" \
+    python3 train_target.py --config "$cfg" --override "$overlay" \
+      --init-from "$init" --confirm-cost
+
+  touch "$marker"
+  wait "$stream_pid" || fail "$rid snapshot streamer failed — see stream_${rid}.log; snapshots NOT fully archived, nothing further pruned"
+  rm -f "$marker"
+  milestone "streamer_done run=$rid (see stream_${rid}.log)"
+
+  milestone "push_start run=$rid repo=$HF_NAMESPACE/$rid (metadata + weights; snapshots already streamed)"
+  python3 hf_checkpoint.py push --run-id "$rid" --repo-id "$HF_NAMESPACE/$rid" ||
+    fail "$rid push"
   python3 - "$rid" "$HF_NAMESPACE/$rid" <<'PY' || fail "$rid hub sha256 verify after push — NOT pruning; inspect before rerunning"
 import os, sys
 from pathlib import Path
@@ -98,25 +116,18 @@ from hf_checkpoint import verify_hub_checkpoint
 verify_hub_checkpoint(Path(os.environ["GEODE_STORE"]), sys.argv[1], repo_id=sys.argv[2])
 print(f"[fig2nl3s] hub sha256 verified for {sys.argv[1]}")
 PY
-  rm -rf "$run_dir/snapshots"
   rm -f "$run_dir/model/model.safetensors"
-  milestone "pruned run=$rid (snapshots + full weights local; adapter/manifest/logs kept)"
+  milestone "pruned run=$rid (full weights local; adapter/manifest/logs kept)"
 }
 
 for n in "${SIZES[@]}"; do
-  rid=evt-llama-fig2nl3s-noinst-n${n}
-  train_or_skip "$rid" \
-    python3 train_target.py --config ../configs/llama_fig2nl3_noinst.yaml \
-      --override "../configs/sweeps/llama_fig2nl3s/llama_fig2nl3s_noinst_n${n}.yaml" \
-      --init-from meta-llama/Llama-3.2-1B --confirm-cost
-  push_and_prune "$rid"
+  train_streamed "evt-llama-fig2nl3s-noinst-n${n}" meta-llama/Llama-3.2-1B \
+    ../configs/llama_fig2nl3_noinst.yaml \
+    "../configs/sweeps/llama_fig2nl3s/llama_fig2nl3s_noinst_n${n}.yaml"
 
-  rid=evt-llama-fig2nl3s-inst-n${n}
-  train_or_skip "$rid" \
-    python3 train_target.py --config ../configs/llama_fig2nl3_inst.yaml \
-      --override "../configs/sweeps/llama_fig2nl3s/llama_fig2nl3s_inst_n${n}.yaml" \
-      --init-from "$INSTALLER_MODEL" --confirm-cost
-  push_and_prune "$rid"
+  train_streamed "evt-llama-fig2nl3s-inst-n${n}" "$INSTALLER_MODEL" \
+    ../configs/llama_fig2nl3_inst.yaml \
+    "../configs/sweeps/llama_fig2nl3s/llama_fig2nl3s_inst_n${n}.yaml"
 done
 
 notify "fig2nl3s snapshot re-run done"

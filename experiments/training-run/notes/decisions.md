@@ -5729,3 +5729,11 @@ sweep to the n=1,000,000 ENDPOINT PAIR only — snapshots for the final run
 of each Fig-2 curve (both Llama arms here, ~190 GB on HF; the two
 TinyStories endpoint runs get identical treatment in the fig2ts family).
 The 36 other overlays are deleted; launcher SIZES=(1000000).
+
+**REFINEMENT (same day, owner):** snapshots stream to HF DURING training,
+deleted locally after per-file sha256 verify — not batched at run end.
+`scripts/stream_snapshots.py` sidecar; write-race safety without trainer
+changes: `_save_snapshot` writes serially, so a step_N file is complete
+once any higher step exists (the newest is held back until the launcher's
+DONE marker; the drain pass also takes snapshots/base/). Peak local disk
+drops from ~95 GB to a few snapshots (~5-10 GB).
