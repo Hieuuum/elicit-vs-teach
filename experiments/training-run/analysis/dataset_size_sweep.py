@@ -1,4 +1,4 @@
-"""Figure-2 dataset-size sweep: converged loss vs. training-set size (Llama pair).
+"""Figure-2 dataset-size sweep: EDL/D vs. training-set size (Llama pair).
 
 Reproduces the paper's Figure-2 protocol on the Llama target stage: 19
 log-spaced prefix-nested dataset sizes (``n = round(10**(3 + i/6))``,
@@ -6,9 +6,29 @@ log-spaced prefix-nested dataset sizes (``n = round(10**(3 + i/6))``,
 under two conditions:
 
 - ``noinst`` — base ``meta-llama/Llama-3.2-1B``, no format install ("base").
-- ``inst``   — base + a 1-example full-FT format install ("format-installed").
+- ``inst``   — base + a format install ("format-installed").
 
-Run ids: ``evt-llama-fig2-{noinst,inst}-n<size>`` (38 target runs total).
+Two sweep FAMILIES share this driver, selected by ``--family`` — the protocol
+and every metric are identical, only the target task differs:
+
+- ``op`` (default) — operator-notation add/sub on ``D_target``, run ids
+  ``evt-llama-fig2-{noinst,inst}-n<size>``, EXPERIMENTS §6.10. SHIPPED and
+  immutable; its ``results/dataset_size_sweep.parquet`` and
+  ``figures/dataset_size_sweep.png`` are history.
+- ``nl`` — natural-language add/sub on ``D_algo``, run ids
+  ``evt-llama-fig2nl-{noinst,inst}-n<size>``, EXPERIMENTS §6.11. Writes to the
+  distinct ``_nl`` stem, so an NL run can never overwrite the ``op`` outputs
+  (``write_results`` is overwrite-by-name, OQ-6).
+- ``nl2`` — same NL target, redesigned installer (NL-format dose at the
+  retention-preserving LR, both installer gates enforced), run ids
+  ``evt-llama-fig2nl2-{noinst,inst}-n<size>``, EXPERIMENTS §6.12. Distinct
+  ``_nl2`` stem for the same overwrite-by-name reason.
+- ``nl3`` — scaffold-free NL add/sub on ``D_algo_bare`` (the frozen D_algo
+  re-rendered without the Question:/Answer: scaffold), bare dose16 installer,
+  run ids ``evt-llama-fig2nl3-{noinst,inst}-n<size>``, EXPERIMENTS §6.13.
+  Distinct ``_nl3`` stem.
+
+38 target runs per family (the family's installer run is not a sweep point).
 
 Reads each run's manifest via ``geode.zoo`` — ``experiment.target_result``
 (``min_val_nats``, ``stop_reason``, ``edl_epoch1_nats``,
@@ -34,8 +54,8 @@ weights, no GPU, no network of its own).
 CPU-only.
 
 Usage:
-    python3 dataset_size_sweep.py [--run-id <rid> ...] [--store <dir>]
-        [--fig figures/dataset_size_sweep.png]
+    python3 dataset_size_sweep.py [--family {op,nl}] [--run-id <rid> ...]
+        [--store <dir>] [--fig <path>]
 """
 
 from __future__ import annotations
@@ -59,13 +79,37 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 GLOBAL_LAYER = -1  # sentinel: these metrics are whole-model, not per layer
 LN2 = math.log(2.0)
 
-RUN_ID_PREFIX = "evt-llama-fig2"
 CONDITIONS = {"noinst": "base", "inst": "format-installed"}
 SIZES: tuple[int, ...] = tuple(round(10 ** (3 + i / 6)) for i in range(19))
-RUN_ID_RE = re.compile(rf"^{re.escape(RUN_ID_PREFIX)}-(noinst|inst)-n(\d+)$")
 
-# The headline "converged loss vs dataset size" metric for the figure.
-HEADLINE_METRIC = "min_val_nats"
+# --family value -> (run-id prefix, results-table + figure stem, title tag).
+# The stems MUST stay distinct: write_results is overwrite-by-name (OQ-6), so a
+# shared stem would let an NL run silently replace the shipped §6.10 table.
+FAMILIES: dict[str, tuple[str, str, str]] = {
+    "op": ("evt-llama-fig2", "dataset_size_sweep", "operator notation, D_target"),
+    "nl": ("evt-llama-fig2nl", "dataset_size_sweep_nl", "natural language, D_algo"),
+    "nl2": (
+        "evt-llama-fig2nl2",
+        "dataset_size_sweep_nl2",
+        "natural language, D_algo; NL-dose installer",
+    ),
+    "nl3": (
+        "evt-llama-fig2nl3",
+        "dataset_size_sweep_nl3",
+        "scaffold-free NL, D_algo_bare; bare dose16 installer",
+    ),
+}
+DEFAULT_FAMILY = "op"
+
+# All families in one pattern. They cannot cross-match: the "nl"/"nl2"/"nl3"
+# infix means an "evt-llama-fig2nl-..." id fails the op reading and vice
+# versa, so each id parses unambiguously without the caller declaring its
+# family.
+RUN_ID_RE = re.compile(r"^evt-llama-fig2(?:nl[23]?)?-(noinst|inst)-n(\d+)$")
+
+# The headline "EDL/D vs dataset size" metric for the figure — D = training
+# label tokens in the epoch-1 stream (edl_epoch1_nats / epoch-1 label tokens).
+HEADLINE_METRIC = "edl_per_label_token_nats"
 # Per-run scalar metrics read straight off experiment.target_result.
 TARGET_RESULT_METRICS = (
     "min_val_nats",
@@ -75,9 +119,10 @@ TARGET_RESULT_METRICS = (
 )
 
 
-def default_run_ids() -> list[str]:
-    """The full 38-run sweep: both conditions at every size, ascending n."""
-    return [f"{RUN_ID_PREFIX}-{cond}-n{n}" for n in SIZES for cond in CONDITIONS]
+def default_run_ids(family: str = DEFAULT_FAMILY) -> list[str]:
+    """One family's full 38-run sweep: both conditions at every size, ascending n."""
+    prefix = FAMILIES[family][0]
+    return [f"{prefix}-{cond}-n{n}" for n in SIZES for cond in CONDITIONS]
 
 
 def _parse_run_id(run_id: str) -> tuple[str, str]:
@@ -90,8 +135,8 @@ def _parse_run_id(run_id: str) -> tuple[str, str]:
     m = RUN_ID_RE.match(run_id)
     if not m:
         raise ValueError(
-            f"{run_id!r} does not match the fig2 sweep run_id pattern "
-            f"'{RUN_ID_PREFIX}-{{noinst,inst}}-n<size>'"
+            f"{run_id!r} does not match either sweep run_id pattern "
+            "'evt-llama-fig2{,nl}-{noinst,inst}-n<size>'"
         )
     condition = m.group(1)
     return condition, CONDITIONS[condition]
@@ -171,8 +216,8 @@ def run_rows(run_id: str, store: Path) -> list[dict] | None:
     return rows
 
 
-def plot(df: pd.DataFrame, out: Path) -> None:
-    """Converged val loss (bits/label token) vs. dataset size, log-x, one curve per condition."""
+def plot(df: pd.DataFrame, out: Path, family_tag: str = FAMILIES[DEFAULT_FAMILY][2]) -> None:
+    """EDL/D (bits/label token) vs. dataset size, log-x, one curve per condition."""
     fig, ax = plt.subplots(figsize=(8, 6))
     colors = {"noinst": "tab:blue", "inst": "tab:orange"}
 
@@ -208,8 +253,8 @@ def plot(df: pd.DataFrame, out: Path) -> None:
 
     ax.set_xscale("log")
     ax.set_xlabel("training examples (log scale)")
-    ax.set_ylabel("converged val loss (bits/label token)")
-    ax.set_title("Figure 2 sweep: converged loss vs. dataset size (Llama-3.2-1B)")
+    ax.set_ylabel("EDL/D (bits per label token; D = training label tokens)")
+    ax.set_title(f"Figure 2 sweep: EDL/D vs. dataset size (Llama-3.2-1B; {family_tag})")
     ax.grid(True, which="both", alpha=0.2)
     ax.legend(fontsize=8)
     fig.tight_layout()
@@ -221,10 +266,18 @@ def plot(df: pd.DataFrame, out: Path) -> None:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
+        "--family",
+        choices=tuple(FAMILIES),
+        default=DEFAULT_FAMILY,
+        help="which sweep to read: 'op' = operator notation on D_target "
+        "(§6.10, the default and the shipped one), 'nl' = natural language on "
+        "D_algo (§6.11). Selects the run-id prefix AND the output stem",
+    )
+    ap.add_argument(
         "--run-id",
         action="append",
         dest="run_ids",
-        help="repeatable; default: the full 38-run fig2 sweep",
+        help="repeatable; default: the chosen --family's full 38-run sweep",
     )
     ap.add_argument(
         "--store",
@@ -234,10 +287,13 @@ def main() -> None:
     ap.add_argument(
         "--fig",
         type=Path,
-        default=Path(__file__).resolve().parent / "figures" / "dataset_size_sweep.png",
+        default=None,
+        help="figure path (default: figures/<stem>.png for the chosen --family)",
     )
     args = ap.parse_args()
-    run_ids = args.run_ids or default_run_ids()
+    stem, family_tag = FAMILIES[args.family][1:]
+    run_ids = args.run_ids or default_run_ids(args.family)
+    fig_path = args.fig or Path(__file__).resolve().parent / "figures" / f"{stem}.png"
 
     rows: list[dict] = []
     n_found = 0
@@ -255,9 +311,9 @@ def main() -> None:
         )
 
     df = pd.DataFrame(rows)
-    path = write_results(df, "dataset_size_sweep", store=args.store)
+    path = write_results(df, stem, store=args.store)
     print(f"[evt] wrote {path} ({len(df)} rows, {n_found}/{len(run_ids)} runs found)")
-    plot(df, args.fig)
+    plot(df, fig_path, family_tag)
 
 
 if __name__ == "__main__":

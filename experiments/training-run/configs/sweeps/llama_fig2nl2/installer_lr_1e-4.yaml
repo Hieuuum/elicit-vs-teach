@@ -1,0 +1,7 @@
+# fig2nl2 installer retry ladder, rung 2 — use only if the primary 7.0e-5
+# installer misses a gate (G4-NL >= 0.90 AND G2 >= 0.31 must BOTH pass; see
+# llama_fig2nl2_installer.yaml). Hotter raises G4 and burns G2: with the OP
+# dose this LR measured G4-NL 0.9141 / G2 0.2812; the NL dose should need it
+# only if the 7e-5 G4-NL reading lands under 0.90 despite the shared framing.
+train:
+  lr: 1.0e-4      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

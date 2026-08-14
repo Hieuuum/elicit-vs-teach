@@ -28,6 +28,7 @@ from typing import Any
 
 import torch
 import yaml
+from safetensors.torch import save_file
 
 from geode.arith import (
     format_valid,
@@ -45,7 +46,7 @@ from geode.train import (
     train_sft,
 )
 from geode.zoo import register_run, require_parent_ready, tokenizer_hash
-from train import REPO_ROOT, git_commit, load_config, phase
+from train import REPO_ROOT, git_commit, load_config, lora_adapter_state_dict, phase
 
 
 def load_frozen_parquet(cfg: dict):
@@ -436,6 +437,27 @@ def main() -> int:
     train_wall_s = time.time() - train_started
 
     phase(7, "finalize — manifest + checkpoint")
+    # Compact adapter-only sidecar (owner directive 2026-07-31), mirrored from
+    # train_target.py's LoRA target runs to this trainer's own LoRA runs
+    # (e.g. the redesigned fig-2 Llama installer) — specs/00 "Adapter
+    # sidecar". Gates on `lora_cfg` (this run's OWN opt-in via
+    # own_lora_block, computed in phase 1), NOT `"lora" in cfg`:
+    # common.yaml merges a default `lora:` block into every config, so that
+    # check is also true for a full-FT run here (train_sft.py has both
+    # paths, unlike train_target.py) and would write a bogus sidecar for
+    # weights that were never LoRA-trained.
+    if lora_cfg:
+        save_file(
+            lora_adapter_state_dict(model.state_dict()),
+            str(result.checkpoint_dir / "adapter.safetensors"),
+            metadata={
+                "base_model": manifest.data["base_model"]["hf_id"],
+                "base_revision": manifest.data["base_model"]["revision"],
+                "lora_rank": str(lora_cfg["r"]),
+                "lora_alpha": str(lora_cfg["alpha"]),
+            },
+        )
+        print(f"[evt] adapter sidecar: {result.checkpoint_dir / 'adapter.safetensors'}", flush=True)
     manifest.data["status"] = "complete"
     manifest.data["experiment"]["sft_result"] = {
         "final_step": result.final_step,

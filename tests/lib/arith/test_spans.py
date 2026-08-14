@@ -79,9 +79,14 @@ def _grid():
     cases = []
     for a, b in [(1, 5), (9, 9), (47, 3), (999, 999), (1000, 9999), (9999, 1)]:
         for op in ("+", "-"):
-            for fmt in ("nl", "operator"):
+            # bare_nl (fig2nl3, 2026-08-12): the scaffold-free format's
+            # "?\n"|answer boundary must align exactly like the frozen two —
+            # its prompt-side "?\n" merge and digit/sign-initial answer tokens
+            # ride the same V5.38 whitespace-overhang-only rule.
+            for fmt in ("nl", "operator", "bare_nl"):
                 cases.append((a, b, op, true_answer(a, b, op), fmt))
     cases.append((12, 34, "*", 408, "operator"))  # installer format
+    cases.append((3354, 3459, "*", 11601486, "bare_nl"))  # fig2nl3 dose format
     # Phase 3 (2026-07-27) runs 1-8 digit operands, addition only, positive.
     # These are the longest strings this pipeline renders — 9-digit answers,
     # and the mixed-width pairs the 64-cell grid is mostly made of.

@@ -46,7 +46,10 @@ FULL_FT = [
     "archive/phase3/p3_elicit_inst.yaml",
     "archive/phase3/p3_teach_inst.yaml",
     "archive/phase3/p3_bridge.yaml",
-    "llama_fig2_installer.yaml",
+    "archive/runs/llama_fig2_installer.yaml",
+    "llama_fig2nl_installer.yaml",
+    "llama_fig2nl2_installer.yaml",
+    "llama_fig2nl3_installer.yaml",
 ]
 EMBEDDING_WARMSTART = [
     "archive/phase3/p3/warm_sum.yaml",
@@ -55,8 +58,14 @@ EMBEDDING_WARMSTART = [
 ]
 LORA_TARGET = [
     ("archive/runs/run10_llama1b_target.yaml", None),
-    ("llama_fig2_noinst.yaml", None),
-    ("llama_fig2_inst.yaml", None),
+    ("archive/runs/llama_fig2_noinst.yaml", None),
+    ("archive/runs/llama_fig2_inst.yaml", None),
+    ("llama_fig2nl_noinst.yaml", None),
+    ("llama_fig2nl_inst.yaml", None),
+    ("llama_fig2nl2_noinst.yaml", None),
+    ("llama_fig2nl2_inst.yaml", None),
+    ("llama_fig2nl3_noinst.yaml", None),
+    ("llama_fig2nl3_inst.yaml", None),
     ("archive/phase3/p3_elicit_target.yaml", None),
     ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_after_bridge.yaml"),
     ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_after_recover.yaml"),
@@ -90,6 +99,26 @@ def test_embedding_warmstart_configs_build_a_manifest(override: str) -> None:
     assert manifest["run_id"].endswith("-lr1e-2")
     assert manifest["experiment"]["gates"] == {}
     assert manifest["experiment"]["embedding_warmstart"]["final"]["operator_accuracy"] == 0.0
+
+
+def test_llama_fig2nl_installer_opts_into_lora_via_own_lora_block() -> None:
+    """Pins the CRITICAL gating footgun train_sft.py's ``own_lora_block``
+    docstring warns about: common.yaml merges a default ``lora:`` block into
+    every config (including full-FT ones), so gating on the merged
+    ``cfg["lora"]`` — instead of the run's OWN ``lora:`` key — would silently
+    switch every full-FT launch to LoRA (and, post-2026-07-31, write a bogus
+    adapter sidecar for weights that were never LoRA-trained). The
+    redesigned fig2nl installer must opt in via its own key; a genuine
+    full-FT config must not."""
+    train_sft = load("train_sft")
+
+    lora_path = CONFIGS / "llama_fig2nl_installer.yaml"
+    lora_cfg = train_sft.own_lora_block(load_config(lora_path, None), lora_path, None)
+    assert lora_cfg is not None
+    assert (lora_cfg["r"], lora_cfg["alpha"]) == (512, 32)
+
+    full_ft_path = CONFIGS / "archive/phase2/p2_armB_instperm.yaml"
+    assert train_sft.own_lora_block(load_config(full_ft_path, None), full_ft_path, None) is None
 
 
 @pytest.mark.parametrize("config", FULL_FT)

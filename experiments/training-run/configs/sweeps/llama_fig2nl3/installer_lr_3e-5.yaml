@@ -1,0 +1,9 @@
+# fig2nl3 installer retry ladder, COLD rung — added 2026-08-12 after the
+# primary bare dose16 @ 7e-5 measured G4 1.0000 / G2 0.3047 (miss by 0.006,
+# under half a gate SE). The pre-built hot rungs (1e-4, 3p53e-4) address a
+# G4 miss and point the WRONG way here: G4 has maximal headroom and G2 needs
+# recovery, so the ladder extends DOWNWARD. Rough interpolation (base 0.3271
+# at lr->0, 0.3047 at 7e-5) puts 3e-5 near 0.314 — marginal; the next colder
+# rung exists for a reason. A rung wins only by clearing BOTH bars.
+train:
+  lr: 3.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

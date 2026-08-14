@@ -436,6 +436,374 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
    sum-specific lexical lock and not clean elicitation. Moving-validation-floor
    curves tell the same level story but remain floor-dependent diagnostics.
 
+10. **Fig-2 Llama dataset-size sweep — BOTH ARMS DONE 2026-07-31.** The
+   paper's Figure-2 protocol on D_target, Llama-3.2-1B, 19 log-spaced
+   prefix-nested sizes (1,000 → 1,000,000) × 2 conditions (base vs
+   1-example format-installed parent), LoRA r64/α32 @ 3.53e-4 targets,
+   each run fresh to val convergence. **All 38 converged** (per-size
+   stopping schedule never bound). Result
+   (`results/dataset_size_sweep.parquet`, 228 rows;
+   `analysis/figures/dataset_size_sweep.png`, 2-curve EDL/D): the
+   format-install pays off at SMALL n — EDL/label-token 0.14714 (inst)
+   vs 0.23049 (noinst) nats at n=1000, −36% — the advantage decays
+   through n≈4642, the curves interleave mid-range, and converge by
+   n=1M (0.03050 vs 0.03277). G5 zero-shot EM never separates the arms
+   (≈0.63–0.66 at n=1000; ≥0.99 from n≈100K in both) — endpoint
+   accuracy is blind to the installed format; early-data codelength
+   shows it. Both arms share a non-monotone EDL bump at n≈6813 (ee
+   schedule steps 5→10 there); cross-arm deltas at matched n stay fair
+   (G7-matched data order). The **installer took three designs**
+   (decisions.md 2026-07-31 ×2): full-FT @ 3.53e-4 diverged (G4
+   0.0000); full-FT @ 2.0e-5 absorbed the dose but destroyed retention
+   (G2 0.0732 vs bar 0.29); the owner-picked **LoRA r64/α32 @ 3.0e-6**
+   (run-9-v2 recipe) passed everything — absorption 0.00893 nats, G4
+   0.9531, G2 0.3447 (above base's 0.3271, zero forgetting) — and its
+   merged checkpoint parented the inst sweep. Relay: 39 records; full
+   weights for both n=1M runs (sha-verified); installer = adapter
+   sidecar only (stale full-FT relay record deliberately deleted
+   pre-push). Total sweep cost ≈ $5.6 across two boxes.
+
+11. **Fig-2 NL replication sweep (fig2nl) — STOPPED 2026-08-04 by the
+    owner at 33/39 runs; box destroyed. Outcome below the deviation
+    register; do not resume.** A
+    replication of the paper's Figure-2 dataset-size-sweep protocol
+    (§6.10's design, same 19 log-spaced sizes and base
+    `meta-llama/Llama-3.2-1B`), retargeted from the shipped op-notation
+    sweep onto a **natural-language add/sub target task** on our frozen
+    `D_algo` (2026-07-19). Two conditions, arm-serial ascending so G7
+    data-order matching is pre-satisfied by construction (noinst runs
+    fully before inst, never interleaved): noinst = base Llama → fresh
+    LoRA r512/α32 → `D_algo[:n]`; inst = merged installer checkpoint →
+    fresh LoRA r512/α32 → `D_algo[:n]`. Installer: LoRA r512/α32 @
+    3.53e-4 on row 0 of `D_dose_mult` (operator-notation MULT — the same
+    dose source as §6.8/§6.10, unchanged), gated on absorption ≤0.1 nats
+    training loss, G4 format ≥0.90 scored on NL prompts, and **G2
+    retention ≥0.31** (raised from §6.10's 0.29 — rationale in
+    decisions.md 2026-08-03). Targets: LR 3.53e-4 unchanged, local batch
+    128 (no gradient accumulation), bf16, seed 316 (single seed,
+    deferred not dropped), ε/k 0.002/k5/min0, per-size `max_steps`
+    ceilings **doubled** vs §6.10 (rationale: decisions.md 2026-08-03).
+    New eval set `D_algo_eval.parquet`, 100K NL add/sub,
+    question-disjoint from `D_target ∪ D_algo ∪ D_target_eval ∪ probe`.
+    Run ids: `evt-llama-fig2nl-installer`,
+    `evt-llama-fig2nl-{noinst,inst}-n<size>` over the 19 sizes (1,000 →
+    1,000,000); 39 runs total. The shipped §6.10 op-notation sweep is
+    untouched, immutable history — fig2nl runs alongside it, never in
+    place of it.
+
+    **Deliverable, narrowed twice by the owner on 2026-08-03.** The first
+    pass cut analysis entirely; the second restored exactly one figure:
+
+    - **ONE figure: EDL/D vs. n**, computed the same way as §6.10 —
+      `edl_per_label_token_nats` off each run's
+      `experiment.target_result`, converted to bits at the reporting
+      boundary, log-x, one curve per condition.
+      `analysis/dataset_size_sweep.py` gained `--family {op,nl}` for it;
+      `--family nl` reads the `evt-llama-fig2nl-` prefix and writes
+      `results/dataset_size_sweep_nl.parquet` +
+      `analysis/figures/dataset_size_sweep_nl.png`. The distinct `_nl`
+      stem is load-bearing: `write_results` is overwrite-by-name (OQ-6),
+      so a shared stem would let this family silently replace §6.10's
+      shipped table. Default stays `op`, so every existing path and
+      output name is unchanged. Nothing else is analysed — no
+      per-token/floor work, no cross-family comparison.
+    - **Relay push is METADATA ONLY** — manifests, train logs, gate
+      records, `eval/test_loss.json`; not one byte of `*.safetensors`,
+      adapter sidecars included. `hf_checkpoint.py push` gained
+      `--metadata-only` for this (`--no-weights` deliberately keeps the
+      sidecar, which at r512 is ~0.72 GB × 39 ≈ 27 GB — *larger* than the
+      full checkpoints it excludes, which is what made the distinction
+      worth a flag). Consequence, stated because it is irreversible at
+      teardown: **no run in this family is recoverable from the relay**;
+      re-running the sweep is the only route back to any of these
+      weights. The figure is unaffected — every field it reads is
+      manifest-side, so it regenerates from a `pull --no-weights` on any
+      machine. The launcher spares the two n=1,000,000 runs from its
+      local prune so a late reversal can still push one by hand before
+      the box dies.
+
+    **Deviation register** (fig2nl vs the paper's Figure-2 protocol; all
+    owner-accepted 2026-08-03 unless noted otherwise):
+    1. Effective batch 128 vs the paper's 1024 (no gradient
+       accumulation) ⇒ optimization behavior differs; 3.53e-4 is 8×
+       hotter per example than the paper's rate at matched batch.
+       Owner-accepted ("assume full utilization on a 4090").
+    2. 1 seed (316) vs the paper's 3. Deferred, not dropped.
+    3. Installer = LoRA r512 @ 3.53e-4, not the paper's full-FT @ 2e-5.
+       r512 = **360,710,144 trainable params = 29% of the 1.24B model
+       (37% of non-embedding)** and is **FULL RANK for k_proj/v_proj**
+       (out_features 512) — nearer full-FT than "LoRA" suggests. Stated
+       plainly here; it is the deviation most likely to be misread.
+    4. Dataset = our `D_algo` (4×4-digit operand grid), not DeepMind
+       Mathematics. Its signed subtraction convention (the NL prompt
+       reads as |a−b| but the label is a−b) puts a hard ceiling on any
+       model answering with absolute values, equal to the non-negative
+       share of whichever set is scored. Quote the set, never a single
+       number: **0.7383** is the G1/G2 1,024-question set (268 negative,
+       decisions.md 2026-07-25) — that is the set the 0.31 G2 bar and
+       the 0.3271 base-ref live on. `D_algo` itself is 250,110/1,000,000
+       negative (ceiling **0.7499**) and the new `D_algo_eval` is
+       25,004/100,000 (ceiling **0.7500**) — both MEASURED 2026-08-03,
+       and the latter is what caps G5 exact-match for this family.
+    5. `D_algo_eval` is **empty in exactly 6 of 16 operand cells** —
+       `1x1, 1x2, 1x3, 2x1, 2x2, 3x1` — because the frozen 1M sets
+       exhausted the small-operand question space. MEASURED, not
+       predicted: the generation dry-run allocated the full 100,000
+       evenly as 10,000 across the 10 non-empty cells, and adding
+       `D_target_eval` to the exclusion killed no additional cell.
+       Consequence: EDL floor / test loss / G5 are scored on
+       large-operand questions only — shared by both arms, so cross-arm
+       comparisons stay fair. Row order is shuffled, verified 2026-08-03:
+       the ε/k stopping block (rows 0–2047) and G4's 512 prompts (rows
+       2048–2559) each draw all 10 non-empty cells in near-equal
+       proportion at ~50/50 ops, so no stage is scored on a single
+       operand cell. `D_target_eval` behaves identically.
+    6. No fp32 master weights anywhere in the Llama chain: checkpoints
+       load and save bf16, so the V5.62 "fp32 measurement" note holds
+       for the loss *compute* dtype, not the weights (decisions.md
+       2026-07-31). This is **also true of the shipped §6.10 op
+       sweep** — it is recorded, not fixed, because fixing it would
+       fork comparability. `eps_nats 0.002` sits near bf16 resolution.
+    7. Denser 19-point size grid vs the paper's ~3 points per decade.
+    8. **Commuted-twin exposure.** `D_algo_eval` shares **zero** exact
+       `(a, op, b)` triples with `D_algo` — the exclusion is
+       exact-triple, and 0 collisions were verified over the full
+       1M × 100K product — but **12,652 of its 100,000 rows (12.65%)**
+       are answer-identical commuted twins (`b+a` for a training `a+b`).
+       Quote both numbers or neither (the phase-3 norm, decisions.md
+       2026-07-27). Subtraction contributes none: `b−a` has a different
+       answer, so it is not an answer leak. This is **inherited from the
+       capacity-capped water-fill, not new to fig2nl** — the shipped op
+       sweep's `D_target`/`D_target_eval` pair measures 0% / 12.64% on
+       the identical test (both MEASURED 2026-08-03), so it does not
+       differentiate the two families.
+    9. **G2 retention is NOT a gate for this family** (owner, mid-launch
+       2026-08-03), and the installer runs at the paper pin 3.53e-4.
+       This supersedes the planned decisions 3 and 7 (G2 bar 0.31). Four
+       installer LRs were measured first; **no LR clears G4-on-NL-prompts
+       ≥ 0.90 and G2 ≥ 0.31 together** (base Llama = 0.3271; retention on
+       `eval_algo_data_llama`'s seeded 1,024-question set):
+
+       | installer lr | G4 (NL prompts) | G2 retention |
+       |---|---|---|
+       | 3.53e-4 | 0.9609 PASS | 0.1719 FAIL |
+       | 1.0e-4 | 0.9141 PASS | 0.2812 FAIL |
+       | 7.0e-5 | 0.8828 FAIL | **0.3242 PASS** |
+       | 8.5e-6 | 0.8340 FAIL | not reached |
+
+       **The diagnostic that explains it**, measured on the 7e-5
+       checkpoint: G4 scores **0.9922 on operator-notation prompts** vs
+       0.8828 on NL prompts. The bare-numeral output convention *does*
+       install; what fails is its **transfer to NL prompt framing** —
+       precisely the harder question this family's G4 was redesigned to
+       ask. The shipped §6.10 op sweep passed its own G4 at 0.9531
+       because it was only ever asked the operator-notation version. The
+       installer is not defective; the gate pair was jointly
+       unsatisfiable at r512.
+       G2 is still **measured** each launch (`--no-record`, milestone
+       `gate_measured_not_gating`) and logged, but **no verdict is written
+       to the installer manifest** — recording a pass we are not honouring
+       would put a false verdict in a lasting artifact.
+       `llama_fig2nl_inst.yaml`'s `parent_required_gates` is `[G4]`; leaving
+       `G2` listed would make `require_parent_ready` (spec 00 V0.6) refuse
+       all 19 inst runs for a missing verdict.
+       ⚠️ **Consequence for reading the figure:** the inst arm's parent
+       enters the sweep at NL retention **0.1719 vs base 0.3271** —
+       roughly half its NL arithmetic gone. This handicaps **inst**, so an
+       inst/teach win survives the confound (it won *despite* the damage)
+       while a **noinst/elicit win is confounded with it**. Same
+       one-sided-conservatism shape as the phase-2 arms entering 3.1 nats
+       apart (decisions.md 2026-07-26). Direction is known; magnitude is
+       not. Commit `7b5159c`.
+
+    **OUTCOME — STOPPED 2026-08-04 by the owner, 33 of 39 runs.**
+    Installer + **19/19 noinst** + **13/19 inst** (inst reached
+    n=100,000). Stopped mid-inst-arm, so the launcher's **stage 5 (G5
+    loop) and stage 6 (end-of-sweep push/prune) never ran**: there are
+    **no G5 verdicts anywhere in this family**. Per-run metadata push
+    covered the relay instead — 33/33 present with `manifest.json`, 0
+    push failures. All 33 stopped with `stop_reason=converged`; no
+    `max_steps` ceiling bound anywhere. Box 46743685 destroyed the same
+    day (≈$3.65, 9.39 h).
+
+    ⚠️ **Weights are gone permanently.** Decision 10 (metadata-only
+    push) meant no fig2nl run was ever recoverable from the relay, so
+    teardown forfeited nothing that was not already forfeit —
+    **re-running the sweep is the only route back to any of these
+    weights.**
+
+    **Surviving artifacts** (metadata regenerates the figure on any
+    machine from a `pull --no-weights`):
+    - `results/dataset_size_sweep_nl.parquet` — 160 rows = 32 sweep runs
+      × 5 metrics, **13 matched noinst/inst pairs** through n=100,000,
+      noinst alone from n=146,780 to 1,000,000.
+    - `analysis/figures/dataset_size_sweep_nl.png` — the §6.11
+      deliverable figure (EDL/D vs. n, min-val floor), from
+      `analysis/dataset_size_sweep.py --family nl`. Figures are
+      gitignored; this one lives on the laptop only.
+    - `notes/logs/fig2nl_{train,push}.log` — launcher + push-watcher
+      logs, pulled before teardown. They were never on the relay and are
+      the only record of per-run wall-clock and the installer ladder's
+      absorption values.
+
+    ⚠️ **READING THE FIGURE — this is the CONFOUNDED direction, not a
+    result.** The format-installed arm sits **above** base (higher EDL/D
+    = worse) at every matched n, converging toward base by n≈10⁵. But
+    the inst parent entered at NL retention **0.1719 vs base 0.3271**
+    (deviation 9), which handicaps **inst** — so a base/"elicit" win is
+    exactly the direction the handicap predicts. Read as **arms not
+    separated**, never as an elicitation result. A single seed (316)
+    with no error bars cannot separate them either way.
+
+    **Floor caveat.** The deliverable figure is floored on each run's
+    **global-min val** loss (`min_val_nats_from_eval_log`, a single scalar
+    per run over every `eval_log.jsonl` row — *not* the per-step moving
+    floor used by `prefix_edl_curve`); the fixed-**test**-floor version (canonical
+    Eq. 3, `L_test` at the stopping-step model θ_T — there is no
+    restore-to-best) is materially different in height. Never quote
+    curve shape without naming the floor (decisions.md 2026-07-27).
+    Both floors are plotted side by side by
+    `analysis/plot_fig2nl_sweep_floors.py` →
+    `figures/fig2nl_sweep_floors.png`, and the per-run numbers behind
+    the test-floored panel are tabulated by
+    `analysis/fig2nl_edl_test_floor.py` →
+    `analysis/fig2nl_edl_test_floor.csv` (committed). That table carries
+    each run's `overshoot_ratio` (final val ÷ own val minimum):
+    **11 of 32 runs stopped ≥1.5× above their own val minimum, worst
+    7.92×** (noinst n=1,000,000). EDL/D is linear in the floor, so those
+    points are depressed by the stopping rule rather than by the data —
+    an isolated dip there is overshoot, not signal.
+
+12. **Fig-2 NL replication v2 (fig2nl2) — PLANNED 2026-08-11; owner's GPU,
+    not a rented box.** The §6.11 sweep's deliverable figure came out
+    INVERTED vs the paper's Figure 2 — the pre-elicit arm ABOVE base at
+    every matched n (test-floor EDL/D at n=1000: inst 0.508 vs noinst
+    0.203 bits/label-token) where the paper has it roughly an order of
+    magnitude BELOW — while the noinst arm alone replicated the paper's
+    base curve well (0.203 bits at n=1000, monotone to 0.015 at n=1M).
+    Both causes are installer-side and MEASURED (§6.11 deviation 9): the
+    op-notation dose's output convention did not transfer to NL prompt
+    framing (G4 0.9922 on op prompts vs 0.8828 on NL at 7e-5), and the
+    3.53e-4 installer halved the parent's NL retention (G2 0.1719 vs base
+    0.3271). fig2nl2 redoes ONLY the installer:
+    - **Dose:** `D_dose_mult_nl.parquet` row 0 — the frozen D_dose_mult
+      re-rendered in NL by `datagen/make_nl_dose.py` (same operands,
+      "What is the product of 3354 and 3459?"; order_hash c7fc6300…,
+      derivation hash-verified against the D_dose_mult pin). The dose now
+      SHARES the target's NL surface framing and differs only in
+      operation — the conservative reading of the paper's "single
+      multiplication problem … to establish output format".
+    - **Installer LR 7.0e-5** (r512/α32 kept) — the only §6.11 ladder
+      rung that preserved retention (G2 0.3242). Its G4-NL 0.8828 miss
+      was an op-dose transfer artifact the NL dose removes. Manual retry
+      ladder under `configs/sweeps/llama_fig2nl2/`: 1e-4, then 3.53e-4.
+    - **Both installer gates ENFORCED and recorded** (G4-NL ≥ 0.90, G2 ≥
+      0.31; `parent_required_gates: [G4, G2]`) — an undamaged,
+      NL-format-installed parent is the precondition for reading the
+      figure as a replication; no mid-launch bar-dropping this time.
+    Target arms byte-identical to §6.11 (19 sizes, r512/α32 @ 3.53e-4,
+    batch 128, seed 316, ε/k 0.002/5, doubled ceilings, D_algo/
+    D_algo_eval); run ids `evt-llama-fig2nl2-*`. Data is REGENERATED on
+    the box by the launcher — datagen verified 2026-08-11 to reproduce
+    every frozen pin bit-for-bit (D_algo 48d4feff…, D_algo_eval
+    5e422daf…, D_dose_mult 8ddda6d6…) — so nothing is scp'd. Launcher
+    `scripts/launch_fig2nl2_llama.sh` (no relay push; optional `--prune`
+    keeps peak disk ~25 GB by deleting each run's model.safetensors
+    after its G5, adapter sidecars kept, both n=1M runs spared).
+    Figure: `analysis/dataset_size_sweep.py --family nl2` →
+    `results/dataset_size_sweep_nl2.parquet` +
+    `figures/dataset_size_sweep_nl2.png`. §6.11's runs and outputs stay
+    immutable alongside. Cost: ~8–9 h train + ~1–2 h gates on a
+    4090-class GPU ($0, owner hardware). Still single-seed (316): a
+    replication of curve SHAPE, not an error-barred separation claim.
+
+    **STATUS 2026-08-12 — installer ladder closed empty at n_dose=1; sweep
+    not yet launched.** Measured (single NL-dose example, r512): 7e-5 →
+    G4-NL 0.8848 FAIL / G2 0.3096 FAIL(noise-level); 1e-4 → G4-NL 0.9043
+    PASS / G2 0.2773 FAIL(real). Dose surface format does NOT move G4-NL
+    at matched LR (op-dose readings equal within noise) — the §6.12
+    cause-1 (format-transfer) story is falsified; cause 2 (retention
+    damage, concentrated on subtraction: '−' 0.140 vs '+' 0.419 at 1e-4)
+    stands. No bar moved; launcher halted as designed. Authorized next:
+    the **dose16** variant (`installer_dose16_7e-5.yaml`, 16-row NL dose,
+    batch 16) — full rationale and the falsification-arm reading in
+    decisions.md 2026-08-12.
+
+    **OUTCOME 2026-08-12 — COMPLETE, 38/38 converged; ARMS COINCIDE.**
+    dose16 cleared both bars decisively (G4-NL 0.9785, G2 0.3516 — above
+    base's 0.3271, zero net damage) and the full sweep ran end-to-end on
+    the owner's A100. With the certified-undamaged parent, inst ≈ noinst
+    at every n (inst −7% at n=1000, ±5–25% through the range, +21% at
+    n=1M; same picture under the Eq.-3 test floor; single seed). fig2nl's
+    2.5× inversion is gone — it WAS installer damage — but **no
+    paper-like pre-elicit gap exists**. Cause, measured: the frozen
+    "Question:/Answer:" scaffold pre-elicits BOTH arms (base enters at
+    ~0.31 zero-shot EM, ~0.83 format validity vs the paper's 0% base),
+    so the installer buys only 0.83→0.98 format validity — bits invisible
+    at MDL scale, where the paper's installer buys 0→1. The paper's BASE
+    curve replicates well; its PRE-ELICIT GAP requires a scaffold-free
+    prompt format and is measured ABSENT under this design. Details +
+    standing conclusions: decisions.md 2026-08-12 (later). Deliverables:
+    `results/dataset_size_sweep_nl2.parquet` (228 rows) +
+    `figures/dataset_size_sweep_nl2.png` on the cluster.
+
+13. **Fig-2 replication v3 (fig2nl3) — the BARE-FORMAT family; PLANNED
+    2026-08-12, owner's GPU.** §6.12's outcome located the mechanism: the
+    frozen `Question:/Answer:` scaffold alone pre-installs the output
+    convention in both arms (base Llama ~0.31 zero-shot EM, ~0.83 format
+    validity untrained vs the paper's 0% base), so the paper's Figure-2
+    pre-elicit transient never existed in any scaffolded family. fig2nl3
+    changes exactly one thing: **the scaffold is removed** (new additive
+    format `bare_nl`, spec 02 §4 — bare NL question, newline, answer as
+    plain continuation; property-tested, and span alignment verified
+    against the frozen Llama tokenizer: `?`/`\n` stay prompt-side, the
+    answer token starts exactly at the span).
+    - **Data:** hash-pinned derivations of the frozen artifacts
+      (`datagen/make_bare_sets.py`): `D_algo_bare` (946b5d02…),
+      `D_algo_eval_bare` (e419baa2…), `D_dose_mult_bare` (ca46ea72…) —
+      same triples, same order, same question bodies; every disjointness
+      and G7 guarantee carries over.
+    - **PREMISE GUARD** (new, `scripts/check_bare_baseline.py`, runs
+      before any training): base Llama zero-shot EM on bare prompts must
+      be ≤ 0.05, else the family halts — the transient it measures would
+      not exist. Also proves bare span alignment on the box tokenizer.
+    - **Installer:** the §6.12-winning dose16 recipe re-rendered bare
+      (16 bare-NL mult, batch 16, lr 7e-5, r512/α32). Gates BOTH
+      enforced: G4 ≥ 0.90 on BARE eval prompts (base ≈ 0 there — the
+      full 0→0.90+ install, for the first time) and G2 ≥ 0.31 on the
+      SCAFFOLDED eval_algo set (base 0.3271). Ladder: 1e-4, 3.53e-4.
+    - **Target arms:** protocol byte-held from §6.11/§6.12 (19 sizes,
+      r512/α32 @ 3.53e-4, batch 128, seed 316, ε/k 0.002/5, doubled
+      ceilings); run ids `evt-llama-fig2nl3-*`; launcher
+      `scripts/launch_fig2nl3_llama.sh` (premise guard inline, per-run
+      G5 + `--prune`); figure `dataset_size_sweep.py --family nl3`.
+    - **Prediction, falsifiable both ways:** in this regime the paper's
+      gap (pre-elicit well BELOW base at small n) should appear, and the
+      noinst arm's small-n EDL/D should sit ABOVE §6.12's (the transient
+      is extra information). If the arms still coincide — premise
+      verified, parent gated undamaged — that is a genuine discrepancy
+      with the paper, reportable as such.
+
+    **OUTCOME 2026-08-13 — COMPLETE, 38/38 converged: THE GAP APPEARS.**
+    Premise guard passed at the strongest reading (base 0.0000 EM /
+    0.0000 format validity on bare prompts; completions are the literal
+    string 'Answer:'). Installer ladder resolved at **5e-5** (G4 0.9707
+    on bare prompts — the full 0→0.97 install — G2 0.3242, ~base;
+    ladder: 3e-5 → 0.8184/0.3408, 7e-5 → 1.0000/0.3047). Sweep: at
+    n=1000 pre-elicit 0.967 vs base 3.549 bits/label-token — **3.7×
+    below** (test floor 5.2×) — advantage decaying monotonically and
+    arms converged from n≈1.5×10⁵ to 1M. Both predictions confirmed:
+    the bare base transient is real (3.549 vs §6.12's scaffolded 0.368
+    at n=1000 — the scaffold hid ~3.2 bits/token) and the paper's
+    Figure-2 elicitation signature reproduces under its own premises.
+    The three-family arc (inverted → null → gap;
+    `figures/fig2_replication_arc.png`) localizes the mechanism: the
+    pre-elicit gap is a prompt-format-transient effect — remove the
+    transient and it vanishes; damage the parent and it inverts.
+    Magnitude 3.7–5× vs the paper's ~10× (single seed, D_algo vs
+    DeepMind Mathematics, r512-LoRA installer). Full record:
+    decisions.md 2026-08-13.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

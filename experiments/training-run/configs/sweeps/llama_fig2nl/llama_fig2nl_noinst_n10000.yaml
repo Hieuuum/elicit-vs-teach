@@ -1,0 +1,9 @@
+# fig2nl sweep point i=6/18: n=10000 (log-spaced prefix of D_algo,
+# order_hash 48d4feff... — see llama_fig2nl_noinst.yaml). Overlay over
+# ../../llama_fig2nl_noinst.yaml.
+run_id: evt-llama-fig2nl-noinst-n10000
+data:
+  n_examples: 10000
+train:
+  eval_every: 10
+  max_steps: 2000

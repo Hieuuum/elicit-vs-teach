@@ -1,0 +1,10 @@
+# fig2nl2 sweep point i=2/18: n=2154 (log-spaced prefix of D_algo,
+# order_hash 48d4feff... — see llama_fig2nl2_noinst.yaml). Overlay over
+# ../../llama_fig2nl2_noinst.yaml. Same per-size schedule as fig2nl
+# (tests/experiments/scripts/test_fig2nl_overlays.py SCHEDULE).
+run_id: evt-llama-fig2nl2-noinst-n2154
+data:
+  n_examples: 2154
+train:
+  eval_every: 5
+  max_steps: 1000

@@ -1,0 +1,166 @@
+# Llama-3.2-1B Figure-2 format installer, NL-TARGET family — single run, no
+# overlays. Base Llama -> LoRA install on ROW 0 of D_dose_mult.parquet (1
+# example, correct-label operator-notation MULT: "3354 * 3459 -> 11601486"),
+# mirroring the dose-installer design (configs/archive/phase2/p2_armA_dose.yaml)
+# and the shipped op-notation fig-2 installer (configs/archive/runs/
+# llama_fig2_installer.yaml): a single correct-label example is the smallest
+# real format intervention. Owner decisions 2026-08-03 (fig2nl plan).
+#
+# THE DOSE STAYS OPERATOR-NOTATION MULT ON PURPOSE — this is the point of the
+# family, not an oversight. The target task here is NATURAL-LANGUAGE add/sub
+# (D_algo), so installer and target now differ in BOTH the operation (mult vs
+# add/sub) AND the surface format (operator notation vs English prose). The
+# ONLY thing they share is the OUTPUT CONVENTION: a bare numeral after
+# "Answer:". That is exactly the paper's Figure-2 installer design ("differs
+# in operation AND format"), which the shipped op-notation sweep did NOT
+# satisfy — there the dose and the target both spoke operator notation, so G4
+# could clear on surface similarity. Scored on NL prompts (the launcher passes
+# --prompt-config ../configs/eval_nl_target_data_llama.yaml), G4 here measures
+# exactly one thing: whether the installed output convention GENERALIZES off
+# the dose's own format. Swapping the dose to NL would destroy that
+# measurement, and re-pointing G4 at operator prompts would too.
+#
+# LoRA r=512/alpha=32 — the paper's Figure-2 adapter class, used EVERYWHERE in
+# this family (installer + both target arms), up from the shipped family's
+# r=64. dropout 0 + the 7 target_modules inherit from common.yaml's shared
+# `lora:` block. The `lora:` key below is what opts this run into
+# own_lora_block (train_sft.py): that helper gates on the RUN's OWN YAML
+# declaring `lora:`, NOT the merged common.yaml default — gating on the merge
+# would silently switch every full-FT launch to LoRA (its docstring's warning).
+#
+# The produced checkpoint is therefore a WRAPPED base+A/B state dict
+# (specs/00 §1): gates.py's g4/g2 both load via geode.zoo.load_model (V0.9),
+# so no gate code changes are needed. But llama_fig2nl_inst.yaml's --init-from
+# needs a PLAIN from_pretrained checkpoint, so the launcher folds the adapter
+# first via scripts/merge_adapter.py --run-id evt-llama-fig2nl-installer,
+# writing runs/evt-llama-fig2nl-installer/model_merged/ — the inst sweep's
+# actual parent, NEVER this run's wrapped model/ (a plain from_pretrained on a
+# wrapped checkpoint silently random-inits every projection — the 2026-07-22
+# G5 incident; specs/00 V0.9).
+#
+# LR 3.53e-4 = the paper's 1B TARGET-stage pin, deliberately reused for the
+# INSTALLER (owner 2026-08-03) instead of the shipped family's separately
+# tuned 3.0e-6 installer-retention pin: one LR across the whole family. That
+# is a pin used outside the context it was validated in
+# (feedback-scope-check-pins-before-reuse), so it is fenced by four
+# independent checks rather than by argument — the launcher's ABSORPTION GUARD
+# (achieved min train loss <= 0.1 nats, read back from train_log.jsonl before
+# any gate runs), G4 format >= 0.90 on NL prompts, G2 retention >= 0.31, and
+# the manual RETRY LADDER (configs/sweeps/llama_fig2nl/installer_lr_1e-4.yaml,
+# then installer_lr_8p5e-6.yaml) if any of those fails. Nothing downstream
+# ever trains from an ungated parent.
+#
+# Stopping: the dose rule (train_loss ε/k, spec 02 §6 "dose runs") — batch ==
+# n_train == 1, so each step's own loss IS the full-dose masked CE; no val
+# split exists at n=1 (V5.65/V5.66). All four numbers are RESTORED to the
+# p2_armA_dose calibration (PINNED 2026-07-26, decisions.md): eps_nats 0.0002,
+# k 5, min_steps 0, max_steps 6000. The shipped family loosened k to 50 and
+# min_steps to 500 for exactly one reason — LoRA at 3.0e-6 descends far slower
+# than the full-FT installer the calibration was measured against, so 5
+# consecutive sub-eps steps was a realistic false stop mid-descent. That
+# premise is GONE at 3.53e-4, and the loosening now cuts the wrong way:
+# forcing >= 500 one-example epochs at a hot LR is pure retention risk, spent
+# against the G2 >= 0.31 bar on the very NL add/sub capability this family
+# measures.
+#
+# Gates after (owner 2026-08-03): G4 format >= 0.90 on NL eval prompts, G2
+# retention >= 0.31 — RAISED from the shipped family's 0.29 (90% of base
+# Llama's 0.3271) because NL add/sub is now the TARGET task itself, not a
+# held-out different-notation retention check, so the bar caps how much
+# handicap the pre-elicit parent is allowed to carry on the capability being
+# measured. `stopping.metric: train_loss` below does NOT block G4: run_g4
+# demands a `format_validity` stopping block only on the two branches this
+# launcher never takes — it passes BOTH --threshold 0.90 (so the bar is not
+# read from this config) and --prompt-config (so prompts come from the frozen
+# external file, not from a val split this run does not have). Do not "fix"
+# the metric key.
+#
+# BEFORE LAUNCH: hf auth + verify_llama_tokenizer.py must have passed (gated
+# repo, same as run 9/10/probe100k/fig2).
+run_id: evt-llama-fig2nl-installer
+experiment:
+  name: training-run
+  arm: llama                   # external-validity chain (not A/B)
+  role: format_install
+  parent_run_id: null          # no zoo parent — base is a gated hub model
+  external_base: meta-llama/Llama-3.2-1B   # base, NOT Instruct
+  parent_required_gates: []
+
+model:                         # must match the hub checkpoint (launcher guards
+  hidden_size: 2048            # vocab via len(tokenizer)=128256, hidden, layers)
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # gated; verify_llama_tokenizer.py must pass first
+
+task:
+  name: arith_op_mult          # operator-notation mult (D_dose_mult); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_dose_mult.parquet    # 16 op-notation mult, CORRECT labels, seed 20260717
+  # Hash verified against the current local file (geode.arith.validate.order_hash
+  # over the FULL file, not the max_rows:1 prefix); same artifact + pin as
+  # configs/archive/phase2/p2_armA_dose.yaml.
+  order_hash: 8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024
+  # HF publish is owner-held (p2_armA_dose.yaml note, 2026-07-26) — read
+  # locally, repo-root-relative; hash still verified over the full file.
+  local_path: experiments/training-run/data/full/D_dose_mult.parquet
+  max_rows: 1                  # THE DOSE: row 0 of the frozen order
+  seed: 316                    # single-seed convention (spec 02 §13)
+  # No val_fraction: a dose run carves no val split (V5.66). Gates score
+  # external frozen prompts instead.
+
+lora:                          # opts this run into own_lora_block (train_sft.py);
+  r: 512                       # r/alpha = the paper's fig-2 adapter class, the
+  alpha: 32                    # SAME everywhere in this family (both target
+                               # arms too); dropout/target_modules inherit from
+                               # common.yaml, same as run9_llama1b_inst.yaml.
+
+train:
+  lr: 3.53e-4                   # the paper's 1B pin, reused for the installer
+                                # (owner 2026-08-03) — see header: fenced by the
+                                # absorption guard + G4 + G2 >= 0.31 + the retry
+                                # ladder, NOT by the shipped family's separately
+                                # tuned 3.0e-6 installer-retention pin.
+                                # CRITICAL: dot-mantissa form, NEVER bare `3e-4` —
+                                # YAML 1.1 parses a bare exponent as a STRING and
+                                # register_run's manifest validator refuses it
+                                # (cost a launch on 2026-07-31, decisions.md).
+  batch_size: 1                # == the dose (V5.65 refuses batch != n_train)
+  eval_every: 1                # per-step: the step's own loss IS the metric,
+                                # so the cadence costs no extra forward pass
+  max_steps: 6000               # pure cost ceiling, RESTORED to the p2_armA_dose
+                                # calibration (the shipped family raised it to
+                                # 20000 for LoRA's slow descent at 3.0e-6 — that
+                                # premise is gone at 3.53e-4); stop_reason=
+                                # max_steps still means "never absorbed":
+                                # investigate, don't ship. Moves TOGETHER with
+                                # epochs_total_planned below.
+  stopping:
+    metric: train_loss         # full-dose plateau (V5.65/V5.66); does NOT block
+                                # G4 — the launcher passes --threshold and
+                                # --prompt-config (header)
+    eps_nats: 0.0002           # p2_armA_dose calibration (PINNED 2026-07-26,
+                                # decisions.md)
+    k: 5                       # RESTORED from the shipped family's 50: the
+                                # loosening existed only because LoRA at 3.0e-6
+                                # descends slowly enough for 5 sub-eps steps to
+                                # be a false stop; at 3.53e-4 it is not
+    min_steps: 0               # RESTORED from 500: forcing >= 500 one-example
+                                # epochs at this LR is pure retention risk
+                                # against the G2 >= 0.31 bar
+  precision: bf16               # Llama-chain pin (run 9/10/probe100k/fig2); NOT
+                                # p2_armA_dose's fp32 (a 38.7M CPU-comparable
+                                # choice specific to that phase)
+  seed: 316
+  epochs_total_planned: 6000   # batch == n_train == 1, so 1 step = 1 epoch:
+                                # this MUST move with max_steps above.
+                                # train_sft.py reads it with a bare subscript,
+                                # so a missing/desynced key is the
+                                # p3_elicit_parent incident class (2026-07-27) —
+                                # a KeyError several minutes into a paid box
+
+cost:
+  assumed_epochs_for_estimate: 1  # 1 example: the estimate is ~$0

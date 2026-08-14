@@ -248,6 +248,93 @@ def test_default_run_ids_match_the_planned_sweep() -> None:
     assert "evt-llama-fig2-inst-n1000000" in ids
 
 
+def test_nl_family_run_ids_are_disjoint_from_op(tmp_path: Path) -> None:
+    """--family nl selects the fig2nl prefix; the two families can never cross-match.
+
+    Both sweeps are 19x2 over the same sizes and are read by the same driver,
+    so a prefix that matched loosely would silently mix operator-notation and
+    natural-language runs into one curve.
+    """
+    op_ids = dss.default_run_ids("op")
+    nl_ids = dss.default_run_ids("nl")
+
+    assert len(nl_ids) == 38
+    assert not set(op_ids) & set(nl_ids)
+    assert all(rid.startswith("evt-llama-fig2nl-") for rid in nl_ids)
+    assert "evt-llama-fig2nl-noinst-n1000" in nl_ids
+    assert "evt-llama-fig2nl-inst-n1000000" in nl_ids
+    # The regex is the actual cross-match guard: each id parses under exactly
+    # one reading, and neither family's ids leak into the other's list.
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl-inst-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2-inst-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nlx-inst-n1000") is None
+
+
+def test_nl2_family_run_ids_are_disjoint_from_both_others(tmp_path: Path) -> None:
+    """--family nl2 (the redesigned-installer redo, §6.12) never cross-matches
+    op or nl: three same-shape sweeps share one driver, so a loose prefix would
+    silently mix families into one curve."""
+    op_ids = dss.default_run_ids("op")
+    nl_ids = dss.default_run_ids("nl")
+    nl2_ids = dss.default_run_ids("nl2")
+
+    assert len(nl2_ids) == 38
+    assert not set(nl2_ids) & (set(op_ids) | set(nl_ids))
+    assert all(rid.startswith("evt-llama-fig2nl2-") for rid in nl2_ids)
+    assert "evt-llama-fig2nl2-noinst-n1000" in nl2_ids
+    assert "evt-llama-fig2nl2-inst-n1000000" in nl2_ids
+    # nl2 ids parse; near-miss prefixes still do not.
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl2-inst-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl2x-inst-n1000") is None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl22-inst-n1000") is None
+    # The nl2 stem is distinct from both shipped stems (overwrite-by-name).
+    assert len({dss.FAMILIES[f][1] for f in ("op", "nl", "nl2")}) == 3
+    # And an nl2 id round-trips through run_rows with the right condition.
+    _write_run(tmp_path, "evt-llama-fig2nl2-inst-n1000", n=1000)
+    rows = dss.run_rows("evt-llama-fig2nl2-inst-n1000", tmp_path)
+    assert rows and all(r["condition"] == "inst" for r in rows)
+
+
+def test_nl3_family_run_ids_are_disjoint_from_all_others() -> None:
+    """--family nl3 (the bare-format family, §6.13) never cross-matches any
+    of the other three same-shape sweeps."""
+    all_other = set().union(*(dss.default_run_ids(f) for f in ("op", "nl", "nl2")))
+    nl3_ids = dss.default_run_ids("nl3")
+
+    assert len(nl3_ids) == 38
+    assert not set(nl3_ids) & all_other
+    assert all(rid.startswith("evt-llama-fig2nl3-") for rid in nl3_ids)
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl3-noinst-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl3x-inst-n1000") is None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl4-inst-n1000") is None
+    # All four stems distinct (write_results is overwrite-by-name).
+    assert len({dss.FAMILIES[f][1] for f in dss.FAMILIES}) == 4
+
+
+def test_nl_family_writes_a_separate_table_from_the_shipped_op_one(tmp_path: Path) -> None:
+    """The nl stem must not overwrite the shipped op outputs (write_results is overwrite-by-name)."""
+    from geode.zoo import write_results
+
+    op_stem = dss.FAMILIES["op"][1]
+    nl_stem = dss.FAMILIES["nl"][1]
+    assert op_stem != nl_stem
+
+    rows: list[dict] = []
+    for n in (1000, 10000):
+        for condition in dss.CONDITIONS:
+            run_id = f"evt-llama-fig2nl-{condition}-n{n}"
+            _write_run(tmp_path, run_id, n=n)
+            rows.extend(dss.run_rows(run_id, tmp_path))
+
+    path = write_results(pd.DataFrame(rows), nl_stem, store=tmp_path)
+    assert path.name == "dataset_size_sweep_nl.parquet"
+    assert not (path.parent / f"{op_stem}.parquet").exists()
+
+    read_back = read_results(nl_stem, store=tmp_path)
+    assert set(read_back["condition"]) == {"noinst", "inst"}
+    assert dss.HEADLINE_METRIC in set(read_back["metric_name"])
+
+
 def test_zoo6_write_results_round_trip(tmp_path: Path) -> None:
     """The assembled table round-trips through the ZOO-6/spec 00 §7 results writer."""
     sizes = (1000, 10000)

@@ -1,0 +1,257 @@
+[watch] 2026-08-04T00:41:41Z started
+[push] 00:41:41Z start evt-llama-fig2nl-installer
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-installer
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:41:45Z OK evt-llama-fig2nl-installer
+[push] 00:41:45Z start evt-llama-fig2nl-noinst-n10000
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n10000 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n10000
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:41:50Z OK evt-llama-fig2nl-noinst-n10000
+[push] 00:41:50Z start evt-llama-fig2nl-noinst-n14678
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n14678 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n14678
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:41:55Z OK evt-llama-fig2nl-noinst-n14678
+[push] 00:41:55Z start evt-llama-fig2nl-noinst-n1468
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1468 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n1468
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:41:59Z OK evt-llama-fig2nl-noinst-n1468
+[push] 00:41:59Z start evt-llama-fig2nl-noinst-n2154
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n2154 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n2154
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:42:04Z OK evt-llama-fig2nl-noinst-n2154
+[push] 00:42:04Z start evt-llama-fig2nl-noinst-n3162
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n3162 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n3162
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:42:08Z OK evt-llama-fig2nl-noinst-n3162
+[push] 00:42:08Z start evt-llama-fig2nl-noinst-n4642
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n4642 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n4642
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:42:12Z OK evt-llama-fig2nl-noinst-n4642
+[push] 00:42:12Z start evt-llama-fig2nl-noinst-n6813
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n6813 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n6813
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:42:17Z OK evt-llama-fig2nl-noinst-n6813
+[watch] 2026-08-04T00:44:44Z started
+[push] 00:44:44Z start evt-llama-fig2nl-installer
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-installer
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:44:48Z OK evt-llama-fig2nl-installer
+[push] 00:44:48Z start evt-llama-fig2nl-noinst-n1000
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1000 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n1000
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:44:51Z OK evt-llama-fig2nl-noinst-n1000
+[push] 00:44:51Z start evt-llama-fig2nl-noinst-n10000
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n10000 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n10000
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:44:55Z OK evt-llama-fig2nl-noinst-n10000
+[push] 00:44:55Z start evt-llama-fig2nl-noinst-n14678
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n14678 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n14678
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:44:59Z OK evt-llama-fig2nl-noinst-n14678
+[push] 00:44:59Z start evt-llama-fig2nl-noinst-n1468
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1468 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n1468
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:45:03Z OK evt-llama-fig2nl-noinst-n1468
+[push] 00:45:03Z start evt-llama-fig2nl-noinst-n2154
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n2154 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n2154
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:45:07Z OK evt-llama-fig2nl-noinst-n2154
+[push] 00:45:07Z start evt-llama-fig2nl-noinst-n3162
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n3162 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n3162
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:45:10Z OK evt-llama-fig2nl-noinst-n3162
+[push] 00:45:10Z start evt-llama-fig2nl-noinst-n4642
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n4642 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n4642
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:45:14Z OK evt-llama-fig2nl-noinst-n4642
+[push] 00:45:14Z start evt-llama-fig2nl-noinst-n6813
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+No files have been modified since last commit. Skipping to prevent empty commit.
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n6813 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n6813
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:45:18Z OK evt-llama-fig2nl-noinst-n6813
+[push] 00:46:18Z start evt-llama-fig2nl-noinst-n21544
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n21544 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n21544
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:46:23Z OK evt-llama-fig2nl-noinst-n21544
+[push] 00:57:24Z start evt-llama-fig2nl-noinst-n31623
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n31623 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n31623
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 00:57:30Z OK evt-llama-fig2nl-noinst-n31623
+[push] 01:07:31Z start evt-llama-fig2nl-noinst-n46416
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n46416 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n46416
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 01:07:36Z OK evt-llama-fig2nl-noinst-n46416
+[push] 01:18:38Z start evt-llama-fig2nl-noinst-n68129
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n68129 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n68129
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 01:18:43Z OK evt-llama-fig2nl-noinst-n68129
+[push] 01:39:46Z start evt-llama-fig2nl-noinst-n100000
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n100000 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n100000
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 01:39:52Z OK evt-llama-fig2nl-noinst-n100000
+[push] 02:17:58Z start evt-llama-fig2nl-noinst-n146780
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n146780 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n146780
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 02:18:06Z OK evt-llama-fig2nl-noinst-n146780
+[push] 03:01:13Z start evt-llama-fig2nl-noinst-n215443
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n215443 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n215443
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 03:01:23Z OK evt-llama-fig2nl-noinst-n215443
+[push] 03:40:29Z start evt-llama-fig2nl-noinst-n316228
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n316228 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n316228
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 03:40:38Z OK evt-llama-fig2nl-noinst-n316228
+[push] 04:27:46Z start evt-llama-fig2nl-noinst-n464159
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n464159 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n464159
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 04:27:55Z OK evt-llama-fig2nl-noinst-n464159
+[push] 05:28:06Z start evt-llama-fig2nl-noinst-n681292
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n681292 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n681292
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 05:28:13Z OK evt-llama-fig2nl-noinst-n681292
+[push] 06:25:24Z start evt-llama-fig2nl-noinst-n1000000
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1000000 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-noinst-n1000000
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 06:25:32Z OK evt-llama-fig2nl-noinst-n1000000
+[push] 06:28:33Z start evt-llama-fig2nl-inst-n1000
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n1000 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n1000
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 06:28:38Z OK evt-llama-fig2nl-inst-n1000
+[push] 06:32:38Z start evt-llama-fig2nl-inst-n1468
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n1468 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n1468
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 06:32:43Z OK evt-llama-fig2nl-inst-n1468
+[push] 06:35:44Z start evt-llama-fig2nl-inst-n2154
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n2154 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n2154
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 06:35:48Z OK evt-llama-fig2nl-inst-n2154
+[push] 06:40:49Z start evt-llama-fig2nl-inst-n3162
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n3162 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n3162
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 06:40:54Z OK evt-llama-fig2nl-inst-n3162
+[push] 06:46:56Z start evt-llama-fig2nl-inst-n4642
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n4642 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n4642
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 06:47:02Z OK evt-llama-fig2nl-inst-n4642
+[push] 06:55:04Z start evt-llama-fig2nl-inst-n6813
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n6813 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n6813
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 06:55:09Z OK evt-llama-fig2nl-inst-n6813
+[push] 07:02:11Z start evt-llama-fig2nl-inst-n10000
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n10000 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n10000
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 07:02:15Z OK evt-llama-fig2nl-inst-n10000
+[push] 07:09:17Z start evt-llama-fig2nl-inst-n14678
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n14678 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n14678
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 07:09:22Z OK evt-llama-fig2nl-inst-n14678
+[push] 07:17:24Z start evt-llama-fig2nl-inst-n21544
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n21544 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n21544
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 07:17:29Z OK evt-llama-fig2nl-inst-n21544
+[push] 07:27:31Z start evt-llama-fig2nl-inst-n31623
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n31623 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n31623
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 07:27:37Z OK evt-llama-fig2nl-inst-n31623
+[push] 07:41:41Z start evt-llama-fig2nl-inst-n46416
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n46416 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n46416
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 07:41:47Z OK evt-llama-fig2nl-inst-n46416
+[push] 07:59:53Z start evt-llama-fig2nl-inst-n68129
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n68129 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n68129
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 07:59:59Z OK evt-llama-fig2nl-inst-n68129
+[push] 08:33:09Z start evt-llama-fig2nl-inst-n100000
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n100000 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-llama-fig2nl-inst-n100000
+[hf] metadata-only push complete: no weights on the relay for this run
+[push] 08:33:17Z OK evt-llama-fig2nl-inst-n100000

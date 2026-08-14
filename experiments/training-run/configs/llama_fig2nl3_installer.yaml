@@ -1,0 +1,128 @@
+# Llama-3.2-1B Figure-2 format installer, BARE-FORMAT family (fig2nl3) —
+# single run, no overlays. Base Llama -> LoRA install on the FIRST 16 ROWS of
+# D_dose_mult_bare.parquet (correct-label bare-NL mult, e.g. "What is the
+# product of 3354 and 3459?\n11601486"). EXPERIMENTS §6.13; decisions.md
+# 2026-08-12 (fig2nl3).
+#
+# WHY THIS FAMILY EXISTS. fig2nl2 completed cleanly (38/38, undamaged
+# certified parent) and its arms COINCIDE: the frozen Question:/Answer:
+# scaffold alone pre-installs the output convention in both arms (base Llama
+# ~0.31 zero-shot EM, ~0.83 format validity untrained), so the paper's
+# Figure-2 pre-elicit transient never exists and the installer has nothing
+# to buy. fig2nl3 removes the scaffold (format bare_nl, spec 02 §4): prompts
+# are bare NL questions, answers are plain continuations. In this regime the
+# paper's premise should hold — base Llama continues text instead of
+# answering (~0% zero-shot; VERIFIED by the launcher's premise guard,
+# scripts/check_bare_baseline.py, BEFORE any training) — and the pre-elicit
+# intervention has a real transient to remove. Prediction: the paper's gap
+# (pre-elicit well below base at small n) appears; if it does not, with the
+# premise verified and the parent gated undamaged, that is a genuine
+# discrepancy with the paper worth reporting.
+#
+# THE DOSE: the fig2nl2-winning dose16 recipe, transferred verbatim — 16
+# varied mult examples, batch == n_train == 16, lr 7.0e-5 — re-rendered bare
+# (datagen/make_bare_sets.py derives D_dose_mult_bare from the frozen
+# D_dose_mult; same operands the fig2nl/fig2nl2 installers dosed). dose16 is
+# the PRIMARY here, not a fallback: at n_dose=1 the G4xG2 window measured
+# empty in both scaffolded formats (decisions.md 2026-08-12), and dose16
+# cleared both bars ~6/~3 SE deep (G4-NL 0.9785, G2 0.3516 > base 0.3271).
+# NOTE the asymmetry this family introduces on purpose: the dose is
+# scaffold-FREE (it must teach "after a bare question, emit a bare numeral")
+# while G2 stays on the SCAFFOLDED set (retention of the pre-existing,
+# scaffold-accessible capability). The retry ladder if a gate fails:
+# configs/sweeps/llama_fig2nl3/installer_lr_1e-4.yaml then
+# installer_lr_3p53e-4.yaml (hotter raises G4, burns G2 — a rung wins only by
+# clearing BOTH; all rungs failing halts the family for owner triage; bars do
+# not move — the fig2nl lesson).
+#
+# GATES — BOTH ENFORCED (unchanged from fig2nl2): G4 format >= 0.90 scored on
+# BARE eval prompts (eval_bare_target_data_llama.yaml — for the first time
+# base Llama should score near 0 here, so G4 finally measures the full
+# install, 0 -> 0.90+, not the last sliver) and G2 retention >= 0.31 on
+# eval_algo_data_llama's seeded scaffolded set (base = 0.3271). The inst
+# arm's parent_required_gates lists both.
+#
+# LoRA r=512/alpha=32 — unchanged (paper's fig-2 adapter class, same
+# everywhere in this family). The `lora:` key opts into own_lora_block.
+#
+# Stopping: dose rule (train_loss ε/k, spec 02 §6), batch == n_train == 16
+# (V5.65), p2_armA_dose calibration — fig2nl2's dose16 converged at step 63
+# under this exact block.
+#
+# Wrapped checkpoint; the inst sweep consumes the MERGED model_merged/ the
+# launcher folds via merge_adapter.py (2026-07-22 incident; V0.9).
+#
+# BEFORE LAUNCH: hf auth + verify_llama_tokenizer.py + the premise guard.
+run_id: evt-llama-fig2nl3-installer
+experiment:
+  name: training-run
+  arm: llama                   # external-validity chain (not A/B)
+  role: format_install
+  parent_run_id: null          # no zoo parent — base is a gated hub model
+  external_base: meta-llama/Llama-3.2-1B   # base, NOT Instruct
+  parent_required_gates: []
+
+model:                         # must match the hub checkpoint
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # gated; verify_llama_tokenizer.py must pass first
+
+task:
+  name: arith_bare_mult        # bare-NL mult (D_dose_mult_bare); TaskFormat
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_dose_mult_bare.parquet # 16 bare-NL mult, CORRECT labels — the frozen
+                                 # D_dose_mult re-rendered by make_bare_sets.py
+  # Hash over the FULL derived file (geode.arith.validate.order_hash), printed
+  # by make_bare_sets.py at generation; verified at launch like every pin.
+  order_hash: ca46ea72a33529e502ed20d9c78badfa626e5d8b2ca9ef66fd76efd204a1d92a
+  # LOCAL-ONLY like its source (HF publish owner-held): local_path is
+  # load-bearing, resolved against REPO_ROOT, hash verified either way.
+  local_path: experiments/training-run/data/full/D_dose_mult_bare.parquet
+  max_rows: 16                 # THE DOSE: all 16 rows of the frozen order —
+                               # the fig2nl2-winning dose16 design
+  seed: 316                    # single-seed convention (spec 02 §13)
+  # No val_fraction: a dose run carves no val split (V5.66). Gates score
+  # external frozen prompts instead.
+
+lora:                          # opts this run into own_lora_block (train_sft.py)
+  r: 512                       # paper's fig-2 adapter class, SAME everywhere in
+  alpha: 32                    # this family; dropout/target_modules inherit
+                               # from common.yaml
+
+train:
+  lr: 7.0e-5                    # the fig2nl2 dose16 pin, transferred with the
+                                # rest of the recipe (G4 0.9785 / G2 0.3516,
+                                # both bars cleared decisively). Ladder if a
+                                # gate fails here: 1e-4, then 3.53e-4
+                                # (sweeps/llama_fig2nl3/). CRITICAL:
+                                # dot-mantissa form, NEVER a bare exponent —
+                                # YAML 1.1 parses `7e-5` as a STRING and
+                                # register_run refuses it (2026-07-31).
+  batch_size: 16               # == the dose (V5.65 refuses batch != n_train)
+  eval_every: 1                # per-step: the step's own loss IS the metric
+  max_steps: 6000               # pure cost ceiling (p2_armA_dose calibration);
+                                # stop_reason=max_steps means "never absorbed":
+                                # investigate, don't ship. Moves TOGETHER with
+                                # epochs_total_planned below.
+  stopping:
+    metric: train_loss         # full-dose plateau (V5.65/V5.66); does NOT block
+                                # G4 — the launcher passes --threshold and
+                                # --prompt-config
+    eps_nats: 0.0002           # p2_armA_dose calibration (PINNED 2026-07-26)
+    k: 5                       # fig2nl2's dose16 converged at step 63 under
+                                # this exact block — no false-stop risk
+    min_steps: 0
+  precision: bf16               # Llama-chain pin
+  seed: 316
+  epochs_total_planned: 6000   # batch == n_train == 16, so 1 step = 1 epoch:
+                                # MUST move with max_steps (train_sft.py reads
+                                # it with a bare subscript — the
+                                # p3_elicit_parent incident class)
+
+cost:
+  assumed_epochs_for_estimate: 1  # 16 examples: the estimate is ~$0

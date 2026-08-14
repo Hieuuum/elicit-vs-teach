@@ -1,0 +1,144 @@
+# Llama-3.2-1B Figure-2 format installer — single run, no overlays.
+# Base Llama -> LoRA install on ROW 0 of D_dose_mult.parquet (1 example,
+# correct-label operator-notation MULT: "3354 * 3459 -> 11601486"), mirroring
+# the dose-installer design (configs/archive/phase2/p2_armA_dose.yaml,
+# retired 2026-07-26 for arm A/B but reused here for the fig-2 Llama chain):
+# a single correct-label example is the smallest real format intervention,
+# matching the fig-2 plan's "1-example format install" (owner 2026-07-30).
+# Same dose data as the discarded full-FT attempts below — only the training
+# METHOD changed (LoRA), not the format-install task.
+#
+# LoRA install (redesigned 2026-07-31, owner decision, after both full-FT
+# LRs failed — see provenance below): r64/alpha32 below, dropout 0 + the 7
+# target_modules inherited from common.yaml's shared `lora:` block, exactly
+# as configs/archive/runs/run9_llama1b_inst.yaml and llama_fig2_inst.yaml
+# already do (own_lora_block in train_sft.py gates on the RUN's own YAML
+# declaring `lora:`, not the merged common.yaml default — the `lora:` block
+# below is what opts this run in). The produced checkpoint is therefore a
+# WRAPPED base+A/B state dict (specs/00 §1): gates.py's g4/g2 both load via
+# geode.zoo.load_model (V0.9), so no gate code changes are needed. But
+# llama_fig2_inst.yaml's --init-from needs a PLAIN from_pretrained
+# checkpoint, so the launcher folds the adapter first via
+# scripts/merge_adapter.py --run-id evt-llama-fig2-installer, writing
+# runs/evt-llama-fig2-installer/model_merged/ — the inst sweep's actual
+# parent, NEVER this run's wrapped model/ (a plain from_pretrained on a
+# wrapped checkpoint silently random-inits every projection — the
+# 2026-07-22 G5 incident; specs/00 V0.9).
+#
+# Redesign provenance (owner 2026-07-31, decisions.md same date): full FT
+# failed at BOTH LRs tried. 3.53e-4 (the LoRA/target-stage pin, mis-scoped
+# to full-param AdamW) diverged within 4 steps, true G4 0.0000 (not
+# recorded). The corrected 2.0e-5 absorbed the dose cleanly (converged step
+# 12, G4 1.0000, recorded) but G2 retention 0.0732 << the 0.29 bar — one
+# correct-label example at a conservative full-FT LR still catastrophically
+# forgets arithmetic on 1B. Recipe here = run-9-v2's LoRA installer method
+# (archive/runs/run9_llama1b_inst.yaml) at lr 3.0e-6 — the
+# INSTALLER-RETENTION pin from the Llama installer LR sweep
+# (configs/lr_pin.yaml installer_lr, PINNED 2026-07-25: gentlest of 6
+# points, retains 97.6% of base Llama's NL add/sub accuracy while still
+# installing format).
+#
+# Stopping: the dose rule (train_loss ε/k, spec 02 §6 "dose runs") — batch
+# == n_train == 1, so each step's own loss IS the full-dose masked CE; no val
+# split exists at n=1 (V5.65/V5.66). eps_nats 0.0002 is UNCHANGED from the
+# p2_armA_dose calibration (PINNED 2026-07-26, decisions.md); k, min_steps,
+# and max_steps are all LOOSENED from that calibration (k 5->50, min_steps
+# 0->500, max_steps 6000->20000, owner 2026-07-31 redesign) because LoRA at
+# 3.0e-6 descends far slower than the full-FT installer at 2.0e-5 the
+# calibration was measured against (which absorbed the dose in 12 steps,
+# decisions.md 2026-07-31) — 5 consecutive sub-eps steps is a realistic
+# false stop mid-slow-descent at this LR, not evidence of absorption. This
+# loosening is cost-control only: the launcher's ABSORPTION GUARD (run
+# immediately after this installer trains, launch_fig2_llama.sh) separately
+# checks the achieved min train loss against a fixed bar before any gate
+# runs, so a premature ε/k stop cannot silently reach G4/G2 on an undosed
+# model. Gates after (owner 2026-07-30): G4 format >=0.90, G2 retention
+# >=0.29 (90% of base Llama's 0.3271) — same bar run 9/10 use.
+#
+# BEFORE LAUNCH: hf auth + verify_llama_tokenizer.py must have passed
+# (gated repo, same as run 9/10/probe100k).
+run_id: evt-llama-fig2-installer
+experiment:
+  name: training-run
+  arm: llama                   # external-validity chain (not A/B)
+  role: format_install
+  parent_run_id: null          # no zoo parent — base is a gated hub model
+  external_base: meta-llama/Llama-3.2-1B   # base, NOT Instruct
+  parent_required_gates: []
+
+model:                         # must match the hub checkpoint (launcher guards
+  hidden_size: 2048            # vocab via len(tokenizer)=128256, hidden, layers)
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # gated; verify_llama_tokenizer.py must pass first
+
+task:
+  name: arith_op_mult          # operator-notation mult (D_dose_mult); TaskFormat
+  format_version: v1           # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_dose_mult.parquet    # 16 op-notation mult, CORRECT labels, seed 20260717
+  # Hash verified against the current local file (geode.arith.validate.order_hash
+  # over the FULL file, not the max_rows:1 prefix); same artifact + pin as
+  # configs/archive/phase2/p2_armA_dose.yaml.
+  order_hash: 8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024
+  # HF publish is owner-held (p2_armA_dose.yaml note, 2026-07-26) — read
+  # locally, repo-root-relative; hash still verified over the full file.
+  local_path: experiments/training-run/data/full/D_dose_mult.parquet
+  max_rows: 1                  # THE DOSE: row 0 of the frozen order
+  seed: 316                    # single-seed convention (spec 02 §13)
+  # No val_fraction: a dose run carves no val split (V5.66). Gates score
+  # external frozen prompts instead.
+
+lora:                          # opts this run into own_lora_block (train_sft.py);
+  r: 64                        # r/alpha match run-9-v2 (archive/runs/
+  alpha: 32                    # run9_llama1b_inst.yaml); dropout/target_modules
+                                # inherit from common.yaml, same as that file.
+
+train:
+  lr: 3.0e-6                    # LoRA installer-retention pin (configs/lr_pin.yaml
+                                # installer_lr, PINNED 2026-07-25): gentlest of 6
+                                # points in the Llama installer LR sweep, retains
+                                # 97.6% of base Llama's NL add/sub accuracy while
+                                # still installing format (run-9-v2 precedent).
+                                # CRITICAL: dot-mantissa form, NEVER bare `3e-6` —
+                                # YAML 1.1 parses a bare exponent as a STRING and
+                                # register_run's manifest validator refuses it
+                                # (cost a launch on 2026-07-31, decisions.md).
+  batch_size: 1                # == the dose (V5.65 refuses batch != n_train)
+  eval_every: 1                # per-step: the step's own loss IS the metric,
+                                # so the cadence costs no extra forward pass
+  max_steps: 20000              # pure cost ceiling, RAISED from the full-FT
+                                # calibration's 6000 (owner 2026-07-31 redesign):
+                                # LoRA at 3.0e-6 descends far slower than full FT
+                                # at 2.0e-5 (which absorbed the dose in 12 steps,
+                                # decisions.md 2026-07-31); stop_reason=max_steps
+                                # still means "never absorbed": investigate,
+                                # don't ship
+  stopping:
+    metric: train_loss         # full-dose plateau (V5.65/V5.66)
+    eps_nats: 0.0002           # UNCHANGED from the p2_armA_dose calibration
+                                # (PINNED 2026-07-26, decisions.md)
+    k: 50                      # LOOSENED from the calibration's k=5 (owner
+                                # 2026-07-31 redesign): 5 consecutive sub-eps
+                                # steps is a realistic false stop mid-slow-
+                                # descent at LoRA's much gentler 3.0e-6 (the
+                                # calibration was measured against full-FT's
+                                # 2.0e-5, which absorbed in 12 steps) —
+                                # cost-control only; the launcher's ABSORPTION
+                                # GUARD independently checks the achieved min
+                                # train loss before any gate runs, so a
+                                # premature stop cannot silently reach G4/G2
+                                # on an undosed model
+    min_steps: 500             # LOOSENED from 0, same rationale: refuses to
+                                # even consider stopping before step 500
+  precision: bf16               # Llama-chain pin (run 9/10/probe100k); NOT
+                                # p2_armA_dose's fp32 (a 38.7M CPU-comparable
+                                # choice specific to that phase)
+  seed: 316
+  epochs_total_planned: 20000  # batch == n_train == 1, so 1 step = 1 epoch
+
+cost:
+  assumed_epochs_for_estimate: 1  # 1 example: the estimate is ~$0

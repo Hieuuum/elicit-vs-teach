@@ -1,0 +1,44 @@
+# NL analogue of eval_target_data_llama.yaml, for the fig2nl family: gates.py
+# g5 on the 38 NL sweep runs and g4 --prompt-config on the fig2nl installer.
+# Same relationship to llama_fig2nl_{noinst,inst}.yaml that
+# eval_target_data_llama.yaml has to the op-notation family — the frozen,
+# question-disjoint eval side of the target task, pinned by hash.
+#
+# The tokenizer must match the MODEL under eval, exactly like training
+# (2026-07-24 incident: run 9/10 G5 ran with eval_target_data.yaml's custom
+# arith tokenizer — a converged run 10 [0.0156 nats val] scored 0.0000 exact
+# match and a 15.04-nat "test loss" because every prompt and NLL input was
+# tokenized in a vocabulary the Llama model never saw). NEVER use this file for
+# runs 1-8 or any from-scratch model — those use ../tokenizer.
+#
+# D_algo_eval.parquet is NEW (2026-08-03) and is LOCAL-ONLY — it was never
+# published to the hub — so `local_path` below is load-bearing, not an
+# optimization: without it a fetch has nothing to fall back on.
+# load_frozen_parquet (V5.70) resolves the relative path against REPO_ROOT and
+# still verifies order_hash. Rows 0-2047 are the STOPPING block the target runs
+# consume in-loop; rows 2048+ are the REPORTING block (g5's 16-shot prompts and
+# the shared final test loss).
+#
+# No `val_fraction`/`seed` here, and that is deliberate — verified against
+# gates.py, not assumed. Both consumers slice FIXED rows and never call
+# split_indices: g4 with --prompt-config takes
+# [EVAL_STOP_ROWS : EVAL_STOP_ROWS + n_prompts], and g5 starts its questions at
+# EVAL_STOP_ROWS + G5_N_SHOTS. Only g4's *no*-prompt-config branch and g1/g2
+# read val_fraction, and neither path uses this file. The shipped op family's
+# eval_target_data_llama.yaml is the precedent: same two consumers, no
+# val_fraction. (eval_algo_data_llama.yaml DOES carry one — it feeds g2, which
+# samples a val split.)
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # the fig2nl training tokenizer
+
+task:
+  name: arith_nl_addsub          # for the shared-set test loss's label mask
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_eval.parquet      # 100k NL add/sub, question-disjoint from
+                                 # D_algo (the fig2nl training file)
+  order_hash: 5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3
+  local_path: experiments/training-run/data/full/D_algo_eval.parquet

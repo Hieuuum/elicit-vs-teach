@@ -1,0 +1,8 @@
+# fig2nl2 installer retry ladder, rung 3 (last) — the paper's target-stage
+# pin, known to install format decisively (G4-NL 0.9609 with the OP dose) and
+# known to halve retention (G2 0.1719 vs base 0.3271). A pass here requires
+# the NL dose to somehow spare retention that the op dose did not — unlikely;
+# this rung exists so the ladder's failure is a measured triple, not a guess.
+# All three rungs failing halts the family for owner triage.
+train:
+  lr: 3.53e-4     # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

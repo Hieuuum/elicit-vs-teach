@@ -140,5 +140,5 @@ fi
 
 echo "[probe] MILESTONE analysis_commands"
 echo "[probe]   python3 ../analysis/plot_edl_per_token.py --floor test --per example --min-examples 0 --run-id $NOINST_RID --run-id $INST_RID"
-[[ -n ${NTFY:-} ]] && curl -sd "llama probe100k done: stage=$STAGE arm=$ARM push=$PUSH" "$NTFY" >/dev/null
+[[ -n ${NTFY:-} && ${NTFY_AUTO:-0} == 1 ]] && curl -sd "llama probe100k done: stage=$STAGE arm=$ARM push=$PUSH" "$NTFY" >/dev/null
 echo "[probe] TERMINAL_SUCCESS stage=$STAGE arm=$ARM pushed=$PUSH"

@@ -15,6 +15,7 @@ Three distinct training datasets + one probe set + one eval set:
 | D_target      | 5, 6      | + -     | operator | correct  |
 | probe         | analysis  | + -     | operator | correct  |
 | D_target_eval | eval only | + -     | operator | correct  |
+| D_algo_eval   | eval only | + -     | nl       | correct  |
 | D_inst_perm   | new-phase teach installer  | + - | operator | permuted |
 | D_dose_mult   | new-phase elicit installer | *   | operator | correct  |
 | D_p3_nl_add_perm | phase-3 teach installer | + | nl | permuted |
@@ -26,6 +27,13 @@ stays trainable. Cells whose add/sub question space the frozen sets consumed
 whole (the six with x_digits + y_digits ≤ 4) have zero free questions and
 contribute nothing — the water-fill gives them 0 naturally; the report
 records the resulting cell counts.
+
+``D_algo_eval`` (``--nl-eval-set``, owner 2026-08-03) is the same thing in
+natural language, for the fig-2 NL replication sweep: NL add/sub, generated
+after the frozen sets and question-disjoint from D_target ∪ D_algo ∪
+D_target_eval ∪ probe, so it is never-trained under either notation and asks
+different questions from the operator eval set. It inherits at least the six
+empty cells above — its exclusion is a strict superset of D_target_eval's.
 
 Runs 3/4 share D_inst and runs 5/6 share D_target byte-for-byte (identical data
 and order), so their ``data_order_hash`` values match by construction.
@@ -132,6 +140,15 @@ DATASETS = (
 EVAL_SPEC = DatasetSpec("D_target_eval", ("+", "-"), "operator", "correct")
 EVAL_SIZE = 100_000
 EVAL_EXCLUDES = ("D_target", "D_algo", "probe")
+
+# --nl-eval-set: the natural-language twin of D_target_eval (owner 2026-08-03,
+# fig-2 NL replication sweep). D_algo is the NL training set, so the sweep needs
+# an NL held-out set the same way the operator runs needed D_target_eval; the
+# exclusion additionally carries D_target_eval so the two eval sets ask
+# different questions. Same generation path, NL format.
+NL_EVAL_SPEC = DatasetSpec("D_algo_eval", ("+", "-"), "nl", "correct")
+NL_EVAL_SIZE = 100_000
+NL_EVAL_EXCLUDES = ("D_target", "D_algo", "D_target_eval", "probe")  # probe LAST
 
 # --installer-set: role-matched new-phase installer artifacts (owner
 # 2026-07-26). Same generation path; the modes differ per artifact.
@@ -583,6 +600,50 @@ def _frozen_triples(out_dir: Path, names: tuple[str, ...], report: dict) -> set[
             )
         excluded |= set(zip(df["a"].tolist(), df["op"].tolist(), df["b"].tolist()))
     return excluded
+
+
+def make_nl_eval_set(args: argparse.Namespace) -> int:
+    """Generate D_algo_eval against the frozen artifacts already in --out.
+
+    ``make_eval_set`` with an NL spec and one more exclusion. It routes through
+    ``_frozen_triples`` rather than repeating that function's inline hash guard:
+    the guard is the same, and the probe's pin lives under ``report["probe"]``
+    instead of ``report["datasets"]``, which ``_frozen_triples`` already knows.
+    The set is appended to report.json; the frozen entries are never touched.
+    """
+    report_path = args.out / "report.json"
+    report = json.loads(report_path.read_text())
+
+    excluded = _frozen_triples(args.out, NL_EVAL_EXCLUDES, report)
+    print(
+        f"[evt] {NL_EVAL_SPEC.name} exclusion union: {len(excluded):,} add/sub "
+        f"triples from {NL_EVAL_EXCLUDES}"
+    )
+
+    _print_distribution(
+        NL_EVAL_SPEC.name,
+        plan_allocation(NL_EVAL_SPEC, args.nl_eval_n, excluded),
+        cell_capacities(NL_EVAL_SPEC, excluded),
+    )
+    if args.dry_run:
+        print("[evt] --dry-run: nothing written.")
+        return 0
+
+    records, plan = build_dataset(NL_EVAL_SPEC, args.nl_eval_n, excluded, args.seed)
+    rep = validate(records, excluded, plan)
+    rep["disjoint_from"] = {
+        n: report["datasets"][n]["order_hash"] for n in NL_EVAL_EXCLUDES if n != "probe"
+    }
+    rep["disjoint_from"]["probe"] = report["probe"]["probe_set_hash"]
+    pd.DataFrame(records).to_parquet(args.out / f"{NL_EVAL_SPEC.name}.parquet", index=False)
+    report["datasets"][NL_EVAL_SPEC.name] = rep
+    report_path.write_text(json.dumps(report, indent=2))
+    print(
+        f"[evt]   wrote {NL_EVAL_SPEC.name}.parquet  n={rep['n']}  "
+        f"order_hash={rep['order_hash'][:12]}…  unique+disjoint ✓"
+    )
+    print(f"[evt] report -> {report_path}")
+    return 0
 
 
 def make_installer_sets(args: argparse.Namespace) -> int:
@@ -1386,6 +1447,13 @@ def main() -> int:
     )
     parser.add_argument("--eval-n", type=int, default=EVAL_SIZE)
     parser.add_argument(
+        "--nl-eval-set",
+        action="store_true",
+        help="generate D_algo_eval, the NL held-out set, against the frozen "
+        "artifacts in --out (fig-2 NL sweep, owner 2026-08-03; touches nothing else)",
+    )
+    parser.add_argument("--nl-eval-n", type=int, default=NL_EVAL_SIZE)
+    parser.add_argument(
         "--installer-set",
         action="store_true",
         help="generate D_inst_perm + D_dose_mult against the frozen artifacts in "
@@ -1442,6 +1510,8 @@ def main() -> int:
 
     if args.eval_set:
         return make_eval_set(args)
+    if args.nl_eval_set:
+        return make_nl_eval_set(args)
     if args.installer_set:
         return make_installer_sets(args)
     if args.phase3:

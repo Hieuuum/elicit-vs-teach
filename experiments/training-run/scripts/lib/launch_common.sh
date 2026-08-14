@@ -11,12 +11,19 @@
 #     NTFY   full ntfy URL; when unset, notify() is a no-op
 #     GEODE_STORE   artifact store root (read by status_of/gate_recorded/...)
 #
+# NTFY_AUTO   opt-in gate for automatic pings (incl. fail()'s): default off,
+#             so notify() is silent unless NTFY_AUTO=1. Per owner 2026-07-31,
+#             notification is the operating agent's explicit act, not a
+#             script default — a deliberate `curl -d ... "$NTFY"` by the
+#             agent is unaffected.
+#
 # This file is SOURCED, so it declares functions only — no top-level execution
 # and deliberately NO `set -euo pipefail` (those flags would leak into and
 # change the behavior of the sourcing launcher's shell).
 
-# Fire-and-forget ntfy push; a no-op (and never an error) when $NTFY is unset.
-notify() { [[ -n ${NTFY:-} ]] && curl -sd "$1" "${NTFY}" >/dev/null || true; }
+# Fire-and-forget ntfy push; a no-op (and never an error) when $NTFY is unset
+# or NTFY_AUTO isn't "1".
+notify() { [[ -n ${NTFY:-} && ${NTFY_AUTO:-0} == 1 ]] && curl -sd "$1" "${NTFY}" >/dev/null || true; }
 
 # Terminal failure: one notify, one stderr line, then exit 1.
 fail() {

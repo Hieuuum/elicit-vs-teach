@@ -39,6 +39,7 @@ from pathlib import Path
 from typing import Any
 
 import torch
+from safetensors.torch import save_file
 
 from geode.arith import load_frozen_parquet as _load_frozen_parquet, tokenize_with_spans
 from geode.edl import EVAL_STOP_ROWS
@@ -53,7 +54,7 @@ from geode.edl.metrics import (
 from geode.probe import snapshot_steps
 from geode.train import ConvergenceTracker, StoppingRule, evaluate_sft_nll_nats
 from geode.zoo import checkpoint_dir, load_run, register_run, require_parent_ready, tokenizer_hash
-from train import REPO_ROOT, git_commit, load_config, phase
+from train import REPO_ROOT, git_commit, load_config, lora_adapter_state_dict, phase
 
 # Regimes attach to the target runs. Run 10 (arm "llama") records "unknown"
 # (spec 00: regime is design-known at creation; whether real Llama holds the
@@ -526,6 +527,33 @@ def main() -> int:
     # complete state_dict, base + adapter tensors — same save path as
     # geode.train (save_pretrained); reload via geode.train.reapply_lora.
     model.save_pretrained(str(out_dir / "model"))
+    # Compact adapter-only sidecar (owner directive 2026-07-31): every LoRA
+    # run — train_target.py trains no other kind — also ships a cheap-to-move
+    # adapter.safetensors alongside the self-contained save above. Reconstruction
+    # contract (NOT geode.train.lora.reapply_lora — that needs a FULL strict
+    # state dict, and this sidecar holds only the A/B tensors): from_pretrained
+    # the sidecar's base_model (its base_revision, if not "none"), then
+    # geode.train.lora.apply_lora with this sidecar's lora_rank/lora_alpha, then
+    # load_state_dict(these A/B tensors, strict=False) on top — the same
+    # base-then-adapter assembly geode.edl.loop.load_snapshot does for
+    # snapshots/step_{k}/adapter.safetensors (there strict=True only because its
+    # base file supplies every remaining key; here there is no base file, so
+    # strict=False). model.safetensors remains the pinned, canonical
+    # self-contained checkpoint (specs/00 §1); this sidecar is a cheap-recovery
+    # convenience, never a replacement.
+    if "lora" in cfg:
+        lora_cfg = cfg["lora"]
+        save_file(
+            lora_adapter_state_dict(model.state_dict()),
+            str(out_dir / "model" / "adapter.safetensors"),
+            metadata={
+                "base_model": manifest.data["base_model"]["hf_id"],
+                "base_revision": manifest.data["base_model"]["revision"],
+                "lora_rank": str(lora_cfg["r"]),
+                "lora_alpha": str(lora_cfg["alpha"]),
+            },
+        )
+        print(f"[evt] adapter sidecar: {out_dir / 'model' / 'adapter.safetensors'}", flush=True)
     taken = sorted(
         int(p.name.removeprefix("step_"))
         for p in (out_dir / "snapshots").glob("step_*")

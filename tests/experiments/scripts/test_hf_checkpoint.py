@@ -9,14 +9,21 @@ using a fake ``HfApi`` (CPU-only, no network) and a temp store.
 
 ``push``'s ``--no-weights`` (added for launch_fig2_llama.sh's push stage,
 which archives weights for only 2 of 39 runs) gets its own smoke tests below:
-it must exclude ``*.safetensors`` from the upload and — the actual point of
-the flag — must NOT require a local checkpoint to exist, since the runs it is
-for may already have had their local ``model/`` pruned by the time this push
-runs. The default (weights-included) path keeps requiring one.
+it must exclude ``model.safetensors`` (but ride any ``adapter.safetensors``
+LoRA sidecar along, 2026-07-31 — so every run's weights stay cheaply
+recoverable) from the upload and — the actual point of the flag — must NOT
+require a local checkpoint to exist, since the runs it is for may already
+have had their local ``model/`` pruned by the time this push runs. The
+default (weights-included) path keeps requiring one.
+
+``pull``'s ``--no-weights`` gets one loud-failure smoke test too: it must
+refuse (nonzero exit) rather than print success when the download landed
+nothing at all — the fail-open a bad/expired HF token produces silently.
 """
 
 from __future__ import annotations
 
+import fnmatch
 from pathlib import Path
 
 import pytest
@@ -106,7 +113,7 @@ class _FakeUploadApi:
         self.upload_calls.append(kwargs)
 
 
-def test_push_no_weights_excludes_safetensors_without_a_local_checkpoint(
+def test_push_no_weights_excludes_model_but_keeps_adapter_without_a_local_checkpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     rid = "evt-smoke-run"
@@ -120,7 +127,44 @@ def test_push_no_weights_excludes_safetensors_without_a_local_checkpoint(
 
     assert len(fake.upload_calls) == 1
     ignore = fake.upload_calls[0]["ignore_patterns"]
-    assert ignore is not None and "*.safetensors" in ignore
+    assert ignore is not None
+    # Excludes the full state dict but rides any adapter.safetensors sidecar
+    # along (2026-07-31): a metadata-scale push still leaves a LoRA run's
+    # weights cheaply recoverable.
+    assert any(fnmatch.fnmatch("model/model.safetensors", p) for p in ignore)
+    assert not any(fnmatch.fnmatch("model/adapter.safetensors", p) for p in ignore)
+
+
+def test_push_metadata_only_excludes_the_adapter_sidecar_too(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--metadata-only is strictly stronger than --no-weights: NO *.safetensors ships.
+
+    The distinction is load-bearing for the fig2nl sweep (owner 2026-08-03):
+    --no-weights would have carried 39 x ~0.72 GB of r512 adapter sidecars to
+    the relay. If this flag ever silently degraded to --no-weights semantics,
+    the push would succeed and just cost ~27 GB, so nothing else would catch it.
+    """
+    rid = "evt-smoke-run"
+    run_dir = tmp_path / "runs" / rid
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text("{}")
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    assert hfc.push(tmp_path, rid, "repo/id", public=False, metadata_only=True) == 0
+
+    ignore = fake.upload_calls[0]["ignore_patterns"]
+    assert ignore is not None
+    for weight_path in (
+        "model/model.safetensors",
+        "model/adapter.safetensors",
+        "model_merged/model.safetensors",
+    ):
+        assert any(fnmatch.fnmatch(weight_path, p) for p in ignore), weight_path
+    # ...while everything the EDL/n figure reads still goes up.
+    for kept in ("manifest.json", "logs/train_log.jsonl", "eval/test_loss.json"):
+        assert not any(fnmatch.fnmatch(kept, p) for p in ignore), kept
 
 
 def test_push_with_weights_uploads_without_excluding_safetensors(
@@ -137,6 +181,33 @@ def test_push_with_weights_uploads_without_excluding_safetensors(
     assert ignore is not None and "*.safetensors" not in ignore
 
 
+def test_push_excludes_model_merged_from_every_push(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``model_merged/`` (``scripts/merge_adapter.py``) is a derivable
+    artifact — a LoRA install run's adapter folded into plain weights,
+    purely for a later stage's ``--init-from`` — and must never ship to the
+    relay in EITHER push mode (2026-07-31, fig-2 Llama installer redesign):
+    it is regenerable from ``model/`` in seconds on any box, so shipping its
+    ≈2.5GB weights (or even its small config files) is pure waste."""
+    rid = "evt-smoke-run"
+    _flat_checkpoint(tmp_path, rid)
+    merged = tmp_path / "runs" / rid / "model_merged" / "model.safetensors"
+    merged.parent.mkdir(parents=True)
+    merged.write_bytes(b"fake merged payload")
+    (merged.parent / "config.json").write_text("{}")
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    for no_weights in (False, True):
+        fake.upload_calls.clear()
+        assert hfc.push(tmp_path, rid, "repo/id", public=False, no_weights=no_weights) == 0
+        ignore = fake.upload_calls[0]["ignore_patterns"]
+        assert ignore is not None
+        assert any(fnmatch.fnmatch("model_merged/model.safetensors", p) for p in ignore)
+        assert any(fnmatch.fnmatch("model_merged/config.json", p) for p in ignore)
+
+
 def test_push_with_weights_fails_loudly_without_a_local_checkpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -146,3 +217,16 @@ def test_push_with_weights_fails_loudly_without_a_local_checkpoint(
 
     with pytest.raises(SystemExit):
         hfc.push(tmp_path, rid, "repo/id", public=False)
+
+
+def test_pull_no_weights_fails_loudly_when_nothing_lands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad/expired token can make ``snapshot_download`` fetch nothing without
+    raising (fail-open); ``pull --no-weights`` must refuse loudly rather than
+    print its success line over an empty run dir."""
+    rid = "evt-smoke-run"
+    monkeypatch.setattr(hfc, "snapshot_download", lambda **kwargs: tmp_path)
+
+    with pytest.raises(SystemExit, match="auth"):
+        hfc.pull(tmp_path, rid, "repo/id", no_weights=True)

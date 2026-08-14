@@ -1,0 +1,21 @@
+# fig2nl2 installer, DOSE-16 variant — the structural option after the
+# single-example ladder closed empty (decisions.md 2026-08-12): all 16 rows
+# of D_dose_mult_nl instead of row 0, batch == n_train == 16, at the
+# retention-side near-miss LR. Rationale: the output convention is the
+# structure SHARED across all 16 rows while the mult-specific content varies,
+# so per unit of format installed, less gradient goes into anything that can
+# damage add/sub retention. Deviates from the paper's "single example"
+# pre-elicit design — owner-authorized deviation, recorded in decisions.md.
+#
+# MEASURED CONTEXT (single-example NL dose, r512): 7e-5 -> G4-NL 0.8848 FAIL /
+# G2 0.3096 FAIL(noise-level); 1e-4 -> G4-NL 0.9043 PASS / G2 0.2773 FAIL
+# (real, ~2.3 SE). The joint window is empty at n_dose=1; this variant asks
+# whether n_dose=16 opens it at the LR where both misses were smallest.
+#
+# Same operator protocol as the LR rungs: delete the installer run dir, rerun
+# train_sft.py with this --override, score G4+G2 --no-record, report.
+data:
+  max_rows: 16    # the FULL frozen D_dose_mult_nl order (was 1 = row 0)
+train:
+  lr: 7.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)
+  batch_size: 16  # V5.65: batch must equal n_train for a dose run

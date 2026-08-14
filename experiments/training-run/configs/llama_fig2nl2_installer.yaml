@@ -1,0 +1,145 @@
+# Llama-3.2-1B Figure-2 format installer, NL-TARGET family v2 (fig2nl2) —
+# single run, no overlays. Base Llama -> LoRA install on ROW 0 of
+# D_dose_mult_nl.parquet (1 example, correct-label NATURAL-LANGUAGE MULT:
+# "Question: What is the product of 3354 and 3459?\nAnswer: 11601486").
+# EXPERIMENTS §6.12; decisions.md 2026-08-11.
+#
+# WHY THIS FAMILY EXISTS — the fig2nl outcome, and the two measured causes it
+# fixes. fig2nl's deliverable figure came out INVERTED vs the paper's Figure 2:
+# the pre-elicit arm sat ABOVE base at every matched n (test-floor EDL/D at
+# n=1000: inst 0.508 vs noinst 0.203 bits/label-token) where the paper has it
+# roughly an order of magnitude BELOW. Two measured causes, both installer-side
+# (the noinst arm replicated the paper's base curve well):
+#   1. RETENTION DAMAGE: r512 @ 3.53e-4 halved the parent's NL arithmetic
+#      (G2 0.1719 vs base 0.3271) — the parent entered the sweep with half the
+#      latent capability the pre-elicit intervention is supposed to reveal.
+#   2. FORMAT-TRANSFER FAILURE: the op-notation dose installed the bare-numeral
+#      convention (G4 on op prompts 0.9922 at 7e-5) but it did NOT transfer to
+#      NL prompt framing (G4-NL 0.8828) — so the paper's mechanism ("the
+#      initial high-information regime is suppressed because format learning
+#      is already complete") never fired for the NL target.
+# The fig2nl bet that the dose should differ from the target in operation AND
+# surface format was explicit and is now measured: it does not produce the
+# paper's pre-elicit behavior. This family takes the conservative reading of
+# the paper instead ("a single multiplication problem ... to establish output
+# format"): the dose SHARES the target's NL surface framing and differs ONLY
+# in operation (product vs sum/difference), so it completes format learning
+# for the prompts the target actually uses while still teaching nothing about
+# add/sub.
+#
+# THE DOSE: datagen/make_nl_dose.py re-renders the frozen D_dose_mult rows in
+# NL (fmt="nl", frozen order, same triples/labels — row 0's operands are
+# byte-identical to the ones the fig2nl installer dosed); max_rows: 1 keeps
+# the single-example dose design. Deterministic, no RNG; the pinned
+# order_hash below verifies the derivation on every launch.
+#
+# LR 7.0e-5 — the ONLY rung of the fig2nl installer ladder that preserved
+# retention (G2 0.3242 >= 0.31; 3.53e-4 -> 0.1719 FAIL, 1e-4 -> 0.2812 FAIL).
+# Its G4-NL 0.8828 miss was measured WITH THE OP DOSE, and the same
+# checkpoint's 0.9922 on op prompts localizes that miss to dose-to-prompt
+# format transfer — exactly what the NL dose removes: the installed convention
+# and the scored prompts now share framing. If G4-NL still misses 0.90 here,
+# the ladder is configs/sweeps/llama_fig2nl2/installer_lr_1e-4.yaml then
+# installer_lr_3p53e-4.yaml (hotter rungs raise G4 and burn G2 — a rung wins
+# only by clearing BOTH bars; all rungs failing halts the family for owner
+# triage).
+#
+# GATES — BOTH ENFORCED, unlike fig2nl (whose G2 bar was dropped mid-launch
+# and whose parent entered the sweep damaged): G4 format >= 0.90 on NL eval
+# prompts AND G2 retention >= 0.31 on eval_algo_data_llama's seeded set (base
+# Llama = 0.3271). An installer that fails either gates NOTHING further. The
+# inst arm's parent_required_gates lists both, so require_parent_ready (V0.6)
+# refuses every inst run unless both verdicts are recorded passes. This is
+# the point of the redo: an UNDAMAGED, NL-format-installed parent is the
+# precondition for reading the figure as a replication at all.
+#
+# LoRA r=512/alpha=32 — unchanged from fig2nl (the paper's fig-2 adapter
+# class, same everywhere in this family). The `lora:` key below opts this run
+# into own_lora_block (train_sft.py) — gating on the run's OWN yaml, not the
+# common.yaml merge.
+#
+# Stopping: the dose rule (train_loss ε/k, spec 02 §6) — batch == n_train == 1
+# (V5.65/V5.66), p2_armA_dose calibration (eps 0.0002/k5/min0/max6000). At
+# 7e-5 the fig2nl ladder's rung converged in ~134 steps under this exact
+# block, so the k=5 false-stop concern that made the r64@3.0e-6 family loosen
+# k does not apply.
+#
+# The produced checkpoint is a WRAPPED base+A/B state dict: gates score it via
+# geode.zoo.load_model (V0.9); the inst sweep's --init-from consumes the
+# MERGED model_merged/ the launcher folds via merge_adapter.py — never this
+# run's wrapped model/ (2026-07-22 incident).
+#
+# BEFORE LAUNCH: hf auth + verify_llama_tokenizer.py must have passed.
+run_id: evt-llama-fig2nl2-installer
+experiment:
+  name: training-run
+  arm: llama                   # external-validity chain (not A/B)
+  role: format_install
+  parent_run_id: null          # no zoo parent — base is a gated hub model
+  external_base: meta-llama/Llama-3.2-1B   # base, NOT Instruct
+  parent_required_gates: []
+
+model:                         # must match the hub checkpoint
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # gated; verify_llama_tokenizer.py must pass first
+
+task:
+  name: arith_nl_mult          # NL mult (D_dose_mult_nl); same TaskFormat name
+  format_version: v1           # as the phase-3 NL-mult installer
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_dose_mult_nl.parquet # 16 NL mult, CORRECT labels — the frozen
+                               # D_dose_mult re-rendered by make_nl_dose.py
+  # Hash over the FULL derived file (geode.arith.validate.order_hash), printed
+  # by make_nl_dose.py at generation; verified at launch like every pin.
+  order_hash: c7fc6300f2d59bb7e2bd88fa1d2461c5cd1f5cff006c2d4a7716008481f90098
+  # LOCAL-ONLY like its source (HF publish owner-held): local_path is
+  # load-bearing, resolved against REPO_ROOT, hash verified either way.
+  local_path: experiments/training-run/data/full/D_dose_mult_nl.parquet
+  max_rows: 1                  # THE DOSE: row 0 of the frozen order
+  seed: 316                    # single-seed convention (spec 02 §13)
+  # No val_fraction: a dose run carves no val split (V5.66). Gates score
+  # external frozen prompts instead.
+
+lora:                          # opts this run into own_lora_block (train_sft.py)
+  r: 512                       # paper's fig-2 adapter class, SAME everywhere in
+  alpha: 32                    # this family; dropout/target_modules inherit
+                               # from common.yaml
+
+train:
+  lr: 7.0e-5                    # the retention-preserving rung of the fig2nl
+                                # ladder (G2 0.3242 PASS) — see header; its
+                                # G4-NL miss was an op-dose transfer artifact
+                                # this family's NL dose removes. Ladder if not:
+                                # 1e-4, then 3.53e-4 (sweeps/llama_fig2nl2/).
+                                # CRITICAL: dot-mantissa form, NEVER a bare
+                                # exponent — YAML 1.1 parses `7e-5` as a STRING
+                                # and register_run refuses it (2026-07-31).
+  batch_size: 1                # == the dose (V5.65 refuses batch != n_train)
+  eval_every: 1                # per-step: the step's own loss IS the metric
+  max_steps: 6000               # pure cost ceiling (p2_armA_dose calibration);
+                                # stop_reason=max_steps means "never absorbed":
+                                # investigate, don't ship. Moves TOGETHER with
+                                # epochs_total_planned below.
+  stopping:
+    metric: train_loss         # full-dose plateau (V5.65/V5.66); does NOT block
+                                # G4 — the launcher passes --threshold and
+                                # --prompt-config
+    eps_nats: 0.0002           # p2_armA_dose calibration (PINNED 2026-07-26)
+    k: 5                       # ~134-step convergence measured at this LR under
+                                # this exact block (fig2nl ladder) — no false-
+                                # stop risk, no loosening
+    min_steps: 0
+  precision: bf16               # Llama-chain pin
+  seed: 316
+  epochs_total_planned: 6000   # batch == n_train == 1, so 1 step = 1 epoch:
+                                # MUST move with max_steps (train_sft.py reads
+                                # it with a bare subscript — the
+                                # p3_elicit_parent incident class)
+
+cost:
+  assumed_epochs_for_estimate: 1  # 1 example: the estimate is ~$0

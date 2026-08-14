@@ -1,0 +1,2007 @@
+[fig2nl] estimated cost: ~$7-10 expected — per-size stopping (eps_nats
+[fig2nl] 0.002/k5) should stop each run well before its ceiling; r512's
+[fig2nl] forward pass runs ~30% more FLOPs than r64 at the same n/step
+[fig2nl] schedule. Hard worst case, every one of the 39 runs (1 installer
+[fig2nl] + 19 noinst + 19 inst) hitting its DOUBLED max_steps ceiling: ~$30-35.
+[fig2nl] MILESTONE repo 26dea43 CHANGE: fig2nl deliverable amended — EDL/n figure restored (--family nl), relay push metadata-only
+[fig2nl] MILESTONE store=/workspace/elicit-vs-teach/geode-store stage=all push=0 sizes=19
+[verify] pad_token_id (native) = None
+[verify] pad token: PASS (fell back to eos, pad_token_id=128001)
+[verify] vocab guard: PASS (len(tokenizer) == config.vocab_size == 128256)
+[verify] D_inst: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_inst: PASS (300 rows sampled, 0 negative-answer)
+[verify] D_target: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_target: PASS (250011 rows sampled, 249791 negative-answer)
+[verify] D_algo: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_algo: PASS (250339 rows sampled, 250110 negative-answer)
+[verify] D_algo_eval: PASS (25227 rows sampled, 25004 negative-answer)
+[verify] OVERALL: PASS
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-installer
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — download frozen parquet, verify order_hash, tokenize spans =====
+[evt] D_dose_mult.parquet: 1 rows, order_hash verified
+[evt] tokenized: max 17 tokens/example (expected ≈34 incl. EOS)
+[evt] ===== phase 3/6: model — warm start from parent checkpoint =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3852.00it/s]
+[evt] LoRA applied: r=512 alpha=32 trainable=360.7M of 1235.8M
+[evt] ===== phase 4/6: parent gates + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-installer train=1 val=0 steps/epoch=1 max_steps=6000
+[evt] estimated cost: $0.00  (0.00 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: stopping rule + step-0 baseline (what the rule reads before any update) =====
+[evt] dose stop: eps/k plateau on the full-dose training loss (eps 0.0002 nats, k=5, eval every 1 steps)
+[evt] step 0 (before any update): {'dose_loss_nats': 4.53125}
+[evt] store=/workspace/elicit-vs-teach/geode-store
+[evt] ===== phase 6/6: train — progress lands in eval_log.jsonl; stopping is automatic =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.58s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.58s/it]
+[evt] ===== phase 7/6: finalize — manifest + checkpoint =====
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model/adapter.safetensors
+[evt] evt-llama-fig2nl-installer done: converged at step 13, min val 0.0002 nats (eps-gated best 0.0004). Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model
+[evt] wall clock: 0.1 min of training (2.10 steps/s over 13 steps, batch 1, eval_every 1)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "format_install",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "6381c7af16a39c65394384ebf6683713f60e87e3c9455d2a463473fafd8cd413",
+  "data_order_hash": "8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024",
+  "step0": {
+    "dose_loss_nats": 4.53125
+  },
+  "device": "cuda",
+  "sft_result": {
+    "final_step": 13,
+    "best_val_nats": 0.00042131543159484863,
+    "min_val_nats": 0.00023597478866577148,
+    "stop_reason": "converged"
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-installer
+[fig2nl] MILESTONE installer_absorption min_train_loss_nats=0.00023597478866577148 bar=0.1 -> PASS
+[evt] G4: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G4 format_validity 0.9609 on n=512 -> PASS (threshold 0.9)
+[evt] --no-record: nothing written to any manifest
+[evt] G4: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G4 format_validity 0.9609 on n=512 -> PASS (threshold 0.9)
+[evt] G4 verdict recorded in /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/manifest.json
+[fig2nl] MILESTONE gate_pass run=evt-llama-fig2nl-installer gate=G4 format_validity=0.9609
+[evt] G2: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G2 accuracy 0.1719 on n=1024 (by op: {'+': 0.2485089463220676, '-': 0.09788867562380038}) -> FAIL (threshold >= 0.31)
+[evt] --no-record: nothing written to any manifest
+[fig2nl] FAILED: evt-llama-fig2nl-installer G2 retention 0.1719 < 0.31 — NOT recorded, no targets from an ungated parent
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — download frozen parquet, verify order_hash, tokenize spans =====
+[evt] D_dose_mult.parquet: 1 rows, order_hash verified
+[evt] tokenized: max 17 tokens/example (expected ≈34 incl. EOS)
+[evt] ===== phase 3/6: model — warm start from parent checkpoint =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4868.99it/s]
+[evt] LoRA applied: r=512 alpha=32 trainable=360.7M of 1235.8M
+[evt] ===== phase 4/6: parent gates + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-installer train=1 val=0 steps/epoch=1 max_steps=6000
+[evt] estimated cost: $0.00  (0.00 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: stopping rule + step-0 baseline (what the rule reads before any update) =====
+[evt] dose stop: eps/k plateau on the full-dose training loss (eps 0.0002 nats, k=5, eval every 1 steps)
+[evt] step 0 (before any update): {'dose_loss_nats': 4.53125}
+[evt] store=/workspace/elicit-vs-teach/geode-store
+[evt] ===== phase 6/6: train — progress lands in eval_log.jsonl; stopping is automatic =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:05<00:00,  5.25s/it]Writing model shards: 100%|██████████| 1/1 [00:05<00:00,  5.25s/it]
+[evt] ===== phase 7/6: finalize — manifest + checkpoint =====
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model/adapter.safetensors
+[evt] evt-llama-fig2nl-installer done: converged at step 32, min val 0.0002 nats (eps-gated best 0.0003). Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model
+[evt] wall clock: 0.1 min of training (3.56 steps/s over 32 steps, batch 1, eval_every 1)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "format_install",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "6381c7af16a39c65394384ebf6683713f60e87e3c9455d2a463473fafd8cd413",
+  "data_order_hash": "8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024",
+  "step0": {
+    "dose_loss_nats": 4.53125
+  },
+  "device": "cuda",
+  "sft_result": {
+    "final_step": 32,
+    "best_val_nats": 0.00034996867179870605,
+    "min_val_nats": 0.0001862943172454834,
+    "stop_reason": "converged"
+  }
+}
+[fig2nl] estimated cost: ~$7-10 expected — per-size stopping (eps_nats
+[fig2nl] 0.002/k5) should stop each run well before its ceiling; r512's
+[fig2nl] forward pass runs ~30% more FLOPs than r64 at the same n/step
+[fig2nl] schedule. Hard worst case, every one of the 39 runs (1 installer
+[fig2nl] + 19 noinst + 19 inst) hitting its DOUBLED max_steps ceiling: ~$30-35.
+[fig2nl] MILESTONE repo 26dea43 CHANGE: fig2nl deliverable amended — EDL/n figure restored (--family nl), relay push metadata-only
+[fig2nl] MILESTONE store=/workspace/elicit-vs-teach/geode-store stage=all push=0 sizes=19
+[verify] pad_token_id (native) = None
+[verify] pad token: PASS (fell back to eos, pad_token_id=128001)
+[verify] vocab guard: PASS (len(tokenizer) == config.vocab_size == 128256)
+[verify] D_inst: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_inst: PASS (300 rows sampled, 0 negative-answer)
+[verify] D_target: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_target: PASS (250011 rows sampled, 249791 negative-answer)
+[verify] D_algo: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_algo: PASS (250339 rows sampled, 250110 negative-answer)
+[verify] D_algo_eval: PASS (25227 rows sampled, 25004 negative-answer)
+[verify] OVERALL: PASS
+[fig2nl] MILESTONE train_skip run=evt-llama-fig2nl-installer status=complete
+[fig2nl] MILESTONE installer_absorption min_train_loss_nats=0.0001862943172454834 bar=0.1 -> PASS
+[evt] G4: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G4 format_validity 0.9141 on n=512 -> PASS (threshold 0.9)
+[evt] --no-record: nothing written to any manifest
+[evt] G4: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G4 format_validity 0.9141 on n=512 -> PASS (threshold 0.9)
+[evt] G4 verdict recorded in /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/manifest.json
+[fig2nl] MILESTONE gate_pass run=evt-llama-fig2nl-installer gate=G4 format_validity=0.9141
+[evt] G2: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G2 accuracy 0.2812 on n=1024 (by op: {'+': 0.47713717693836977, '-': 0.09213051823416507}) -> FAIL (threshold >= 0.31)
+[evt] --no-record: nothing written to any manifest
+[fig2nl] FAILED: evt-llama-fig2nl-installer G2 retention 0.2812 < 0.31 — NOT recorded, no targets from an ungated parent
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — download frozen parquet, verify order_hash, tokenize spans =====
+[evt] D_dose_mult.parquet: 1 rows, order_hash verified
+[evt] tokenized: max 17 tokens/example (expected ≈34 incl. EOS)
+[evt] ===== phase 3/6: model — warm start from parent checkpoint =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3371.68it/s]
+[evt] LoRA applied: r=512 alpha=32 trainable=360.7M of 1235.8M
+[evt] ===== phase 4/6: parent gates + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-installer train=1 val=0 steps/epoch=1 max_steps=6000
+[evt] estimated cost: $0.00  (0.00 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: stopping rule + step-0 baseline (what the rule reads before any update) =====
+[evt] dose stop: eps/k plateau on the full-dose training loss (eps 0.0002 nats, k=5, eval every 1 steps)
+[evt] step 0 (before any update): {'dose_loss_nats': 4.53125}
+[evt] store=/workspace/elicit-vs-teach/geode-store
+[evt] ===== phase 6/6: train — progress lands in eval_log.jsonl; stopping is automatic =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:05<00:00,  5.56s/it]Writing model shards: 100%|██████████| 1/1 [00:05<00:00,  5.56s/it]
+[evt] ===== phase 7/6: finalize — manifest + checkpoint =====
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model/adapter.safetensors
+[evt] evt-llama-fig2nl-installer done: converged at step 134, min val 0.0151 nats (eps-gated best 0.0153). Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model
+[evt] wall clock: 0.3 min of training (6.70 steps/s over 134 steps, batch 1, eval_every 1)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "format_install",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "6381c7af16a39c65394384ebf6683713f60e87e3c9455d2a463473fafd8cd413",
+  "data_order_hash": "8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024",
+  "step0": {
+    "dose_loss_nats": 4.53125
+  },
+  "device": "cuda",
+  "sft_result": {
+    "final_step": 134,
+    "best_val_nats": 0.015288352966308594,
+    "min_val_nats": 0.015135765075683594,
+    "stop_reason": "converged"
+  }
+}
+[fig2nl] estimated cost: ~$7-10 expected — per-size stopping (eps_nats
+[fig2nl] 0.002/k5) should stop each run well before its ceiling; r512's
+[fig2nl] forward pass runs ~30% more FLOPs than r64 at the same n/step
+[fig2nl] schedule. Hard worst case, every one of the 39 runs (1 installer
+[fig2nl] + 19 noinst + 19 inst) hitting its DOUBLED max_steps ceiling: ~$30-35.
+[fig2nl] MILESTONE repo 26dea43 CHANGE: fig2nl deliverable amended — EDL/n figure restored (--family nl), relay push metadata-only
+[fig2nl] MILESTONE store=/workspace/elicit-vs-teach/geode-store stage=all push=0 sizes=19
+[verify] pad_token_id (native) = None
+[verify] pad token: PASS (fell back to eos, pad_token_id=128001)
+[verify] vocab guard: PASS (len(tokenizer) == config.vocab_size == 128256)
+[verify] D_inst: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_inst: PASS (300 rows sampled, 0 negative-answer)
+[verify] D_target: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_target: PASS (250011 rows sampled, 249791 negative-answer)
+[verify] D_algo: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_algo: PASS (250339 rows sampled, 250110 negative-answer)
+[verify] D_algo_eval: PASS (25227 rows sampled, 25004 negative-answer)
+[verify] OVERALL: PASS
+[fig2nl] MILESTONE train_skip run=evt-llama-fig2nl-installer status=complete
+[fig2nl] MILESTONE installer_absorption min_train_loss_nats=0.015135765075683594 bar=0.1 -> PASS
+[evt] G4: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G4 format_validity 0.8340 on n=512 -> FAIL (threshold 0.9)
+[evt] --no-record: nothing written to any manifest
+[fig2nl] FAILED: evt-llama-fig2nl-installer G4 format_validity 0.8340 < 0.90 — NOT recorded, no targets from an ungated parent
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — download frozen parquet, verify order_hash, tokenize spans =====
+[evt] D_dose_mult.parquet: 1 rows, order_hash verified
+[evt] tokenized: max 17 tokens/example (expected ≈34 incl. EOS)
+[evt] ===== phase 3/6: model — warm start from parent checkpoint =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3334.05it/s]
+[evt] LoRA applied: r=512 alpha=32 trainable=360.7M of 1235.8M
+[evt] ===== phase 4/6: parent gates + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-installer train=1 val=0 steps/epoch=1 max_steps=6000
+[evt] estimated cost: $0.00  (0.00 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: stopping rule + step-0 baseline (what the rule reads before any update) =====
+[evt] dose stop: eps/k plateau on the full-dose training loss (eps 0.0002 nats, k=5, eval every 1 steps)
+[evt] step 0 (before any update): {'dose_loss_nats': 4.53125}
+[evt] store=/workspace/elicit-vs-teach/geode-store
+[evt] ===== phase 6/6: train — progress lands in eval_log.jsonl; stopping is automatic =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.66s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.66s/it]
+[evt] ===== phase 7/6: finalize — manifest + checkpoint =====
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model/adapter.safetensors
+[evt] evt-llama-fig2nl-installer done: converged at step 42, min val 0.0003 nats (eps-gated best 0.0004). Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model
+[evt] wall clock: 0.2 min of training (4.48 steps/s over 42 steps, batch 1, eval_every 1)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "format_install",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "6381c7af16a39c65394384ebf6683713f60e87e3c9455d2a463473fafd8cd413",
+  "data_order_hash": "8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024",
+  "step0": {
+    "dose_loss_nats": 4.53125
+  },
+  "device": "cuda",
+  "sft_result": {
+    "final_step": 42,
+    "best_val_nats": 0.00044333934783935547,
+    "min_val_nats": 0.0003217160701751709,
+    "stop_reason": "converged"
+  }
+}
+[fig2nl] estimated cost: ~$7-10 expected — per-size stopping (eps_nats
+[fig2nl] 0.002/k5) should stop each run well before its ceiling; r512's
+[fig2nl] forward pass runs ~30% more FLOPs than r64 at the same n/step
+[fig2nl] schedule. Hard worst case, every one of the 39 runs (1 installer
+[fig2nl] + 19 noinst + 19 inst) hitting its DOUBLED max_steps ceiling: ~$30-35.
+[fig2nl] MILESTONE repo 26dea43 CHANGE: fig2nl deliverable amended — EDL/n figure restored (--family nl), relay push metadata-only
+[fig2nl] MILESTONE store=/workspace/elicit-vs-teach/geode-store stage=all push=0 sizes=19
+[verify] pad_token_id (native) = None
+[verify] pad token: PASS (fell back to eos, pad_token_id=128001)
+[verify] vocab guard: PASS (len(tokenizer) == config.vocab_size == 128256)
+[verify] D_inst: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_inst: PASS (300 rows sampled, 0 negative-answer)
+[verify] D_target: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_target: PASS (250011 rows sampled, 249791 negative-answer)
+[verify] D_algo: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_algo: PASS (250339 rows sampled, 250110 negative-answer)
+[verify] D_algo_eval: PASS (25227 rows sampled, 25004 negative-answer)
+[verify] OVERALL: PASS
+[fig2nl] MILESTONE train_skip run=evt-llama-fig2nl-installer status=complete
+[fig2nl] MILESTONE installer_absorption min_train_loss_nats=0.0003217160701751709 bar=0.1 -> PASS
+[evt] G4: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G4 format_validity 0.8828 on n=512 -> FAIL (threshold 0.9)
+[evt] --no-record: nothing written to any manifest
+[fig2nl] FAILED: evt-llama-fig2nl-installer G4 format_validity 0.8828 < 0.90 — NOT recorded, no targets from an ungated parent
+[fig2nl] estimated cost: ~$7-10 expected — per-size stopping (eps_nats
+[fig2nl] 0.002/k5) should stop each run well before its ceiling; r512's
+[fig2nl] forward pass runs ~30% more FLOPs than r64 at the same n/step
+[fig2nl] schedule. Hard worst case, every one of the 39 runs (1 installer
+[fig2nl] + 19 noinst + 19 inst) hitting its DOUBLED max_steps ceiling: ~$30-35.
+[fig2nl] MILESTONE repo 7b5159c CHANGE: fig2nl installer pinned to the paper LR 3.53e-4, G2 de-gated (owner, mid-launch)
+[fig2nl] MILESTONE store=/workspace/elicit-vs-teach/geode-store stage=all push=0 sizes=19
+[verify] pad_token_id (native) = None
+[verify] pad token: PASS (fell back to eos, pad_token_id=128001)
+[verify] vocab guard: PASS (len(tokenizer) == config.vocab_size == 128256)
+[verify] D_inst: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_inst: PASS (300 rows sampled, 0 negative-answer)
+[verify] D_target: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_target: PASS (250011 rows sampled, 249791 negative-answer)
+[verify] D_algo: no local copy under /workspace/elicit-vs-teach/experiments/training-run/data/full — pulling from mhieuuu/elicit-vs-teach-arith
+[verify] D_algo: PASS (250339 rows sampled, 250110 negative-answer)
+[verify] D_algo_eval: PASS (25227 rows sampled, 25004 negative-answer)
+[verify] OVERALL: PASS
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-installer
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — download frozen parquet, verify order_hash, tokenize spans =====
+[evt] D_dose_mult.parquet: 1 rows, order_hash verified
+[evt] tokenized: max 17 tokens/example (expected ≈34 incl. EOS)
+[evt] ===== phase 3/6: model — warm start from parent checkpoint =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3854.14it/s]
+[evt] LoRA applied: r=512 alpha=32 trainable=360.7M of 1235.8M
+[evt] ===== phase 4/6: parent gates + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-installer train=1 val=0 steps/epoch=1 max_steps=6000
+[evt] estimated cost: $0.00  (0.00 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: stopping rule + step-0 baseline (what the rule reads before any update) =====
+[evt] dose stop: eps/k plateau on the full-dose training loss (eps 0.0002 nats, k=5, eval every 1 steps)
+[evt] step 0 (before any update): {'dose_loss_nats': 4.53125}
+[evt] store=/workspace/elicit-vs-teach/geode-store
+[evt] ===== phase 6/6: train — progress lands in eval_log.jsonl; stopping is automatic =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.73s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.73s/it]
+[evt] ===== phase 7/6: finalize — manifest + checkpoint =====
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model/adapter.safetensors
+[evt] evt-llama-fig2nl-installer done: converged at step 13, min val 0.0002 nats (eps-gated best 0.0004). Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model
+[evt] wall clock: 0.1 min of training (2.07 steps/s over 13 steps, batch 1, eval_every 1)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "format_install",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "6381c7af16a39c65394384ebf6683713f60e87e3c9455d2a463473fafd8cd413",
+  "data_order_hash": "8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024",
+  "step0": {
+    "dose_loss_nats": 4.53125
+  },
+  "device": "cuda",
+  "sft_result": {
+    "final_step": 13,
+    "best_val_nats": 0.00042131543159484863,
+    "min_val_nats": 0.00023597478866577148,
+    "stop_reason": "converged"
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-installer
+[fig2nl] MILESTONE installer_absorption min_train_loss_nats=0.00023597478866577148 bar=0.1 -> PASS
+[evt] G4: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G4 format_validity 0.9609 on n=512 -> PASS (threshold 0.9)
+[evt] --no-record: nothing written to any manifest
+[evt] G4: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G4 format_validity 0.9609 on n=512 -> PASS (threshold 0.9)
+[evt] G4 verdict recorded in /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/manifest.json
+[fig2nl] MILESTONE gate_pass run=evt-llama-fig2nl-installer gate=G4 format_validity=0.9609
+[evt] G2: loading checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model ...
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer TokenizersBackend. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+[evt] G2 accuracy 0.1719 on n=1024 (by op: {'+': 0.2485089463220676, '-': 0.09788867562380038}) -> FAIL (threshold >= 0.31)
+[evt] --no-record: nothing written to any manifest
+[fig2nl] MILESTONE gate_measured_not_gating run=evt-llama-fig2nl-installer gate=G2 accuracy=0.1719 bar_dropped_by_owner=2026-08-03
+[fig2nl] MILESTONE merge_start run=evt-llama-fig2nl-installer
+[evt] loading evt-llama-fig2nl-installer via geode.zoo.load_model ...
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:03<00:00,  3.70s/it]Writing model shards: 100%|██████████| 1/1 [00:03<00:00,  3.70s/it]
+[evt] merged checkpoint written to /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged
+[evt] manifest updated: experiment.merged_checkpoint = 'model_merged'
+[fig2nl] MILESTONE merge_complete run=evt-llama-fig2nl-installer
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3624.06it/s]
+[fig2nl] merge_verify note: tolerating known lm_head/embed_tokens aliasing key-set diff ['lm_head.weight']
+[fig2nl] MILESTONE merge_verified target_diff=112/112 max_abs_delta=0.000492095947265625 nontarget_diff=0 -> PASS
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n1000
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 1000 rows (prefix 1000)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4141.37it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n1000 train=1000 stop-eval=2048 test=97952 steps/epoch=8 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:07<00:00,  7.08s/it]Writing model shards: 100%|██████████| 1/1 [00:07<00:00,  7.08s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1000/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n1000 done: converged at step 35, min val 0.4023 nats (eps-gated best 0.4023); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1000/model
+[evt] wall clock: 2.7 min of training (0.21 steps/s over 35 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 1000,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 35,
+    "stop_reason": "converged",
+    "best_val_nats": 0.4023488830486202,
+    "min_val_nats": 0.4007884362680683,
+    "edl_epoch1_nats": 721.4089119849475,
+    "edl_per_label_token_nats": 0.2471424844073133,
+    "edl_per_example_nats": 0.7214089119849475
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n1000
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n1468
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 1468 rows (prefix 1468)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4019.64it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n1468 train=1468 stop-eval=2048 test=97952 steps/epoch=12 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.55s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.55s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1468/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n1468 done: converged at step 40, min val 0.3937 nats (eps-gated best 0.3949); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1468/model
+[evt] wall clock: 2.9 min of training (0.23 steps/s over 40 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 1468,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 40,
+    "stop_reason": "converged",
+    "best_val_nats": 0.39487516425755587,
+    "min_val_nats": 0.38501971090670173,
+    "edl_epoch1_nats": 791.515825004208,
+    "edl_per_label_token_nats": 0.18368898236347364,
+    "edl_per_example_nats": 0.5391797173053188
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n1468
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n2154
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 2154 rows (prefix 2154)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 5885.38it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n2154 train=2154 stop-eval=2048 test=97952 steps/epoch=17 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.26s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.26s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n2154/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n2154 done: converged at step 55, min val 0.3500 nats (eps-gated best 0.3500); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n2154/model
+[evt] wall clock: 3.3 min of training (0.28 steps/s over 55 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 2154,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 55,
+    "stop_reason": "converged",
+    "best_val_nats": 0.34995072273324573,
+    "min_val_nats": 0.34995072273324573,
+    "edl_epoch1_nats": 970.4640707581179,
+    "edl_per_label_token_nats": 0.15338455362069195,
+    "edl_per_example_nats": 0.45054042282178175
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n2154
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n3162
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 3162 rows (prefix 3162)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3585.17it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n3162 train=3162 stop-eval=2048 test=97952 steps/epoch=25 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.16s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.16s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n3162/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n3162 done: converged at step 60, min val 0.3260 nats (eps-gated best 0.3277); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n3162/model
+[evt] wall clock: 3.5 min of training (0.29 steps/s over 60 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 3162,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 60,
+    "stop_reason": "converged",
+    "best_val_nats": 0.32769382391590013,
+    "min_val_nats": 0.3076544021024967,
+    "edl_epoch1_nats": 1405.0451403234383,
+    "edl_per_label_token_nats": 0.15130789794566427,
+    "edl_per_example_nats": 0.44435330181006905
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n3162
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n4642
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 4642 rows (prefix 4642)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3602.68it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n4642 train=4642 stop-eval=2048 test=97952 steps/epoch=37 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.71s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.71s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n4642/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n4642 done: converged at step 100, min val 0.2513 nats (eps-gated best 0.2513); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n4642/model
+[evt] wall clock: 4.7 min of training (0.36 steps/s over 100 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 4642,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 100,
+    "stop_reason": "converged",
+    "best_val_nats": 0.25131406044678056,
+    "min_val_nats": 0.2503285151116951,
+    "edl_epoch1_nats": 2406.9385731210846,
+    "edl_per_label_token_nats": 0.17655237828218914,
+    "edl_per_example_nats": 0.5185132643518062
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n4642
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n6813
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 6813 rows (prefix 6813)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3548.05it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n6813 train=6813 stop-eval=2048 test=97952 steps/epoch=54 max_steps=2000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.09  (0.19 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.36s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.36s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n6813/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n6813 done: converged at step 230, min val 0.1974 nats (eps-gated best 0.1983); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n6813/model
+[evt] wall clock: 6.7 min of training (0.58 steps/s over 230 steps, batch 128, eval_every 10)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 6813,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 230,
+    "stop_reason": "converged",
+    "best_val_nats": 0.19834099868593955,
+    "min_val_nats": 0.19337220762155058,
+    "edl_epoch1_nats": 3768.819246843986,
+    "edl_per_label_token_nats": 0.18880914016552208,
+    "edl_per_example_nats": 0.5531805734395987
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n6813
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n10000
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 10000 rows (prefix 10000)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3658.68it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n10000 train=10000 stop-eval=2048 test=97952 steps/epoch=79 max_steps=2000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.09  (0.19 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.31s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.31s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n10000/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n10000 done: converged at step 200, min val 0.1742 nats (eps-gated best 0.1742); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n10000/model
+[evt] wall clock: 6.1 min of training (0.54 steps/s over 200 steps, batch 128, eval_every 10)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 10000,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 200,
+    "stop_reason": "converged",
+    "best_val_nats": 0.17415407358738502,
+    "min_val_nats": 0.17415407358738502,
+    "edl_epoch1_nats": 4805.9897160539485,
+    "edl_per_label_token_nats": 0.16361930058400398,
+    "edl_per_example_nats": 0.48059897160539483
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n10000
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n14678
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 14678 rows (prefix 14678)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3565.82it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n14678 train=14678 stop-eval=2048 test=97952 steps/epoch=115 max_steps=3000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.13  (0.29 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:06<00:00,  6.26s/it]Writing model shards: 100%|██████████| 1/1 [00:06<00:00,  6.26s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n14678/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n14678 done: converged at step 315, min val 0.1206 nats (eps-gated best 0.1206); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n14678/model
+[evt] wall clock: 7.4 min of training (0.71 steps/s over 315 steps, batch 128, eval_every 15)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 14678,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 315,
+    "stop_reason": "converged",
+    "best_val_nats": 0.12064717477003942,
+    "min_val_nats": 0.11925098554533509,
+    "edl_epoch1_nats": 7781.751722115255,
+    "edl_per_label_token_nats": 0.18059717612651152,
+    "edl_per_example_nats": 0.5301643086330055
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n14678
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n21544
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 21544 rows (prefix 21544)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4495.07it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n21544 train=21544 stop-eval=2048 test=97952 steps/epoch=169 max_steps=5000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.22  (0.48 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.35s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.35s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n21544/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n21544 done: converged at step 400, min val 0.1060 nats (eps-gated best 0.1066); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n21544/model
+[evt] wall clock: 8.0 min of training (0.84 steps/s over 400 steps, batch 128, eval_every 25)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 21544,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 400,
+    "stop_reason": "converged",
+    "best_val_nats": 0.10660315374507227,
+    "min_val_nats": 0.09721994086727989,
+    "edl_epoch1_nats": 10150.757852629356,
+    "edl_per_label_token_nats": 0.16054974855878776,
+    "edl_per_example_nats": 0.47116402955019293
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n21544
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n31623
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 31623 rows (prefix 31623)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3724.28it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n31623 train=31623 stop-eval=2048 test=97952 steps/epoch=248 max_steps=8000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.35  (0.77 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.29s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.29s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n31623/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n31623 done: converged at step 880, min val 0.0755 nats (eps-gated best 0.0755); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n31623/model
+[evt] wall clock: 11.6 min of training (1.26 steps/s over 880 steps, batch 128, eval_every 40)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 31623,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 880,
+    "stop_reason": "converged",
+    "best_val_nats": 0.075455814717477,
+    "min_val_nats": 0.075455814717477,
+    "edl_epoch1_nats": 13975.637956339802,
+    "edl_per_label_token_nats": 0.15078803198329596,
+    "edl_per_example_nats": 0.44194535484741493
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n31623
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n46416
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 46416 rows (prefix 46416)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3607.92it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n46416 train=46416 stop-eval=2048 test=97952 steps/epoch=363 max_steps=11000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.47  (1.05 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.40s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.40s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n46416/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n46416 done: converged at step 605, min val 0.1004 nats (eps-gated best 0.1004); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n46416/model
+[evt] wall clock: 9.3 min of training (1.08 steps/s over 605 steps, batch 128, eval_every 55)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 46416,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 605,
+    "stop_reason": "converged",
+    "best_val_nats": 0.10044349540078844,
+    "min_val_nats": 0.08362762812089355,
+    "edl_epoch1_nats": 14582.010704476794,
+    "edl_per_label_token_nats": 0.10707579968628322,
+    "edl_per_example_nats": 0.3141591413408478
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n46416
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n68129
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 68129 rows (prefix 68129)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3834.16it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n68129 train=68129 stop-eval=2048 test=97952 steps/epoch=533 max_steps=6400 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.28  (0.61 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.82s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.82s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n68129/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n68129 done: converged at step 720, min val 0.0895 nats (eps-gated best 0.0902); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n68129/model
+[evt] wall clock: 10.2 min of training (1.17 steps/s over 720 steps, batch 128, eval_every 80)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 68129,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 720,
+    "stop_reason": "converged",
+    "best_val_nats": 0.09017739816031538,
+    "min_val_nats": 0.08666639290407359,
+    "edl_epoch1_nats": 16387.723516625738,
+    "edl_per_label_token_nats": 0.0819898612464077,
+    "edl_per_example_nats": 0.24053961626657866
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n68129
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n100000
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 100000 rows (prefix 100000)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4195.60it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n100000 train=100000 stop-eval=2048 test=97952 steps/epoch=782 max_steps=10000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.43  (0.96 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.50s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.50s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n100000/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n100000 done: converged at step 2250, min val 0.0372 nats (eps-gated best 0.0372); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n100000/model
+[evt] wall clock: 20.7 min of training (1.81 steps/s over 2250 steps, batch 128, eval_every 125)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 100000,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 2250,
+    "stop_reason": "converged",
+    "best_val_nats": 0.037224868593955324,
+    "min_val_nats": 0.03490473061760841,
+    "edl_epoch1_nats": 30755.498624778767,
+    "edl_per_label_token_nats": 0.10490241087371928,
+    "edl_per_example_nats": 0.30755498624778765
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n100000
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n146780
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 146780 rows (prefix 146780)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 5535.93it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n146780 train=146780 stop-eval=2048 test=97952 steps/epoch=1147 max_steps=14000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.60  (1.34 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.71s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.71s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n146780/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n146780 done: converged at step 4725, min val 0.0036 nats (eps-gated best 0.0041); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n146780/model
+[evt] wall clock: 36.6 min of training (2.15 steps/s over 4725 steps, batch 128, eval_every 175)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 146780,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 4725,
+    "stop_reason": "converged",
+    "best_val_nats": 0.004138520450065703,
+    "min_val_nats": 0.0035562402472076216,
+    "edl_epoch1_nats": 49137.401335248025,
+    "edl_per_label_token_nats": 0.11421193625560287,
+    "edl_per_example_nats": 0.3347690512007632
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n146780
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n215443
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 215443 rows (prefix 215443)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3697.36it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n215443 train=215443 stop-eval=2048 test=97952 steps/epoch=1684 max_steps=20208 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.87  (1.94 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.58s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.58s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n215443/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n215443 done: converged at step 5750, min val 0.0021 nats (eps-gated best 0.0028); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n215443/model
+[evt] wall clock: 42.4 min of training (2.26 steps/s over 5750 steps, batch 128, eval_every 250)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 215443,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 5750,
+    "stop_reason": "converged",
+    "best_val_nats": 0.0028241391877463864,
+    "min_val_nats": 0.0020942838370565046,
+    "edl_epoch1_nats": 60648.08676395639,
+    "edl_per_label_token_nats": 0.09601092764514316,
+    "edl_per_example_nats": 0.281504095115443
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n215443
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n316228
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 316228 rows (prefix 316228)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3861.28it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n316228 train=316228 stop-eval=2048 test=97952 steps/epoch=2471 max_steps=30000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $1.29  (2.88 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:06<00:00,  6.51s/it]Writing model shards: 100%|██████████| 1/1 [00:06<00:00,  6.51s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n316228/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n316228 done: converged at step 5250, min val 0.0057 nats (eps-gated best 0.0057); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n316228/model
+[evt] wall clock: 38.7 min of training (2.26 steps/s over 5250 steps, batch 128, eval_every 375)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 316228,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 5250,
+    "stop_reason": "converged",
+    "best_val_nats": 0.0057297655223390274,
+    "min_val_nats": 0.0057297655223390274,
+    "edl_epoch1_nats": 64092.18838106881,
+    "edl_per_label_token_nats": 0.06913011461365341,
+    "edl_per_example_nats": 0.2026771455439392
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n316228
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n464159
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 464159 rows (prefix 464159)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4169.66it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n464159 train=464159 stop-eval=2048 test=97952 steps/epoch=3627 max_steps=43524 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $1.88  (4.17 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:07<00:00,  7.38s/it]Writing model shards: 100%|██████████| 1/1 [00:07<00:00,  7.38s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n464159/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n464159 done: converged at step 6500, min val 0.0018 nats (eps-gated best 0.0033); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n464159/model
+[evt] wall clock: 46.3 min of training (2.34 steps/s over 6500 steps, batch 128, eval_every 500)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 464159,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 6500,
+    "stop_reason": "converged",
+    "best_val_nats": 0.0032687895244743756,
+    "min_val_nats": 0.00164594412163272,
+    "edl_epoch1_nats": 73431.47689616712,
+    "edl_per_label_token_nats": 0.05394102152834996,
+    "edl_per_example_nats": 0.1582032814103941
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n464159
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n681292
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 681292 rows (prefix 681292)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4787.34it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n681292 train=681292 stop-eval=2048 test=97952 steps/epoch=5323 max_steps=63876 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $2.76  (6.12 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.35s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.35s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n681292/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n681292 done: converged at step 8500, min val 0.0025 nats (eps-gated best 0.0025); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n681292/model
+[evt] wall clock: 58.4 min of training (2.42 steps/s over 8500 steps, batch 128, eval_every 500)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 681292,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 8500,
+    "stop_reason": "converged",
+    "best_val_nats": 0.002488245318659658,
+    "min_val_nats": 0.0021757709839027597,
+    "edl_epoch1_nats": 78229.13299683249,
+    "edl_per_label_token_nats": 0.039165540449311025,
+    "edl_per_example_nats": 0.11482467575845964
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n681292
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-noinst-n1000000
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 1000000 rows (prefix 1000000)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint meta-llama/Llama-3.2-1B ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3787.79it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] external_base 'meta-llama/Llama-3.2-1B' — no zoo parent, skipping parent-gate check
+[evt] run_id=evt-llama-fig2nl-noinst-n1000000 train=1000000 stop-eval=2048 test=97952 steps/epoch=7813 max_steps=93756 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $4.04  (8.99 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.44s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.44s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1000000/model/adapter.safetensors
+[evt] evt-llama-fig2nl-noinst-n1000000 done: converged at step 8000, min val 0.0021 nats (eps-gated best 0.0027); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-noinst-n1000000/model
+[evt] wall clock: 55.6 min of training (2.40 steps/s over 8000 steps, batch 128, eval_every 500)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": null,
+  "external_base": "meta-llama/Llama-3.2-1B",
+  "parent_required_gates": [],
+  "match_data_order_with": null,
+  "gates": {},
+  "init_from": "meta-llama/Llama-3.2-1B",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 1000000,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 8000,
+    "stop_reason": "converged",
+    "best_val_nats": 0.0026868301371550593,
+    "min_val_nats": 0.0020545027102496713,
+    "edl_epoch1_nats": 79276.278020506,
+    "edl_per_label_token_nats": 0.027038017353337447,
+    "edl_per_example_nats": 0.07927627802050599
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-noinst-n1000000
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n1000
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 1000 rows (prefix 1000)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights:  62%|██████▏   | 90/146 [00:00<00:00, 894.14it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 1038.42it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n1000'
+[evt] run_id=evt-llama-fig2nl-inst-n1000 train=1000 stop-eval=2048 test=97952 steps/epoch=8 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:05<00:00,  5.24s/it]Writing model shards: 100%|██████████| 1/1 [00:05<00:00,  5.24s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n1000/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n1000 done: converged at step 45, min val 0.3927 nats (eps-gated best 0.3927); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n1000/model
+[evt] wall clock: 3.0 min of training (0.25 steps/s over 45 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n1000",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 1000,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 45,
+    "stop_reason": "converged",
+    "best_val_nats": 0.39273981603153746,
+    "min_val_nats": 0.39273981603153746,
+    "edl_epoch1_nats": 1494.097478787313,
+    "edl_per_label_token_nats": 0.511852510718504,
+    "edl_per_example_nats": 1.4940974787873131
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n1000
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n1468
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 1468 rows (prefix 1468)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4230.14it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n1468'
+[evt] run_id=evt-llama-fig2nl-inst-n1468 train=1468 stop-eval=2048 test=97952 steps/epoch=12 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.34s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.34s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n1468/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n1468 done: converged at step 45, min val 0.3933 nats (eps-gated best 0.3933); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n1468/model
+[evt] wall clock: 3.0 min of training (0.25 steps/s over 45 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n1468",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 1468,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 45,
+    "stop_reason": "converged",
+    "best_val_nats": 0.3933147174770039,
+    "min_val_nats": 0.38313074901445465,
+    "edl_epoch1_nats": 1583.6281467939332,
+    "edl_per_label_token_nats": 0.367516395171486,
+    "edl_per_example_nats": 1.0787657675707991
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n1468
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n2154
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 2154 rows (prefix 2154)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3510.08it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n2154'
+[evt] run_id=evt-llama-fig2nl-inst-n2154 train=2154 stop-eval=2048 test=97952 steps/epoch=17 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.33s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.33s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n2154/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n2154 done: converged at step 50, min val 0.3751 nats (eps-gated best 0.3767); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n2154/model
+[evt] wall clock: 3.1 min of training (0.27 steps/s over 50 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n2154",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 2154,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 50,
+    "stop_reason": "converged",
+    "best_val_nats": 0.3767247043363995,
+    "min_val_nats": 0.3620236530880421,
+    "edl_epoch1_nats": 1742.9581384082348,
+    "edl_per_label_token_nats": 0.2754793959867607,
+    "edl_per_example_nats": 0.8091727662062371
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n2154
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n3162
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 3162 rows (prefix 3162)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4088.97it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n3162'
+[evt] run_id=evt-llama-fig2nl-inst-n3162 train=3162 stop-eval=2048 test=97952 steps/epoch=25 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.25s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.25s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n3162/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n3162 done: converged at step 80, min val 0.3155 nats (eps-gated best 0.3155); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n3162/model
+[evt] wall clock: 4.1 min of training (0.33 steps/s over 80 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n3162",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 3162,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 80,
+    "stop_reason": "converged",
+    "best_val_nats": 0.31545663600525625,
+    "min_val_nats": 0.2997700394218134,
+    "edl_epoch1_nats": 2362.2150424681263,
+    "edl_per_label_token_nats": 0.2543845619715837,
+    "edl_per_example_nats": 0.7470635807932088
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n3162
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n4642
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 4642 rows (prefix 4642)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4252.85it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n4642'
+[evt] run_id=evt-llama-fig2nl-inst-n4642 train=4642 stop-eval=2048 test=97952 steps/epoch=37 max_steps=1000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.04  (0.10 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:05<00:00,  5.09s/it]Writing model shards: 100%|██████████| 1/1 [00:05<00:00,  5.09s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n4642/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n4642 done: converged at step 140, min val 0.2617 nats (eps-gated best 0.2617); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n4642/model
+[evt] wall clock: 5.5 min of training (0.42 steps/s over 140 steps, batch 128, eval_every 5)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n4642",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 4642,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 140,
+    "stop_reason": "converged",
+    "best_val_nats": 0.2616622864651774,
+    "min_val_nats": 0.2616622864651774,
+    "edl_epoch1_nats": 3207.936309065831,
+    "edl_per_label_token_nats": 0.2353067049853907,
+    "edl_per_example_nats": 0.6910677098375336
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n4642
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n6813
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 6813 rows (prefix 6813)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4370.03it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n6813'
+[evt] run_id=evt-llama-fig2nl-inst-n6813 train=6813 stop-eval=2048 test=97952 steps/epoch=54 max_steps=2000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.09  (0.19 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.21s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.21s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n6813/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n6813 done: converged at step 290, min val 0.1873 nats (eps-gated best 0.1884); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n6813/model
+[evt] wall clock: 7.2 min of training (0.67 steps/s over 290 steps, batch 128, eval_every 10)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n6813",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 6813,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 290,
+    "stop_reason": "converged",
+    "best_val_nats": 0.18836235216819974,
+    "min_val_nats": 0.18310611038107752,
+    "edl_epoch1_nats": 4934.981034884629,
+    "edl_per_label_token_nats": 0.24723115249159003,
+    "edl_per_example_nats": 0.7243477227190119
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n6813
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n10000
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 10000 rows (prefix 10000)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3898.90it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n10000'
+[evt] run_id=evt-llama-fig2nl-inst-n10000 train=10000 stop-eval=2048 test=97952 steps/epoch=79 max_steps=2000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.09  (0.19 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.64s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.64s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n10000/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n10000 done: converged at step 240, min val 0.1763 nats (eps-gated best 0.1763); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n10000/model
+[evt] wall clock: 6.7 min of training (0.60 steps/s over 240 steps, batch 128, eval_every 10)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n10000",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 10000,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 240,
+    "stop_reason": "converged",
+    "best_val_nats": 0.17628942181340343,
+    "min_val_nats": 0.17628942181340343,
+    "edl_epoch1_nats": 5854.105792685345,
+    "edl_per_label_token_nats": 0.19930227735285277,
+    "edl_per_example_nats": 0.5854105792685345
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n10000
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n14678
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 14678 rows (prefix 14678)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4111.15it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n14678'
+[evt] run_id=evt-llama-fig2nl-inst-n14678 train=14678 stop-eval=2048 test=97952 steps/epoch=115 max_steps=3000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.13  (0.29 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.23s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.23s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n14678/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n14678 done: converged at step 285, min val 0.1146 nats (eps-gated best 0.1146); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n14678/model
+[evt] wall clock: 7.0 min of training (0.68 steps/s over 285 steps, batch 128, eval_every 15)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n14678",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 14678,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 285,
+    "stop_reason": "converged",
+    "best_val_nats": 0.11459017739816031,
+    "min_val_nats": 0.11459017739816031,
+    "edl_epoch1_nats": 9137.706925476428,
+    "edl_per_label_token_nats": 0.21206588515575733,
+    "edl_per_example_nats": 0.6225444151435092
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n14678
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n21544
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 21544 rows (prefix 21544)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3878.06it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n21544'
+[evt] run_id=evt-llama-fig2nl-inst-n21544 train=21544 stop-eval=2048 test=97952 steps/epoch=169 max_steps=5000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.22  (0.48 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.26s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.26s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n21544/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n21544 done: converged at step 300, min val 0.1314 nats (eps-gated best 0.1314); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n21544/model
+[evt] wall clock: 6.8 min of training (0.73 steps/s over 300 steps, batch 128, eval_every 25)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n21544",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 21544,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 300,
+    "stop_reason": "converged",
+    "best_val_nats": 0.1314471090670171,
+    "min_val_nats": 0.1231726346911958,
+    "edl_epoch1_nats": 9501.857850095916,
+    "edl_per_label_token_nats": 0.15028640332298798,
+    "edl_per_example_nats": 0.4410442745124357
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n21544
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n31623
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 31623 rows (prefix 31623)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 18500.56it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n31623'
+[evt] run_id=evt-llama-fig2nl-inst-n31623 train=31623 stop-eval=2048 test=97952 steps/epoch=248 max_steps=8000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.35  (0.77 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.31s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.31s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n31623/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n31623 done: converged at step 640, min val 0.0888 nats (eps-gated best 0.0888); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n31623/model
+[evt] wall clock: 9.6 min of training (1.11 steps/s over 640 steps, batch 128, eval_every 40)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n31623",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 31623,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 640,
+    "stop_reason": "converged",
+    "best_val_nats": 0.0887606767411301,
+    "min_val_nats": 0.0887606767411301,
+    "edl_epoch1_nats": 13149.146308378384,
+    "edl_per_label_token_nats": 0.1418707253504206,
+    "edl_per_example_nats": 0.4158095787363117
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n31623
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n46416
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 46416 rows (prefix 46416)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3608.96it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n46416'
+[evt] run_id=evt-llama-fig2nl-inst-n46416 train=46416 stop-eval=2048 test=97952 steps/epoch=363 max_steps=11000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.47  (1.05 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.22s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.22s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n46416/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n46416 done: converged at step 1155, min val 0.0615 nats (eps-gated best 0.0615); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n46416/model
+[evt] wall clock: 13.3 min of training (1.45 steps/s over 1155 steps, batch 128, eval_every 55)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n46416",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 46416,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 1155,
+    "stop_reason": "converged",
+    "best_val_nats": 0.06154525295663601,
+    "min_val_nats": 0.059122454007884365,
+    "edl_epoch1_nats": 20182.72330357712,
+    "edl_per_label_token_nats": 0.1482018688214263,
+    "edl_per_example_nats": 0.434822546181858
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n46416
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n68129
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 68129 rows (prefix 68129)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 3746.06it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n68129'
+[evt] run_id=evt-llama-fig2nl-inst-n68129 train=68129 stop-eval=2048 test=97952 steps/epoch=533 max_steps=6400 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.28  (0.61 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.93s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.93s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n68129/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n68129 done: converged at step 1840, min val 0.0397 nats (eps-gated best 0.0417); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n68129/model
+[evt] wall clock: 18.3 min of training (1.67 steps/s over 1840 steps, batch 128, eval_every 80)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n68129",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 68129,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 1840,
+    "stop_reason": "converged",
+    "best_val_nats": 0.04165982260183968,
+    "min_val_nats": 0.039303753285151115,
+    "edl_epoch1_nats": 27014.78091810176,
+    "edl_per_label_token_nats": 0.1351583785771195,
+    "edl_per_example_nats": 0.3965239606937099
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n68129
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n100000
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 100000 rows (prefix 100000)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 5779.13it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n100000'
+[evt] run_id=evt-llama-fig2nl-inst-n100000 train=100000 stop-eval=2048 test=97952 steps/epoch=782 max_steps=10000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.43  (0.96 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0
+[evt] ===== phase 6/6: finalize — checkpoint + manifest (emergent snapshot truncation) =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.53s/it]Writing model shards: 100%|██████████| 1/1 [00:04<00:00,  4.53s/it]
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n100000/model/adapter.safetensors
+[evt] evt-llama-fig2nl-inst-n100000 done: converged at step 4000, min val 0.0206 nats (eps-gated best 0.0206); snapshots taken 0/0. Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-inst-n100000/model
+[evt] wall clock: 31.9 min of training (2.09 steps/s over 4000 steps, batch 128, eval_every 125)
+{
+  "name": "training-run",
+  "arm": "llama",
+  "role": "target",
+  "parent_run_id": "evt-llama-fig2nl-installer",
+  "external_base": null,
+  "parent_required_gates": [
+    "G4"
+  ],
+  "match_data_order_with": "evt-llama-fig2nl-noinst-n100000",
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged",
+  "masking_config_hash": "9cbb60497c996a1b3c7bd124eb0a0ab6a2e20d7345bdb6a81533edc1734a0246",
+  "data_order_hash": "48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9",
+  "n_examples": 100000,
+  "eval_data": {
+    "file": "D_algo_eval.parquet",
+    "order_hash": "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+    "stop_rows": 2048
+  },
+  "target_result": {
+    "final_step": 4000,
+    "stop_reason": "converged",
+    "best_val_nats": 0.02063998850197109,
+    "min_val_nats": 0.02030249055519054,
+    "edl_epoch1_nats": 38143.77077376435,
+    "edl_per_label_token_nats": 0.13010270335069804,
+    "edl_per_example_nats": 0.3814377077376435
+  }
+}
+[fig2nl] MILESTONE train_complete run=evt-llama-fig2nl-inst-n100000
+[fig2nl] MILESTONE train_start run=evt-llama-fig2nl-inst-n146780
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — frozen train + eval parquets, order_hash verified, prefix, tokenize =====
+[evt] D_algo.parquet: order_hash verified on full file; using 146780 rows (prefix 146780)
+[evt] tokenized: max 21 tokens/example (expected ≈34 incl. EOS)
+[evt] D_algo_eval.parquet: order_hash verified; stopping block 2048, reporting block 97952
+[evt] ===== phase 3/6: model — parent checkpoint (the harness applies the pinned LoRA) =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-llama-fig2nl-installer/model_merged ...
+Loading weights:   0%|          | 0/146 [00:00<?, ?it/s]Loading weights: 100%|██████████| 146/146 [00:00<00:00, 4123.17it/s]
+[evt] ===== phase 4/6: parent gates + G7 data-order match + cost estimate + confirm gate =====
+[evt] parent 'evt-llama-fig2nl-installer' complete, gates pass
+[evt] G7: data order matches 'evt-llama-fig2nl-noinst-n146780'
+[evt] run_id=evt-llama-fig2nl-inst-n146780 train=146780 stop-eval=2048 test=97952 steps/epoch=1147 max_steps=14000 (ceiling) trainable=360.7M of 1235.8M
+[evt] estimated cost: $0.60  (1.34 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: register (snapshot schedule in manifest BEFORE training) + train =====
+[evt] store=/workspace/elicit-vs-teach/geode-store  snapshots scheduled: 0

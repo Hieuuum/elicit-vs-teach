@@ -49,6 +49,21 @@ installer_applies_to: [run9]
 # extension rule does not bind: 3e-6 retains within 2.4% of base, leaving
 # almost nothing to find below it, and going gentler risks not installing.
 
+# FIG2NL SCOPE NOTE (2026-08-03): the fig2nl installer (LoRA r512/alpha32
+# on D_dose_mult) is owner-pinned at lr 3.53e-4 — decisions.md 2026-08-03
+# "fig2nl design locked", EXPERIMENTS.md §6.11. That rate sits OUTSIDE
+# this pin's scope entirely: it is neither the target pin above (1.0e-3)
+# nor the installer_lr below (3.0e-6, the run-9 retention pin), and
+# installer_applies_to STAYS [run9] — no field in this file changes for
+# fig2nl. The assert_lr_scope guard (geode/train/lr_scope.py, V5.71) is
+# NOT wired into launch_fig2nl_llama.sh; if it were naively wired it
+# would refuse every fig2nl run: at stage="target" both the noinst and
+# inst target arms pin lr 3.53e-4 != this file's target pin 1.0e-3, and
+# at stage="installer" the fig2nl installer's 3.53e-4 equals neither the
+# target pin nor installer_lr 3.0e-6 either. Nothing above is edited by
+# this note; it exists so the next reader doesn't wire the guard in and
+# get surprised.
+
 # LLAMA CHALLENGE (2026-07-25): the 1e-3 target pin was borrowed at 1.24B
 # (validated only at 38.7M — runs 7/8 are unaffected by everything below).
 # The revived Llama target sweep (pilot/llama10_sweep_lr*.yaml, owner design:

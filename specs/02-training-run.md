@@ -173,7 +173,15 @@ scaffold (exact template frozen 2026-07-17, closing OPEN(9); padded length
 closed 2026-07-18: max 33 tokens, see OPEN(5)): operator body `a op b`
 (e.g. `Question: 23 + 45` then `Answer: 68`),
 NL body `What is the sum of a and b?` / `What is the difference between a and
-b?` (add/sub only). Label modes:
+b?` (add/sub only). A third format, `bare_nl` (ADDITIVE, 2026-08-12,
+fig2nl3/EXPERIMENTS §6.13), deliberately drops the scaffold: the bare NL body,
+one newline, the answer as plain continuation (`What is the sum of 23 and
+45?` newline `68`) — the fig2nl2 outcome measured that the scaffold alone
+pre-installs the output convention in both sweep arms (base Llama ~0.31
+zero-shot EM, ~0.83 format validity untrained), voiding the paper's Figure-2
+pre-elicit transient; `bare_nl` restores the paper's regime. It reuses the
+frozen `_NL_PHRASE` bodies byte-identically and leaves both frozen formats
+untouched. Label modes:
 correct | random | permuted (2026-07-26, new-phase teach installer: the true
 answers shuffled across examples via `geode.arith.permute_labels` — each label
 individually wrong up to chance collisions while the marginal label

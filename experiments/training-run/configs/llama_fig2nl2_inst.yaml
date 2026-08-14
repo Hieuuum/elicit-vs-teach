@@ -1,0 +1,79 @@
+# Llama-3.2-1B Figure-2 dataset-size sweep, NL-TARGET family v2 (fig2nl2) —
+# ARM B: WITH format installer. Base Llama -> evt-llama-fig2nl2-installer
+# (1-example correct-label NATURAL-LANGUAGE mult format install — see
+# llama_fig2nl2_installer.yaml: the dose shares the target's NL surface
+# framing and differs only in operation) -> target task, on D_algo. BASE
+# config for 19 sizes (configs/sweeps/llama_fig2nl2/llama_fig2nl2_inst_n<size>
+# .yaml overlays); never launched standalone.
+#
+# Differs from llama_fig2nl2_noinst.yaml ONLY in the parent. Differs from the
+# fig2nl inst arm (llama_fig2nl_inst.yaml) in two ways, both installer-side:
+#   * the parent is the NL-dose installer at the retention-preserving LR;
+#   * parent_required_gates lists BOTH G4 and G2 — fig2nl dropped G2
+#     mid-launch and its parent entered the sweep with half its NL arithmetic
+#     gone (0.1719 vs base 0.3271), which is one of the two measured causes
+#     of that family's inverted figure. require_parent_ready (V0.6) refuses
+#     every inst run here unless both verdicts are recorded passes.
+#
+# The parent is the installer's MERGED checkpoint (runs/
+# evt-llama-fig2nl2-installer/model_merged/, written by merge_adapter.py),
+# never its wrapped model/ — train_target.py's --init-from is a plain
+# from_pretrained, which on a wrapped base+A/B state dict silently
+# random-inits every projection (2026-07-22 incident; specs/00 V0.9).
+run_id: evt-llama-fig2nl2-inst
+experiment:
+  name: training-run
+  arm: llama                     # external-validity chain (regime "unknown")
+  role: target
+  parent_run_id: evt-llama-fig2nl2-installer   # the NL-dose format installer
+  external_base: null
+  parent_required_gates: [G4, G2]  # BOTH bars enforced (the point of the redo):
+                                   # G4 format >= 0.90 on NL prompts, G2
+                                   # retention >= 0.31. The launcher records
+                                   # each only on a pass (--record-only-pass),
+                                   # so a missing verdict here means the
+                                   # installer never cleared it — refusal is
+                                   # the correct outcome, not a nuisance.
+  match_data_order_with: null    # placeholder; every overlay points this at
+                                 # the SAME-SIZE noinst run (G7)
+
+model:                           # must match the merged parent checkpoint
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_nl_addsub
+  format_version: v1
+
+data:                            # identical to the no-inst arm
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo.parquet
+  order_hash: 48d4feffd1e50a457d4ce59624ba507dbd60e48b9c98e842c585715ad47769c9
+  n_examples: 1000000            # placeholder; every overlay sets its own
+                                 # prefix of the frozen order
+  eval_file: D_algo_eval.parquet
+  eval_order_hash: 5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3
+  eval_local_path: experiments/training-run/data/full/D_algo_eval.parquet
+  seed: 316
+
+lora:
+  r: 512                         # MATCHED to the no-inst arm and the installer
+  alpha: 32
+
+train:
+  lr: 3.53e-4                    # MATCHED to the no-inst arm (paper's 1B pin)
+  precision: bf16
+  batch_size: 128
+  eval_every: 500                # placeholder; overlays set the per-size ee
+  max_steps: 93756               # placeholder; overlays set per-size ceilings
+  stopping:
+    eps_nats: 0.002              # MATCHED to the no-inst arm
+    k: 5
+    min_steps: 0
+  snapshots:
+    n: 0
+    dense_until: 30
+  seed: 316

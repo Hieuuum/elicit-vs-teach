@@ -14,6 +14,14 @@ verifies four things a bad tokenizer would otherwise break silently:
     from the public dataset repo), deliberately including negative-answer
     (subtraction) rows — the merged "-<digit>" sign token is the sharpest
     edge case for a new tokenizer (geode/arith/spans.py module docstring).
+    Also covers the fig2nl NL sweep's D_algo.parquet (train) and
+    D_algo_eval.parquet (eval, laptop-local only). Training calls
+    ``tokenize_with_spans(..., append_eos=True)`` (train_target.py), which
+    adds the ``end == len(ids)`` requirement, and NL + Llama + append_eos was
+    never verified at scale; D_algo is 25.0% negative answers (250,110 of
+    1,000,000), so under the Llama BPE the merged " -" sign token is the
+    sharpest span edge case here too. Runtime roughly doubles with the two
+    extra files — acceptable, this runs once per box.
 (d) the hub download itself: a 401/403/gated error becomes a friendly
     "accept the license, then hf auth login" message, not a raw traceback.
 
@@ -39,9 +47,14 @@ DATA_DIR = EXP_DIR / "data" / "full"
 # Public frozen-dataset repo — the same source train_sft.py/train_target.py
 # pull from (data.hf_id in the run configs).
 DATASET_REPO = "mhieuuu/elicit-vs-teach-arith"
-# The two frozen files the Llama chain trains on: run 9 (format install,
-# D_inst) and run 10 (target, D_target).
-CHAIN_FILES = ("D_inst", "D_target")
+# The frozen files the Llama chain uses: run 9 (format install, D_inst) and
+# run 10 (target, D_target) train on D_inst/D_target; the fig2nl NL sweep
+# trains on D_algo and evaluates on D_algo_eval.
+CHAIN_FILES = ("D_inst", "D_target", "D_algo", "D_algo_eval")
+# D_algo_eval is laptop-generated and scp'd to the box (gitignored, never
+# published to the hub) — resolve_parquet must not fall back to hf_hub_download
+# for it.
+LOCAL_ONLY = frozenset({"D_algo_eval"})
 
 
 def resolve_parquet(name: str) -> Path:
@@ -53,6 +66,15 @@ def resolve_parquet(name: str) -> Path:
     local = DATA_DIR / f"{name}.parquet"
     if local.is_file():
         return local
+    if name in LOCAL_ONLY:
+        raise SystemExit(
+            f"[verify] {name}: no local copy under {DATA_DIR} and it is local-only "
+            "(gitignored, never published to the hub) — scp it from the laptop into "
+            "data/full/. Regenerating it ON THE BOX is not an option: "
+            "`make_data.py --nl-eval-set` needs report.json plus the four frozen "
+            "parquets it hash-verifies the exclusion against, and those are "
+            "gitignored too, i.e. laptop-only."
+        )
     from huggingface_hub import hf_hub_download
 
     print(f"[verify] {name}: no local copy under {DATA_DIR} — pulling from {DATASET_REPO}")
