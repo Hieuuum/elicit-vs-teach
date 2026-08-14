@@ -45,7 +45,21 @@ aggregate plus per-direction rates. G4/G5 reject ``arith_translate`` configs:
 their integer parser and arithmetic reporting protocol do not apply to text
 answers.
 
-CPU-only friendly and no ``--confirm-cost``: evaluation, not training.
+**G8** (ts38 mini, 2026-08-14) is the pre-taught parent's TinyStories
+RETENTION gate: mean validation loss in nats/token on *run 1's own frozen
+validation stream*, pass iff ``<= --bar`` (an absolute number the caller must
+name — see ``run_g8`` for why it is not defaulted). A pre-training
+intervention that teaches arithmetic while destroying the language model
+underneath produces an "elicitation" arm that is really a damaged base; G8 is
+the check that the parent is still the same model. It shares G4's
+``--no-record`` / ``--record-only-pass`` record modes, for the same
+shared-parent reason.
+
+CPU-only friendly and no ``--confirm-cost``: evaluation, not training. The one
+exception is G8's stream reconstruction, whose first (uncached) call downloads
+~2 GB and spends 30-60 min of CPU packing 2.7M documents into ~4.3 GB of
+resident int64 rows — run it once with ``--no-record`` before any GPU spend
+and let ``--val-cache`` serve every later call.
 
 Usage:
     python3 gates.py g1 --run evt-run2-armA-algo --config configs/archive/runs/run2_algo.yaml \
@@ -56,16 +70,20 @@ Usage:
     python3 gates.py g4 --run evt-p2-armA-dose1 --config configs/archive/phase2/p2_armA_dose.yaml \
         --prompt-config configs/eval_target_data.yaml --threshold 0.90
     python3 gates.py g5 --run evt-run3-armA-inst --config configs/eval_target_data.yaml
+    python3 gates.py g8 --run evt-ts38-pretaught-parent \
+        --config configs/archive/runs/run1_pretrain.yaml --bar 1.1718
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import random
 import sys
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import torch
 
@@ -81,9 +99,9 @@ from geode.arith import (
 )
 from geode.edl import EVAL_STOP_ROWS, G5_N_SHOTS
 from geode.edl.masking import TaskFormat
-from geode.train import evaluate_sft_nll_nats, split_indices
-from geode.zoo import checkpoint_dir, load_model, load_run
-from train import REPO_ROOT, load_config
+from geode.train import evaluate_nll_nats, evaluate_sft_nll_nats, pack_corpus, split_indices
+from geode.zoo import checkpoint_dir, load_model, load_run, tokenizer_hash
+from train import REPO_ROOT, load_config, load_texts
 from train_sft import load_frozen_parquet
 
 # G1 and G2 share the bar: 0.95 is the committed definition of "capability
@@ -599,6 +617,305 @@ def run_g6(args: argparse.Namespace) -> int:
     return 0 if passed else 1
 
 
+# ---------------------------------------------------------------------------
+# G8 — TinyStories retention on run 1's own frozen validation stream
+# ---------------------------------------------------------------------------
+# The base of the ts38 family. Its manifest carries every fingerprint G8
+# checks the reconstruction against, and its checkpoint is the anchor.
+G8_BASE_RUN = "evt-run1-base-v3-ext"
+# Anchor tolerance. The rebuilt stream is scored with the SAME evaluator
+# (evaluate_nll_nats, fp32, batch-size invariant by V5.19) against the SAME
+# fp32 checkpoint that produced the recorded number, so agreement should be
+# at float noise; 1e-3 nats leaves room for GPU-vs-CPU reduction order only.
+G8_ANCHOR_TOL_NATS = 1e-3
+
+
+def _run1_val_stream(
+    cfg: dict, tokenizer: Any, base_data: dict, cache: Path | None
+) -> tuple[torch.Tensor, dict[str, Any]]:
+    """Rebuild run 1's frozen TinyStories validation stream, exactly.
+
+    **Why this is reconstructible** (investigated 2026-08-14, before G8 was
+    written — a retention number measured on any *other* validation stream
+    would silently redefine the measurement):
+
+    Run 1's val rows are a pure function of four pinned inputs, with no
+    stored artifact needed —
+
+    1. ``geode.train.split_documents`` over the frozen HF file
+       ``roneneldan/TinyStories:TinyStoriesV2-GPT4-train.txt`` (deterministic,
+       ``max_documents: null`` so the whole file is taken);
+    2. ``geode.train.pack_corpus(texts, tokenizer, seq_len=512)`` — documented
+       and property-tested as a pure function of exactly those three inputs
+       (V5.17/V5.27), with the frozen 10K custom BPE whose sha256 the base
+       manifest records;
+    3. ``geode.train.split_indices(n, val_fraction=0.005, seed=316)`` — the
+       seeded ``torch.randperm`` partition, byte-identical to the
+       ``train_val_split`` the trainer called (V5.39);
+    4. all four values pinned in ``configs/archive/runs/run1_pretrain.yaml``'s
+       ``data`` block, and independently re-recorded in the base run's own
+       manifest under ``experiment.data_config``.
+
+    Three exact counts must agree with the base manifest before the stream is
+    accepted — documents (2,717,495), total packed rows, and val rows (5,225).
+    They are what actually pin the packing: a drifted dataset file, tokenizer,
+    or ``seq_len`` moves at least one of them.
+
+    The permutation is the one input the counts cannot pin (a different
+    ``torch.randperm`` draw yields the same *number* of rows). ``run_g8``
+    therefore also scores the base checkpoint itself as an anchor, and this
+    function records ``val_index_sha256`` plus the ``torch`` version in the
+    verdict so permutation drift stays auditable across runs even where the
+    loss cannot resolve it.
+
+    ``cache`` (a ``.pt`` path) skips the ~45-minute repack on later calls; the
+    stored key refuses a cache built under any different pin.
+    """
+    d = cfg["data"]
+    # An eval-data pin has a data block too, but not these keys — say so, rather
+    # than dying on a bare KeyError three lines down.
+    absent = [k for k in ("hf_id", "file", "seq_len", "val_fraction", "seed") if k not in d]
+    if absent:
+        raise SystemExit(
+            f"[evt] G8: {absent} missing from {cfg.get('run_id', '<config>')}'s data block. "
+            "--config must be run 1's PRETRAIN yaml (the corpus/packing/split pins), not "
+            "an eval-data pin: configs/archive/runs/run1_pretrain.yaml"
+        )
+    expected = {
+        "data_file": base_data["experiment"]["data_config"]["file"],
+        "seq_len": base_data["experiment"]["data_config"]["seq_len"],
+        "val_fraction": base_data["experiment"]["data_config"]["val_fraction"],
+        "split_seed": base_data["dataset"]["seed"],
+        "tokenizer_sha256": base_data["experiment"]["tokenizer"]["sha256"],
+        "base_run": base_data["run_id"],
+    }
+    got = {
+        "data_file": d["file"],
+        "seq_len": d["seq_len"],
+        "val_fraction": d["val_fraction"],
+        "split_seed": d["seed"],
+        "tokenizer_sha256": tokenizer_hash(tokenizer),
+        "base_run": base_data["run_id"],
+    }
+    if got != expected:
+        raise SystemExit(
+            f"[evt] G8: the --config data/tokenizer pins do not match how "
+            f"{base_data['run_id']} was trained, so the rebuilt stream would not be its "
+            f"validation stream.\n  config+tokenizer: {got}\n  base manifest:    {expected}\n"
+            "  Pass run 1's own pretrain config and the frozen ../tokenizer artifact."
+        )
+    if base_data["experiment"]["data_config"]["max_documents"] is not None:
+        raise SystemExit(
+            "[evt] G8: the base run packed a truncated corpus "
+            f"(max_documents={base_data['experiment']['data_config']['max_documents']}); "
+            "this reconstruction takes the whole file and would not reproduce it."
+        )
+
+    n_docs_want = base_data["dataset"]["n_unique_examples"]
+    n_train_want = base_data["experiment"]["data_config"]["n_train_seqs"]
+    n_val_want = base_data["experiment"]["data_config"]["n_val_seqs"]
+
+    if cache is not None and cache.is_file():
+        print(f"[evt] G8: loading cached val stream {cache} ...", flush=True)
+        blob = torch.load(cache)
+        if blob["key"] != got:
+            raise SystemExit(
+                f"[evt] G8: --val-cache {cache} was built for {blob['key']}, this call "
+                f"needs {got} — delete it rather than scoring the wrong stream."
+            )
+        val_seqs = blob["val_seqs"].long()
+        fingerprints = blob["fingerprints"]
+    else:
+        print(
+            f"[evt] G8: rebuilding {base_data['run_id']}'s validation stream "
+            f"({d['hf_id']}:{d['file']}, seq_len {d['seq_len']}) — download + pack is "
+            "30-60 min of CPU and ~4.3 GB resident on a cache miss ...",
+            flush=True,
+        )
+        texts = load_texts(cfg)
+        if len(texts) != n_docs_want:
+            raise SystemExit(
+                f"[evt] G8: rebuilt {len(texts)} documents, base manifest recorded "
+                f"{n_docs_want} — the dataset file this run trained on is not the file "
+                "that just downloaded. Do NOT score a substitute stream; halt."
+            )
+        seqs = pack_corpus(texts, tokenizer, d["seq_len"])
+        del texts
+        if len(seqs) != n_train_want + n_val_want:
+            raise SystemExit(
+                f"[evt] G8: packed {len(seqs)} rows, base manifest recorded "
+                f"{n_train_want + n_val_want} ({n_train_want} train + {n_val_want} val) — "
+                "the packing differs (tokenizer or seq_len drift). Halt."
+            )
+        train_idx, val_idx = split_indices(len(seqs), d["val_fraction"], d["seed"])
+        if (len(train_idx), len(val_idx)) != (n_train_want, n_val_want):
+            raise SystemExit(
+                f"[evt] G8: split gave {len(train_idx)}/{len(val_idx)} train/val rows, "
+                f"base manifest recorded {n_train_want}/{n_val_want}. Halt."
+            )
+        val_seqs = seqs[val_idx]
+        del seqs
+        fingerprints = {
+            "n_documents": n_docs_want,
+            "n_train_seqs": n_train_want,
+            "n_val_seqs": n_val_want,
+            "val_index_sha256": hashlib.sha256(
+                ",".join(map(str, val_idx)).encode("utf-8")
+            ).hexdigest(),
+            # str(): torch.__version__ is a TorchVersion object, which
+            # torch.load's weights_only=True default (>=2.6) refuses to
+            # unpickle out of the cache blob.
+            "torch_version": str(torch.__version__),
+        }
+        if cache is not None:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            # uint16 storage: vocab 10K << 65536, same trick train.py's
+            # --packed-cache uses. 5,225 x 512 rows -> ~5 MB.
+            torch.save(
+                {"key": got, "val_seqs": val_seqs.to(torch.uint16), "fingerprints": fingerprints},
+                cache,
+            )
+            print(f"[evt] G8: wrote val-stream cache {cache}", flush=True)
+    print(
+        f"[evt] G8: val stream {tuple(val_seqs.shape)} "
+        f"(docs {fingerprints['n_documents']}, val_index_sha256 "
+        f"{fingerprints['val_index_sha256'][:16]}…) — counts match {base_data['run_id']}",
+        flush=True,
+    )
+    return val_seqs, fingerprints
+
+
+def run_g8(args: argparse.Namespace) -> int:
+    """TinyStories retention on run 1's own frozen validation stream.
+
+    Metric: mean next-token cross-entropy in nats/token over every predicted
+    position of the rebuilt val rows — ``geode.train.evaluate_nll_nats``, the
+    identical evaluator and reduction that wrote run 1's ``eval_log.jsonl``,
+    so the number is directly comparable to its recorded ``min_val_nats``.
+    PASS iff ``<= --bar``.
+
+    ``--bar`` is REQUIRED and absolute. Gate thresholds are task-scoped
+    ([[feedback-gate-thresholds-are-task-scoped]]): the ts38 mini's bar is
+    1.1718 = the base's 1.0718 plus a delta pre-declared at 0.10 nats *before*
+    any parent trained. Defaulting it here would let a later family inherit a
+    number nobody re-declared. The verdict also records the base's loss
+    measured on this same stream and the delta against it, so a re-baselining
+    decision never needs a re-run.
+
+    Anchor (always on): the base checkpoint is scored on the same rebuilt
+    stream and must reproduce the manifest's ``min_val_nats`` to within
+    ``--anchor-tol``. ``train_full`` saves the FINAL-step model with no
+    restore-to-best, and run 1's final step *is* its minimum-val step, so an
+    agreeing anchor proves the reconstruction end to end. A disagreement is a
+    hard refusal, never a substituted val set (owner rule): the fix is to pin
+    the environment or, if the owner chooses, re-baseline the bar against the
+    measured base value this gate prints.
+    """
+    cfg = load_config(args.config, None)
+    os.environ.setdefault("GEODE_STORE", str(REPO_ROOT / "geode-store"))
+    store = Path(os.environ["GEODE_STORE"])
+    manifest = load_run(args.run, store=store)
+    base_manifest = load_run(args.base_run, store=store)
+    # Resolved BEFORE the stream is built: on a cache miss that is a ~45-minute
+    # pack, and discovering a missing checkpoint afterwards would throw it away.
+    checkpoint = args.checkpoint or checkpoint_dir(args.run, store=store)
+    checkpoint_dir(args.base_run, store=store)  # the anchor must exist too
+
+    from transformers import AutoTokenizer
+
+    # NOT the other gates' `local if local.is_dir() else <hf id>` line. Their
+    # configs sit directly in configs/, where `../tokenizer` lands on the frozen
+    # artifact; run 1's pretrain config has since been ARCHIVED two directories
+    # deeper, so the same relative hop resolves to configs/archive/tokenizer,
+    # which does not exist. Falling through to the HF-id branch would then ask
+    # the hub for a repo literally named "../tokenizer" — or, run from
+    # scripts/, silently succeed on a CWD-relative match. Neither is a resolver.
+    # A directory is required (G8 is only ever about run 1's custom 10K BPE) and
+    # _run1_val_stream still refuses anything whose sha256 misses the manifest.
+    tok_path = args.tokenizer or (args.config.parent / cfg["tokenizer"]["path"])
+    tok_dir = Path(tok_path).resolve()
+    if not tok_dir.is_dir():
+        raise SystemExit(
+            f"[evt] G8: no tokenizer directory at {tok_dir} (from "
+            f"{'--tokenizer' if args.tokenizer else f'{args.config} tokenizer.path'} "
+            f"{tok_path}). Pass --tokenizer <experiments/training-run/tokenizer>."
+        )
+    tokenizer = AutoTokenizer.from_pretrained(tok_dir)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+
+    val_seqs, fingerprints = _run1_val_stream(cfg, tokenizer, base_manifest.data, args.val_cache)
+
+    anchor_want = base_manifest.data["experiment"]["pretrain_result"]["min_val_nats"]
+    print(f"[evt] G8: anchor — scoring {args.base_run}'s checkpoint on the rebuilt stream ...")
+    base_model = load_model(args.base_run, store=store, device=args.device)
+    anchor_got = evaluate_nll_nats(
+        base_model, val_seqs, batch_size=args.batch_size, device=args.device
+    )
+    print(
+        f"[evt] G8 anchor: {args.base_run} scores {anchor_got:.6f} nats, manifest recorded "
+        f"{anchor_want:.6f} (|Δ| {abs(anchor_got - anchor_want):.2e}, tol {args.anchor_tol})"
+    )
+    if abs(anchor_got - anchor_want) > args.anchor_tol:
+        raise SystemExit(
+            f"[evt] G8: the rebuilt stream does NOT reproduce {args.base_run}'s recorded "
+            f"validation loss ({anchor_got:.6f} vs {anchor_want:.6f}). Every exact count "
+            "matched, so the likely cause is a torch-version drift in the seeded "
+            "randperm — a different random 0.5% of the same corpus. Refusing to score "
+            "retention on a stream that is not the one the bar was declared against. "
+            "Fix the environment, or have the owner re-baseline the bar against the "
+            f"measured {anchor_got:.6f} and re-declare the delta in decisions.md."
+        )
+
+    if args.run == args.base_run and args.checkpoint is None:
+        # The pre-flight call (stage 1) scores the base against itself: same
+        # checkpoint, same stream, so a second forward pass could only differ
+        # by float noise. Reuse the anchor rather than pay for it twice.
+        val_loss = anchor_got
+    else:
+        print(f"[evt] G8: loading checkpoint {checkpoint} ...", flush=True)
+        model = load_model(args.run, store=store, device=args.device, checkpoint=checkpoint)
+        val_loss = evaluate_nll_nats(
+            model, val_seqs, batch_size=args.batch_size, device=args.device
+        )
+    passed = val_loss <= args.bar
+    print(
+        f"[evt] G8 val_loss_nats {val_loss:.4f} on n={len(val_seqs)} "
+        f"(base {anchor_got:.4f}, delta {val_loss - anchor_got:+.4f}) -> "
+        f"{'PASS' if passed else 'FAIL'} (threshold <= {args.bar})"
+    )
+
+    should_record, exit_code = gate_record_decision(passed, args.no_record, args.record_only_pass)
+    if not should_record:
+        if args.no_record:
+            print("[evt] --no-record: nothing written to any manifest")
+        else:
+            print("[evt] --record-only-pass: G8 did not pass — nothing written to any manifest")
+        return exit_code
+
+    manifest.data.setdefault("experiment", {}).setdefault("gates", {})["G8"] = {
+        "pass": passed,
+        "val_loss_nats": val_loss,
+        "bar_nats": args.bar,
+        "base_run": args.base_run,
+        "base_val_nats_measured": anchor_got,
+        "base_val_nats_recorded": anchor_want,
+        "delta_vs_base_nats": val_loss - anchor_got,
+        "n": len(val_seqs),
+        "checkpoint": str(checkpoint),
+        **fingerprints,
+        "protocol": (
+            "mean next-token CE (nats/token, evaluate_nll_nats) over run 1's own "
+            "validation stream, rebuilt from the pinned corpus + frozen tokenizer + "
+            "seeded split and anchor-verified by re-scoring the base checkpoint against "
+            "its recorded min_val_nats; pass = loss <= an absolute pre-declared bar"
+        ),
+    }
+    manifest.save(store / "runs" / args.run / "manifest.json")
+    print(f"[evt] G8 verdict recorded in {store / 'runs' / args.run / 'manifest.json'}")
+    return exit_code
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Split out of ``main`` so the launcher shells' invocations can be checked
     at parse level without running a gate (tests/scripts/test_launcher_gate_args.py)."""
@@ -745,6 +1062,82 @@ def build_parser() -> argparse.ArgumentParser:
         help="print up to N misses (prompt -> completion) for failure diagnosis",
     )
     g6.set_defaults(func=run_g6)
+
+    g8 = sub.add_parser(
+        "g8",
+        help="TinyStories retention: val loss on run 1's own frozen validation stream",
+    )
+    # Declared inline rather than via common_args(): g8's --config is run 1's
+    # PRETRAIN yaml (a corpus/tokenizer/split pin), not an eval-data yaml, and
+    # it carries --base-run / --bar / --val-cache that no other gate has.
+    g8.add_argument("--run", required=True, help="run_id whose manifest records the verdict")
+    g8.add_argument(
+        "--config",
+        type=Path,
+        required=True,
+        help="run 1's pretrain YAML — the corpus, tokenizer, seq_len and split pins "
+        "the validation stream is rebuilt from (configs/archive/runs/run1_pretrain.yaml)",
+    )
+    g8.add_argument(
+        "--bar",
+        type=float,
+        required=True,
+        help="absolute pass bar in nats/token; required, never defaulted (gate "
+        "thresholds are task-scoped). ts38 mini: 1.1718 = base 1.0718 + a delta "
+        "pre-declared at 0.10",
+    )
+    g8.add_argument(
+        "--base-run",
+        default=G8_BASE_RUN,
+        help=f"run supplying the stream fingerprints and the anchor checkpoint "
+        f"(default: {G8_BASE_RUN})",
+    )
+    g8.add_argument(
+        "--tokenizer",
+        type=Path,
+        default=None,
+        help="tokenizer DIRECTORY (default: --config's tokenizer.path resolved "
+        "against the config dir). run 1's pretrain config was archived two levels "
+        "below where it launched, so its relative '../tokenizer' no longer lands "
+        "on the frozen artifact — pass experiments/training-run/tokenizer",
+    )
+    g8.add_argument(
+        "--val-cache",
+        type=Path,
+        default=None,
+        help="'.pt' path for the rebuilt val rows; written on a miss, reused after. "
+        "Keep it OUT of runs/<id>/ so it never rides a relay push",
+    )
+    g8.add_argument(
+        "--anchor-tol",
+        type=float,
+        default=G8_ANCHOR_TOL_NATS,
+        help=f"max |measured - recorded| base loss before the reconstruction is "
+        f"refused (default: {G8_ANCHOR_TOL_NATS})",
+    )
+    g8.add_argument(
+        "--checkpoint",
+        type=Path,
+        default=None,
+        help="default: the run's checkpoint via geode.zoo.checkpoint_dir",
+    )
+    g8.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    g8.add_argument("--batch-size", type=int, default=32)
+    g8_record_mode = g8.add_mutually_exclusive_group()
+    g8_record_mode.add_argument(
+        "--no-record",
+        action="store_true",
+        help="print the loss but write no verdict — for scoring a shared parent "
+        "before committing a pass/fail that would block every child",
+    )
+    g8_record_mode.add_argument(
+        "--record-only-pass",
+        action="store_true",
+        help="record the verdict only if it passes; on a fail, write nothing and "
+        "exit nonzero — for the RECORDING call after an already-passing --no-record "
+        "score",
+    )
+    g8.set_defaults(func=run_g8)
     return parser
 
 
