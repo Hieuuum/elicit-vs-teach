@@ -49,6 +49,7 @@ from geode.edl.metrics import (
     edl_epoch1_nats,
     edl_epoch1_per_example,
     edl_epoch1_per_label_token,
+    epoch1_totals,
     min_val_nats_from_eval_log,
 )
 from geode.probe import snapshot_steps
@@ -208,6 +209,58 @@ def manifest_fields(
             },
         },
     }
+
+
+def require_full_epoch1_launch_check(
+    require_full_epoch1: bool, min_steps: int, steps_per_epoch: int
+) -> None:
+    """``experiment.require_full_epoch1`` launch guard (specs/02 V5.75, ts38-mini
+    guard 1). Unlike ``fixed_prefix_one_pass`` this carries no arm restriction
+    and never constrains ``max_steps`` — a target run continues past epoch 1
+    to eps/k convergence; only ``stopping.min_steps`` is pinned so convergence
+    cannot stop the run before the epoch completes. Motivation: MDL needs the
+    complete first epoch, and the shipped op family's n=1M endpoint pair
+    stopped at steps 6000/7000 of a 7813-step epoch (768,000/896,000 of
+    1,000,000 examples) — a mid-epoch-1 stop silently truncates the MDL
+    integral and can fake a plateau that looks like early convergence.
+    """
+    if require_full_epoch1 and min_steps != steps_per_epoch:
+        raise ValueError(
+            "experiment.require_full_epoch1 is set but stopping.min_steps="
+            f"{min_steps} != steps_per_epoch={steps_per_epoch} — a target run "
+            "requiring a full epoch 1 must pin min_steps to exactly one "
+            "no-drop-last pass so convergence can never stop it early "
+            "(specs/02 V5.75)"
+        )
+
+
+def epoch1_examples_result(
+    run_id: str,
+    *,
+    n_examples: int,
+    require_full_epoch1: bool,
+    store: Path | None,
+) -> int:
+    """Epoch-1 example count actually consumed, persisted as
+    ``target_result.epoch1_examples`` for every run (specs/02 V5.76,
+    specs/00 §2 target-result extras; ts38-mini guard 1). Equals
+    ``n_examples`` iff epoch 1 ran to completion (the §3 enumeration
+    invariant). When ``require_full_epoch1`` is set, a mismatch means epoch 1
+    was truncated: this raises before the manifest's ``status`` flips to
+    ``"complete"`` — the same idiom as the ``fixed_prefix_one_pass`` post-run
+    guard below — so the run is never recorded a clean success; the on-disk
+    manifest is left at ``"running"``, the same manual-intervention state
+    ``register_run`` documents for a crashed run.
+    """
+    _, _, epoch1_examples = epoch1_totals(run_id, store=store)
+    if require_full_epoch1 and epoch1_examples != n_examples:
+        raise RuntimeError(
+            "experiment.require_full_epoch1 is set but epoch1_examples="
+            f"{epoch1_examples} != n_examples={n_examples} — epoch 1 was "
+            "truncated; refusing to record this run as a clean success "
+            "(specs/02 V5.76)"
+        )
+    return epoch1_examples
 
 
 def main() -> int:
@@ -386,6 +439,10 @@ def main() -> int:
                 "fixed-prefix warm-start target must prevent convergence before its "
                 f"one-pass ceiling at step {steps_per_epoch}"
             )
+    require_full_epoch1 = bool(cfg["experiment"].get("require_full_epoch1", False))
+    require_full_epoch1_launch_check(
+        require_full_epoch1, t["stopping"].get("min_steps", 0), steps_per_epoch
+    )
     gpu = cfg["gpu"]
     # Same CPU fallback as train_sft.py; spec 00 §2 records the resolved value.
     precision = t.get("precision", "fp32") if args.device != "cpu" else "fp32"
@@ -560,6 +617,7 @@ def main() -> int:
         if (p / "adapter.safetensors").is_file()
     )
     stop_reason = state["stop_reason"] or "max_steps"
+    run_id = cfg["run_id"]
     if fixed_prefix_one_pass and (
         stop_reason != "max_steps" or state["final_step"] != steps_per_epoch
     ):
@@ -568,6 +626,12 @@ def main() -> int:
             f"stop_reason={stop_reason!r}, final_step={state['final_step']}, "
             f"expected_step={steps_per_epoch}"
         )
+    # require_full_epoch1 post-run guard (specs/02 V5.76): computed — and, if
+    # the flag is set, enforced — BEFORE status flips to "complete" and before
+    # the manifest is saved, mirroring the fixed_prefix_one_pass guard above.
+    epoch1_examples = epoch1_examples_result(
+        run_id, n_examples=n_examples, require_full_epoch1=require_full_epoch1, store=store
+    )
     manifest.data["status"] = "complete"
     # Scheduled steps past the stopping point never materialize; the emergent
     # truncation is recorded here (declared schedule stays in snapshot_steps).
@@ -580,7 +644,6 @@ def main() -> int:
     # (Eq. 3, owner-accepted: the subtraction term is epoch-1 label tokens
     # times a per-label-token floor, not n_val times floor) — see
     # geode.edl.metrics for the shared math these reuse.
-    run_id = cfg["run_id"]
     manifest.data["experiment"]["target_result"] = {
         "final_step": state["final_step"],
         "stop_reason": stop_reason,
@@ -590,6 +653,7 @@ def main() -> int:
         "edl_epoch1_nats": edl_epoch1_nats(run_id, store=store),
         "edl_per_label_token_nats": edl_epoch1_per_label_token(run_id, store=store),
         "edl_per_example_nats": edl_epoch1_per_example(run_id, store=store),
+        "epoch1_examples": epoch1_examples,
     }
     manifest.save(out_dir / "manifest.json")
     print(

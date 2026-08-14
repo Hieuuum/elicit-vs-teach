@@ -460,6 +460,20 @@ the 2026-07-18 downscale):
   and are **never fed to the ε/k tracker** — the ratified rule consumes
   exactly the eval_every cadence (+ the ceiling eval). Logging-only:
   they change no stop decision and no reported number.
+  **The `min_steps=0`-is-safe argument above was falsified at n=1M**
+  (ts38-mini pre-flight, 2026-08-14): it held only because the k=5
+  patience outlasted a ~390-step epoch (50K prefix); it does not
+  generalize to the large end of the grid, where an epoch is thousands
+  of steps and a plateau can fire mid-epoch-1. The shipped op family's
+  n=1M endpoint pair is the concrete failure: it stopped at steps
+  6000/7000 of a 7813-step epoch (768,000/896,000 of 1,000,000 examples
+  consumed — see `analysis/edl_converged_val_floor_op.csv`), truncating
+  the epoch-1 MDL integral the ε/k rule is supposed to measure in full.
+  **ts38-mini-class target runs pin `min_steps = ceil(n/128)`** — exactly
+  one epoch, at the run's own batch size — via the launch-time flag
+  `experiment.require_full_epoch1` (V5.75), and the launcher additionally
+  asserts post-run that the epoch actually completed (V5.76) rather than
+  trusting the pinned `min_steps` alone.
 
 **Runs 1–4 (full FT):** need a small full-FT trainer with validation-loss
 stopping; snapshots = final checkpoint only (plus the base). **Decided
@@ -957,6 +971,28 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   import the constants from `geode.edl`; `train_target.py` re-exports `EVAL_STOP_ROWS`
   so `from train_target import EVAL_STOP_ROWS` still resolves. The two leak-bar shell
   heredocs retire by archival.
+- V5.75 `require_full_epoch1` launch guard (2026-08-14, §6, ts38-mini guard 1):
+  `train_target.require_full_epoch1_launch_check(require_full_epoch1, min_steps,
+  steps_per_epoch)` raises `ValueError` before any training or disk write when the
+  flag is set and `stopping.min_steps != steps_per_epoch`; with the flag absent or
+  false, any `min_steps` passes (today's behavior, unchanged). Unlike
+  `fixed_prefix_one_pass` this carries **no arm restriction** and never touches
+  `max_steps` — the run still runs to eps/k convergence, only past a completed
+  epoch 1. Motivation: the falsified min_steps=0 argument above (op family n=1M,
+  truncated at 768k/896k of 1,000,000 examples).
+- V5.76 `epoch1_examples` persistence + loud truncation failure (2026-08-14, §6,
+  ts38-mini guard 1): `train_target.epoch1_examples_result(run_id, n_examples=...,
+  require_full_epoch1=..., store=...)` returns the epoch-1 example count from
+  `geode.edl.metrics.epoch1_totals`'s third element, and `train_target.py` writes
+  it as `target_result.epoch1_examples` (specs/00 §2) for **every** target run,
+  independent of the flag. When `require_full_epoch1` is set and the returned
+  count differs from `n_examples`, it raises `RuntimeError` — called, and its
+  raise takes effect, strictly before `manifest.data["status"]` is set to
+  `"complete"` and before `manifest.save()`, the same placement the
+  `fixed_prefix_one_pass` post-run guard uses: a truncated epoch-1 run is left at
+  `status: "running"` on disk (the same state `register_run`'s docstring
+  documents for a crashed run — manual intervention required, never auto-healed),
+  not recorded as a clean success.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
@@ -1149,6 +1185,7 @@ v2-ext pass) stay recorded in decisions.md and the v2-ext manifest.
 | G5 | runs 3–6 | Zero/16-shot operator add/sub + shared-set test loss. Expectation: A ~2%/12%, B 0%/0% — the only remaining independent regime evidence. Protocol (owner 2026-07-22, second revision — supersedes the same-day eval-reserved-tail draw): data is the frozen `D_target_eval` file (§5), question-disjoint from D_target ∪ D_algo ∪ probe by construction; shots = reporting-block rows [2048, 2064), questions = the next `--n` (default 1024) rows — **fixed slices, the identical set for every run, no sampling**. Also records `test_loss_nats`: masked NLL over the full reporting block (rows 2048+), the same data as the runs-5/6 harness θ_T test loss, so every run's loss lands on identical data. `gates.py g5` refuses a run whose manifest records training on the eval file itself (belt and suspenders — disjointness is a generation-time property). History: the original full-file draw overlapped pilot training prefixes (1.2%–50.6% of eval questions at n10k–n500k; measured accuracy inflation ≤ 0.4 points); the intermediate reserved-tail protocol fixed contamination but capped training at 900k rows |
 | G6 | phase-3 bridge | Bidirectional translation exact match on the entire frozen held-out `D_p3_bridge_eval`: token-prefix prompts from the training tokenization (V5.38), greedy EOS-stopped first-line decode (V5.43), and exact text comparison of the answer slot after stripping surrounding whitespace only. The aggregate, NL→operator, and operator→NL rates must each be ≥95%; verdict, rates, row count, checkpoint, file, and `order_hash` are recorded. G4/G5 refuse `task.name: arith_translate` before model/data loading because their integer-answer protocol is inapplicable. |
 | G7 | before matched target | `data_order_hash` and `n_examples` match the designated target anchor, enforced at launch |
+| G8 | pre-taught parent | TinyStories retention on a pre-taught parent: mean validation loss (nats/token) on run-1's frozen TinyStories validation stream — the exact `val_fraction`-held-out split run 1 itself trained against (`geode.train.split_indices`/`train_val_split`, V5.39, OPEN(11): `val_fraction 0.005`, run-1's pinned seed; NOT a re-derivation, the identical index set); PASS iff <= the pinned absolute bar (for ts38 mini: base min_val 1.0718 + pre-declared delta 0.10 = 1.1718 nats; delta OPEN(12), flagged for owner ratification before launch). Scored `--no-record` first, on the shared parent, before recording (a recorded FAIL there is a parent-gate death sentence for every child) |
 
 ## 9. Analysis deliverables
 
@@ -1205,6 +1242,7 @@ markers in this spec are replaced with pinned values in the same PR.
 | OPEN(9) | Exact template string (both formats) | **decided 2026-07-17**: two-line `Question: <body>` / `Answer: <answer>` scaffold; padded length still OPEN(5) |
 | OPEN(10) | Keep optimizer-state snapshots (sizes TBD at 2026-07-18 scale) | **closed 2026-07-22** (owner): **no** — snapshots stay model-only (`_save_snapshot` already saves only the model state_dict; zero code change). AdamW moments would have added ~2× params (~400 MB/snapshot) for an analysis (optimizer-trajectory) nothing in the plan consumes; mid-run resume is not needed at ≲30-min run lengths |
 | OPEN(11) | Run-1 pretrain hyperparameters (LR + schedule/warmup, seq len, batch, epochs/tokens, val-split size, eval cadence) | tokenizer **frozen 2026-07-18** at `experiments/training-run/tokenizer/`: 10K byte-level BPE on TinyStories-v2, digits 0–9 single-token forced, `Question:`/`Answer:` plain BPE (owner decision), EOS `<|endoftext|>` + PAD `<|pad|>`, provenance in `meta.json`. Dataset id verified 2026-07-18 (v2 = txt file in `roneneldan/TinyStories`; no v2 repo exists) and seq_len pinned at 512 (story p90 = 265 > 256; 1.6% of stories exceed 512). Remainder **closed 2026-07-19** by the 4-point LR sweep (docs/run1-guide.md phase 3, guide deleted 2026-07-24 — git history; 2000 steps each, production batch 128 via grad-accum 4×32, full data): **LR=1e-3** — best val 1.4389 nats vs 1.4552 @ 3e-4 with a consistent lead from step ~600, monotone descent, grad-norm max 6.4 / last 0.19; 3e-3 unstable (grad spike 109, val plateau ~3.15, self-stopped at 1700); 1e-4 far behind (1.7241). Constant LR, no schedule/warmup (structural — no scheduler exists). Batch 128, val_fraction 0.005, eval_every 500 as swept; epochs uncapped, ended by the stopping rule (ε/k → OPEN(3)). **Amended 2026-07-19 (gate G0 FAIL):** the constant-LR run plateaued at its gradient-noise floor (1.146 nats) with ~5/20 coherent samples; §6.1 gained a cosine schedule and the run-1 retrain uses cosine 1e-3→1e-4 over `max_steps=17000` (decisions.md). Constant LR remains the default elsewhere |
+| OPEN(12) | G8 retention delta (ts38 mini) | pre-declared 0.10 nats (bar = base min_val 1.0718 + 0.10 = 1.1718) — **not yet owner-ratified**; guard 2 of the ts38-mini plan (project-ts38-mini-plan-2026-08-14) is enforced by `gates.py` (a parallel chunk), which must not launch against this bar until ratification lands here as **closed** |
 
 ## 13. Limitations / notes
 
