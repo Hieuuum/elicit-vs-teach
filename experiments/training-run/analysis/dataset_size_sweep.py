@@ -27,8 +27,18 @@ and every metric are identical, only the target task differs:
   re-rendered without the Question:/Answer: scaffold), bare dose16 installer,
   run ids ``evt-llama-fig2nl3-{noinst,inst}-n<size>``, EXPERIMENTS §6.13.
   Distinct ``_nl3`` stem.
+- ``ts38`` — TinyStories 38.7M base (`evt-run1-base-v3-ext`), Donoway §5/Fig-3
+  CAUSAL design (NOT the Fig-2 TS pair): base=teach vs pre-taught=elicit, same
+  ``D_algo_bare`` target, r128 LoRA, run ids
+  ``evt-ts38-{base,pretaught}-n<size>`` over a 5-point grid (not the 19-point
+  Fig-2 grid), EXPERIMENTS §6.14. Distinct ``_ts38`` stem. Condition labels
+  are the honest arm roles ("base (teach)" / "pre-taught (elicit)"), not the
+  generic "base"/"format-installed" the Llama families use — a pre-taught
+  parent is not a format install.
 
-38 target runs per family (the family's installer run is not a sweep point).
+38 target runs per family (19-size Fig-2 grid) except ``ts38``, which sweeps
+5 sizes (10 target runs, EXPERIMENTS §6.14). In neither case does the
+family's installer/parent run count as a sweep point.
 
 Reads each run's manifest via ``geode.zoo`` — ``experiment.target_result``
 (``min_val_nats``, ``stop_reason``, ``edl_epoch1_nats``,
@@ -54,8 +64,8 @@ weights, no GPU, no network of its own).
 CPU-only.
 
 Usage:
-    python3 dataset_size_sweep.py [--family {op,nl}] [--run-id <rid> ...]
-        [--store <dir>] [--fig <path>]
+    python3 dataset_size_sweep.py [--family {op,nl,nl2,nl3,ts38}]
+        [--run-id <rid> ...] [--store <dir>] [--fig <path>]
 """
 
 from __future__ import annotations
@@ -98,14 +108,36 @@ FAMILIES: dict[str, tuple[str, str, str]] = {
         "dataset_size_sweep_nl3",
         "scaffold-free NL, D_algo_bare; bare dose16 installer",
     ),
+    "ts38": (
+        "evt-ts38",
+        "dataset_size_sweep_ts38",
+        "TinyStories 38.7M; base (teach) vs pre-taught (elicit), D_algo_bare, r128 LoRA",
+    ),
 }
 DEFAULT_FAMILY = "op"
 
-# All families in one pattern. They cannot cross-match: the "nl"/"nl2"/"nl3"
-# infix means an "evt-llama-fig2nl-..." id fails the op reading and vice
-# versa, so each id parses unambiguously without the caller declaring its
-# family.
-RUN_ID_RE = re.compile(r"^evt-llama-fig2(?:nl[23]?)?-(noinst|inst)-n(\d+)$")
+# ts38 (EXPERIMENTS §6.14) differs from the four Llama families in two ways a
+# generic family can't absorb: its run ids spell the arm as base/pretaught
+# rather than noinst/inst, and it sweeps a 5-point grid rather than the
+# 19-point Fig-2 grid. Both are resolved through this one lookup — everything
+# else (default_run_ids, _parse_run_id) falls back to the original
+# llama-sweep behavior (identity token, generic CONDITIONS label, SIZES grid)
+# for every family not listed here.
+TS38_SIZES: tuple[int, ...] = (1000, 4642, 21544, 100000, 316228)
+TS38_ARM: dict[str, tuple[str, str]] = {
+    # condition -> (run_id arm token, honest curve label)
+    "noinst": ("base", "base (teach)"),
+    "inst": ("pretaught", "pre-taught (elicit)"),
+}
+
+# All families in one pattern. The llama branch cannot cross-match itself
+# (the "nl"/"nl2"/"nl3" infix means an "evt-llama-fig2nl-..." id fails the op
+# reading and vice versa) or the ts38 branch (disjoint prefixes), so each id
+# parses unambiguously without the caller declaring its family.
+RUN_ID_RE = re.compile(
+    r"^evt-(?:llama-fig2(?:nl[23]?)?-(?P<llama_cond>noinst|inst)"
+    r"|ts38-(?P<ts38_cond>base|pretaught))-n\d+$"
+)
 
 # The headline "EDL/D vs dataset size" metric for the figure — D = training
 # label tokens in the epoch-1 stream (edl_epoch1_nats / epoch-1 label tokens).
@@ -120,13 +152,19 @@ TARGET_RESULT_METRICS = (
 
 
 def default_run_ids(family: str = DEFAULT_FAMILY) -> list[str]:
-    """One family's full 38-run sweep: both conditions at every size, ascending n."""
+    """One family's full sweep: both conditions at every size, ascending n.
+
+    38 runs (19 sizes x 2 conditions) for every Llama family; 10 runs
+    (``TS38_SIZES`` x 2) for ``ts38``.
+    """
     prefix = FAMILIES[family][0]
-    return [f"{prefix}-{cond}-n{n}" for n in SIZES for cond in CONDITIONS]
+    sizes = TS38_SIZES if family == "ts38" else SIZES
+    arm_token = (lambda cond: TS38_ARM[cond][0]) if family == "ts38" else (lambda cond: cond)
+    return [f"{prefix}-{arm_token(cond)}-n{n}" for n in sizes for cond in CONDITIONS]
 
 
 def _parse_run_id(run_id: str) -> tuple[str, str]:
-    """``(condition, curve_label)`` parsed from a fig2 sweep run id.
+    """``(condition, curve_label)`` parsed from a fig2/ts38 sweep run id.
 
     Parsed from the run id (not ``manifest.regime``, which is the closed
     elicit/teach/unknown enum and has no base/format-installed distinction) —
@@ -135,11 +173,15 @@ def _parse_run_id(run_id: str) -> tuple[str, str]:
     m = RUN_ID_RE.match(run_id)
     if not m:
         raise ValueError(
-            f"{run_id!r} does not match either sweep run_id pattern "
-            "'evt-llama-fig2{,nl}-{noinst,inst}-n<size>'"
+            f"{run_id!r} does not match any sweep run_id pattern "
+            "('evt-llama-fig2{,nl,nl2,nl3}-{noinst,inst}-n<size>' or "
+            "'evt-ts38-{base,pretaught}-n<size>')"
         )
-    condition = m.group(1)
-    return condition, CONDITIONS[condition]
+    if m.group("llama_cond") is not None:
+        condition = m.group("llama_cond")
+        return condition, CONDITIONS[condition]
+    condition = "noinst" if m.group("ts38_cond") == "base" else "inst"
+    return condition, TS38_ARM[condition][1]
 
 
 def run_rows(run_id: str, store: Path) -> list[dict] | None:
@@ -216,8 +258,18 @@ def run_rows(run_id: str, store: Path) -> list[dict] | None:
     return rows
 
 
-def plot(df: pd.DataFrame, out: Path, family_tag: str = FAMILIES[DEFAULT_FAMILY][2]) -> None:
-    """EDL/D (bits/label token) vs. dataset size, log-x, one curve per condition."""
+def plot(
+    df: pd.DataFrame,
+    out: Path,
+    family_tag: str = FAMILIES[DEFAULT_FAMILY][2],
+    title: str | None = None,
+) -> None:
+    """EDL/D (bits/label token) vs. dataset size, log-x, one curve per condition.
+
+    ``title`` overrides the default "Figure 2 sweep... Llama-3.2-1B" title —
+    ts38 is neither Figure 2 nor Llama (EXPERIMENTS §6.14); every other
+    family passes ``None`` and gets the original string, byte-for-byte.
+    """
     fig, ax = plt.subplots(figsize=(8, 6))
     colors = {"noinst": "tab:blue", "inst": "tab:orange"}
 
@@ -254,7 +306,7 @@ def plot(df: pd.DataFrame, out: Path, family_tag: str = FAMILIES[DEFAULT_FAMILY]
     ax.set_xscale("log")
     ax.set_xlabel("training examples (log scale)")
     ax.set_ylabel("EDL/D (bits per label token; D = training label tokens)")
-    ax.set_title(f"Figure 2 sweep: EDL/D vs. dataset size (Llama-3.2-1B; {family_tag})")
+    ax.set_title(title or f"Figure 2 sweep: EDL/D vs. dataset size (Llama-3.2-1B; {family_tag})")
     ax.grid(True, which="both", alpha=0.2)
     ax.legend(fontsize=8)
     fig.tight_layout()
@@ -313,7 +365,12 @@ def main() -> None:
     df = pd.DataFrame(rows)
     path = write_results(df, stem, store=args.store)
     print(f"[evt] wrote {path} ({len(df)} rows, {n_found}/{len(run_ids)} runs found)")
-    plot(df, fig_path, family_tag)
+    title = (
+        f"ts38 EDL marker sweep: EDL/D vs. dataset size (TinyStories 38.7M; {family_tag})"
+        if args.family == "ts38"
+        else None
+    )
+    plot(df, fig_path, family_tag, title)
 
 
 if __name__ == "__main__":

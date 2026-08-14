@@ -48,16 +48,24 @@ HIGH plateau subtracts a larger floor and gets an artificially LOW EDL/D, so
 an isolated dip means "run stopped high", not "fast elicitation". Cross-check
 ``overshoot_ratio`` before quoting any outlier.
 
-Covers both sweep families; writes only ``edl_converged_val_floor*`` names, so
-the shipped, immutable §6.10 ``dataset_size_sweep.{parquet,png}`` cannot be
-touched (that driver is never invoked from here).
+Covers the op/nl Llama sweep families and ``ts38`` (EXPERIMENTS §6.14,
+TinyStories 38.7M base — base=teach vs pre-taught=elicit, D_algo_bare, r128
+LoRA); writes only ``edl_converged_val_floor*`` names, so the shipped,
+immutable §6.10 ``dataset_size_sweep.{parquet,png}`` cannot be touched (that
+driver is never invoked from here). ``ts38``'s run ids spell the arm as
+base/pretaught rather than noinst/inst; this is the ONE floor the ts38
+pre-registered decision rule names as primary (Arm A/B markers are read
+under OCV first, test second — decisions.md 2026-08-14).
 
 Losses are computed and stored in nats; converted to bits only in the figure
 and the ``*_bits`` reporting column. CPU-only, reads the local store, no
 network.
 
 Usage:
-    python3 edl_converged_val_floor.py [--family {op,nl,both}] [--store <dir>]
+    python3 edl_converged_val_floor.py [--family {op,nl,ts38,both}] [--store <dir>]
+
+``--family both`` covers op+nl only (unchanged since before ts38/nl2/nl3
+existed) — pass ``--family ts38`` explicitly for the ts38 floor.
 """
 
 from __future__ import annotations
@@ -95,12 +103,29 @@ FAMILIES = {
         "edl_converged_val_floor_nl",
         "natural language, D_algo",
     ),
+    "ts38": (
+        re.compile(r"^evt-ts38-(base|pretaught)-n(\d+)$"),
+        "edl_converged_val_floor_ts38",
+        "TinyStories 38.7M; base (teach) vs pre-taught (elicit), D_algo_bare, r128 LoRA",
+    ),
 }
 
 # Repo-wide convention, unchanged: base = tab:blue, format-installed = tab:orange.
 STYLE = {
     "noinst": ("#1f77b4", "base"),
     "inst": ("#ff7f0e", "format-installed"),
+}
+
+# ts38's regex (above) captures the raw arm token (base/pretaught) into the
+# same group position the op/nl regexes use for noinst/inst directly; this
+# translates it to the canonical noinst/inst condition every downstream
+# lookup (STYLE, groupby, the "short arm" note) keys on, plus the honest
+# arm-role label ts38 uses in place of STYLE's generic base/format-installed
+# text (a pre-taught parent is not a format install).
+TS38_ARM: dict[str, tuple[str, str]] = {
+    # raw regex capture -> (canonical condition, honest style label)
+    "base": ("noinst", "base (teach)"),
+    "pretaught": ("inst", "pre-taught (elicit)"),
 }
 
 
@@ -112,7 +137,8 @@ def collect(family: str, store: Path) -> pd.DataFrame:
         match = pattern.match(run_dir.name)
         if not match or not (run_dir / "logs" / "prequential.jsonl").is_file():
             continue
-        condition, n = match.group(1), int(match.group(2))
+        raw_condition, n = match.group(1), int(match.group(2))
+        condition = TS38_ARM[raw_condition][0] if family == "ts38" else raw_condition
 
         mdl, n_label, n_examples = epoch1_totals(run_dir.name, store=store)
 
@@ -159,10 +185,25 @@ def collect(family: str, store: Path) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values(["n", "condition"], ascending=[True, False])
 
 
-def plot(df: pd.DataFrame, out: Path, family_tag: str) -> None:
-    """EDL/D vs. n under the converged-val floor, one curve per condition."""
+def plot(
+    df: pd.DataFrame,
+    out: Path,
+    family_tag: str,
+    *,
+    title: str | None = None,
+    labels: dict[str, str] | None = None,
+) -> None:
+    """EDL/D vs. n under the converged-val floor, one curve per condition.
+
+    ``title``/``labels`` override the default "...Llama-3.2-1B" title and
+    STYLE's generic base/format-installed legend text — ts38 is neither
+    Llama nor a format install (EXPERIMENTS §6.14). Both default to ``None``,
+    reproducing the op/nl behavior byte-for-byte.
+    """
+    label_of = (labels or {}).get
     fig, ax = plt.subplots(figsize=(8.4, 5.6))
-    for condition, (color, label) in STYLE.items():
+    for condition, (color, default_label) in STYLE.items():
+        label = label_of(condition, default_label)
         series = df[df["condition"] == condition].sort_values("n")
         if series.empty:
             continue
@@ -184,7 +225,8 @@ def plot(df: pd.DataFrame, out: Path, family_tag: str) -> None:
     ax.set_xlabel("training examples $n$ (log scale)")
     ax.set_ylabel("EDL/D  (bits per label token)")
     ax.set_title(
-        f"EDL per label token vs. dataset size — converged-val floor\nLlama-3.2-1B; {family_tag}",
+        title
+        or f"EDL per label token vs. dataset size — converged-val floor\nLlama-3.2-1B; {family_tag}",
         fontsize=11,
     )
     ax.grid(True, which="both", alpha=0.18, lw=0.6)
@@ -199,7 +241,7 @@ def plot(df: pd.DataFrame, out: Path, family_tag: str) -> None:
     if reach.nunique() > 1:
         short = reach.idxmin()
         note = (
-            f"\n{STYLE[short][1]} arm ends at n={int(reach.min()):,} — "
+            f"\n{label_of(short, STYLE[short][1])} arm ends at n={int(reach.min()):,} — "
             "sweep stopped there, not a diverging curve."
         )
 
@@ -224,10 +266,12 @@ def plot(df: pd.DataFrame, out: Path, family_tag: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--family", choices=("op", "nl", "both"), default="both")
+    parser.add_argument("--family", choices=("op", "nl", "ts38", "both"), default="both")
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
     args = parser.parse_args()
 
+    # "both" is op+nl only, unchanged from before ts38 (and nl2/nl3) existed —
+    # pass --family ts38 explicitly.
     families = ("op", "nl") if args.family == "both" else (args.family,)
     for family in families:
         stem, family_tag = FAMILIES[family][1:]
@@ -238,7 +282,14 @@ def main() -> None:
 
         csv_path = Path(__file__).resolve().parent / f"{stem}.csv"
         df.to_csv(csv_path, index=False)
-        plot(df, FIGURES / f"{stem}.png", family_tag)
+        title = labels = None
+        if family == "ts38":
+            title = (
+                "EDL per label token vs. dataset size — converged-val floor\n"
+                f"TinyStories 38.7M; {family_tag}"
+            )
+            labels = {cond: label for cond, label in TS38_ARM.values()}
+        plot(df, FIGURES / f"{stem}.png", family_tag, title=title, labels=labels)
 
         negative = df[df["edl_per_token_nats"] < 0]
         print(f"[evt] wrote {csv_path}  ({len(df)} runs)")

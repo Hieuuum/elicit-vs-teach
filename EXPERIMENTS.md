@@ -163,6 +163,7 @@ ungated inspection tool.
 | G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. **1M pair: run 7 (A) 0.9971 / 0.0025 vs run 8 (B) 0.9551 / 0.0312 — 12.4× θ_T gap. Llama: run 9 parent 0.0000 / 9.26, run 10 0.9844 / 0.0232 — measured with `eval_target_data_llama.yaml` (an eval's tokenizer must match the model under eval; decisions.md 2026-07-24)**. **Caution (2026-07-25): run 9's 0.0000 was read as "latent as required" — it is not that. It is op-notation after random-label training, not the retention probe. The retention probe is NL add/sub vs a base baseline, and on it run 9 v1 scored 0.0000 against base Llama's 0.3271: the capability was destroyed, not latent. See runs 9-v2/10-v2.** 16-shot ≈ 0 everywhere incl. the 1.24B Llama (collapse — invalidated as a metric; decisions.md) |
 | G6 | phase-3 bridge | held-out bidirectional translation exact text match; aggregate and both directions ≥95% | built, unrun (`gates.py g6`; frozen 4,096-row eval) |
 | G7 | before matched target | identical frozen target `data_order_hash` + prefix against its anchor | enforced at launch |
+| G8 | ts38 pre-taught parent (§6.14) | TinyStories retention on a pre-taught parent: mean val loss (nats/token) on run 1's frozen TS validation stream, pass iff ≤ a pinned absolute bar | built, unrun (`gates.py g8`); ts38 bar 1.1718 (= base min_val 1.0718 + pre-declared delta 0.10) — **delta 0.10 OPEN, owner ratification before launch** (decisions.md 2026-08-14) |
 
 ## 5. Workflow
 
@@ -803,6 +804,111 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     Magnitude 3.7–5× vs the paper's ~10× (single seed, D_algo vs
     DeepMind Mathematics, r512-LoRA installer). Full record:
     decisions.md 2026-08-13.
+
+14. **ts38 mini — elicit-vs-teach EDL marker confirmation on the 38.7M base;
+    RATIFIED 2026-08-14, BUILT 2026-08-14, NOT LAUNCHED.** The smallest run
+    that confirms one arm is genuinely *teaching* and the other genuinely
+    *elicitation* via the paper's EDL/label-token signature, on ONE
+    architecture, as the controlled substrate for the mechanistic
+    comparison (verify markers first, then either heavier verification or
+    the mechanistic phase — snapshots OFF in the mini). This is Donoway et
+    al. §5 / Fig-3 CAUSAL intervention design (base = teaching vs
+    pre-taught = elicitation), **NOT** the Fig-2 TinyStories pair; the
+    pre-teach-FORMAT arm (paper E.1.2, random labels) is deliberately
+    EXCLUDED — both of the paper's Fig-2 TS arms are teaching, so it
+    verifies nothing about elicitation. Revival would need new
+    `bare_operator` format code + `D_inst_bare` + a span test, not a config
+    change. Full handoff spec: the ratified plan memory,
+    `project-ts38-mini-plan-2026-08-14`.
+    - **Base model:** `evt-run1-base-v3-ext` (TinyStories 38.7M floor 1,
+      min_val 1.0718) — the ONLY run with weights on the relay after the
+      2026-08-14 geode-store cleanup; first step on any box is a
+      receiver-not-sender load check.
+    - **Runs:** parent `evt-ts38-pretaught-parent` (full FT, paper App. E:
+      all pre-training interventions are full FT; lr 3e-4 run-2 pin — same
+      scale/method/stage/task-family as run 2's min_val 0.0037 / G1 0.9961
+      — fallback rung `parent_lr_1e-4.yaml`; `D_target` 1M op-notation
+      add/sub, correct labels, scaffolded, frozen runs-5/6 artifact). Arm A
+      `evt-ts38-base-n{1000,4642,21544,100000,316228}` (teach: init=base,
+      LoRA r128/α32, lr 1e-3 target-stage pin, `D_algo_bare` frozen order
+      `946b5d02…`). Arm B `evt-ts38-pretaught-n{same 5}` (elicit:
+      init=parent, identical LoRA recipe and data order — arms differ ONLY
+      in θ0; G7 pins Arm A's stream per size). Eval/stopping for all
+      targets: `D_algo_eval_bare` (rows 0–2047 stopping block, 2048+
+      reporting/test floor) — disjointness holds by construction (no eval
+      question is ever trained under either notation, including by the
+      parent; the ~29.18% overlap between `D_algo` and `D_target` triples
+      is quoted, not fixed — it's in-distribution pre-teaching, moving MDL
+      the way elicitation predicts). Shared protocol: batch 128, bf16,
+      seed 316, ε/k 0.002/5. **Arm-letter note:** "Arm A"/"Arm B" above are
+      this doc's role labels only (A = teach, B = elicit); `train_target.py`
+      hardcodes `ARM_REGIME = {"A": "elicit", "B": "teach"}` (all prior
+      families comply), so it's the OPPOSITE mapping — manifests carry
+      `evt-ts38-base-*` as `arm: B`/`regime: teach` and
+      `evt-ts38-pretaught-*` as `arm: A`/`regime: elicit`.
+    - **Why r=128** (owner: "not too small, not too big"): the arch pin
+      for this scale (`common.yaml`, 2026-07-18) AND the rank the 1e-3 LR
+      pin + ε/k calibration were validated at — changing r unpins both.
+      r=512 is beyond-full-rank at d=512 (~48M adapter > the 38.7M model);
+      r=128 ≈ 12M trainable (~30%). Same rank both arms (per-arm sizing
+      would change training algorithm A and confound EDL(D; θ0, A)).
+      Escape hatch, pre-registered: if measured EDL/P at the top teaching
+      point exceeds ~0.5 bits/param, re-run that single point at r=256.
+    - **Guards (Opus-5-advisor findings, all accepted):** (1)
+      `min_steps = ceil(n/128)` on every target run + a loud
+      `epoch1_examples == n` assertion — MDL needs the complete first
+      epoch; the shipped op family's n=1M pair truncated at 768,000/896,000
+      of 1,000,000 examples (steps 6,000/7,000 of a 7,813-step epoch,
+      `min_steps=0` — decisions.md 2026-08-14). Built as `train_target.py`'s
+      `experiment.require_full_epoch1` flag (spec 02 V5.75 launch guard,
+      V5.76 `epoch1_examples` persistence + loud truncation failure). (2)
+      Parent gates BOTH enforced: **G1** — capability, ENFORCED on
+      `D_target`'s own held-out val split (the run-2 protocol; `gates.py`'s
+      `run_exact_match_gate` re-derives the split via `data.val_fraction`/
+      `seed`, which the eval-only pin configs deliberately omit) — plus
+      **G8** (new, §4) TinyStories retention on run-1's frozen val stream,
+      both scored `--no-record` first. `D_target_eval` is RECORDED on the
+      same parent checkpoint as G5 evidence (zero/16-shot + shared-set test
+      loss), not gated — the plan's "capability on `D_target_eval`" phrasing
+      is satisfied by this G5-evidence + G1-enforcement pair, not a pass bar
+      on `D_target_eval` itself. (3) Three floors reported — OCV primary,
+      test, min-val; floor named on every figure; a marker verdict counts
+      only if the shape holds across floors. (4) Edge rule: a peak at
+      n=316228 reads "unresolved," not "no teaching." (5) Fixed-cost
+      control: base step-0 mean label-token loss on bare prompts recorded
+      once (a fixed digit cost decays like 1/n and can fake a decreasing
+      limb).
+    - **Pre-registered decision rule, falsifiable both ways:** Arm A
+      teaching marker = a contiguous RISING span of EDL/D across the grid,
+      under OCV and test floors. Arm B elicitation marker = monotone
+      DECREASING EDL/D, both floors. Both land → owner picks heavier
+      verification (denser grid/seeds) or the mechanistic phase (snapshot
+      re-runs, fig2nl3s pattern). A marker fails with the premise verified
+      (parent gated, guards held) → genuine discrepancy, escalate, never
+      tune.
+    - **Deviations from the paper (pre-declared):** val convergence on 1M
+      unique examples vs the paper's single epoch over 4M unique;
+      capability certified by gate rather than assumed; single-line
+      scaffold rendering vs line-broken (cosmetic, frozen repo convention —
+      paper's E.2 pre-teach is scaffolded and its target is bare, ours
+      matches both); targets LoRA r128 (owner efficiency choice) vs the
+      paper's r512-at-1B; parent full-FT matches paper App. E.
+    - **Built this session:** `configs/ts38_pretaught_parent.yaml`,
+      `configs/ts38_base.yaml`, `configs/ts38_pretaught.yaml` +
+      `configs/sweeps/ts38/` (10 size overlays + `parent_lr_1e-4.yaml`
+      fallback rung); `scripts/launch_ts38_mini.sh` (stage 0 relay
+      receiver-verify of `evt-run1-base-v3-ext` → data verify → premise
+      guard + step-0 fixed-cost record → gated parent → Arm A ascending →
+      Arm B ascending); `gates.py g8`; `train_target.py`
+      `require_full_epoch1` (spec 02 V5.75/V5.76, above). **Cross-model
+      comparisons vs the Llama families (fig2nl3, EXPERIMENTS §6.13) are
+      SHAPE-ONLY** — different tokenizers, magnitudes don't transfer.
+    - **Budget:** ~11 runs ≈ a day on one A100, single-digit dollars;
+      launcher requires `--confirm-cost`.
+    - **Status: BUILT 2026-08-14, NOT LAUNCHED.** G8's bar (1.1718 = base
+      min_val 1.0718 + a pre-declared delta of 0.10) carries an **OPEN**
+      item: the 0.10 delta needs owner ratification before launch (see
+      decisions.md 2026-08-14).
 
 ## 7. Budget
 

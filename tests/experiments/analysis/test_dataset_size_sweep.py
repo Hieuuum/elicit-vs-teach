@@ -307,8 +307,8 @@ def test_nl3_family_run_ids_are_disjoint_from_all_others() -> None:
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl3-noinst-n1000") is not None
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl3x-inst-n1000") is None
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl4-inst-n1000") is None
-    # All four stems distinct (write_results is overwrite-by-name).
-    assert len({dss.FAMILIES[f][1] for f in dss.FAMILIES}) == 4
+    # All five stems distinct (write_results is overwrite-by-name).
+    assert len({dss.FAMILIES[f][1] for f in dss.FAMILIES}) == 5
 
 
 def test_nl_family_writes_a_separate_table_from_the_shipped_op_one(tmp_path: Path) -> None:

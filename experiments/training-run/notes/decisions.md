@@ -5751,3 +5751,85 @@ Measured throughput: ~10.9K tokens/s (2000 steps = 131M tokens in ~3.35 h)
 → the 30K-step ceiling is ~50 h wall; plateau expected earlier. Probe run
 dirs are deleted before the production launch (their manifests record
 stop_reason=max_steps by design).
+
+## 2026-08-14 (ts38 mini) — family built: elicit-vs-teach EDL markers on the 38.7M base (EXPERIMENTS §6.14)
+
+Ratified plan: `project-ts38-mini-plan-2026-08-14` (owner, 2026-08-14). Full
+handoff detail lives there; this entry records what shipped and why, plus
+findings surfaced while building it.
+
+**Built this session:** `configs/ts38_pretaught_parent.yaml`,
+`configs/ts38_base.yaml`, `configs/ts38_pretaught.yaml` +
+`configs/sweeps/ts38/` (10 size overlays for Arm A/B × the 5-size grid +
+`parent_lr_1e-4.yaml` fallback rung); `scripts/launch_ts38_mini.sh` (stage 0
+relay receiver-verify of `evt-run1-base-v3-ext` → data verify → premise
+guard + step-0 fixed-cost record → gated parent → Arm A ascending → Arm B
+ascending); `gates.py g8` (TinyStories retention gate); `train_target.py`'s
+`experiment.require_full_epoch1` flag (spec 02 V5.75 launch guard, V5.76
+`epoch1_examples` persistence + loud truncation failure); specs 00/02
+updated in the same commits. EXPERIMENTS §6.14 + a new G8 row in §4 record
+the design; `runs-index.md` carries the 11 planned run rows (lifecycle
+`planned`, artifacts `none (planned)` — not yet launched).
+
+**Corrections from the configs/launcher integration pass:** (1) arm-letter
+mapping — `train_target.py` hardcodes `ARM_REGIME = {"A": "elicit", "B":
+"teach"}` (all prior families comply), the OPPOSITE of this doc's plan-prose
+"Arm A (teach)" / "Arm B (elicit)" role labels; the configs correctly follow
+the codebase convention, so `evt-ts38-base-*` manifests carry `arm: B`/
+`regime: teach` and `evt-ts38-pretaught-*` manifests carry `arm: A`/
+`regime: elicit` — EXPERIMENTS §6.14 now flags the plan-prose letters as role
+labels only, distinct from the manifest `arm` field. (2)
+`ts38_pretaught_parent.yaml`'s `eval_every` was corrected from 500 (a
+transcription slip in the build pin) to 1000, matching `run2_algo.yaml`'s
+actual value — the parent's whole stopping shape claims run-2 scope
+(scope-check-pins), so `eval_every` inherits with it.
+
+**Why `require_full_epoch1` exists (verified, not hypothetical):** the
+shipped op-family Fig-2 sweep's n=1,000,000 endpoint pair
+(`evt-llama-fig2-{noinst,inst}-n1000000`) both trained with
+`stopping.min_steps=0` and both stopped mid-epoch-1:
+`analysis/edl_converged_val_floor_op.csv` records noinst `final_step=6000`,
+`epoch1_examples=768000` and inst `final_step=7000`, `epoch1_examples=896000`
+— against a 7,813-step full epoch at n=1M/batch 128 (confirmed against the
+local manifests: `training.stopping.min_steps=0` for both). ε/k fired on a
+mid-epoch-1 plateau in both arms, so the shipped "arms converged by 1M"
+reading for that pair rests on a partial MDL integral, not the intended full
+epoch 1. ts38 mini's target runs pin `min_steps = ceil(n/128)` (an exact,
+no-drop-last epoch-1 pass) and assert `epoch1_examples == n` at finalize,
+raising loudly instead of silently truncating (V5.75/V5.76 above).
+
+**Span-test premise correction:** the ratified plan's pre-flight item ("the
+existing span-alignment test covers the Llama tokenizer only") is WRONG — it
+inherited a mislabeled phrase from the 2026-08-12 decisions.md entry
+("frozen Llama tokenizer artifact"), which itself only described that day's
+fig2nl3 check accurately. `tests/lib/arith/test_spans.py` already exercises
+`bare_nl` span alignment on the custom 10K byte-level BPE tokenizer frozen
+at `experiments/training-run/tokenizer/` (vocab 10000, digit pre-split,
+TinyStories corpus per its own `meta.json`, frozen at commit `876fab8`) —
+the TinyStories tokenizer ts38 mini actually needs. This item is RESOLVED as
+already-covered; the 2026-08-12 entry is left unedited (it was correct about
+what it described that day).
+
+**G8 open item:** the retention bar (1.1718 nats/token = base min_val 1.0718
++ a pre-declared delta of 0.10) needs owner ratification before launch — the
+delta itself was never scored against a real damaged/undamaged parent for
+this base model (unlike G1/G2's run-2-derived bars). Flagged in EXPERIMENTS
+§4 and §6.14; do not run the parent gate against this bar until the owner
+confirms the delta.
+
+**fig2nl3 n=1M verification (independent follow-up item from the plan):**
+checked whether the fig2nl3 n=1,000,000 endpoint pair
+(`evt-llama-fig2nl3-{noinst,inst}-n1000000`) has the same mid-epoch-1
+truncation as the op family, per the plan's "cheap follow-up, independent"
+item. **Not verifiable from the laptop:** `mhieuuu/geode-store` (relay, HF
+model repo; `env -u HF_TOKEN` login confirmed live as `mhieuuu`) has zero
+`fig2nl3`-prefixed entries under `runs/` — not a missing manifest on an
+otherwise-present run dir, the run dirs themselves are absent (confirmed via
+a full `runs/` listing: 72 `fig2`/`fig2nl`-prefixed dirs are present, none
+`fig2nl2` or `fig2nl3`). `scripts/push_fig2_families.sh` (shipped 2026-08-13
+per that day's entry) evidently has not completed against this relay as of
+this check — no speculation on why. §6.13's OUTCOME paragraph is left
+unedited per the plan's own instruction (no manifest access ⇒ no qualifier
+to write). Needs the owner box or a relay push to verify; the op family's
+truncation (above) stands as the one verified instance of this failure
+mode.
