@@ -1,0 +1,14 @@
+# ts38 mini sweep point: n=100000. This run IS the G7 anchor — the same-size
+# ts38_pretaught_n100000.yaml overlay points match_data_order_with at
+# evt-ts38-base-n100000. Overlay over ../../ts38_base.yaml. eval_every/
+# max_steps copied verbatim from the matching-size llama_fig2nl3 overlay
+# (llama_fig2nl3_{inst,noinst}_n100000.yaml). min_steps = ceil(100000/128) =
+# 782 (require_full_epoch1 guard, ts38-mini guard 1).
+run_id: evt-ts38-base-n100000
+data:
+  n_examples: 100000
+train:
+  eval_every: 125
+  max_steps: 10000
+  stopping:
+    min_steps: 782

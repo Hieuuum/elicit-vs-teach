@@ -1,0 +1,118 @@
+# ts38 mini — pre-taught parent (EXPERIMENTS §6.14; RATIFIED plan
+# project-ts38-mini-plan-2026-08-14.md). Full FT on D_target (1M op-notation
+# add/sub, CORRECT labels, scaffolded "Question: 23 + 45\nAnswer: 68"), from
+# the base TinyStories floor, via scripts/train_sft.py — paper App. E: "all
+# pre-training interventions are full FT". This checkpoint becomes theta0 for
+# the evt-ts38-pretaught (elicit) arm's LoRA targets; evt-ts38-base's targets
+# start from the untouched base instead — the two arms differ ONLY in theta0.
+#
+# Design lineage: Donoway et al. Sec 5 / Fig-3 causal intervention (base =
+# teaching vs pre-taught = elicitation), NOT the Fig-2 TinyStories pair.
+#
+# NO top-level `lora:` block in this file, ON PURPOSE. train_sft.py's
+# own_lora_block() (2026-07-31 incident guard; see
+# test_llama_fig2nl_installer_opts_into_lora_via_own_lora_block) gates
+# training.method on whether THIS run's OWN yaml (or its --override) declares
+# a `lora:` key — verified directly in train_sft.py: `if "lora" in own:
+# return cfg["lora"]`, checked against the file's own un-merged mapping, not
+# the deep-merged cfg. common.yaml's shared default lora block (r128/alpha32,
+# inherited by every config via deep_merge) deliberately does NOT count.
+# Omitting the key here is what selects training.method: full_ft in the
+# manifest; adding one by habit would silently switch this run to LoRA and
+# invalidate the whole elicit arm.
+#
+# BEFORE LAUNCH (owner):
+#   1. evt-run1-base-v3-ext must be status: complete (V0.6) — the only
+#      relay checkpoint still carrying weights after
+#      [[project-geode-store-storage-cleanup-2026-08-14]]; verify it actually
+#      loads before spending (receiver-not-sender,
+#      [[feedback-verify-the-receiver-not-the-sender]]).
+#   2. train.lr 3e-4 is the run-2 pin (same scale/method/stage/task-family:
+#      run2_algo.yaml, min_val 0.0037 / G1 0.9961) — not re-derived here.
+#      Fallback rung sweeps/ts38/parent_lr_1e-4.yaml if G1/G8 fail at 3e-4.
+#   3. Both parent gates must be scored --no-record first
+#      ([[feedback-gate-thresholds-are-task-scoped]]) before
+#      evt-ts38-pretaught's launch reads them as parent_required_gates:
+#      G1 = capability on D_target_eval (configs/eval_target_data.yaml — its
+#      pinned order_hash already matches this file's data.order_hash, see
+#      the data block note below) and G8 = TinyStories-val retention gate
+#      (bar 1.1718 nats = base evt-run1-base-v3-ext's min_val 1.0718 + the
+#      pre-declared 0.10 delta; new gate, implemented in gates.py by a
+#      parallel agent).
+run_id: evt-ts38-pretaught-parent
+experiment:
+  name: training-run
+  arm: A                       # ARM_REGIME["A"] == "elicit" (train_target.py)
+                                # — this parent feeds the elicit-arm chain.
+                                # train_sft.py hardcodes regime: "unknown" for
+                                # full-FT runs and never looks this up, so the
+                                # value here is documentation only, kept
+                                # consistent with run2_algo.yaml's precedent
+                                # and with ts38_pretaught.yaml's arm (see that
+                                # file's header for the family-wide arm-letter
+                                # note — plan prose "Arm A/B" vs ARM_REGIME).
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext  # TinyStories 38.7M floor-1, min_val 1.0718
+  parent_required_gates: []    # run 1 carries no required gates (G0 removed
+                                # 2026-07-20, spec 02 §8) — the launcher's
+                                # status: complete check is the only bar.
+                                # Mirrors run2_algo.yaml/run4_inst.yaml, the
+                                # only two run-1-based configs in the repo.
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_op_addsub         # operator-notation add/sub (D_target); TaskFormat
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target.parquet        # 1M op-notation add/sub, correct labels, seed 20260717
+  # Verified against run5_target.yaml/run6_target.yaml's pin — identical
+  # 69e3b09e... — the plan's parent-row hash matches the existing configs
+  # exactly; no deviation.
+  order_hash: 69e3b09e2dd599e4ad8948fe2a5a19e67989be51bc006e8d4e220818ce16d0f7
+  # No eval_file/eval_order_hash here: train_sft.py (unlike train_target.py)
+  # never reads those keys — only val_fraction, to carve its OWN in-training
+  # val split from D_target. The D_target_eval pin the plan's parent row
+  # names lives in the existing configs/eval_target_data.yaml
+  # (order_hash 588da81e...c8, verified identical to the plan's pin here;
+  # "no training run consumes this config" per that file's own header — G1
+  # reads it directly at gate time).
+  val_fraction: 0.005            # 5,000 held-out, run-2 convention (questions
+                                  # unique across the file, so the split
+                                  # cannot leak)
+  seed: 316
+
+train:
+  lr: 3.0e-4                    # run-2 pin (header note 2)
+  batch_size: 128
+  # Mirrors run2_algo.yaml's actual eval_every (1000). The build-session pin
+  # said "run-2/500", but 500 was a transcription slip — the parent's whole
+  # LR/stopping shape claims run-2 scope (same scale/method/stage/task-
+  # family), so the archived file wins (scope-check-pins; orchestrator
+  # decision 2026-08-14, see decisions.md).
+  eval_every: 1000
+  # PINNED ceiling (plan): ~5.15 epochs of 7773 (=
+  # floor((1,000,000-5,000)/128), same val-split arithmetic as run2's own
+  # 7773-step epoch; the plan's "7813" is a rough approximation of that
+  # figure, not a distinct pin). A generous cost ceiling — never a planned
+  # stop; stop_reason=max_steps stays a bug signal (owner policy,
+  # [[feedback-run-until-convergence]]).
+  max_steps: 40000
+  stopping:                    # loss branch of the V0.7 union (no `metric`)
+    eps_nats: 0.002
+    k: 5
+    min_steps: 5000             # run-2 convention (grace; V5.42)
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 5      # ceiling metadata; ~5.15 epochs at 40000/7773
+
+cost:
+  assumed_epochs_for_estimate: 5  # quote the ceiling (worst case), not the
+                                   # expected stop — run-2 convention
