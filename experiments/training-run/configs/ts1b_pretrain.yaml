@@ -62,9 +62,13 @@ data:
   seed: 316
 
 train:
-  lr: 5.0e-4                  # PLACEHOLDER — pin from the ts1b LR mini-sweep
-                              # before the production launch (header). Dot-
-                              # mantissa form mandatory (YAML 1.1).
+  lr: 3.0e-4                  # PINNED 2026-08-14 from the mini-sweep (val
+                              # nats @ step 2000): 1e-3 -> 2.868 (unstable at
+                              # 1B — run-1's 38.7M pin does NOT transfer),
+                              # 5e-4 -> 1.424, 3e-4 -> 1.311. The coldest rung
+                              # winning EARLY means 5e-4 is already hot-side;
+                              # convergence stopping tolerates slightly-cold.
+                              # Dot-mantissa form mandatory (YAML 1.1).
   batch_size: 128             # effective batch (run-1 convention)
   micro_batch_size: 8         # accumulation 16x8: fp32 logits at vocab
                               # 128256 are ~2.1 GB per micro-batch of 8 —

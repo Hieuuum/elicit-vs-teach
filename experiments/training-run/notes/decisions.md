@@ -5737,3 +5737,17 @@ changes: `_save_snapshot` writes serially, so a step_N file is complete
 once any higher step exists (the newest is held back until the launcher's
 DONE marker; the drain pass also takes snapshots/base/). Peak local disk
 drops from ~95 GB to a few snapshots (~5-10 GB).
+
+## 2026-08-14 — ts1b pretrain LR pinned 3e-4 (mini-sweep); production launch is GO
+
+Mini-sweep (2000-step probes, val nats at step 2000, ~3.4 h each on the
+A100): 1e-3 → 2.868 (unstable at 1.24B — run-1's 38.7M pin does not
+transfer, as suspected); 5e-4 → 1.424; **3e-4 → 1.311, pinned**. The
+coldest rung winning at step 2000 — where cold LRs are normally
+disadvantaged — puts 5e-4 already on the hot side; no colder probe needed
+(convergence stopping tolerates slightly-cold at the cost of steps only).
+
+Measured throughput: ~10.9K tokens/s (2000 steps = 131M tokens in ~3.35 h)
+→ the 30K-step ceiling is ~50 h wall; plateau expected earlier. Probe run
+dirs are deleted before the production launch (their manifests record
+stop_reason=max_steps by design).
