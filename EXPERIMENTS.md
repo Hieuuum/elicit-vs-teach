@@ -163,7 +163,7 @@ ungated inspection tool.
 | G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. **1M pair: run 7 (A) 0.9971 / 0.0025 vs run 8 (B) 0.9551 / 0.0312 — 12.4× θ_T gap. Llama: run 9 parent 0.0000 / 9.26, run 10 0.9844 / 0.0232 — measured with `eval_target_data_llama.yaml` (an eval's tokenizer must match the model under eval; decisions.md 2026-07-24)**. **Caution (2026-07-25): run 9's 0.0000 was read as "latent as required" — it is not that. It is op-notation after random-label training, not the retention probe. The retention probe is NL add/sub vs a base baseline, and on it run 9 v1 scored 0.0000 against base Llama's 0.3271: the capability was destroyed, not latent. See runs 9-v2/10-v2.** 16-shot ≈ 0 everywhere incl. the 1.24B Llama (collapse — invalidated as a metric; decisions.md) |
 | G6 | phase-3 bridge | held-out bidirectional translation exact text match; aggregate and both directions ≥95% | built, unrun (`gates.py g6`; frozen 4,096-row eval) |
 | G7 | before matched target | identical frozen target `data_order_hash` + prefix against its anchor | enforced at launch |
-| G8 | ts38 pre-taught parent (§6.14) | TinyStories retention on a pre-taught parent: mean val loss (nats/token) on run 1's frozen TS validation stream, pass iff ≤ a pinned absolute bar | **LIVE — first real scoring 2026-08-14 caught a real fail**: the 3e-4 parent scored 9.9579 nats vs bar 1.1718 (G1 0.9883 pass — capability installed, retention destroyed; the exact fig2nl confound this gate exists to block). Anchor exact (base 1.071794 = manifest, |Δ| 0). Bar 1.1718 (= base min_val 1.0718 + delta 0.10, **ratified by owner 2026-08-14**, ≈10% relative perplexity tolerance). Parent LR ladder running in response — decisions.md 2026-08-14 (ladder entry) |
+| G8 | ts38 pre-taught parent (§6.14) | TinyStories retention on a pre-taught parent: mean val loss (nats/token) on run 1's frozen TS validation stream, pass iff ≤ a pinned absolute bar | **LIVE — first real scoring 2026-08-14 caught a real fail**: the 3e-4 parent scored 9.9579 nats vs bar 1.1718 (G1 0.9883 pass — capability installed, retention destroyed; the exact fig2nl confound this gate exists to block). Anchor exact (base 1.071794 = manifest, |Δ| 0). Bar 1.1718 (= base min_val 1.0718 + delta 0.10, **ratified by owner 2026-08-14**, ≈10% relative perplexity tolerance). The pre-registered descending ladder ran to completion 2026-08-15 — 3e-4 9.9579 / 1e-4 3.5983 / 3e-5 1.2074 (all G1 pass) / 1e-5 1.1904 post-hoc (G1 0.9404 fail, converged @68k) — every rung FAILS G8: full FT on arithmetic-only data cannot certify a parent under G1+G8 at 38.7M (design result, decisions.md 2026-08-15 "ladder CLOSED" entry); next parent is a LoRA r128/α32 install (pre-declared there), same gate, same bar, `model_merged/` for Arm B init. |
 
 ## 5. Workflow
 
@@ -806,7 +806,8 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     decisions.md 2026-08-13.
 
 14. **ts38 mini — elicit-vs-teach EDL marker confirmation on the 38.7M base;
-    RATIFIED 2026-08-14, BUILT 2026-08-14, NOT LAUNCHED.** The smallest run
+    RATIFIED + BUILT 2026-08-14, LAUNCHED 2026-08-14; full-FT parent
+    ladder CLOSED 2026-08-15 (design result) → LoRA parent.** The smallest run
     that confirms one arm is genuinely *teaching* and the other genuinely
     *elicitation* via the paper's EDL/label-token signature, on ONE
     architecture, as the controlled substrate for the mechanistic
@@ -828,7 +829,14 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
       all pre-training interventions are full FT; lr 3e-4 run-2 pin — same
       scale/method/stage/task-family as run 2's min_val 0.0037 / G1 0.9961
       — fallback rung `parent_lr_1e-4.yaml`; `D_target` 1M op-notation
-      add/sub, correct labels, scaffolded, frozen runs-5/6 artifact). Arm A
+      add/sub, correct labels, scaffolded, frozen runs-5/6 artifact; the
+      full-FT App. E parent above is now the design result, not the parent
+      in use — the parent is `configs/ts38_pretaught_parent_lora.yaml`, a
+      LoRA r128/α32 install with LR from a pre-registered one-epoch sweep
+      {1e-3,3e-4,1e-4,3e-5} selected on sweep-end G8 ≤ 1.1718 + descending
+      val, ONE full run at the winner, ceiling 160k ≈ 20.6 epochs; gated
+      artifact = the wrapped `model/`, Arm B inits from `model_merged/`).
+      Arm A
       `evt-ts38-base-n{1000,4642,21544,100000,316228}` (teach: init=base,
       LoRA r128/α32, lr 1e-3 target-stage pin, `D_algo_bare` frozen order
       `946b5d02…`). Arm B `evt-ts38-pretaught-n{same 5}` (elicit:
@@ -909,20 +917,54 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
       footprint is trivial, so A100's capacity buys nothing here; a 4090
       gives comparable per-step throughput at a fraction of the hourly
       rate — see decisions.md 2026-08-14).
-    - **Status: LAUNCHED 2026-08-14; parent in the LR ladder.** G8's bar
-      (1.1718 = base min_val 1.0718 + a pre-declared delta of 0.10) is
-      **ratified** by the owner 2026-08-14 (see decisions.md). First launch
-      outcome, same day: the run-2 LR pin (3e-4) trained a parent that
-      passed G1 (0.9883) but **failed G8 at 9.9579 nats** — the pin was
-      validated under gate set {G1} only (G8 postdates run 2), and the
-      paper's own hyperparameters run full FT ~17× below LoRA LR at 1B
-      (2e-5 vs 3.53e-4). Response, owner-approved sweep-first: stage 2 of
-      `launch_ts38_mini.sh` is now a **pre-registered descending LR
-      ladder** (3e-4 ✗ → 1e-4 → 3e-5 → 1e-5); first rung passing **both**
-      gates is the parent, G1-fail or exhaustion HALTs for the owner,
-      failed rungs archive to `runs-failed/`, per-rung numbers in
-      `results/ts38_parent_ladder.json`. Neither bar moved. Adds ≤3 parent
-      runs (~25–45 min, ~$0.10 each on the 4090).
+    - **Status: full-FT parent ladder CLOSED 2026-08-15 (design result);
+      LoRA parent next.** G8's bar (1.1718 = base min_val 1.0718 + a
+      pre-declared delta of 0.10) is **ratified** by the owner 2026-08-14
+      (see decisions.md). First launch outcome, 2026-08-14: the run-2 LR
+      pin (3e-4) trained a parent that passed G1 (0.9883) but **failed G8
+      at 9.9579 nats** — the pin was validated under gate set {G1} only
+      (G8 postdates run 2). Response, owner-approved sweep-first: stage 2
+      of `launch_ts38_mini.sh` became a **pre-registered descending LR
+      ladder** (3e-4 → 1e-4 → 3e-5 → 1e-5), which ran to completion
+      2026-08-15 — all four rungs converged (eps/k, not the cost ceiling):
+
+      | rung | final_step | min_val | G1 (≥0.95) | G8 (≤1.1718) |
+      |---|---|---|---|---|
+      | 3.0e-4 | 21000 | 0.006350 | 0.9883 pass | 9.9579 FAIL |
+      | 1.0e-4 | 25000 | 0.008426 | 0.9863 pass | 3.5983 FAIL |
+      | 3.0e-5 | 40000 | 0.011681 | 0.9785 pass | 1.2074 FAIL |
+      | 1.0e-5 | 68000 | 0.038158 | 0.9404 FAIL | 1.1904 FAIL (post-hoc) |
+
+      1e-5's G8 is a post-hoc `--no-record` score on the converged 68k
+      checkpoint (the ladder's own G1-fail rule halted before G8 was
+      scored); a distinct earlier attempt at this rung hit its original
+      40k cost ceiling and was archived before the ceiling was raised to
+      240k and the rung replayed from scratch — that ceiling-cut checkpoint
+      scored G1 0.8809 / G8 1.1431 PASS, 0.029 headroom. Every rung FAILS
+      G8: full FT on arithmetic-only data cannot certify a parent under
+      G1+G8 at 38.7M for any LR in [1e-5, 3e-4] — a **design result**, not
+      an LR-tuning failure (decisions.md 2026-08-15 "ladder CLOSED" entry).
+      Neither bar moved. Archived to
+      `runs-failed/evt-ts38-pretaught-parent-lr{3.0e-4,1.0e-4,3.0e-5,
+      1.0e-5-ceil40k,1.0e-5-g1fail}` (metadata pushed to the public relay
+      `mhieuuu/geode-store`); per-rung numbers in
+      `results/ts38_parent_ladder.json`.
+
+      **Next parent, pre-declared: LoRA r128/α32 install**
+      (`configs/ts38_pretaught_parent_lora.yaml`). Protocol: a short
+      one-epoch sweep {1e-3, 3e-4, 1e-4, 3e-5} selects the highest LR with
+      sweep-end G8 ≤ 1.1718 and descending val, then ONE full run at the
+      winner with G1 → G8 RECORDED (same bars), then `merge_adapter.py`
+      folds the adapter to `model_merged/`; `launch_ts38_mini.sh` then
+      sees the recorded pass and prints `ladder_skip parent already
+      gated`. New launcher `scripts/launch_ts38_lora_parent.sh` runs the
+      sweep and the full run. Failure rules, pre-declared: sweep exhausted
+      or the full run fails G1 → design result #2, hold for the owner; the
+      full run fails G8 → one pre-declared fallback to the next-lower
+      sweep-passing LR, then hold if that also fails. Reading caveat: the
+      "pre-taught" parent is now an adapter-installed base rather than
+      App. E full FT — a substrate choice forced by G8, not a measurement
+      change; state it next to the verdict.
 
 ## 7. Budget
 

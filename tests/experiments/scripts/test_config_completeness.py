@@ -195,17 +195,22 @@ def test_warmstart_targets_pin_one_100k_pass(override: str, match_with: str | No
 # eval_every/max_steps are copied verbatim from the matching-size
 # llama_fig2nl3 overlay (llama_fig2nl3_{inst,noinst}_n<size>.yaml);
 # min_steps is the ts38-mini guard-1 value (require_full_epoch1).
+# max_steps for n100000/n316228 raised 2026-08-15 (commit 6b735f1) to meet
+# the >=20-epoch cost-ceiling floor (ceilings must never bind) —
+# 10000->15625 and 30000->50000; this pin was stale until fixed here
+# (found while adding the LoRA-parent tests below; re-read directly off the
+# committed yaml, not the commit message).
 TS38_OVERLAYS = [
     ("sweeps/ts38/ts38_base_n1000.yaml", 1000, 5, 1000, 8),
     ("sweeps/ts38/ts38_base_n4642.yaml", 4642, 5, 1000, 37),
     ("sweeps/ts38/ts38_base_n21544.yaml", 21544, 25, 5000, 169),
-    ("sweeps/ts38/ts38_base_n100000.yaml", 100000, 125, 10000, 782),
-    ("sweeps/ts38/ts38_base_n316228.yaml", 316228, 375, 30000, 2471),
+    ("sweeps/ts38/ts38_base_n100000.yaml", 100000, 125, 15625, 782),
+    ("sweeps/ts38/ts38_base_n316228.yaml", 316228, 375, 50000, 2471),
     ("sweeps/ts38/ts38_pretaught_n1000.yaml", 1000, 5, 1000, 8),
     ("sweeps/ts38/ts38_pretaught_n4642.yaml", 4642, 5, 1000, 37),
     ("sweeps/ts38/ts38_pretaught_n21544.yaml", 21544, 25, 5000, 169),
-    ("sweeps/ts38/ts38_pretaught_n100000.yaml", 100000, 125, 10000, 782),
-    ("sweeps/ts38/ts38_pretaught_n316228.yaml", 316228, 375, 30000, 2471),
+    ("sweeps/ts38/ts38_pretaught_n100000.yaml", 100000, 125, 15625, 782),
+    ("sweeps/ts38/ts38_pretaught_n316228.yaml", 316228, 375, 50000, 2471),
 ]
 TS38_OVERLAY_PATHS = [row[0] for row in TS38_OVERLAYS]
 TS38_BASE_FILES = ["ts38_pretaught_parent.yaml", "ts38_base.yaml", "ts38_pretaught.yaml"]
@@ -474,3 +479,174 @@ def test_ts38_overlay_builds_a_manifest(path: str) -> None:
         mask_hash="0" * 64,
         precision="bf16",
     )
+
+
+# =============================================================================
+# ts38 LoRA-installed parent (decisions.md 2026-08-15, "ts38 ladder CLOSED:
+# 1e-5 converged ... full-FT parent is a DESIGN RESULT; LoRA-installed
+# parent pre-declared"). Every rung of the full-FT ladder above
+# (ts38_pretaught_parent.yaml + parent_lr_*.yaml) either passed G1 and
+# failed G8, or (the bottom rung) failed G1 outright — full FT cannot
+# certify a parent under both bars. ts38_pretaught_parent_lora.yaml
+# supersedes it as the thing actually launched, reusing the SAME run_id
+# (evt-ts38-pretaught-parent); the two base configs are mutually exclusive
+# ways of producing that one run, never launched together. Kept as its own
+# section (not folded into TS38_FILES/TS38_RUN_ID_FILES above) because
+# those lists are indexed positionally elsewhere (TS38_BASE_FILES[1:]) and
+# this family's run-id shape (sweep ids, not `-n<size>` overlays) does not
+# fit _TS38_RUN_ID_PATTERN.
+# =============================================================================
+
+LORA_PARENT_CONFIG = "ts38_pretaught_parent_lora.yaml"
+LORA_LR_TOKENS = {
+    "1e-3": 1.0e-3,
+    "3e-4": 3.0e-4,
+    "1e-4": 1.0e-4,
+    "3e-5": 3.0e-5,
+}
+LORA_SWEEP_OVERLAYS = [f"sweeps/ts38/parent_lora_sweep_lr_{tok}.yaml" for tok in LORA_LR_TOKENS]
+LORA_FULL_OVERLAYS = [f"sweeps/ts38/parent_lora_lr_{tok}.yaml" for tok in LORA_LR_TOKENS]
+LORA_FILES = [LORA_PARENT_CONFIG, *LORA_SWEEP_OVERLAYS, *LORA_FULL_OVERLAYS]
+
+# edl_converged_val_floor.py's ts38 family regex — sweep/winner run ids must
+# NOT match it (they are infrastructure, not `-n<size>` target overlays).
+_TS38_FAMILY_REGEX = re.compile(r"^evt-ts38-(base|pretaught)-n(\d+)$")
+# launch_ts38_mini.sh's ladder skip pattern for the retired full-FT ladder.
+_TS38_LADDER_SKIP_PATTERN = re.compile(r"^evt-ts38-pretaught-parent-lr")
+
+
+def test_ts38_lora_parent_family_files_exist() -> None:
+    assert len(LORA_FILES) == 9
+    for rel in LORA_FILES:
+        assert (CONFIGS / rel).is_file(), rel
+
+
+def test_ts38_lora_parent_config_merged_values() -> None:
+    cfg = load_config(CONFIGS / LORA_PARENT_CONFIG, None)
+    assert cfg["train"]["lr"] is None
+    assert cfg["train"]["max_steps"] >= 20 * 7773
+    assert cfg["run_id"] == "evt-ts38-pretaught-parent"
+    parent = load_config(CONFIGS / "ts38_pretaught_parent.yaml", None)
+    assert cfg["data"]["order_hash"] == parent["data"]["order_hash"]
+
+
+def test_ts38_lora_parent_own_yaml_declares_lora() -> None:
+    # The un-merged file, not the deep-merged cfg — this is what
+    # own_lora_block actually reads to opt in (see the test below).
+    raw = yaml.safe_load((CONFIGS / LORA_PARENT_CONFIG).read_text())
+    assert raw["lora"]["r"] == 128
+    assert raw["lora"]["alpha"] == 32
+
+
+def test_ts38_lora_parent_merged_target_modules() -> None:
+    cfg = load_config(CONFIGS / LORA_PARENT_CONFIG, None)
+    assert cfg["lora"]["target_modules"] == [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+    ]
+
+
+@pytest.mark.parametrize("token", sorted(LORA_LR_TOKENS))
+def test_ts38_lora_sweep_overlay_values(token: str) -> None:
+    overlay = CONFIGS / f"sweeps/ts38/parent_lora_sweep_lr_{token}.yaml"
+    cfg = load_config(CONFIGS / LORA_PARENT_CONFIG, overlay)
+    assert isinstance(cfg["train"]["lr"], float)
+    assert cfg["train"]["lr"] == LORA_LR_TOKENS[token]
+    assert cfg["train"]["max_steps"] == 8000
+
+
+def test_ts38_lora_sweep_run_ids_distinct_and_out_of_family() -> None:
+    run_ids = [
+        yaml.safe_load((CONFIGS / f"sweeps/ts38/parent_lora_sweep_lr_{tok}.yaml").read_text())[
+            "run_id"
+        ]
+        for tok in LORA_LR_TOKENS
+    ]
+    assert len(set(run_ids)) == len(run_ids)
+    for rid in run_ids:
+        assert not _TS38_FAMILY_REGEX.match(rid), rid
+        assert rid != "evt-ts38-pretaught-parent"
+        assert not _TS38_LADDER_SKIP_PATTERN.match(rid), rid
+
+
+@pytest.mark.parametrize("token", sorted(LORA_LR_TOKENS))
+def test_ts38_lora_full_overlay_shape(token: str) -> None:
+    path = CONFIGS / f"sweeps/ts38/parent_lora_lr_{token}.yaml"
+    raw = yaml.safe_load(path.read_text())
+    assert set(raw.keys()) == {"train"}
+    assert set(raw["train"].keys()) == {"lr"}
+    assert isinstance(raw["train"]["lr"], float)
+    assert raw["train"]["lr"] == LORA_LR_TOKENS[token]
+
+    cfg = load_config(CONFIGS / LORA_PARENT_CONFIG, path)
+    assert cfg["run_id"] == "evt-ts38-pretaught-parent"
+    assert cfg["train"]["max_steps"] == 160000
+
+
+def test_ts38_lora_parent_opts_into_lora_via_own_lora_block() -> None:
+    """Mirror of test_llama_fig2nl_installer_opts_into_lora_via_own_lora_block
+    and test_ts38_parent_has_no_own_lora_block, for the LoRA parent family:
+    the config (with or without a sweep override) must opt in, and the
+    retired full-FT parent must still opt out."""
+    train_sft = load("train_sft")
+    lora_path = CONFIGS / LORA_PARENT_CONFIG
+
+    lora_cfg = train_sft.own_lora_block(load_config(lora_path, None), lora_path, None)
+    assert lora_cfg is not None
+    assert (lora_cfg["r"], lora_cfg["alpha"]) == (128, 32)
+    assert lora_cfg["target_modules"] == [
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+    ]
+
+    sweep_path = CONFIGS / "sweeps/ts38/parent_lora_sweep_lr_1e-3.yaml"
+    lora_cfg_sweep = train_sft.own_lora_block(
+        load_config(lora_path, sweep_path), lora_path, sweep_path
+    )
+    assert lora_cfg_sweep is not None
+    assert (lora_cfg_sweep["r"], lora_cfg_sweep["alpha"]) == (128, 32)
+
+    full_ft_path = CONFIGS / "ts38_pretaught_parent.yaml"
+    assert train_sft.own_lora_block(load_config(full_ft_path, None), full_ft_path, None) is None
+
+
+def test_ts38_lora_parent_builds_a_lora_manifest() -> None:
+    """No committed config before this one has ever exercised
+    manifest_fields's LoRA branch (lora_cfg["r"]/["alpha"]/["target_modules"]/
+    ["dropout"]) — every existing LoRA-opted-in FULL_FT config
+    (run9_llama1b_inst.yaml, llama_fig2nl_installer.yaml) is tested with
+    lora_cfg=None. manifest_fields raises a bare KeyError deep inside
+    register_run (module docstring) on a real launch, minutes into a paid
+    box; this is the check that catches it before spend, mirroring
+    test_ts38_pretaught_parent_builds_a_full_ft_manifest for the LoRA side."""
+    train_sft = load("train_sft")
+    lora_path = CONFIGS / LORA_PARENT_CONFIG
+    winner_path = CONFIGS / "sweeps/ts38/parent_lora_lr_1e-3.yaml"
+    cfg = load_config(lora_path, winner_path)
+    lora_cfg = train_sft.own_lora_block(cfg, lora_path, winner_path)
+    assert lora_cfg is not None
+    manifest = train_sft.manifest_fields(
+        cfg,
+        n_params=1,
+        n_rows=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+        lora_cfg=lora_cfg,
+        step0={},
+        device="cpu",
+    )
+    assert manifest["training"]["method"] == "lora"
+    assert manifest["training"]["lora"]["rank"] == 128
+    assert manifest["training"]["lora"]["alpha"] == 32

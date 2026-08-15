@@ -606,14 +606,48 @@ done
 milestone "arm_a_complete sizes=${#SIZES[@]} (G7 anchors now registered)"
 
 # ---- stage 4: Arm B (elicit), ascending n ----------------------------------
-[[ -f $PARENT_MODEL/model.safetensors ]] ||
-  fail "no parent checkpoint at $PARENT_MODEL — stage 2 must complete before Arm B"
+# Init path resolved from the parent's OWN manifest (deliverable E,
+# decisions.md 2026-08-15 LoRA-parent entry): a full-FT parent's gated
+# artifact IS runs/<id>/model, but a LoRA parent's gated artifact is the
+# WRAPPED model/ (loads only via geode.zoo.load_model —
+# [[feedback-lora-checkpoints-load-via-zoo-load-model]]) — Arm B must warm
+# start from its MERGED plain weights instead
+# (launch_ts38_lora_parent.sh stage 3, runs/<id>/model_merged/).
+PARENT_METHOD=$(python3 - "$PARENT_RID" <<'PY'
+import json, os, sys
+from pathlib import Path
+
+p = Path(os.environ["GEODE_STORE"]) / "runs" / sys.argv[1] / "manifest.json"
+if not p.is_file():
+    print("missing")
+    sys.exit()
+d = json.loads(p.read_text())
+print(d.get("training", {}).get("method", "missing"))
+PY
+)
+case $PARENT_METHOD in
+  lora)
+    PARENT_INIT=$GEODE_STORE/runs/$PARENT_RID/model_merged
+    [[ -f $PARENT_INIT/model.safetensors ]] || fail \
+      "LoRA parent has no model_merged/ — run merge_adapter.py (launch_ts38_lora_parent.sh
+   stage 3) first; the wrapped model/ must never be from_pretrained'd (V0.9)"
+    ;;
+  full_ft)
+    PARENT_INIT=$PARENT_MODEL
+    [[ -f $PARENT_INIT/model.safetensors ]] ||
+      fail "no parent checkpoint at $PARENT_INIT — stage 2 must complete before Arm B"
+    ;;
+  *)
+    fail "no parent checkpoint at $PARENT_MODEL — stage 2 must complete before Arm B"
+    ;;
+esac
+milestone "parent_init method=$PARENT_METHOD path=$PARENT_INIT"
 for n in "${SIZES[@]}"; do
   rid=evt-ts38-pretaught-n${n}
   train_or_skip "$rid" \
     python3 train_target.py --config "$ARM_B_CONFIG" \
       --override "$OVERLAY_DIR/ts38_pretaught_n${n}.yaml" \
-      --init-from "$PARENT_MODEL" --confirm-cost
+      --init-from "$PARENT_INIT" --confirm-cost
   record_g5 "$rid"
 done
 

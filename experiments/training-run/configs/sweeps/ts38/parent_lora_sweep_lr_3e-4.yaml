@@ -1,0 +1,11 @@
+# LoRA-parent LR sweep, rung 2 of 4 (1e-3 -> HERE -> 1e-4 -> 3e-5). One
+# epoch of D_target (max_steps 8000 ~ 1.03x 7773 steps/epoch). Sweep =
+# selector: gates on this run are scored --no-record (decisions.md
+# 2026-08-15); the pick is the HIGHEST LR whose sweep-end G8 <= 1.1718 and
+# whose val is descending (finite; last eval < first eval). Numbers to
+# results/ts38_parent_lora_sweep.json.
+run_id: evt-ts38-parent-lorasweep-lr3e-4
+train:
+  lr: 3.0e-4      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)
+  max_steps: 8000
+  epochs_total_planned: 1

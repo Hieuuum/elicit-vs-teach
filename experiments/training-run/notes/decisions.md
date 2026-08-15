@@ -6119,3 +6119,113 @@ before a full run; sweeps select, gates score only the full run
 branch above is written to it). Post-hoc note on this ladder: four
 full-length rungs were the expensive way to learn a monotone LR→forgetting
 curve that a short sweep with a mid-run G8 read would have shown.
+
+## 2026-08-15 — ts38 ladder CLOSED: 1e-5 converged at G1 0.9404 (FAIL) with G8 1.1904 (FAIL) → full-FT parent is a DESIGN RESULT; LoRA-installed parent pre-declared (branch A, delegated judgment)
+
+**What landed (box, ~04:04 UTC).** The 1e-5 rung's from-scratch replay ran
+under the 240k ceiling and stopped by the eps/k rule: `training_meta.json`
+`stop_reason=converged`, `final_step=68000`, `min_val_nats=0.0382`
+(eps-gated best 0.0396 @63k; last five evals 0.0394/0.0457/0.0401/0.0401/
+0.0382 — a noisy plateau, no ≥0.002 improvement over k=5). The launcher
+scored **G1 0.9404 FAIL** (`+` 0.9616, `−` 0.9161; bar 0.95) and HALTed
+per the pre-registered G1-fail rule (G1 gates first, so G8 was not scored
+by the ladder). This is **branch A** of the 2026-08-15 pre-registration
+above (G1 fail + `converged`): a genuine convergence verdict — 30.9-epoch
+ceiling, eps/k fired on its own. Executed as pre-registered: no fifth
+rung, no stopping-rule change, no bar move, no seeds.
+
+**Post-hoc G8 for the record (agent, `--no-record`, nothing written): the
+converged 68k checkpoint scores G8 1.1904 nats (base 1.0718, delta +0.1186
+vs the +0.10 bar) → FAIL.** So even at the bottom rung, retention crossed
+the bar *before* capability reached G1 — the same monotone trade-off as
+the upper rungs, just slower. Together with the ceiling-cut 40k checkpoint
+(G1 0.8809 / G8 1.1431 PASS, 0.029 headroom) it brackets the crossing:
+between 40k and 68k steps at 1e-5, G8 rose 1.143 → 1.190 while G1 rose
+0.881 → 0.940. The full-FT trade-off has NO point satisfying both bars.
+Final ladder table (all `stop_reason=converged`; G8 for 1e-5 is the
+post-hoc score):
+
+| rung | final_step | min_val | G1 (≥0.95) | G8 (≤1.1718) |
+|---|---|---|---|---|
+| 3.0e-4 | 21000 | 0.006350 | 0.9883 pass | 9.9579 FAIL |
+| 1.0e-4 | 25000 | 0.008426 | 0.9863 pass | 3.5983 FAIL |
+| 3.0e-5 | 40000 | 0.011681 | 0.9785 pass | 1.2074 FAIL |
+| 1.0e-5 | 68000 | 0.038158 | 0.9404 FAIL | 1.1904 FAIL (post-hoc) |
+
+**DESIGN RESULT (recorded, EXPERIMENTS §6.14 + §4 G8 row):** full FT on
+arithmetic-only data (paper App. E's "all pre-training interventions are
+full FT") cannot produce a G1+G8-certified pre-taught parent from the
+38.7M TinyStories base at any LR in [1e-5, 3e-4]. It is not an LR-tuning
+failure — LR trades capability against forgetting monotonically and the
+two bars never overlap. Housekeeping: the 68k run archived to
+`runs-failed/evt-ts38-pretaught-parent-lr1.0e-5-g1fail` (metadata pushed
+to the relay `runs-failed/`, hub-listed); `results/ts38_parent_ladder.json`'s
+1e-5 row now carries the post-hoc G8 with a `g8_note` saying so (pushed);
+`runs/` holds only the base. Box kept up (needed for the next parent).
+
+**Next parent — LoRA-installed, pre-declared BEFORE launch (branch A → same
+next step as B; owner delegated).** Deviation from paper App. E (full FT
+pre-teach) — a LoRA r128/α32 (all seven projections, scaling α/2r, the
+same adapter family every target run in this repo uses) install of
+D_target on the frozen base, `train_sft.py`'s existing LoRA path
+(own-yaml `lora:` opt-in), no new training code. Rationale for LoRA over
+replay-mixing: config-only; the frozen base weights bound the forgetting
+that killed every full-FT rung; replay-mixing needs a mixed-corpus packing
+path in `geode/train` + property tests and changes what the parent sees.
+Protocol, per [[feedback-lr-sweep-before-full-run]] /
+[[feedback-simplest-experiment-first]] (sweeps select, gates score only
+the full run):
+1. **Short sweep**, LR ∈ {1e-3 (the target-stage LoRA pin = the upper
+   bound; NOT assumed to transfer — [[project-run9-retention-destroyed]]
+   class), 3e-4, 1e-4, 3e-5}, one epoch each (`max_steps` 8000 ≈ 1.03 ×
+   7773 steps), run ids `evt-ts38-parent-lorasweep-lr<LR>` (outside the
+   family regex and the ladder's skip pattern), each scored G1 + G8
+   `--no-record`; numbers to `results/ts38_parent_lora_sweep.json`.
+   **Selector: the HIGHEST LR whose sweep-end G8 ≤ 1.1718 AND whose val is
+   descending (finite; last eval < first eval).** Sweep-end G8 is the
+   primary selector because forgetting is what failed; G1 at one epoch is
+   informational only. No qualifying rung → `LORA SWEEP EXHAUSTED` = a
+   second design result (LoRA cannot install without crossing the retention
+   bar either) → write-up + hold + one ntfy; replay-mixing is the remaining
+   fix (owner call).
+2. **ONE full run** at the winner, run id `evt-ts38-pretaught-parent`,
+   `configs/ts38_pretaught_parent_lora.yaml` (`train.lr: null` placeholder
+   + winner overlay `sweeps/ts38/parent_lora_lr_<LR>.yaml`), batch 128,
+   bf16, seed 316, eps/k 0.002/5, min_steps 5000, ceiling `max_steps`
+   160000 (≈20.6 epochs — cost ceiling only, [[feedback-run-until-
+   convergence]]; ETA headline ≈ ceiling/2 ≈ 1.4 h at ~16 steps/s). Gates
+   G1 → G8 RECORDED (`enforce_gate`: score, then `--record-only-pass`).
+   Both bars unchanged. Failure rules, decided now: **G1 fail** (converged
+   but short) → HALT: the winner is already the highest retention-safe LR,
+   so no LR fixes it → design result #2. **G1 fail with
+   `stop_reason=max_steps`** → bug signal at 20.6 epochs, inspect first.
+   **G8 fail on the full run** (drift beyond the one-epoch sweep horizon) →
+   archive to `runs-failed/evt-ts38-pretaught-parent-lora-lr<LR>` and run
+   ONE fallback full run at the next-lower LR that cleared the sweep
+   selector (a single pre-declared fallback, not a ladder); if that fails
+   or none exists → HALT + write-up. Never a re-scored bar.
+3. **Merge for hand-off**: `merge_adapter.py` folds the adapter into plain
+   weights at `runs/evt-ts38-pretaught-parent/model_merged/` (V5.52
+   `merge_lora`); the wrapped `model/` stays as the gated artifact
+   (`zoo.load_model` is the only legal loader for it —
+   [[feedback-lora-checkpoints-load-via-zoo-load-model]]; overwriting
+   `model/` with merged weights would contradict the manifest's
+   `training.method: lora` and make every gate refuse). Receiver check on
+   the box: wrapped-vs-merged logits agree to <1e-3 on seeded token
+   batches. **Arm B (`evt-ts38-pretaught-n*`) inits from `model_merged/`**;
+   `launch_ts38_mini.sh` resolves the init path from the parent manifest's
+   `training.method` (`lora` → `model_merged/`, `full_ft` → `model/`), the
+   only edit to the family launcher. Everything downstream (G5 on the
+   parent, stages 3/4, EDL analysis, floors, §6.14 marker rule) is
+   unchanged; the two arms still differ only in θ0.
+4. Chained on the box: `launch_ts38_lora_parent.sh --confirm-cost &&
+   launch_ts38_mini.sh --confirm-cost` (the mini launcher sees the recorded
+   G1+G8 pass → `ladder_skip parent already gated`).
+
+What this changes about the reading of the family: the "pre-taught"
+parent is now an adapter-installed base rather than a fully fine-tuned one
+— closer in spirit to the fig-2 Llama installers (r64/r512 LoRA) than to
+App. E; the elicit arm's θ0 carries the algorithm in ~r128 low-rank
+updates on top of exactly the teach arm's weights. State this in the
+write-up next to the verdict; it is a substrate choice forced by the G8
+gate, not a measurement change.
