@@ -6329,3 +6329,60 @@ box: pull `evt-run1-base-v3-ext` (weights) + `cache/run1_val_stream.pt` +
 metadata(+adapter) only. `runs/` on the relay still holds only the base with
 weights. Cost this box: 2026-08-14 ~23:30 → 2026-08-15 ~07:15 UTC ≈ 7.75 h ×
 $0.33 ≈ $2.6 (ladder rerun + LoRA chain + idle).
+
+## 2026-08-15 — ts38: owner fork taken (delegated → owner-answered): probe → EARLIEST-CERTIFIED-CHECKPOINT parent pre-authorized; convergence-vs-forgetting diagnosis; G8 delta unchanged
+
+**Owner's answers (2026-08-15, awake).** (1) They rent the box themselves and
+hand over SSH. (2) **PRE-AUTHORIZED:** if the probe finds a snapshot passing
+both bars, promote the EARLIEST step S with G1 ≥ 0.95 at S and at S+1000 and
+G8 ≤ 1.1718 at S — pinned-`max_steps` replay (`stop_reason=max_steps` by
+design), G1 → G8 RECORDED, merge, family launched in the same box session.
+(3) If NO snapshot passes both: HOLD and show the curve — no delta change,
+no replay-mixing yet. Owner also stated the objective: English capability
+per se is not the concern, G8 is only a "didn't forget too much" guard; the
+goal is the fastest minimal replication of the elicit-vs-teach markers.
+
+**Log-replay diagnosis (`analysis/ts38_parent_tradeoff.py`, this session).**
+val* (the val loss at which G1 crosses 0.95, isotonic map over all 11
+measured (val, G1) pairs) = 0.0343 nats (full-FT-only bracket 0.0315). LoRA
+3e-4: S_G1_persist = 15000 at val* 0.0343 (jumps to 18000 at val* ≤ 0.0315 —
+knife-edge, step 16000's val is 1.2e-5 under val*); G8 crossing estimated
+18.5k (√step, p=0.49 fit to the run's own 8k/24k points) to 19.4k (linear) ⇒
+estimated window [15k–18k, 18.5k–19.4k], G8 headroom at 15k ≈ 0.010–0.013
+nats. Full-FT 1e-5: converged at 68k with val never below val* — the G1 miss
+is intrinsic to that lane, not over-training. Full-FT 3e-5: models disagree
+(linear window [22k, 29.5k]; √step none) — unresolved, and full FT is not
+being pursued. Conclusion recorded: the G8 drift is monotone in
+arithmetic-only steps at every LR/method (data-driven, not
+stopping-rule-driven), while the ε/k rule chose WHERE on that curve the
+parent stopped — for the 3e-4 LoRA lane, ~6–9k steps past the earliest
+G1-certified point at an estimated cost of ~0.010–0.027 nats of G8. Both
+readings are true; the probe measures the curve directly.
+
+**Probe redesign (this session).** One replay + `train.snapshot_steps`
+(V5.77) every 1000 from 10k to 24k, all scored G1+G8 `--no-record` plus a
+per-position/per-token-class G8 decomposition (`analysis/g8_decompose.py`)
+on a subset — same cost as the old four-replay probe, full curve. Selection
+rule + certified-parent launcher `launch_ts38_certified_parent.sh` +
+overlays `parent_lora_certified_s{10000..24000}.yaml` (step 1000, 15
+files). Selection logic lives in `certified_step.py`
+(`select_certified_step`), a pure function over the probe table so it is
+unit-tested without a probe run. Chain:
+
+```
+bash launch_ts38_lora_probe.sh --confirm-cost &&
+bash launch_ts38_certified_parent.sh --confirm-cost &&
+bash launch_ts38_mini.sh --confirm-cost
+```
+
+Files: `experiments/training-run/scripts/launch_ts38_certified_parent.sh`,
+`experiments/training-run/scripts/certified_step.py`,
+`experiments/training-run/configs/sweeps/ts38/parent_lora_certified_s{10000,
+11000,12000,13000,14000,15000,16000,17000,18000,19000,20000,21000,22000,
+23000,24000}.yaml`, `tests/experiments/scripts/test_ts38_certified_parent.py`.
+
+**Pre-registered reading caveats to carry into the marker verdict.** The
+parent is an EARLY-STOPPED LoRA install (θ0 certified by gates, not
+converged; G1 will sit near 0.95–0.97 rather than run-2's 0.9961) — a
+weaker "pre-taught" than App. E full FT to convergence; and the persistence
+rule (G1 at S and S+1000) is the only smoothing applied. Neither bar moved.

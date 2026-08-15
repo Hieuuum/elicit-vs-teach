@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 import torch
+from safetensors.torch import load_file
 
 from geode.edl.masking import TaskFormat
 from geode.train.loop import evaluate_nll_nats
@@ -565,4 +566,86 @@ def test_unknown_stopping_metric_raises(tiny_llama, tmp_path):
     examples = [_example(rng, 3, 2) for _ in range(4)]
     with pytest.raises(ValueError, match="unknown stopping_metric"):
         _train(model, examples, examples, tmp_path, stopping_metric="bogus")
+    assert not (tmp_path / "train_log.jsonl").exists()
+
+
+# --------------------------------------------------------------------------
+# V5.77 — snapshot_steps: replay-determinism + validation (2026-08-15)
+# --------------------------------------------------------------------------
+def test_v5_77_sft_snapshot_equals_replay_final_checkpoint(tiny_llama, tmp_path):
+    # V5.77: a mid-run snapshot at step S is bit-identical to the final
+    # checkpoint of an otherwise-identical run capped at max_steps=S (replay
+    # determinism) — the property the ts38 probe launcher relies on to turn
+    # one replay into many recoverable checkpoints.
+    prev_threads = torch.get_num_threads()
+    torch.set_num_threads(1)
+    try:
+        rng = random.Random(21)
+        train_examples = [_example(rng, 3, 2) for _ in range(8)]
+        val_examples = [_example(rng, 3, 2) for _ in range(4)]
+        dir_a = tmp_path / "a"
+        dir_b = tmp_path / "b"
+        _train(
+            tiny_llama(seed=0),
+            train_examples,
+            val_examples,
+            dir_a,
+            seed=123,
+            max_steps=6,
+            eval_every=3,
+            snapshot_steps=[3, 5],
+        )
+        _train(
+            tiny_llama(seed=0),
+            train_examples,
+            val_examples,
+            dir_b,
+            seed=123,
+            max_steps=3,
+            eval_every=3,
+        )
+        snap3 = dir_a / "sft_snapshots" / "step_0000003" / "model.safetensors"
+        snap5 = dir_a / "sft_snapshots" / "step_0000005" / "model.safetensors"
+        assert snap3.is_file()
+        assert snap5.is_file()
+
+        state_a3 = load_file(snap3)
+        state_b_final = load_file(dir_b / "model" / "model.safetensors")
+        assert set(state_a3) == set(state_b_final)
+        for name, tensor in state_b_final.items():
+            assert torch.equal(state_a3[name], tensor), name
+
+        meta_a = json.loads((dir_a / "training_meta.json").read_text())
+        meta_b = json.loads((dir_b / "training_meta.json").read_text())
+        assert meta_a["config"]["snapshot_steps"] == [3, 5]
+        assert meta_b["config"]["snapshot_steps"] == []
+    finally:
+        torch.set_num_threads(prev_threads)
+
+
+@pytest.mark.parametrize(
+    "snapshot_steps",
+    [
+        [3, 3],  # non-increasing (equal)
+        [5, 3],  # non-increasing (reversed)
+        [0],  # below 1
+        [10],  # past max_steps=6
+    ],
+)
+def test_v5_77_snapshot_steps_validation_raises(tiny_llama, tmp_path, snapshot_steps):
+    # V5.77: a malformed schedule raises ValueError before any training or
+    # disk write, in every shape — non-increasing, zero, and past max_steps.
+    model = tiny_llama(seed=0)
+    rng = random.Random(0)
+    examples = [_example(rng, 3, 2) for _ in range(4)]
+    with pytest.raises(ValueError):
+        _train(
+            model,
+            examples,
+            examples,
+            tmp_path,
+            batch_size=4,
+            max_steps=6,
+            snapshot_steps=snapshot_steps,
+        )
     assert not (tmp_path / "train_log.jsonl").exists()

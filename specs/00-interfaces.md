@@ -35,6 +35,21 @@ $GEODE_STORE/
                               #   (A/B) tensors at θ_k; reassemble via
                               #   geode.edl.load_snapshot (bit-exact, V1.11;
                               #   legacy full model.safetensors still loads)
+    sft_snapshots/            # OPTIONAL: train_sft.py `train.snapshot_steps`
+                              #   (2026-08-15, V5.77):
+      step_{k:07d}/           #   full save_pretrained dirs at the listed
+                              #   steps (wrapped state for LoRA runs — load
+                              #   ONLY via zoo.load_model(run, checkpoint=dir));
+                              #   probe/diagnostic artifact, expendable,
+                              #   replay-derivable. Distinct from `snapshots/`
+                              #   above (different trainer, different
+                              #   contract) — hf_checkpoint.py's default
+                              #   ignore patterns name `snapshots/*`, NOT this
+                              #   dir, so a plain push ships every byte here;
+                              #   `--no-weights` excludes only
+                              #   `model.safetensors` (adapter sidecars still
+                              #   ride) and `--metadata-only` excludes every
+                              #   `*.safetensors` under it, same as elsewhere.
     probe/step_{k}/           # offline probe dumps (spec 02 §7):
                               #   acts.safetensors + grads.safetensors (bf16,
                               #   n_layers+1 named residual tensors each),

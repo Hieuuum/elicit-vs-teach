@@ -993,6 +993,16 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   `status: "running"` on disk (the same state `register_run`'s docstring
   documents for a crashed run — manual intervention required, never auto-healed),
   not recorded as a clean success.
+- V5.77 `snapshot_steps` in `train_sft` (2026-08-15, §6): at each listed step
+  the trainer writes `sft_snapshots/step_{k:07d}/` — a full `save_pretrained`
+  dir, written immediately after that step's train-log record and before its
+  eval. The snapshot at step S is bit-identical to the final checkpoint of an
+  otherwise-identical run with `max_steps=S` (replay determinism: training is
+  deterministic given the same seed and inputs, so a later replay reaches the
+  identical parameters at the identical step). An invalid list (non-
+  increasing, an entry < 1, or a max exceeding `max_steps`) raises
+  `ValueError` before any training or disk write. Default `()`: unchanged
+  behavior, byte-identical logs to every pre-2026-08-15 caller.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

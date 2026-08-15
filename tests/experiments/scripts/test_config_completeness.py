@@ -650,3 +650,75 @@ def test_ts38_lora_parent_builds_a_lora_manifest() -> None:
     assert manifest["training"]["method"] == "lora"
     assert manifest["training"]["lora"]["rank"] == 128
     assert manifest["training"]["lora"]["alpha"] == 32
+
+
+# =============================================================================
+# ts38 LoRA-parent capability-vs-retention PROBE (decisions.md 2026-08-15,
+# "LoRA parent HALT" entry): ONE deterministic replay to 24000 steps with
+# snapshots every 1000 from 10000, superseding the four separate
+# parent_lora_probe_lr3e-4_s{14000,16000,18000,20000}.yaml cut-and-replay
+# overlays (deleted). Its own constant, NOT folded into LORA_FILES above —
+# that list's length is asserted exactly (test_ts38_lora_parent_family_files_
+# exist) and is indexed positionally elsewhere, so a probe overlay riding
+# along would silently change what that count guards.
+# =============================================================================
+
+PROBE_OVERLAY = "sweeps/ts38/parent_lora_probe_lr3e-4.yaml"
+PROBE_SNAPSHOT_STEPS = list(range(10000, 24001, 1000))
+_RETIRED_PROBE_OVERLAYS = [
+    f"sweeps/ts38/parent_lora_probe_lr3e-4_s{s}.yaml" for s in (14000, 16000, 18000, 20000)
+]
+
+
+def test_ts38_lora_probe_overlay_file_exists() -> None:
+    assert (CONFIGS / PROBE_OVERLAY).is_file()
+
+
+def test_ts38_lora_probe_retired_overlays_deleted() -> None:
+    # The four single-horizon overlays this probe design replaces must not
+    # still exist — a leftover file here would be relaunched by hand and
+    # silently duplicate the single-replay design's GPU spend.
+    for rel in _RETIRED_PROBE_OVERLAYS:
+        assert not (CONFIGS / rel).is_file(), rel
+
+
+def test_ts38_lora_probe_overlay_merged_values() -> None:
+    cfg = load_config(CONFIGS / LORA_PARENT_CONFIG, CONFIGS / PROBE_OVERLAY)
+    assert cfg["run_id"] == "evt-ts38-parent-loraprobe-lr3e-4"
+    assert isinstance(cfg["train"]["lr"], float)
+    assert cfg["train"]["lr"] == 3.0e-4
+    assert cfg["train"]["max_steps"] == 24000
+    assert cfg["train"]["snapshot_steps"] == PROBE_SNAPSHOT_STEPS
+
+
+def test_ts38_lora_probe_overlay_builds_a_lora_manifest() -> None:
+    # Mirror of test_ts38_lora_parent_builds_a_lora_manifest for the probe
+    # overlay: manifest_fields must not choke on this run's shape before any
+    # GPU spend (the KeyError-deep-in-register_run failure mode the module
+    # docstring documents).
+    train_sft = load("train_sft")
+    lora_path = CONFIGS / LORA_PARENT_CONFIG
+    overlay_path = CONFIGS / PROBE_OVERLAY
+    cfg = load_config(lora_path, overlay_path)
+    lora_cfg = train_sft.own_lora_block(cfg, lora_path, overlay_path)
+    assert lora_cfg is not None
+    manifest = train_sft.manifest_fields(
+        cfg,
+        n_params=1,
+        n_rows=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+        lora_cfg=lora_cfg,
+        step0={},
+        device="cpu",
+    )
+    assert manifest["training"]["method"] == "lora"
+    assert manifest["snapshot_steps"] == PROBE_SNAPSHOT_STEPS
+
+
+def test_ts38_lora_probe_run_id_out_of_family_and_ladder() -> None:
+    run_id = yaml.safe_load((CONFIGS / PROBE_OVERLAY).read_text())["run_id"]
+    assert not _TS38_FAMILY_REGEX.match(run_id), run_id
+    assert not _TS38_LADDER_SKIP_PATTERN.match(run_id), run_id
