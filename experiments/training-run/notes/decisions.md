@@ -6852,6 +6852,8 @@ Data: `analysis/edl_converged_val_floor_ts38mw.csv`,
 `geode-store/results/ts38mw_family_theta0.json` (scp'd off the box, never
 pushed as a run).
 
-Box `38.246.237.140:32489` destroyed after this write-up (push + receiver
-verify done, weights durability independently confirmed, nothing further
-queued on it).
+Box `38.246.237.140:32489` left RUNNING, NOT destroyed — it is the owner's
+own vast.ai rental (not a tracked-account box), same host as the earlier
+ts38 chain session's `:32414`; teardown authority is the owner's, not
+this session's. Push + receiver verify done, weights durability
+independently confirmed; nothing further queued on it from this side.

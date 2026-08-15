@@ -1068,7 +1068,8 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     2026-08-15 (night) "OUTCOME" entry for the full table, caveats
     (θ0 entry-gap confound, g5-vs-EDL tension, overshoot flag) and floor
     cross-checks. Weights (5 target runs + GO-B parent incl. step 28000)
-    independently confirmed on the relay; box destroyed.**
+    independently confirmed on the relay; box left running (owner's own
+    rental — teardown is the owner's call, not destroyed by this session).**
 
 ## 7. Budget
 
