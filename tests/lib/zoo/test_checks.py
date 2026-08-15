@@ -7,6 +7,8 @@ named; the only silent path is a parent that is genuinely ready.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from geode.zoo import ConsistencyError, register_run, require_parent_ready
@@ -23,6 +25,20 @@ def _register_parent(store, *, status="complete", gates=None, run_id="parent-1")
 def test_v0_6_missing_parent_raises(tmp_path):
     with pytest.raises(ConsistencyError, match="no manifest"):
         require_parent_ready("never-registered", store=tmp_path)
+
+
+def test_v0_6_invalid_parent_manifest_raises(tmp_path):
+    # Written directly to disk (bypassing register_run's own validate()) so
+    # the manifest on disk fails ManifestError — load_run's own ManifestError
+    # must be caught and re-raised as ConsistencyError, not leak through.
+    fields = make_manifest("parent-1")
+    del fields["status"]
+    path = tmp_path / "runs" / "parent-1" / "manifest.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(json.dumps(fields))
+
+    with pytest.raises(ConsistencyError, match="manifest is invalid"):
+        require_parent_ready("parent-1", store=tmp_path)
 
 
 def test_v0_6_incomplete_parent_raises(tmp_path):

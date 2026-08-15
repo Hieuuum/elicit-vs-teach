@@ -52,6 +52,11 @@ def test_true_answer_ops():
     assert true_answer(12, 7, "*") == 84
 
 
+def test_true_answer_rejects_unknown_op():
+    with pytest.raises(ValueError, match="unknown op"):
+        true_answer(3, 4, "/")
+
+
 def test_digits_counts_absolute_value():
     assert digits(0) == 1
     assert digits(9) == 1
@@ -133,6 +138,11 @@ def test_bare_nl_rejects_unknown_op():
 def test_nl_rejects_unknown_op():
     with pytest.raises(ValueError):
         render(3, 4, "/", 12, "nl")
+
+
+def test_operator_format_rejects_unknown_op():
+    with pytest.raises(ValueError, match="unknown op"):
+        render(3, 4, "/", 12, "operator")
 
 
 def test_unknown_format_rejected():

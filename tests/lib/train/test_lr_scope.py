@@ -43,3 +43,8 @@ def test_v5_71_installer_pin_mismatch_raises() -> None:
 def test_v5_71_full_ft_at_target_rate_is_scope_leak(stage: str) -> None:
     with pytest.raises(ValueError, match="scope leak"):
         assert_lr_scope(_cfg(1.0e-3), PIN, stage=stage)  # target rate on a full-FT stage
+
+
+def test_unknown_stage_raises() -> None:
+    with pytest.raises(ValueError, match="unknown stage"):
+        assert_lr_scope(_cfg(3.0e-6), PIN, stage="bogus")

@@ -102,7 +102,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from safetensors.torch import load_file, save_model
+from safetensors.torch import load_file, save_file, save_model
 
 from geode.edl import TaskFormat, label_mask
 from geode.edl import loop as edl_loop
@@ -1263,3 +1263,73 @@ def test_v5_62_bf16_touches_only_the_update_path(geode_store, tiny_llama, copy_t
             device="cpu",
             seed=LOOP_SEED,
         )
+
+
+# ---------------------------------------------------------------------------
+# Loud-failure guards: unknown optimizer, label span at position 0, partial
+# snapshot load
+# ---------------------------------------------------------------------------
+
+
+def test_build_optimizer_rejects_unknown_name():
+    """L321 (``_build_optimizer``): an optimizer name other than sgd/adamw
+    refuses rather than silently substituting (module docstring, "Optimizer"
+    bullet)."""
+    model = torch.nn.Linear(2, 2)
+    cfg = {"name": "rmsprop", "lr": 0.1, "weight_decay": 0.0}
+    with pytest.raises(ValueError, match="unsupported optimizer name"):
+        edl_loop._build_optimizer(model, cfg)
+
+
+def test_checked_label_mask_rejects_label_span_at_position_zero():
+    """L335 (``_checked_label_mask``): mirrors the identical p=0 guard tested
+    at the probe surface (``test_extract.py::
+    test_v5_9_label_span_at_position_zero_refused``) — a label span starting
+    at position 0 has no causal predecessor and would silently wrap to the
+    last position under a naive shift."""
+    bad = [TaskExample(input_ids=[5, 6, 7], label_span=(0, 2))]
+    with pytest.raises(ValueError, match="would silently wrap to the last position"):
+        edl_loop._checked_label_mask(bad, _task_format())
+
+
+def test_load_snapshot_refuses_partial_load(geode_store, tiny_llama):
+    """L495: a state-dict key present in neither the base nor the adapter
+    file, and sharing storage with no loaded tensor (not a tied alias),
+    refuses rather than silently leaving that tensor at its throwaway init.
+
+    Builds a minimal snapshot dir directly (no ``train_prequential`` run,
+    mirroring how ``test_v1_11_*`` derive their reference state independently
+    of the loop): the base file the loop would write, minus one deliberately
+    dropped key (``model.norm.weight`` — frozen, not adapted, and — under
+    ``tie_word_embeddings=False``, the fixture default — shares storage with
+    no other tensor, so it cannot be recovered as a tied alias).
+    """
+    wrapped = apply_lora(
+        tiny_llama(seed=MODEL_SEED),
+        rank=2,
+        alpha=4.0,
+        seed=0,
+        target_modules=("q_proj", "v_proj"),
+    )
+    trainable = {n for n, p in wrapped.named_parameters() if p.requires_grad}
+    state = wrapped.state_dict()
+    dropped = "model.norm.weight"
+    assert dropped in state and dropped not in trainable  # premise check
+    base = {k: v for k, v in state.items() if k not in trainable and k != dropped}
+    adapter = {k: state[k] for k in trainable}
+
+    snap_root = geode_store / "runs" / "run-partial" / "snapshots"
+    (snap_root / "base").mkdir(parents=True)
+    (snap_root / "step_0").mkdir(parents=True)
+    save_file(base, str(snap_root / "base" / "model.safetensors"))
+    save_file(adapter, str(snap_root / "step_0" / "adapter.safetensors"))
+
+    reloaded = apply_lora(
+        tiny_llama(seed=MODEL_SEED),
+        rank=2,
+        alpha=4.0,
+        seed=1,
+        target_modules=("q_proj", "v_proj"),
+    )
+    with pytest.raises(ValueError, match="refusing a partial load"):
+        load_snapshot(reloaded, "run-partial", 0, store=geode_store)

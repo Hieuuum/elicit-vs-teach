@@ -544,3 +544,25 @@ def test_v5_66_train_loss_converges_on_memorizable_dose(tiny_llama, tmp_path):
     assert result.final_step < 400
     trains = _read_jsonl(tmp_path / "train_log.jsonl")
     assert trains[-1]["train_loss_nats"] < trains[0]["train_loss_nats"]
+
+
+# --------------------------------------------------------------------------
+# Loud-failure guards: too few train rows for one batch; unknown stopping
+# metric. Both fire before any training or disk write.
+# --------------------------------------------------------------------------
+def test_train_examples_below_batch_size_raises(tiny_llama, tmp_path):
+    model = tiny_llama(seed=0)
+    rng = random.Random(0)
+    examples = [_example(rng, 3, 2) for _ in range(2)]
+    with pytest.raises(ValueError, match="fewer than batch_size"):
+        _train(model, examples, examples, tmp_path, batch_size=4)
+    assert not (tmp_path / "train_log.jsonl").exists()
+
+
+def test_unknown_stopping_metric_raises(tiny_llama, tmp_path):
+    model = tiny_llama(seed=0)
+    rng = random.Random(0)
+    examples = [_example(rng, 3, 2) for _ in range(4)]
+    with pytest.raises(ValueError, match="unknown stopping_metric"):
+        _train(model, examples, examples, tmp_path, stopping_metric="bogus")
+    assert not (tmp_path / "train_log.jsonl").exists()

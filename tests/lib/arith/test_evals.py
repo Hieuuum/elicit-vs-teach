@@ -6,8 +6,11 @@ malformed strings, under the shared ``Question:/Answer:`` scaffold.
 
 from __future__ import annotations
 
+import pytest
+
 from geode.arith.evals import (
     exact_match,
+    exact_match_accuracy,
     few_shot_prompt,
     format_valid,
     parse_answer,
@@ -59,6 +62,13 @@ def test_v5_7_roundtrip_with_render():
         full, _ = render(123, 4567, "-", 123 - 4567, fmt)
         assert parse_answer(full) == 123 - 4567
         assert exact_match(full, 123 - 4567)
+
+
+def test_v5_7_exact_match_accuracy_rejects_length_mismatch():
+    # The mismatch check runs before any model/tokenizer use, so None stand-ins
+    # are safe here.
+    with pytest.raises(ValueError, match="prompts !="):
+        exact_match_accuracy(None, None, [[1, 2], [3, 4]], [5], device="cpu", batch_size=1)
 
 
 def test_v5_7_few_shot_prompt_builds_zero_and_16_shot():

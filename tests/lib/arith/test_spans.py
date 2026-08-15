@@ -64,6 +64,26 @@ def test_v5_38_no_overlapping_token_raises():
         token_label_span([(0, 2)], (3, 5), _TEXT)
 
 
+def test_v5_38_non_contiguous_hits_raises():
+    # Token index 1's offset (10, 12) doesn't overlap char_span (0, 5) even
+    # though tokens 0 and 2 (which surround it in the list) do -- the "hits"
+    # list itself skips an index. Distinct from the offset-gap check, which
+    # only looks at consecutive HIT tokens.
+    offsets = [(0, 2), (10, 12), (2, 5)]
+    with pytest.raises(ValueError, match="not contiguous"):
+        token_label_span(offsets, (0, 5), "abcdef")
+
+
+def test_v5_38_first_hit_starting_after_span_start_raises():
+    # No token in this (synthetic) offsets list covers char 3, so the first
+    # -- and only -- overlapping token starts at char 5, after cs=3. Distinct
+    # from the whitespace-overhang branches, which fire only when the run
+    # starts BEFORE cs.
+    offsets = [(5, 10)]
+    with pytest.raises(ValueError, match="after span start"):
+        token_label_span(offsets, (3, 10), "0123456789")
+
+
 # --- tokenize_with_spans against the frozen tokenizer --------------------
 
 
@@ -142,6 +162,17 @@ def test_v5_38_prompt_prefix_is_the_prompt_at_8_digits(frozen_tokenizer):
 def test_v5_38_length_mismatch_raises(frozen_tokenizer):
     with pytest.raises(ValueError, match="char_spans"):
         tokenize_with_spans(["a"], [(0, 1), (0, 1)], frozen_tokenizer)
+
+
+def test_v5_38_missing_offset_mapping_raises():
+    # A duck-typed stand-in for a slow (non-Rust) tokenizer: it accepts the
+    # same call signature but never returns "offset_mapping" in the encoding.
+    class _SlowTokenizerStandIn:
+        def __call__(self, texts, add_special_tokens=False, return_offsets_mapping=True):
+            return {"input_ids": [[1, 2] for _ in texts]}
+
+    with pytest.raises(ValueError, match="no offset_mapping"):
+        tokenize_with_spans(["ab"], [(0, 2)], _SlowTokenizerStandIn())
 
 
 # --- append_eos (V5.43) ---------------------------------------------------

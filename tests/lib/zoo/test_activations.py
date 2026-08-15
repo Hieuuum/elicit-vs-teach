@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 import torch
-from safetensors.torch import load_file
+from safetensors.torch import load_file, save_file
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
 from tokenizers.pre_tokenizers import WhitespaceSplit
@@ -178,6 +178,46 @@ def test_sidecar_meta_roundtrip(geode_store: Path) -> None:
     assert loaded_meta == meta
     assert type(loaded_meta.n_samples) is int
     assert loaded_meta.position_policy == "answer_only"
+
+
+# ---------------------------------------------------------------------------
+# load_activations — implicit loud failures: missing tensor, wrong hook name,
+# sidecar schema drift.
+# ---------------------------------------------------------------------------
+
+
+def test_load_activations_missing_file_raises(geode_store: Path) -> None:
+    """No .safetensors on disk for the requested model/dataset/hook fails
+    loudly, naming the hook (part of the resolved file path)."""
+    with pytest.raises(Exception) as excinfo:
+        load_activations(MODEL_A, DATASET, HOOK, store=geode_store)
+    assert HOOK in str(excinfo.value)
+
+
+def test_load_activations_wrong_hook_name_raises(geode_store: Path) -> None:
+    """The internal tensor key inside a saved .safetensors file must equal
+    the requested hook_name; a mismatch (e.g. a writer bug that names the
+    file for one hook but keys the tensor under another) must fail loudly
+    rather than silently returning a tensor under the wrong name."""
+    requested_hook = "blocks.9.hook_resid_post"
+    tensor_path = geode_store / "activations" / MODEL_A / DATASET / f"{requested_hook}.safetensors"
+    tensor_path.parent.mkdir(parents=True)
+    save_file({HOOK: _acts(0).to(torch.float16).contiguous()}, tensor_path)
+
+    with pytest.raises(Exception) as excinfo:
+        load_activations(MODEL_A, DATASET, requested_hook, store=geode_store)
+    assert requested_hook in str(excinfo.value)
+
+
+def test_load_activations_sidecar_schema_drift_raises(geode_store: Path) -> None:
+    """An unknown extra key in the sidecar JSON (schema drift) fails loudly
+    via the ActivationMeta constructor rather than being silently dropped."""
+    _save(_meta(), geode_store)
+    _tamper_sidecar(geode_store, MODEL_A, DATASET, unexpected_field="surprise")
+
+    with pytest.raises(Exception) as excinfo:
+        load_activations(MODEL_A, DATASET, HOOK, store=geode_store)
+    assert "unexpected_field" in str(excinfo.value)
 
 
 # ---------------------------------------------------------------------------

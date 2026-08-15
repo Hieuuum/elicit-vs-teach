@@ -64,6 +64,13 @@ def test_v5_2_detects_planted_duplicate():
     assert report[(1, 1)] == (4, 3)
 
 
+def test_v5_2_rejects_misaligned_cells_and_keys():
+    cells = [(1, 1)]
+    keys = [(3, "+", 4), (5, "-", 6)]
+    with pytest.raises(ValueError, match="cells and keys must be aligned"):
+        uniqueness_by_cell(cells, keys)
+
+
 def _rows():
     return [
         {"a": 3, "b": 5, "op": "+", "shown_answer": 8, "format": "nl", "label_mode": "correct"},
