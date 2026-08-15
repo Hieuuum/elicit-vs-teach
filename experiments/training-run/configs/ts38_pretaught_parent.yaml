@@ -29,7 +29,12 @@
 #      [[feedback-verify-the-receiver-not-the-sender]]).
 #   2. train.lr 3e-4 is the run-2 pin (same scale/method/stage/task-family:
 #      run2_algo.yaml, min_val 0.0037 / G1 0.9961) — not re-derived here.
-#      Fallback rung sweeps/ts38/parent_lr_1e-4.yaml if G1/G8 fail at 3e-4.
+#      OUTCOME 2026-08-14: that pin FAILED G8 (9.9579 nats vs bar 1.1718;
+#      G1 passed 0.9883) — run 2 validated it under gate set {G1} only,
+#      retention was never in its scope. This file's 3e-4 is now RUNG 1
+#      (known-fail) of the pre-registered descending ladder in
+#      launch_ts38_mini.sh stage 2 (1e-4 / 3e-5 / 1e-5 overlays under
+#      sweeps/ts38/); decisions.md 2026-08-14 (ladder entry).
 #   3. Both parent gates must be scored --no-record first
 #      ([[feedback-gate-thresholds-are-task-scoped]]) before
 #      evt-ts38-pretaught's launch reads them as parent_required_gates:

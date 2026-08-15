@@ -1,5 +1,8 @@
-# ts38-pretaught-parent fallback rung — use only if the primary 3e-4 pin
-# (run-2 winner) misses G1 (capability on D_target_eval) or G8 (TinyStories
-# retention) at launch. See ts38_pretaught_parent.yaml header note 2/3.
+# ts38-pretaught-parent ladder rung 2 of 4 (3.0e-4 -> HERE -> 3.0e-5 ->
+# 1.0e-5). Originally the lone pre-registered fallback for the 3e-4 pin;
+# extended into a descending ladder 2026-08-14 after 3e-4 passed G1 (0.9883)
+# but failed G8 (9.9579 nats vs bar 1.1718). Ladder rules live in
+# launch_ts38_mini.sh stage 2; decisions.md 2026-08-14 (ladder entry) is the
+# pre-registration record. See ts38_pretaught_parent.yaml header note 2/3.
 train:
   lr: 1.0e-4      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

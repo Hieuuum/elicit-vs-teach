@@ -99,10 +99,19 @@ def derive(out: Path, src_stem: str, pin: str, dst_stem: str) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out", type=Path, required=True, help="dir holding the frozen parquets")
+    ap.add_argument(
+        "--skip-dose-mult",
+        action="store_true",
+        help="skip the D_dose_mult -> D_dose_mult_bare derivation (fig2nl3-only; "
+        "callers with no installer-dose file, e.g. ts38-mini, have nothing to derive it from)",
+    )
     args = ap.parse_args()
-    for src_stem, pin, dst_stem in DERIVATIONS:
+    derivations = DERIVATIONS
+    if args.skip_dose_mult:
+        derivations = tuple(d for d in derivations if d[0] != "D_dose_mult")
+    for src_stem, pin, dst_stem in derivations:
         derive(args.out, src_stem, pin, dst_stem)
-    print("[evt] pin the three order_hashes in the llama_fig2nl3_* / eval_bare configs")
+    print(f"[evt] pin the {len(derivations)} order_hashes above in the relevant eval_bare configs")
     return 0
 
 

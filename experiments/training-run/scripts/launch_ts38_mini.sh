@@ -7,10 +7,14 @@
 #
 # THE ELEVEN RUNS
 #   evt-ts38-pretaught-parent        base -> full FT on D_target (1M op-notation
-#                                    add/sub, correct labels, scaffolded), lr 3e-4.
-#                                    Paper App. E: pre-training interventions are
-#                                    full FT, so there is NO adapter and NO merge
-#                                    step here (unlike the fig2nl3 installer) —
+#                                    add/sub, correct labels, scaffolded). LR
+#                                    comes from the stage-2 LADDER (see there:
+#                                    3e-4 failed G8 on 2026-08-14; descending
+#                                    1e-4 / 3e-5 / 1e-5, first rung passing
+#                                    G1+G8 is the parent). Paper App. E:
+#                                    pre-training interventions are full FT, so
+#                                    there is NO adapter and NO merge step here
+#                                    (unlike the fig2nl3 installer) —
 #                                    train_sft.py's full-FT path saves plain
 #                                    weights straight to runs/<rid>/model.
 #   evt-ts38-base-n{N}      (Arm A)  base   -> LoRA r128/a32 @1e-3 on D_algo_bare
@@ -44,9 +48,9 @@
 #        0.10 BEFORE any parent trained. This is the gate fig2nl lacked: its
 #        installed arm entered at retention 0.1719 against a base of 0.3271, so
 #        its arms were never separated and no elicitation reading was possible.
-# FALLBACK on either gate: HALT. Re-run the parent at lr 1e-4 via the
-# pre-registered rung configs/sweeps/ts38/parent_lr_1e-4.yaml — the OWNER
-# decides that, this script never auto-relaunches and never moves a bar.
+# FALLBACK: the pre-registered stage-2 LR ladder (owner approved sweep-first
+# 2026-08-14 after 3e-4 failed G8). G8-fail descends a rung automatically;
+# G1-fail and ladder exhaustion HALT for the owner. No bar ever moves.
 #
 # THE n=1000 CHECKPOINT (stage 3) is deliberate, not decoration. The 1e-3 target
 # LR is pinned from the runs-5/6 sweep on OP-FORMAT targets; bare NL is that
@@ -79,6 +83,9 @@ echo "[ts38] rented hardware, \$0 on owned. Disk: ~2 GB of checkpoints (no"
 echo "[ts38] pruning, no snapshots) + ~2 GB for the TinyStories corpus G8 packs."
 echo "[ts38] One-off CPU cost: G8's first call downloads + packs 2.7M documents"
 echo "[ts38] (30-60 min, ~4.3 GB resident). Stage 1 pays it once, before any GPU."
+echo "[ts38] Parent LR ladder (stage 2): up to 3 more parent runs beyond the"
+echo "[ts38] failed 3e-4 rung, ~25-45 min / ~\$0.10 each on the 4090 — worst"
+echo "[ts38] case adds well under \$1 and ~2 h to the family."
 
 [[ " $* " == *" --confirm-cost "* ]] || {
   echo "launch_ts38_mini.sh: --confirm-cost required (budget rule)" >&2
@@ -125,13 +132,11 @@ STEP0_JSON=$GEODE_STORE/results/ts38_step0_baseline.json
 # Neither moves after a number is seen. If one is missed, take the fallback
 # rung below or escalate — do not re-derive a bar post hoc.
 
-FALLBACK_MSG="PRE-REGISTERED FALLBACK: delete \$GEODE_STORE/runs/$PARENT_RID and re-run the
-   parent at the lower rung:
-     python3 train_sft.py --config $PARENT_CONFIG \\
-       --override $OVERLAY_DIR/parent_lr_1e-4.yaml \\
-       --init-from $BASE_MODEL --confirm-cost
-   Nothing was recorded, so this checkpoint is still inspectable. The OWNER
-   decides whether to take that rung — do NOT move a bar after seeing a number."
+FALLBACK_MSG="This gate was scored PASS by the stage-2 ladder moments before this recording
+   attempt; a FAIL here means the re-score disagreed with the ladder's score
+   (nondeterministic eval or a changed checkpoint). Nothing was recorded.
+   Inspect before rerunning — rung descent is the ladder's job, and no bar
+   moves after a number is seen."
 
 milestone "repo $(git log --oneline -1)"
 milestone "store=$GEODE_STORE sizes=${#SIZES[@]} base=$BASE_RID parent=$PARENT_RID"
@@ -317,7 +322,7 @@ for f in "${BARE_NEEDED[@]}"; do
 done
 if ((BARE_MISSING)); then
   milestone "bare_datagen_start (deriving scaffold-free sets from the frozen artifacts)"
-  python3 ../datagen/make_bare_sets.py --out "$DATA_DIR" || fail "make_bare_sets (bare derivations)"
+  python3 ../datagen/make_bare_sets.py --out "$DATA_DIR" --skip-dose-mult || fail "make_bare_sets (bare derivations)"
   milestone "bare_datagen_complete"
 else
   milestone "bare_datagen_skip (all bare artifacts present)"
@@ -398,16 +403,144 @@ python3 check_bare_baseline.py \
 milestone "premise_guard base_bare EM<=0.05 AND format_validity<=0.05 -> PASS"
 milestone "step0_control written=$STEP0_JSON"
 
-# ---- stage 2: the pre-taught parent, then BOTH of its gates ----------------
-train_or_skip "$PARENT_RID" \
-  python3 train_sft.py --config "$PARENT_CONFIG" \
-    --init-from "$BASE_MODEL" --confirm-cost
+# ---- stage 2: the pre-taught parent — pre-registered descending LR ladder --
+# 2026-08-14: the run-2 pin (3e-4) trained a parent that PASSED G1 (0.9883)
+# and FAILED G8 (9.9579 nats vs bar 1.1718 — TinyStories destroyed, not
+# retained). Diagnosis (decisions.md 2026-08-14, ladder entry): run 2
+# validated that pin under gate set {G1} only — G8 did not exist then, so
+# retention was never in the pin's validated scope
+# ([[feedback-scope-check-pins-before-reuse]], seventh incident of the
+# class). Donoway et al.'s own table runs full FT ~17x below LoRA LR at 1B
+# (2e-5 vs 3.53e-4), decreasing with model size — so at 38.7M the plausible
+# full-FT band is ~2e-5..1e-4. The ladder descends through it. Rules, all
+# pre-registered BEFORE any lower rung trained (owner approved sweep-first
+# in-session 2026-08-14):
+#   - each rung: train at the rung's LR, then score G1 and G8 --no-record;
+#   - G1 FAIL at any rung -> HALT. Undertraining signal: a lower rung trains
+#     SLOWER and cannot fix G1; the stopping rule is the owner's call.
+#   - G1 PASS + G8 FAIL   -> archive the rung to runs-failed/ (outside runs/
+#     so a relay push never rides it, and status_of stops seeing it), then
+#     descend one rung.
+#   - both PASS           -> that rung IS the parent. First pass on a
+#     descending ladder == the highest LR passing both, i.e. the strongest
+#     install that spares retention. Record G1+G8 and continue the family.
+#   - ladder exhausted    -> HALT for the owner. That is a DESIGN result
+#     (full FT on arithmetic-only data destroys TinyStories retention at
+#     every plausible LR), and the fixes — TinyStories replay mixed into the
+#     parent data, or a LoRA-installed parent — change what "pre-taught"
+#     means. Never a fifth rung.
+# NEITHER BAR MOVES. The ladder searches theta_0, never the measurement.
+LADDER=("3.0e-4:" "1.0e-4:parent_lr_1e-4.yaml" "3.0e-5:parent_lr_3e-5.yaml" "1.0e-5:parent_lr_1e-5.yaml")
+FAILED_DIR=$GEODE_STORE/runs-failed
+LADDER_JSON=$GEODE_STORE/results/ts38_parent_ladder.json
 
-# Full FT: train_sft.py's non-LoRA path writes plain weights to runs/<rid>/model
-# and no adapter sidecar, so there is no merge step and Arm B inits from here.
-[[ -f $PARENT_MODEL/model.safetensors ]] ||
-  fail "$PARENT_RID completed but left no $PARENT_MODEL/model.safetensors — full-FT save path?"
+# The live parent slot must belong to the rung the ladder is about to score —
+# a checkpoint left by anything else is inspected, never deleted or rescored
+# as if it were the rung. The manifest's optimizer.lr is authoritative.
+lr_matches() {
+  python3 - "$1" "$2" <<'PY'
+import json, os, sys
+from pathlib import Path
 
+p = Path(os.environ["GEODE_STORE"]) / "runs" / sys.argv[1] / "manifest.json"
+lr = json.loads(p.read_text())["optimizer"]["lr"]
+sys.exit(0 if abs(lr - float(sys.argv[2])) <= 1e-12 else 1)
+PY
+}
+
+ladder_record() { # lr g1_score g1_pass(0/1) g8_score g8_pass(0/1)
+  python3 - "$LADDER_JSON" "$@" <<'PY'
+import json, sys
+from pathlib import Path
+
+p = Path(sys.argv[1])
+lr, g1, g1p, g8, g8p = sys.argv[2:7]
+rows = [r for r in (json.loads(p.read_text()) if p.is_file() else []) if r["lr"] != lr]
+rows.append(
+    {
+        "lr": lr,
+        "g1_accuracy": float(g1),
+        "g1_pass": g1p == "1",
+        "g8_val_loss_nats": None if g8 == "nan" else float(g8),
+        "g8_pass": g8p == "1",
+        "g8_bar": 1.1718,
+    }
+)
+p.parent.mkdir(parents=True, exist_ok=True)
+p.write_text(json.dumps(rows, indent=2) + "\n")
+PY
+}
+
+if [[ $(gate_verdict "$PARENT_RID" G1) == pass && $(gate_verdict "$PARENT_RID" G8) == pass ]]; then
+  milestone "ladder_skip parent already gated (G1+G8 recorded pass)"
+else
+  WINNER=
+  for rung in "${LADDER[@]}"; do
+    LR=${rung%%:*}
+    OVERLAY=${rung#*:}
+    if [[ -d $FAILED_DIR/$PARENT_RID-lr$LR ]]; then
+      milestone "ladder_skip lr=$LR (G8 fail archived at $FAILED_DIR/$PARENT_RID-lr$LR)"
+      continue
+    fi
+    if [[ $(status_of "$PARENT_RID") != missing ]]; then
+      lr_matches "$PARENT_RID" "$LR" || fail \
+        "runs/$PARENT_RID exists but its manifest optimizer.lr is not the ladder's next
+   unarchived rung ($LR). Something outside the ladder occupies the parent slot —
+   inspect it; this script deletes nothing."
+    fi
+    train_or_skip "$PARENT_RID" \
+      python3 train_sft.py --config "$PARENT_CONFIG" \
+        ${OVERLAY:+--override} ${OVERLAY:+"$OVERLAY_DIR/$OVERLAY"} \
+        --init-from "$BASE_MODEL" --confirm-cost
+    # Full FT: train_sft.py's non-LoRA path writes plain weights to
+    # runs/<rid>/model and no adapter sidecar — no merge step, Arm B inits here.
+    [[ -f $PARENT_MODEL/model.safetensors ]] ||
+      fail "$PARENT_RID (lr $LR) completed but left no $PARENT_MODEL/model.safetensors — full-FT save path?"
+
+    G1_OUT=$(python3 gates.py g1 --run "$PARENT_RID" --config "$PARENT_CONFIG" --threshold 0.95 --no-record 2>&1)
+    echo "$G1_OUT"
+    G1_SCORE=$(gate_score "$G1_OUT" G1 accuracy)
+    [[ -n $G1_SCORE ]] ||
+      fail "$PARENT_RID G1 printed no accuracy at lr=$LR — it errored rather than scored (output above)"
+    gate_passed "$G1_OUT" G1 accuracy || {
+      ladder_record "$LR" "$G1_SCORE" 0 nan 0
+      fail "LADDER HALT at lr=$LR: G1 accuracy=$G1_SCORE misses 0.95. Pre-registered rule:
+   a G1 miss is an UNDERTRAINING signal — every lower rung trains slower and
+   cannot fix it. The eps/k stopping rule (eps 0.002, k 5, min_steps 5000) was
+   calibrated at 3e-4 and is the suspect. OWNER DECISION (stopping/min_steps),
+   and no bar moves. Rung numbers so far: $LADDER_JSON"
+    }
+
+    G8_OUT=$(python3 gates.py g8 --run "$PARENT_RID" --config "$RUN1_CONFIG" --bar 1.1718 \
+      --tokenizer ../tokenizer --val-cache "$VAL_CACHE" --no-record 2>&1)
+    echo "$G8_OUT"
+    G8_SCORE=$(gate_score "$G8_OUT" G8 val_loss_nats)
+    [[ -n $G8_SCORE ]] ||
+      fail "$PARENT_RID G8 printed no val_loss_nats at lr=$LR — it errored rather than scored (output above)"
+    if gate_passed "$G8_OUT" G8 val_loss_nats; then
+      ladder_record "$LR" "$G1_SCORE" 1 "$G8_SCORE" 1
+      WINNER=$LR
+      milestone "ladder_winner lr=$LR g1=$G1_SCORE g8=$G8_SCORE (highest rung passing both)"
+      break
+    fi
+    ladder_record "$LR" "$G1_SCORE" 1 "$G8_SCORE" 0
+    mkdir -p "$FAILED_DIR"
+    mv "$GEODE_STORE/runs/$PARENT_RID" "$FAILED_DIR/$PARENT_RID-lr$LR" ||
+      fail "could not archive the lr=$LR rung to $FAILED_DIR/$PARENT_RID-lr$LR"
+    milestone "ladder_descend lr=$LR g1=$G1_SCORE g8=$G8_SCORE (G8 fail archived; next rung)"
+  done
+  [[ -n $WINNER ]] || fail \
+    "LADDER EXHAUSTED: every rung (3.0e-4 1.0e-4 3.0e-5 1.0e-5) passed G1 but missed
+   G8 <= 1.1718 — full FT on arithmetic-only data destroys TinyStories retention
+   at every plausible LR for this 38.7M base. That is a DESIGN result, not a
+   tuning miss: the fixes (TinyStories replay mixed into the parent data, or a
+   LoRA-installed parent) change what 'pre-taught' means. OWNER DECISION.
+   Per-rung numbers: $LADDER_JSON. No bar moves."
+fi
+
+# Record the winner's verdicts (idempotent: a recorded pass is a skip; the
+# --no-record pass inside enforce_gate is a cheap re-score of a rung that just
+# passed, and FALLBACK_MSG covers the only way it can disagree).
 enforce_gate "$PARENT_RID" G1 accuracy 0.95 \
   python3 gates.py g1 --run "$PARENT_RID" --config "$PARENT_CONFIG" --threshold 0.95
 enforce_gate "$PARENT_RID" G8 val_loss_nats 1.1718 \

@@ -5833,3 +5833,111 @@ unedited per the plan's own instruction (no manifest access ⇒ no qualifier
 to write). Needs the owner box or a relay push to verify; the op family's
 truncation (above) stands as the one verified instance of this failure
 mode.
+
+## 2026-08-14 — ts38 mini: G8 delta ratified (owner, delegated); RTX 4090 chosen over A100
+
+Owner delegated both open infra/measurement calls for the ts38 mini launch
+in this session rather than picking values themselves.
+
+**G8 delta ratified at 0.10 (bar 1.1718 nats/token), unchanged from the
+build session.** In perplexity terms: base min_val exp(1.0718) ≈ 2.92,
+bar exp(1.1718) ≈ 3.23 — about a 10% relative perplexity increase allowed
+on run 1's frozen TinyStories validation stream before the pre-taught
+parent is judged to have damaged the base skill. Kept as-is rather than
+re-derived: (1) it is already the literal value baked into every call site
+(`launch_ts38_mini.sh`, `gates.py g8` invocations, EXPERIMENTS §4/§6.14),
+so changing it would mean editing the launcher and configs, not just this
+doc; (2) the 2026-08-14 build entry's own reasoning — a bar well inside the
+fig2nl catastrophic-forgetting failure this gate exists to prevent — still
+holds; no new evidence surfaced against it. The open item from that entry
+("never scored against a real damaged/undamaged parent for this base")
+remains true as a caveat, not a blocker: G8 still HALTs the family instead
+of silently proceeding if the parent misses the bar, with the pre-registered
+lr 1e-4 fallback rung.
+
+**Hardware: RTX 4090, not the launcher's reference A100.** The 38.7M
+target model (d_model=512, 8 layers) has a trivial memory footprint —
+A100's 40/80GB HBM buys nothing here, and its main advantages (memory
+capacity, multi-GPU interconnect) are unused by an 11-run, single-GPU,
+LoRA-and-one-full-FT family. A 4090 has ample VRAM headroom and
+comparable per-step throughput for a model this small, at a fraction of
+the hourly rental rate — cheaper for the same wall-clock, not a
+throughput compromise. Chosen per the standing box policy
+(good-enough-over-cheapest: minimum bar first — CUDA/driver fit,
+reliability, geolocation — then price), not by price alone.
+
+Launch proceeds under `launch_ts38_mini.sh --confirm-cost` on a freshly
+provisioned 4090 box.
+
+## 2026-08-14 — ts38 parent G8 FAIL at 3e-4; pre-registered descending LR ladder (owner-approved sweep-first)
+
+**The failure.** First live G8 scoring ever, and it fired correctly. The
+pre-taught parent (`evt-ts38-pretaught-parent`, full FT on D_target at the
+run-2 pin 3e-4) converged at step 21000 (min val 0.0064 nats on its own
+split), passed G1 at 0.9883 ('+' 0.9909, '−' 0.9853), then scored **9.9579
+nats on run 1's frozen TinyStories validation stream** against a bar of
+1.1718 (base 1.0718 + ratified delta 0.10). Uniform over the 10K vocab
+would be ~9.2 nats — the parent is at-or-worse than uniform on TinyStories.
+Capability installed, retention destroyed: exactly the fig2nl confound G8
+was built to block, caught before a single target run spent GPU on an
+unseparated family. The anchor pass was exact (base re-scored 1.071794 vs
+manifest 1.071794, |Δ| 0.00e+00), so the measurement is not in question.
+G1 had already been recorded (pass) before G8 ran; nothing else was
+recorded, and the launcher HALTed per design.
+
+**Diagnosis — a pin-scope error, the seventh of the class
+([[feedback-scope-check-pins-before-reuse]]).** The 3e-4 pin's provenance
+is run 2 (same base, same method full-FT, same task family; min_val 0.0037,
+G1 0.9961) — but run 2 was validated under gate set **{G1} only**. G8 did
+not exist in run 2's era; TinyStories retention was never measured on it
+(run 2's checkpoint plausibly also destroyed retention and nobody looked).
+The pin was in-scope for capability and never in-scope for retention — the
+gate-set changed under the pin. Independent corroboration from Donoway et
+al.'s own hyperparameter table: at 1B their full-FT LR is 2e-5 vs LoRA
+3.53e-4 (~17× lower), decreasing with model size (2e-6 at 3B/8B) —
+full-FT LRs live an order of magnitude below where we pinned. Scaling
+their 1B value up to a 38.7M model (smaller models take larger LRs) puts
+the plausible full-FT band at roughly 2e-5..1e-4. 3e-4 sits above it.
+
+**The response — a descending LR ladder, pre-registered before any lower
+rung trained (owner approved sweep-first in-session, 2026-08-14).** Stage 2
+of `launch_ts38_mini.sh` now walks 3.0e-4 (✗, above) → 1.0e-4 (the
+original fallback rung) → 3.0e-5 → 1.0e-5, all under the same
+`evt-ts38-pretaught-parent` run id. Per rung: train, score G1 then G8
+`--no-record`. Branch rules, pinned now so no number can tune them later:
+
+- **G1 FAIL at any rung → HALT.** Undertraining signal — every lower rung
+  trains slower and cannot fix G1. The eps/k stopping rule (0.002/5,
+  min_steps 5000) was calibrated at 3e-4 and is the suspect; extending
+  min_steps is an owner decision, not a ladder step.
+- **G1 PASS + G8 FAIL → archive** the rung to `$GEODE_STORE/runs-failed/
+  evt-ts38-pretaught-parent-lr<LR>/` (outside `runs/`, so relay pushes and
+  `status_of` never see it) **and descend one rung.**
+- **Both PASS → that rung IS the parent.** First pass on a descending
+  ladder ≡ the highest LR passing both, i.e. the strongest install that
+  spares retention. Gates recorded via the standard score-then-record path;
+  family proceeds unchanged from stage 3 on.
+- **Ladder exhausted → HALT for the owner.** Four rungs spanning 30× with
+  the bottom rung below the paper's 1B full-FT pin — a full sweep of the
+  plausible band. All-fail is a **design result** (full FT on
+  arithmetic-only data destroys TinyStories retention at every plausible
+  LR for this base), and the candidate fixes — TinyStories replay mixed
+  into the parent data, or a LoRA-installed parent — change what
+  "pre-taught" means. Never a fifth rung.
+
+**Neither bar moves** (G1 0.95, G8 1.1718). The ladder searches θ₀, never
+the measurement. Per-rung numbers accumulate in
+`$GEODE_STORE/results/ts38_parent_ladder.json`; new overlays
+`sweeps/ts38/parent_lr_3e-5.yaml` / `parent_lr_1e-5.yaml` mirror the 1e-4
+rung (train.lr only — the stopping rule is deliberately NOT co-tuned; if
+it is wrong, G1 says so and HALTs rather than a second knob moving
+silently). Mid-training retention logging was considered and rejected:
+train_sft.py has no snapshot support (final checkpoint only, spec 02 §6),
+and the rungs themselves provide the LR-vs-retention read this family
+needs.
+
+**Deliberately not done:** retraining at 3e-4 with more regularization,
+mixing replay data preemptively (design change without evidence it is
+needed), or quoting the 9.9579 as a teaching-forgets result anywhere — the
+parent is an infrastructure artifact, not an experimental arm, and its
+retention number was measured under a HALTed, unrecorded run.

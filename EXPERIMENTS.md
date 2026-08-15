@@ -163,7 +163,7 @@ ungated inspection tool.
 | G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. **1M pair: run 7 (A) 0.9971 / 0.0025 vs run 8 (B) 0.9551 / 0.0312 — 12.4× θ_T gap. Llama: run 9 parent 0.0000 / 9.26, run 10 0.9844 / 0.0232 — measured with `eval_target_data_llama.yaml` (an eval's tokenizer must match the model under eval; decisions.md 2026-07-24)**. **Caution (2026-07-25): run 9's 0.0000 was read as "latent as required" — it is not that. It is op-notation after random-label training, not the retention probe. The retention probe is NL add/sub vs a base baseline, and on it run 9 v1 scored 0.0000 against base Llama's 0.3271: the capability was destroyed, not latent. See runs 9-v2/10-v2.** 16-shot ≈ 0 everywhere incl. the 1.24B Llama (collapse — invalidated as a metric; decisions.md) |
 | G6 | phase-3 bridge | held-out bidirectional translation exact text match; aggregate and both directions ≥95% | built, unrun (`gates.py g6`; frozen 4,096-row eval) |
 | G7 | before matched target | identical frozen target `data_order_hash` + prefix against its anchor | enforced at launch |
-| G8 | ts38 pre-taught parent (§6.14) | TinyStories retention on a pre-taught parent: mean val loss (nats/token) on run 1's frozen TS validation stream, pass iff ≤ a pinned absolute bar | built, unrun (`gates.py g8`); ts38 bar 1.1718 (= base min_val 1.0718 + pre-declared delta 0.10) — **delta 0.10 OPEN, owner ratification before launch** (decisions.md 2026-08-14) |
+| G8 | ts38 pre-taught parent (§6.14) | TinyStories retention on a pre-taught parent: mean val loss (nats/token) on run 1's frozen TS validation stream, pass iff ≤ a pinned absolute bar | **LIVE — first real scoring 2026-08-14 caught a real fail**: the 3e-4 parent scored 9.9579 nats vs bar 1.1718 (G1 0.9883 pass — capability installed, retention destroyed; the exact fig2nl confound this gate exists to block). Anchor exact (base 1.071794 = manifest, |Δ| 0). Bar 1.1718 (= base min_val 1.0718 + delta 0.10, **ratified by owner 2026-08-14**, ≈10% relative perplexity tolerance). Parent LR ladder running in response — decisions.md 2026-08-14 (ladder entry) |
 
 ## 5. Workflow
 
@@ -903,12 +903,26 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
       `require_full_epoch1` (spec 02 V5.75/V5.76, above). **Cross-model
       comparisons vs the Llama families (fig2nl3, EXPERIMENTS §6.13) are
       SHAPE-ONLY** — different tokenizers, magnitudes don't transfer.
-    - **Budget:** ~11 runs ≈ a day on one A100, single-digit dollars;
-      launcher requires `--confirm-cost`.
-    - **Status: BUILT 2026-08-14, NOT LAUNCHED.** G8's bar (1.1718 = base
-      min_val 1.0718 + a pre-declared delta of 0.10) carries an **OPEN**
-      item: the 0.10 delta needs owner ratification before launch (see
-      decisions.md 2026-08-14).
+    - **Budget:** ~11 runs ≈ a day on the launcher's reference A100,
+      single-digit dollars; launcher requires `--confirm-cost`. Actual
+      hardware: RTX 4090 (chosen 2026-08-14 — the 38.7M model's memory
+      footprint is trivial, so A100's capacity buys nothing here; a 4090
+      gives comparable per-step throughput at a fraction of the hourly
+      rate — see decisions.md 2026-08-14).
+    - **Status: LAUNCHED 2026-08-14; parent in the LR ladder.** G8's bar
+      (1.1718 = base min_val 1.0718 + a pre-declared delta of 0.10) is
+      **ratified** by the owner 2026-08-14 (see decisions.md). First launch
+      outcome, same day: the run-2 LR pin (3e-4) trained a parent that
+      passed G1 (0.9883) but **failed G8 at 9.9579 nats** — the pin was
+      validated under gate set {G1} only (G8 postdates run 2), and the
+      paper's own hyperparameters run full FT ~17× below LoRA LR at 1B
+      (2e-5 vs 3.53e-4). Response, owner-approved sweep-first: stage 2 of
+      `launch_ts38_mini.sh` is now a **pre-registered descending LR
+      ladder** (3e-4 ✗ → 1e-4 → 3e-5 → 1e-5); first rung passing **both**
+      gates is the parent, G1-fail or exhaustion HALTs for the owner,
+      failed rungs archive to `runs-failed/`, per-rung numbers in
+      `results/ts38_parent_ladder.json`. Neither bar moved. Adds ≤3 parent
+      runs (~25–45 min, ~$0.10 each on the 4090).
 
 ## 7. Budget
 

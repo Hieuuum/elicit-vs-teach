@@ -1,0 +1,10 @@
+# ts38-pretaught-parent ladder rung 3 of 4 (3.0e-4 -> 1.0e-4 -> HERE -> 1.0e-5).
+# Pre-registered 2026-08-14 after the 3e-4 run-2 pin passed G1 (0.9883) but
+# failed G8 (9.9579 nats vs bar 1.1718): run 2 validated that pin under gate
+# set {G1} only — G8 did not exist then. Donoway et al.'s full-FT LRs sit
+# ~17x below their LoRA LRs at 1B (2e-5 vs 3.53e-4), so the plausible
+# full-FT band at 38.7M is ~2e-5..1e-4; this rung brackets the paper's 2e-5
+# from above. Ladder rules live in launch_ts38_mini.sh stage 2; decisions.md
+# 2026-08-14 (ladder entry) is the pre-registration record.
+train:
+  lr: 3.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

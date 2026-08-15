@@ -1,0 +1,10 @@
+# ts38-pretaught-parent ladder rung 4 of 4 — the BOTTOM rung (3.0e-4 ->
+# 1.0e-4 -> 3.0e-5 -> HERE). Pre-registered 2026-08-14; see
+# parent_lr_3e-5.yaml's header for the derivation and launch_ts38_mini.sh
+# stage 2 for the ladder rules. Below the paper's 1B full-FT pin (2e-5): if
+# G8 still fails here with G1 passing, the ladder is exhausted and the
+# launcher HALTs — that is a design result (full FT on arithmetic-only
+# destroys TinyStories retention at every plausible LR), owner decision,
+# never a fifth rung.
+train:
+  lr: 1.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)
