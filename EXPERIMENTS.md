@@ -1002,34 +1002,43 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
       parent: adapter-installed base, not App. E full FT — a substrate
       choice forced by G8, not a measurement change.
 
-15. **ts38mw — wrapper-diversity install falsification probe; Stage 0 (build)
-    DONE 2026-08-15, Stage 1 (GPU run) PENDING owner review.** Plan:
+15. **ts38mw — wrapper-diversity install falsification probe; Stage 0 + Stage
+    1 DONE 2026-08-15, verdict GO-B — symbol-invariant, not language-
+    invariant. Waits for owner on Stage 2′.** Plan:
     `docs/plan-ts38mw-multiwrap-install.md`. §6.14's ts38 certified parent
     computes op-notation add/sub correctly only under its EXACT training
     template — even the symbol-bearing `What is a + b?` collapses to ~3%,
     flat across snapshots 10k-24k (rules out the stopping rule; see
     `docs/ts38-vs-bits-that-count.md`). Suspected cause: the install set has
-    exactly ONE surface form. This asks whether installing the same
-    arithmetic under 8 wrapper templates instead makes the skill fire under
-    a held-out wrapper it never saw, including the word-only target
-    phrasing. Pre-registered GO-A/GO-B/WEAK/NO-GO/INCONCLUSIVE bands frozen
-    in decisions.md 2026-08-15 "ts38mw Stage 1 pre-registration" entry
-    (verdict constants live in `scripts/mw_verdict.py`, must always match
-    that entry). ONE LoRA probe run (r128/alpha32 @ 3e-4, reused from the
-    ts38 lane), scored on snapshots against 6 held-out probe phrasings —
-    ~$0.5-1 on a 4090, ~1.5-2.5 h. Stage 0 built + committed, NOT launched:
-    `datagen/make_multiwrap_set.py` (-> `D_target_mw.parquet`, order_hash
-    `bf0b28bde963…`), `datagen/make_dm_probe_eval.py` extended with 2 new
-    keys (`sumof`/`sumof_bare`; the 7 pre-existing keys' hashes unchanged,
-    verified byte-identical via `git diff`), `configs/
-    ts38mw_pretaught_parent_lora.yaml` + `configs/sweeps/ts38mw/
-    parent_probe_lr3e-4.yaml`, `scripts/mw_verdict.py` (pure verdict
-    function), `scripts/launch_ts38mw_probe.sh` (built + reviewed +
-    syntax-checked, NOT executed — no GPU, no SSH, no vastai touched this
-    session). Full suite green (1091 tests, ~11s, CPU only). Only a GO
-    unlocks Stage 2 (certified multiwrap parent + family); WEAK/NO-GO close
-    this line into a write-up; INCONCLUSIVE triggers a short LR sweep
-    (Stage 1b). Waits for a human to review before Stage 1 launches.
+    exactly ONE surface form. Stage 1 installed the same arithmetic under 8
+    wrapper templates (LoRA r128/alpha32 @ 3e-4, reused from the ts38 lane,
+    `evt-ts38mw-parent-probe-lr3e-4`) and scored 6 held-out probe phrasings
+    per snapshot. Converged at step 28000 (6 snapshots scored: 8k-28k;
+    later snapshot_steps never materialized). **Verdict GO-B**
+    (`scripts/mw_verdict.py`, bands frozen in decisions.md 2026-08-15
+    pre-registration): `sym_q` (`What is a + b?`, symbol embedded in a
+    sentence) persists >= 0.90 EM at steps 20000/28000 with loss collapsing
+    to 0.03-0.11 nats (base 5.17 nats) — clean symbol-invariant transfer.
+    `sumof`/`sumof_bare`/`word_q` (the word-only target phrasing family)
+    stay <= 0.17 EM with loss 4.4-7.9 nats, `word_q` loss even ABOVE base
+    (5.1-7.9 vs 5.13) — no language-invariant transfer, GO-A did not fire.
+    Table + figure: `analysis/ts38mw_probe.json` + `analysis/plot_ts38mw_probe.py`
+    -> `analysis/figures/ts38mw_probe.png` (gitignored, laptop-only). Caveat
+    for Stage 2′ costing: G8 retention FAILs at both scored points (20k:
+    1.2406, 28k: 1.2694, bar <= 1.1718) — worse retention than the
+    single-wrapper ts38 parent (1.163 at S=15000) at the same LR. Stage 0
+    build: `datagen/make_multiwrap_set.py`, `datagen/make_dm_probe_eval.py`
+    (+2 keys), `configs/ts38mw_*`, `scripts/mw_verdict.py`,
+    `scripts/launch_ts38mw_probe.sh` (fixed post-launch, commit `e711c93`:
+    a fresh box has no `data/full/` at all — the launcher now regenerates
+    the frozen base artifacts from seed 20260717 before deriving
+    `D_target_mw`, mirroring `launch_ts38_mini.sh`'s pattern; no GPU spend
+    was lost, the failure was in datagen preflight). Full suite green (1091
+    tests, CPU only). Run metadata (no weights) pushed + receiver-verified
+    on the relay. Per plan §5, GO-B unlocks **Stage 2′ only** (owner call —
+    a held-out symbol-in-sentence target family, or the DM mixture with
+    per-template split); Stage 2 (word-only target) is closed by this
+    result. Stopped here per the plan; Stage 2′ not started.
 
 ## 7. Budget
 

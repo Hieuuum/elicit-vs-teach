@@ -6627,3 +6627,75 @@ green (1091 passed, ~11s, CPU only). Stage 1 (the actual GPU run) is NOT
 launched — waits for a human to review this pre-registration and the
 launcher before `bash launch_ts38mw_probe.sh --confirm-cost` runs on the
 owner's box.
+
+## 2026-08-15 ts38mw Stage 1 outcome — verdict GO-B
+
+Launched on a fresh box (`38.246.237.140:32489`, not the box referenced in
+the plan's §4.1, which was gone). First launch attempt FAILED in datagen
+preflight: `make_multiwrap_set.py` expected `data/full/D_target.parquet`
+already present (true on the plan's preferred box, false on a fresh one).
+Fixed in `scripts/launch_ts38mw_probe.sh` (commit `e711c93`): regenerate the
+frozen base artifacts (`D_target`, `D_target_eval`, `D_algo`, `D_algo_eval`,
+`report.json`) from seed 20260717 when missing, mirroring
+`launch_ts38_mini.sh`'s existing pattern (base run, `--eval-set`,
+`--nl-eval-set` — the last needs `D_target_eval.parquet` on disk for its
+exclusion set). Determinism verified: the regenerated `D_target`'s
+order_hash matches the certified ts38 parent's own config pin
+(`69e3b09e2dd5…`), so this is not a new hash to trust. No GPU spend lost —
+the failure was before training started. Re-launched clean on the fixed
+commit; ran to completion.
+
+**Run:** `evt-ts38mw-parent-probe-lr3e-4` (LoRA r128/alpha32 @ 3e-4 on
+`D_target_mw`, reused LR per the plan's assumption). `stop_reason=converged`
+at step 28000 (eps/k fired; the 160k ceiling never bound). 6 snapshots
+scored (8k/12k/16k/20k/24k/28k) — later `snapshot_steps` never materialized.
+
+| step | canonical_em | g1_own | g8 | bare_op | sym_q | word_q | sumof | sumof_bare | dm_mix |
+|---|---|---|---|---|---|---|---|---|---|
+| 8000  | 0.8164 | 0.8096 | — | 0.816/0.13 | 0.607/0.45 | 0.016/6.81 | 0.032/5.17 | 0.024/6.30 | 0.282/4.21 |
+| 12000 | 0.9053 | 0.8955 | — | 0.905/0.06 | 0.844/0.11 | 0.029/7.53 | 0.047/5.62 | 0.040/6.22 | 0.333/4.43 |
+| 16000 | 0.9355 | 0.9258 | — | 0.935/0.05 | 0.831/0.20 | 0.030/7.90 | 0.064/5.70 | 0.067/6.43 | 0.353/4.56 |
+| 20000 | 0.9648 | 0.9531 | 1.2406 (FAIL, bar<=1.1718) | 0.965/0.02 | 0.940/0.04 | 0.032/7.74 | 0.075/5.51 | 0.100/6.04 | 0.411/4.33 |
+| 24000 | 0.9414 | 0.9307 | — | 0.941/0.04 | 0.897/0.11 | 0.058/7.41 | 0.164/4.42 | 0.152/5.22 | 0.448/3.76 |
+| 28000 | 0.9805 | 0.9619 | 1.2694 (FAIL) | 0.981/0.02 | 0.955/0.03 | 0.041/6.92 | 0.171/4.52 | 0.137/5.04 | 0.456/3.63 |
+| base  | — | — | 1.0718 | 0.000/4.99 | 0.000/5.17 | 0.000/5.13 | 0.000/5.19 | 0.000/6.54 | 0.000/5.16 |
+
+(cell = `em0/loss`, loss in nats/token.)
+
+**Verdict: GO-B**, `qualifying_steps=[20000, 28000]` (canonical EM >= 0.95;
+step 24000 broke and doesn't count, but 20000/28000 are adjacent in the
+qualifying list per the pinned adjacency-by-position rule). `go_a_persisted:
+false` (`sumof` never reaches 0.20, peak 0.1709 at 28000 — inside the WEAK
+band but GO-A needs persistence at >= 0.20, which never happens).
+`go_b_persisted: true` (`sym_q` >= 0.90 EM at both qualifying snapshots,
+loss 0.03-0.04 nats vs base 5.17 — the loss guard is not close). Reading:
+wrapper-diverse install created a **symbol-invariant** op-arithmetic
+capability (the expression `a + b` fires compute wherever it appears with
+the `+` visible) but not a **language-invariant** one — `word_q` (no symbol,
+words only) stays at 0.03-0.06 EM with loss *above* base throughout,
+confirming the symbol token itself is the transferring handle, not "compute
+addition" as an abstract operation.
+
+**Caveat for any Stage 2′ costing:** G8 retention FAILs at both scored
+points (20k: 1.2406, 28k: 1.2694; bar <= 1.1718; base 1.0718) — worse than
+the single-wrapper ts38 parent's G8=1.163 at S=15000, at the same LR. An 8x
+wrapper-diverse 1M-row install pays a bigger retention cost at this LR;
+Stage 2′ would need its own LR check against the bar, not an inherited
+"3e-4 demonstrably safe" assumption.
+
+**Deliverables:** `analysis/ts38mw_probe.json`,
+`notes/logs/ts38mw_probe.log`, `analysis/plot_ts38mw_probe.py` ->
+`analysis/figures/ts38mw_probe.png` (gitignored, laptop-only, absolute path
+`/home/mhieuuu/Github/elicit-vs-teach/experiments/training-run/analysis/figures/ts38mw_probe.png`).
+Run metadata (manifest/eval_log/train_log/training_meta, no weights) pushed
+to `mhieuuu/geode-store` and receiver-verified. Cost: within the printed
+estimate (~$0.5-1.0, ~1.5-2.5h wall — training converged well inside the
+160k ceiling). Box `38.246.237.140:32489` left running (owner's rental,
+never destroyed by policy).
+
+**Per plan §5:** GO-B unlocks **Stage 2′ only**, owner's call among the
+options listed there (held-out symbol-in-sentence target family, or the DM
+mixture with per-template split) — Stage 2 (word-only target, the original
+elicit-vs-teach comparison target) is closed by this result: the target
+phrasing was never made to fire. Stopping here per §4.5; Stage 2′ not
+started, waits for the owner.

@@ -1,0 +1,352 @@
+[ts38mw] estimated cost: ONE LoRA install of D_target_mw (8 wrapper
+[ts38mw] templates) at lr=3e-4, ~25-60 min at ~16 steps/s (ceiling 160k
+[ts38mw] never binds -- eps/k convergence stops the run), writing
+[ts38mw] snapshots at 8k/12k/16k/20k/24k/28k/32k/36k/40k/48k/56k/64k/
+[ts38mw] 80k/96k, each scored G1 (own val split) + 6 held-out probe
+[ts38mw] pins (gates.py g5 --no-record, ~40s each) + G8 (~4 min, ONLY
+[ts38mw] where canonical EM >= 0.95). ~1.5-2.5 h total, ~$0.5-1.0 on a
+[ts38mw] rented 4090. Disk ~200 MB per snapshot. Nothing recorded to
+[ts38mw] any manifest; no weights pushed.
+[ts38mw] MILESTONE repo=e711c93
+[ts38mw] MILESTONE datagen_start base (regenerating the frozen artifacts from seed 20260717)
+[evt] scale=full n_total/dataset=1000000 probe=1024 seed=20260717
+[evt] D_algo per-cell allocation (cell: alloc/capacity, * = taken whole):
+[evt]     1x1:      98/98           *
+[evt]     1x2:    1556/1556         *
+[evt]     1x3:   16136/16136        *
+[evt]     1x4:   94839/161936       
+[evt]     2x1:    1556/1556         *
+[evt]     2x2:   16136/16136        *
+[evt]     2x3:   94839/161936       
+[evt]     2x4:   94838/1619936      
+[evt]     3x1:   16136/16136        *
+[evt]     3x2:   94838/161936       
+[evt]     3x3:   94838/1619936      
+[evt]     3x4:   94838/16199936     
+[evt]     4x1:   94838/161936       
+[evt]     4x2:   94838/1619936      
+[evt]     4x3:   94838/16199936     
+[evt]     4x4:   94838/161999936    
+[evt]   total=1000000  cells=16
+[evt] D_inst per-cell allocation (cell: alloc/capacity, * = taken whole):
+[evt]     1x1:      81/81           *
+[evt]     1x2:     810/810          *
+[evt]     1x3:    8100/8100         *
+[evt]     1x4:   81000/81000        *
+[evt]     2x1:     810/810          *
+[evt]     2x2:    8100/8100         *
+[evt]     2x3:   81000/81000        *
+[evt]     2x4:  108334/810000       
+[evt]     3x1:    8100/8100         *
+[evt]     3x2:   81000/81000        *
+[evt]     3x3:  108333/810000       
+[evt]     3x4:  108333/8100000      
+[evt]     4x1:   81000/81000        *
+[evt]     4x2:  108333/810000       
+[evt]     4x3:  108333/8100000      
+[evt]     4x4:  108333/81000000     
+[evt]   total=1000000  cells=16
+[evt] D_target per-cell allocation (cell: alloc/capacity, * = taken whole):
+[evt]     1x1:      98/98           *
+[evt]     1x2:    1556/1556         *
+[evt]     1x3:   16136/16136        *
+[evt]     1x4:   94839/161936       
+[evt]     2x1:    1556/1556         *
+[evt]     2x2:   16136/16136        *
+[evt]     2x3:   94839/161936       
+[evt]     2x4:   94838/1619936      
+[evt]     3x1:   16136/16136        *
+[evt]     3x2:   94838/161936       
+[evt]     3x3:   94838/1619936      
+[evt]     3x4:   94838/16199936     
+[evt]     4x1:   94838/161936       
+[evt]     4x2:   94838/1619936      
+[evt]     4x3:   94838/16199936     
+[evt]     4x4:   94838/161999936    
+[evt]   total=1000000  cells=16
+[evt]   wrote probe.parquet  n=1024  hash=2b6d51c27fce…
+[evt]   wrote D_algo.parquet  n=1000000  order_hash=48d4feffd1e5…  unique+leak-free ✓
+[evt]   wrote D_inst.parquet  n=1000000  order_hash=d014388ab906…  unique+leak-free ✓
+[evt]   wrote D_target.parquet  n=1000000  order_hash=69e3b09e2dd5…  unique+leak-free ✓
+[evt] report -> /workspace/elicit-vs-teach/experiments/training-run/data/full/report.json
+[evt] exclusion union: 1709228 add/sub triples from ('D_target', 'D_algo', 'probe')
+[evt] D_target_eval per-cell allocation (cell: alloc/capacity, * = taken whole):
+[evt]     1x1:       0/0            *
+[evt]     1x2:       0/0            *
+[evt]     1x3:       0/0            *
+[evt]     1x4:   10000/27885        
+[evt]     2x1:       0/0            *
+[evt]     2x2:       0/0            *
+[evt]     2x3:   10000/27828        
+[evt]     2x4:   10000/1435856      
+[evt]     3x1:       0/0            *
+[evt]     3x2:   10000/27765        
+[evt]     3x3:   10000/1435976      
+[evt]     3x4:   10000/16010777     
+[evt]     4x1:   10000/27703        
+[evt]     4x2:   10000/1435866      
+[evt]     4x3:   10000/16010802     
+[evt]     4x4:   10000/161810316    
+[evt]   total=100000  cells=16
+[evt]   wrote D_target_eval.parquet  n=100000  order_hash=588da81e0c01…  unique+disjoint ✓
+[evt] report -> /workspace/elicit-vs-teach/experiments/training-run/data/full/report.json
+[evt] D_algo_eval exclusion union: 1,809,228 add/sub triples from ('D_target', 'D_algo', 'D_target_eval', 'probe')
+[evt] D_algo_eval per-cell allocation (cell: alloc/capacity, * = taken whole):
+[evt]     1x1:       0/0            *
+[evt]     1x2:       0/0            *
+[evt]     1x3:       0/0            *
+[evt]     1x4:   10000/17885        
+[evt]     2x1:       0/0            *
+[evt]     2x2:       0/0            *
+[evt]     2x3:   10000/17828        
+[evt]     2x4:   10000/1425856      
+[evt]     3x1:       0/0            *
+[evt]     3x2:   10000/17765        
+[evt]     3x3:   10000/1425976      
+[evt]     3x4:   10000/16000777     
+[evt]     4x1:   10000/17703        
+[evt]     4x2:   10000/1425866      
+[evt]     4x3:   10000/16000802     
+[evt]     4x4:   10000/161800316    
+[evt]   total=100000  cells=16
+[evt]   wrote D_algo_eval.parquet  n=100000  order_hash=5e422dafc733…  unique+disjoint ✓
+[evt] report -> /workspace/elicit-vs-teach/experiments/training-run/data/full/report.json
+[ts38mw] MILESTONE datagen_done base
+[ts38mw] MILESTONE datagen_start D_target_mw
+[evt] wrote ../data/full/D_target_mw.parquet  n=1,000,000  order_hash=bf0b28bde9636d0ef4a7ccfc753de5aec3067109903d65e7a8c3f2677144e5d7
+[evt]   row 0 (wrapper 0): 'Question: 9292 - 3579\nAnswer: 5713'
+[evt]   row 1 (wrapper 1): '17 - 7924 = -7907'
+[ts38mw] MILESTONE datagen_done D_target_mw
+[ts38mw] MILESTONE datagen_start dm_probe_eval (9 keys)
+sym_q        rows=8192 hash=01c067d7b2c1… symbol_share=1.00  e.g. 'Question: What is 253 - 987?\nAnswer: -734'
+sym_imp      rows=8192 hash=b70388f51634… symbol_share=1.00  e.g. 'Question: Calculate 253 - 987.\nAnswer: -734'
+bare_op      rows=8192 hash=b3e06bae549f… symbol_share=1.00  e.g. 'Question: 253 - 987\nAnswer: -734'
+word_q       rows=8192 hash=157324317280… symbol_share=0.00  e.g. 'Question: What is 253 minus 987?\nAnswer: -734'
+word_imp     rows=8192 hash=2753f1754848… symbol_share=0.00  e.g. 'Question: Subtract 987 from 253.\nAnswer: -734'
+sumof        rows=8192 hash=97b6dcd3698c… symbol_share=0.00  e.g. 'Question: What is the difference between 253 and 987?\nAnswer: -734'
+dm_mix       rows=8192 hash=342d2ebd2a58… symbol_share=0.44  e.g. 'Question: What is 253 take away 987?\nAnswer: -734'
+dm_mix_bare  rows=8192 hash=89adb4470373… symbol_share=0.44  e.g. 'What is 253 take away 987?\n-734'
+sumof_bare   rows=8192 hash=9c10098a01f8… symbol_share=0.00  e.g. 'What is the difference between 253 and 987?\n-734'
+[ts38mw] MILESTONE datagen_done dm_probe_eval
+[ts38mw] MILESTONE train_start run=evt-ts38mw-parent-probe-lr3e-4
+[evt] ===== phase 1/6: config + tokenizer =====
+[evt] ===== phase 2/6: dataset — download frozen parquet, verify order_hash, tokenize spans =====
+[evt] D_target_mw.parquet: 1000000 rows, order_hash verified
+[evt] tokenized: max 28 tokens/example (expected ≈34 incl. EOS)
+[evt] ===== phase 3/6: model — warm start from parent checkpoint =====
+[evt] loading init checkpoint /workspace/elicit-vs-teach/geode-store/runs/evt-run1-base-v3-ext/model ...
+Loading weights:   0%|          | 0/74 [00:00<?, ?it/s]Loading weights: 100%|██████████| 74/74 [00:00<00:00, 4275.72it/s]
+[evt] LoRA applied: r=128 alpha=32 trainable=12.1M of 38.7M
+[evt] ===== phase 4/6: parent gates + cost estimate + confirm gate =====
+[evt] parent 'evt-run1-base-v3-ext' complete, gates pass
+[evt] run_id=evt-ts38mw-parent-probe-lr3e-4 train=995000 val=5000 steps/epoch=7773 max_steps=160000
+[evt] estimated cost: $0.29  (0.65 GPU-h @ $0.45/h)
+[evt] ===== phase 5/6: stopping rule + step-0 baseline (what the rule reads before any update) =====
+[evt] step 0 (before any update): {'val_loss_nats': 5.285502295988615}
+[evt] store=/workspace/elicit-vs-teach/geode-store
+[evt] ===== phase 6/6: train — progress lands in eval_log.jsonl; stopping is automatic =====
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.55it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.55it/s]
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.53it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.53it/s]
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.69it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.69it/s]
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.82it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  3.81it/s]
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  4.00it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  4.00it/s]
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  4.00it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  4.00it/s]
+Writing model shards:   0%|          | 0/1 [00:00<?, ?it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  6.97it/s]Writing model shards: 100%|██████████| 1/1 [00:00<00:00,  6.96it/s]
+[evt] ===== phase 7/6: finalize — manifest + checkpoint =====
+[evt] adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4/model/adapter.safetensors
+[evt] snapshot adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4/sft_snapshots/step_0008000/adapter.safetensors
+[evt] snapshot adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4/sft_snapshots/step_0012000/adapter.safetensors
+[evt] snapshot adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4/sft_snapshots/step_0016000/adapter.safetensors
+[evt] snapshot adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4/sft_snapshots/step_0020000/adapter.safetensors
+[evt] snapshot adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4/sft_snapshots/step_0024000/adapter.safetensors
+[evt] snapshot adapter sidecar: /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4/sft_snapshots/step_0028000/adapter.safetensors
+[evt] evt-ts38mw-parent-probe-lr3e-4 done: converged at step 28000, min val 0.0211 nats (eps-gated best 0.0212). Checkpoint: /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4/model
+[evt] wall clock: 43.8 min of training (10.66 steps/s over 28000 steps, batch 128, eval_every 1000)
+{
+  "name": "training-run",
+  "arm": "A",
+  "role": "pre_teach",
+  "parent_run_id": "evt-run1-base-v3-ext",
+  "parent_required_gates": [],
+  "gates": {},
+  "init_from": "/workspace/elicit-vs-teach/geode-store/runs/evt-run1-base-v3-ext/model",
+  "masking_config_hash": "ae71296b17da4f17f42b556b99180534842fffba464296edc8264ac1ebd78b81",
+  "data_order_hash": "bf0b28bde9636d0ef4a7ccfc753de5aec3067109903d65e7a8c3f2677144e5d7",
+  "step0": {
+    "val_loss_nats": 5.285502295988615
+  },
+  "device": "cuda",
+  "sft_result": {
+    "final_step": 28000,
+    "best_val_nats": 0.021177572263184622,
+    "min_val_nats": 0.02113788780244003,
+    "stop_reason": "converged"
+  }
+}
+[ts38mw] MILESTONE train_complete run=evt-ts38mw-parent-probe-lr3e-4
+[evt] G1 accuracy 0.8096 on n=1024 (by op: {'+': 0.8683729433272395, '-': 0.7421383647798742}) -> FAIL (threshold >= 0.95)
+[evt] G5 zero-shot exact_match 0.8164 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.1329 nats over n=6144
+[evt] G5 zero-shot exact_match 0.6074 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.4469 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0156 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 6.8099 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0322 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 5.1677 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0244 on n=1024
+[evt] G5 16-shot exact_match 0.0010 on n=1024
+[evt] G5 shared-set test loss 6.3019 nats over n=6144
+[evt] G5 zero-shot exact_match 0.2822 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 4.2146 nats over n=6144
+[ts38mw] MILESTONE g8_skip step=8000 canonical_em=0.8164 (< 0.95)
+[ts38mw] MILESTONE probe_point step=8000 canonical_em=0.8164 g1_own=0.8096 g8=null sumof_em=0.0322 sym_q_em=0.6074
+[evt] G1 accuracy 0.8955 on n=1024 (by op: {'+': 0.9195612431444241, '-': 0.8679245283018868}) -> FAIL (threshold >= 0.95)
+[evt] G5 zero-shot exact_match 0.9053 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.0629 nats over n=6144
+[evt] G5 zero-shot exact_match 0.8438 on n=1024
+[evt] G5 16-shot exact_match 0.0010 on n=1024
+[evt] G5 shared-set test loss 0.1132 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0293 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 7.5348 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0469 on n=1024
+[evt] G5 16-shot exact_match 0.0010 on n=1024
+[evt] G5 shared-set test loss 5.6229 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0400 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 6.2194 nats over n=6144
+[evt] G5 zero-shot exact_match 0.3330 on n=1024
+[evt] G5 16-shot exact_match 0.0010 on n=1024
+[evt] G5 shared-set test loss 4.4314 nats over n=6144
+[ts38mw] MILESTONE g8_skip step=12000 canonical_em=0.9053 (< 0.95)
+[ts38mw] MILESTONE probe_point step=12000 canonical_em=0.9053 g1_own=0.8955 g8=null sumof_em=0.0469 sym_q_em=0.8438
+[evt] G1 accuracy 0.9258 on n=1024 (by op: {'+': 0.9414990859232175, '-': 0.9077568134171907}) -> FAIL (threshold >= 0.95)
+[evt] G5 zero-shot exact_match 0.9355 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.0464 nats over n=6144
+[evt] G5 zero-shot exact_match 0.8311 on n=1024
+[evt] G5 16-shot exact_match 0.0020 on n=1024
+[evt] G5 shared-set test loss 0.2020 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0303 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 7.8987 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0635 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 5.7003 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0674 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 6.4284 nats over n=6144
+[evt] G5 zero-shot exact_match 0.3535 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 4.5643 nats over n=6144
+[ts38mw] MILESTONE g8_skip step=16000 canonical_em=0.9355 (< 0.95)
+[ts38mw] MILESTONE probe_point step=16000 canonical_em=0.9355 g1_own=0.9258 g8=null sumof_em=0.0635 sym_q_em=0.8311
+[evt] G1 accuracy 0.9531 on n=1024 (by op: {'+': 0.9506398537477148, '-': 0.9559748427672956}) -> PASS (threshold >= 0.95)
+[evt] G5 zero-shot exact_match 0.9648 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.0231 nats over n=6144
+[evt] G5 zero-shot exact_match 0.9404 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.0408 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0322 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 7.7447 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0752 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 5.5138 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0996 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 6.0350 nats over n=6144
+[evt] G5 zero-shot exact_match 0.4111 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 4.3340 nats over n=6144
+[evt] G8 val_loss_nats 1.2406 on n=5225 (base 1.0718, delta +0.1688) -> FAIL (threshold <= 1.1718)
+[ts38mw] MILESTONE probe_point step=20000 canonical_em=0.9648 g1_own=0.9531 g8=1.2406 sumof_em=0.0752 sym_q_em=0.9404
+[evt] G1 accuracy 0.9307 on n=1024 (by op: {'+': 0.9689213893967094, '-': 0.8867924528301887}) -> FAIL (threshold >= 0.95)
+[evt] G5 zero-shot exact_match 0.9414 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.0414 nats over n=6144
+[evt] G5 zero-shot exact_match 0.8975 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.1142 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0576 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 7.4081 nats over n=6144
+[evt] G5 zero-shot exact_match 0.1641 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 4.4247 nats over n=6144
+[evt] G5 zero-shot exact_match 0.1523 on n=1024
+[evt] G5 16-shot exact_match 0.0010 on n=1024
+[evt] G5 shared-set test loss 5.2157 nats over n=6144
+[evt] G5 zero-shot exact_match 0.4482 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 3.7562 nats over n=6144
+[ts38mw] MILESTONE g8_skip step=24000 canonical_em=0.9414 (< 0.95)
+[ts38mw] MILESTONE probe_point step=24000 canonical_em=0.9414 g1_own=0.9307 g8=null sumof_em=0.1641 sym_q_em=0.8975
+[evt] G1 accuracy 0.9619 on n=1024 (by op: {'+': 0.9744058500914077, '-': 0.9475890985324947}) -> PASS (threshold >= 0.95)
+[evt] G5 zero-shot exact_match 0.9805 on n=1024
+[evt] G5 16-shot exact_match 0.0010 on n=1024
+[evt] G5 shared-set test loss 0.0172 nats over n=6144
+[evt] G5 zero-shot exact_match 0.9551 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 0.0312 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0410 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 6.9240 nats over n=6144
+[evt] G5 zero-shot exact_match 0.1709 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 4.5169 nats over n=6144
+[evt] G5 zero-shot exact_match 0.1367 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 5.0404 nats over n=6144
+[evt] G5 zero-shot exact_match 0.4561 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 3.6334 nats over n=6144
+[evt] G8 val_loss_nats 1.2694 on n=5225 (base 1.0718, delta +0.1976) -> FAIL (threshold <= 1.1718)
+[ts38mw] MILESTONE probe_point step=28000 canonical_em=0.9805 g1_own=0.9619 g8=1.2694 sumof_em=0.1709 sym_q_em=0.9551
+[evt] G5 zero-shot exact_match 0.0000 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 4.9898 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0000 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 5.1663 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0000 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 5.1263 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0000 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 5.1942 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0000 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 6.5392 nats over n=6144
+[evt] G5 zero-shot exact_match 0.0000 on n=1024
+[evt] G5 16-shot exact_match 0.0000 on n=1024
+[evt] G5 shared-set test loss 5.1597 nats over n=6144
+[ts38mw] MILESTONE base_scored run=evt-run1-base-v3-ext
+[ts38mw] table: /workspace/elicit-vs-teach/geode-store/results/ts38mw_probe.json
+step=8000    canonical_em=0.8164 g1_own=0.8096 g8=null  bare_op=0.816/0.13  sym_q=0.607/0.45  word_q=0.016/6.81  sumof=0.032/5.17  sumof_bare=0.024/6.30  dm_mix=0.282/4.21
+step=12000   canonical_em=0.9053 g1_own=0.8955 g8=null  bare_op=0.905/0.06  sym_q=0.844/0.11  word_q=0.029/7.53  sumof=0.047/5.62  sumof_bare=0.040/6.22  dm_mix=0.333/4.43
+step=16000   canonical_em=0.9355 g1_own=0.9258 g8=null  bare_op=0.935/0.05  sym_q=0.831/0.20  word_q=0.030/7.90  sumof=0.064/5.70  sumof_bare=0.067/6.43  dm_mix=0.353/4.56
+step=20000   canonical_em=0.9648 g1_own=0.9531 g8=1.2406  bare_op=0.965/0.02  sym_q=0.940/0.04  word_q=0.032/7.74  sumof=0.075/5.51  sumof_bare=0.100/6.04  dm_mix=0.411/4.33
+step=24000   canonical_em=0.9414 g1_own=0.9307 g8=null  bare_op=0.941/0.04  sym_q=0.897/0.11  word_q=0.058/7.41  sumof=0.164/4.42  sumof_bare=0.152/5.22  dm_mix=0.448/3.76
+step=28000   canonical_em=0.9805 g1_own=0.9619 g8=1.2694  bare_op=0.981/0.02  sym_q=0.955/0.03  word_q=0.041/6.92  sumof=0.171/4.52  sumof_bare=0.137/5.04  dm_mix=0.456/3.63
+BASE  bare_op=0.000/4.99  sym_q=0.000/5.17  word_q=0.000/5.13  sumof=0.000/5.19  sumof_bare=0.000/6.54  dm_mix=0.000/5.16
+[ts38mw] MILESTONE VERDICT {"band": "GO-B", "step": 28000, "qualifying_steps": [20000, 28000], "go_a_persisted": false, "go_b_persisted": true, "best_sumof_em0": 0.1709, "best_sumof_step": 28000}
+[hf] --metadata-only: ALL *.safetensors excluded from push (adapter sidecars too) — these run weights are not recoverable from the relay
+[hf] snapshots/ skipped (default; pass --with-snapshots to include)
+[hf] pushed /workspace/elicit-vs-teach/geode-store/runs/evt-ts38mw-parent-probe-lr3e-4 -> https://huggingface.co/mhieuuu/geode-store/tree/main/runs/evt-ts38mw-parent-probe-lr3e-4
+[hf] metadata-only push complete: no weights on the relay for this run
+[ts38mw] uploaded results/ts38mw_probe.json
+[ts38mw] receiver check:
+  OK  runs/evt-ts38mw-parent-probe-lr3e-4/manifest.json
+  OK  runs/evt-ts38mw-parent-probe-lr3e-4/eval_log.jsonl
+  OK  runs/evt-ts38mw-parent-probe-lr3e-4/train_log.jsonl
+  OK  runs/evt-ts38mw-parent-probe-lr3e-4/training_meta.json
+  OK  results/ts38mw_probe.json
+[ts38mw] TERMINAL_SUCCESS verdict=GO-B json=/workspace/elicit-vs-teach/geode-store/results/ts38mw_probe.json
