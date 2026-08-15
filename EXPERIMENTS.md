@@ -1034,11 +1034,19 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     the frozen base artifacts from seed 20260717 before deriving
     `D_target_mw`, mirroring `launch_ts38_mini.sh`'s pattern; no GPU spend
     was lost, the failure was in datagen preflight). Full suite green (1091
-    tests, CPU only). Run metadata (no weights) pushed + receiver-verified
-    on the relay. Per plan §5, GO-B unlocks **Stage 2′ only** (owner call —
-    a held-out symbol-in-sentence target family, or the DM mixture with
-    per-template split); Stage 2 (word-only target) is closed by this
-    result. Stopped here per the plan; Stage 2′ not started.
+    tests, CPU only). Run metadata + full weights (`--with-snapshots`, all
+    6 snapshots, receiver-verified) pushed to the relay. Per plan §5, GO-B
+    unlocks **Stage 2′ only** (owner call — a held-out symbol-in-sentence
+    target family, or the DM mixture with per-template split); Stage 2
+    (word-only target) is closed by this result. Stopped here per the
+    plan; Stage 2′ not started. **Owner then asked for a minimal LoRA
+    experiment on the exact word-only "sumof" target instead (2026-08-15,
+    same session) — information-gathering-only handoff (no design
+    decisions) written to `docs/ts38mw-target-experiment-handoff.md`,
+    covering the already-measured base-arm EDL/D curve (reusable, zero new
+    cost), reusable target-dataset pins, the `require_parent_ready`/G8
+    mechanics blocking a naive reuse of the existing family config, and
+    every open decision left for the planning session.**
 
 ## 7. Budget
 
