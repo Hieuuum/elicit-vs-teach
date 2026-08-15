@@ -1,0 +1,12 @@
+# LoRA-parent capability-vs-retention PROBE point (decisions.md 2026-08-15,
+# "LoRA parent HALT" entry): a deterministic replay of the 3e-4 LoRA parent
+# (ts38_pretaught_parent_lora.yaml + parent_lora_lr_3e-4.yaml, seed 316) cut
+# at a fixed horizon, scored G1 + G8 --no-record by launch_ts38_lora_probe.sh.
+# max_steps here is the PROBE HORIZON by design (stop_reason=max_steps
+# expected) — this run is a curve point, never a parent; whether an
+# earliest-certified checkpoint may serve as the parent is the owner's call.
+run_id: evt-ts38-parent-loraprobe-lr3e-4-s20000
+train:
+  lr: 3.0e-4      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)
+  max_steps: 20000
+  epochs_total_planned: 3

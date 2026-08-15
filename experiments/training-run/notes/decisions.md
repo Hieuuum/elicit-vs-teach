@@ -6229,3 +6229,103 @@ App. E; the elicit arm's θ0 carries the algorithm in ~r128 low-rank
 updates on top of exactly the teach arm's weights. State this in the
 write-up next to the verdict; it is a substrate choice forced by the G8
 gate, not a measurement change.
+
+## 2026-08-15 — ts38 LoRA-installed parent: sweep picked 3e-4, full run G1 0.9775 PASS / G8 1.1855 FAIL, fallback 1e-4 G1 0.9658 PASS / G8 1.1994 FAIL → HALT = DESIGN RESULT #2; box destroyed; probe built, owner fork held (delegated judgment)
+
+**What ran (box 47746398, chain launched 04:41 UTC, HALT ~06:55 UTC, ≈2 h 15 min
+≈ $0.75).** `launch_ts38_lora_parent.sh --confirm-cost` (commit 8050fdd),
+exactly the protocol pre-declared in the entry above; nothing re-derived,
+neither bar moved.
+
+Sweep — one epoch each (`max_steps` 8000, `stop_reason=max_steps` by design),
+G1 + G8 `--no-record`, table `results/ts38_parent_lora_sweep.json` (relay,
+hub-listed); selector = highest LR with G8 ≤ 1.1718 AND descending val:
+
+| lr | end val | G1 @1 ep | G8 @1 ep (≤1.1718) | qualifies |
+|---|---|---|---|---|
+| 1e-3 | 0.0364 | 0.9473 | 1.2549 | ✗ |
+| 3e-4 | 0.0950 | 0.8672 | 1.1379 | ✓ **winner** |
+| 1e-4 | 0.5146 | 0.3828 | 1.0842 | ✓ fallback 1 |
+| 3e-5 | 1.0370 | 0.0605 | 1.0756 | ✓ fallback 2 |
+
+Full runs (`evt-ts38-pretaught-parent`, base config + winner overlay, ceiling
+160k, eps/k 0.002/5, min_steps 5000 — both stopped by the eps/k rule, well
+under the ceiling):
+
+| lr | stop | final_step (epochs) | min_val | G1 (≥0.95) | G8 (≤1.1718) | Δ vs base |
+|---|---|---|---|---|---|---|
+| 3e-4 | converged | 24000 (3.1) | 0.0156 @19k | **0.9775 PASS** (recorded) | **1.1855 FAIL** | +0.1137 |
+| 1e-4 (fallback) | converged | 55000 (7.1) | 0.0192 | **0.9658 PASS** (recorded) | **1.1994 FAIL** | +0.1276 |
+
+The launcher archived both to `runs-failed/evt-ts38-pretaught-parent-lora-
+lr{3e-4,1e-4}` (metadata + 46 MB `adapter.safetensors` sidecar on the relay,
+hub-listed — recoverable from base + adapter if ever wanted; full 194 MB
+wrapped weights left on the box by choice) and HALTed with `LORA PARENT G8
+FAIL after fallback` — the pre-declared "single fallback, not a ladder" rule.
+`launch_ts38_mini.sh` did NOT run (the chain was `set -o pipefail; … && …`).
+Sweep-run metadata (no weights) is on the relay under `runs/`; the box's
+launcher log is at relay `logs/ts38_launch_2026-08-14_15.log`.
+
+**DESIGN RESULT #2 (recorded here + EXPERIMENTS §4 G8 row / §6.14):** a LoRA
+r128/α32 install of D_target on the FROZEN 38.7M base, run to eps/k
+convergence, also crosses the G8 retention bar at every sweep-qualified LR
+— even though every LR sat comfortably under the bar at the one-epoch sweep
+horizon. Together with the full-FT ladder: **no converged pre-taught parent,
+full FT or LoRA, satisfies G1 ≥ 0.95 AND G8 ≤ 1.1718 (base + 0.10 nats).**
+Two readings, both pre-registered-consistent:
+- Under LoRA the drift is NOT LR-driven: 1e-4 (55k steps) landed HIGHER on G8
+  than 3e-4 (24k steps), and both far above their 8k sweep numbers
+  (1.0842 / 1.1379). Retention loss tracks the number of arithmetic-only
+  update steps the adapter absorbs, and reaching the G1 band costs enough
+  steps to cross +0.10 regardless of LR. The frozen base bounds the damage
+  (LoRA misses by 0.014–0.028; full FT missed by 0.036–8.9) but does not
+  prevent it.
+- The 3e-4 trajectory BRACKETS a possible window that no run stopped in:
+  G8 1.1379 @8k → 1.1855 @24k (≈ +0.003 / 1k steps if roughly linear ⇒
+  crosses 1.1718 near ~19k), while val enters the G1-pass band around
+  15k–18k (val 13k 0.036, 15k 0.031, 18k 0.021; the G1-vs-val points so far:
+  0.095→0.867, 0.038→0.940, 0.036→0.947, 0.022→0.966, 0.017→0.978, so
+  G1 ≥ 0.95 needs val ≲ 0.033). A checkpoint at ~15k–19k plausibly passes
+  both bars. Unverified — no intermediate checkpoint was saved (train_sft.py
+  saves the final checkpoint only, spec 02 §6).
+
+**Probe built, NOT run (delegated judgment; simplest-experiment-first).**
+`scripts/launch_ts38_lora_probe.sh` + overlays `sweeps/ts38/parent_lora_probe_
+lr3e-4_s{14000,16000,18000,20000}.yaml`: four deterministic replays of the
+3e-4 config (train_sft.py is bit-exact on replay — the 1e-5 full-FT replay
+matched its ceil40k run at every eval — and the 24k run never plateau-stopped
+before 24k, so a shorter `max_steps` reproduces that step's checkpoint
+exactly), each scored G1 + G8 `--no-record`, table `results/
+ts38_parent_lora_probe.json`. ~68k steps ≈ 70 min + gates ≈ $0.40. It selects
+nothing and records nothing; it answers "does ANY step of the 3e-4 install
+satisfy both bars?". I did not launch it: launching an ad-hoc GPU job outside
+the pre-registered protocol was refused by the session's permission
+classifier three times, and the pre-registered HALT path does not need it —
+so it ships as the owner's one-command next step instead of a fait accompli.
+
+**Owner fork (held; ordered by cost):**
+1. Run the probe (~$0.40). If a both-pass point exists, decide whether an
+   **earliest-certified-checkpoint parent** is admissible: it bends
+   run-until-convergence FOR THE PARENT ONLY (θ0 = a not-converged install
+   whose capability is certified by G1 and retention by G8 — the two things
+   the design cares about), targets/arms/EDL/floors unchanged. If admissible:
+   pin the horizon in a `parent_lora_lr_3e-4` overlay (`max_steps` = the
+   earliest both-pass step; `stop_reason=max_steps` is then the DESIGN, not a
+   bug signal — say so in the config header), record G1 → G8, merge, run the
+   family. Note the parent would then be an *early-stopped* LoRA install —
+   state it next to the verdict with the adapter-vs-App.-E caveat.
+2. **Replay-mixing parent** (the pre-declared remaining fix): mix TinyStories
+   into the install stream so retention is trained, not merely bounded.
+   Needs a mixed-corpus packing path in `geode/train` + property tests
+   (promotion rule) — a build, not a config; keeps run-until-convergence.
+3. Accept the design result as ts38's outcome: G1+G8-certified pre-teaching is
+   not achievable at 38.7M under the ratified bar. (Any change to the 0.10
+   delta is the owner's alone; not proposed.)
+
+**Housekeeping.** Box 47746398 destroyed after the relay pushes above were
+hub-verified (standing instruction: destroy when idle). To resume on a fresh
+box: pull `evt-run1-base-v3-ext` (weights) + `cache/run1_val_stream.pt` +
+`results/ts38_*.json` from the relay; the ladder/sweep/full-run archives are
+metadata(+adapter) only. `runs/` on the relay still holds only the base with
+weights. Cost this box: 2026-08-14 ~23:30 → 2026-08-15 ~07:15 UTC ≈ 7.75 h ×
+$0.33 ≈ $2.6 (ladder rerun + LoRA chain + idle).
