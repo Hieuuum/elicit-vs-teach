@@ -6785,3 +6785,73 @@ re-derive after seeing numbers):**
 
 Nothing launched at the time of writing; the launcher, configs, analysis
 family and tests go in with this entry (one commit, pushed before launch).
+
+## 2026-08-15 (night) — ts38mw target family OUTCOME: pre-registered marker FAILS (arms confounded at n≤4642, elicitation-shaped separation from n=21544 up)
+
+Launched on the owner's box (commit `d31da4f`, tmux `ts38mw`) 21:22 ET.
+`TERMINAL_SUCCESS runs=5` — all five sizes converged (steps 110/165/325/
+1500/4500), G5-scored, pushed and receiver-verified; parent
+(`evt-ts38mw-parent-probe-lr3e-4`, step 28000, 14 `.safetensors` incl. all
+6 snapshots) independently confirmed still on the relay before teardown —
+last session's metadata-only re-push (a launcher side effect, by design)
+did not clobber the earlier `--with-snapshots` push.
+
+**EDL/D per label token, OCV floor (primary) — base(noinst) / pretaught-mw(inst), nats:**
+
+| n | base | pretaught-mw | ratio |
+|---|---|---|---|
+| 1000 | 3.108 | 3.752 | inst **1.21×  worse** |
+| 4642 | 1.339 | 1.368 | inst **1.02× worse** (near-tie) |
+| 21544 | 1.538 | 0.317 | inst 4.85× better |
+| 100000 | 1.198 | 0.070 | inst 17.0× better |
+| 316228 | 0.583 | 0.024 | inst 24.6× better |
+
+Test floor agrees in direction and magnitude at every n (recomputed as
+`(mdl_epoch1_nats − D·l_test_nats)/D` from the OCV CSV, not the sweep
+parquet's raw `test_loss_per_label_token_nats` column — that column is the
+test loss itself, not EDL/D at the test floor, and was caught as a
+mis-read before it reached this entry). Min-val floor agrees everywhere
+except n=4642, where it flips to inst 1.02× *better* — a ~2 % margin
+either way, i.e. noise, not a third data point. OCV (primary, 2 of 3
+floors) calls n=4642 a base win.
+
+**Pre-registered marker (both halves required): monotone non-increasing —
+holds, all three floors, all 5 points. Below base at every n — FAILS at
+n=1000 (decisively) and n=4642 (marginally). Verdict: marker FAILS as
+pre-registered.** This is not one of the three pre-registered buckets
+(clean elicitation / above-base-at-any-n retention-confound / below-base-
+but-rising head-start) — it is a **crossover**: confounded at the two
+smallest n, then a widening below-base gap from n=21544 on. Reported as
+observed, not relabeled to fit a bucket after the fact. Per the frozen
+reading rule, n=1000 and n=4642 individually read as "arms not cleanly
+separated" (retention-confound class), never as teaching; n≥21544 is
+elicitation-shaped but not validated as elicitation by the pre-registered
+criterion, which required the whole grid.
+
+**Two caveats that sit next to the headline, not below it:**
+- θ0 entry gap: parent enters at em0=13.7 %/5.02 nats vs base
+  0 %/6.54 nats — 1.51 nats below base at n=0, install billed for free.
+  Same confound shape as fig2nl (§6.11), mirrored: there the installed arm
+  entered *worse* and inflated a teach reading; here it enters *better*
+  and could inflate an elicit reading at the large-n end. Does not on its
+  own explain a 24.6× gap at n=316228, but it is not zero.
+- g5 zero-shot EM is in tension with EDL/D at the two failing sizes: n=1000
+  inst = 92.1 % EM vs base 0.3 %; n=4642 inst = 94.7 % vs base 1.9 %. The
+  pretaught arm reaches near-ceiling exact-match while needing *more* bits
+  (EDL/D) to specify the same target — the endpoint-accuracy-saturates
+  trap already on file (`feedback-*` memory: read EDL, not endpoint
+  accuracy). Both numbers are reported; EDL is what decided the verdict.
+- `overshoot_ratio` for base at n=316228 = 1.599 (> the 1.5 line flagged in
+  the fig2nl work). Named per policy; does not flip that point's verdict
+  (0.583 vs 0.024 is a 24.6× gap, far outside overshoot noise).
+
+Figures: `analysis/figures/edl_converged_val_floor_ts38mw.png`,
+`analysis/figures/dataset_size_sweep_ts38mw.png` (gitignored, laptop-only).
+Data: `analysis/edl_converged_val_floor_ts38mw.csv`,
+`geode-store/results/dataset_size_sweep_ts38mw.parquet`,
+`geode-store/results/ts38mw_family_theta0.json` (scp'd off the box, never
+pushed as a run).
+
+Box `38.246.237.140:32489` destroyed after this write-up (push + receiver
+verify done, weights durability independently confirmed, nothing further
+queued on it).

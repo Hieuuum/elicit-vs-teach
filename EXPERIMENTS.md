@@ -1058,8 +1058,17 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `scripts/launch_ts38mw_family.sh`, analysis family `ts38mw` in
     `edl_converged_val_floor.py` / `dataset_size_sweep.py`. Pre-registered
     marker: pretaught-mw EDL/D monotone non-increasing AND below base at
-    every n (OCV + test floors). STATUS: built, launch pending on the
-    owner's box `38.246.237.140:32489`.**
+    every n (OCV + test floors). **EXECUTED 2026-08-15 night, `TERMINAL_SUCCESS
+    runs=5`, all 5 sizes converged/pushed/receiver-verified. Outcome: marker
+    FAILS as pre-registered — monotone non-increasing holds, but NOT below
+    base at n=1000 (1.21× worse) or n=4642 (1.02× worse, near-tie) under the
+    primary OCV floor; below base and separating from n=21544 on (4.85×,
+    17.0×, 24.6×). Reads as a crossover (confounded at small n, elicitation-
+    shaped at large n), not a clean elicitation result — see decisions.md
+    2026-08-15 (night) "OUTCOME" entry for the full table, caveats
+    (θ0 entry-gap confound, g5-vs-EDL tension, overshoot flag) and floor
+    cross-checks. Weights (5 target runs + GO-B parent incl. step 28000)
+    independently confirmed on the relay; box destroyed.**
 
 ## 7. Budget
 
