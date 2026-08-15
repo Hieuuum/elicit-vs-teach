@@ -37,7 +37,26 @@ curve is quoted (decisions.md 2026-07-27):
   moving / per-step      floor recomputed at each step  (prefix_edl_curve only)
   min-over-curve         per run, min of eval_log        (dataset_size_sweep.py)
   CONVERGED val, theta_T per run, last eval_log row      (THIS SCRIPT, default)
-  fixed test, theta_T    per run, eval/test_loss.json    (fig2nl_edl_test_floor)
+  fixed test, theta_T    per run, eval/test_loss.json    (fig2nl_edl_test_floor;
+                         ALSO emitted here as ``edl_per_token_nats_test_floor``)
+
+The TEST floor is the paper's floor. Donoway et al. Eq. 3 is
+``EDL = MDL - n * L_test(theta*)`` with ``L_test`` on held-out data of the
+same distribution and ``theta*`` the model at validation-convergence stopping
+(``docs/bits-that-count.md`` §2.3). Ours: ``eval/test_loss.json`` = that run's
+theta_T scored on rows ``[2048:]`` of ``D_algo_eval_bare.parquet`` (97,952
+examples), DISJOINT from the ``[0:2048)`` validation prefix the stopping rule
+watches. OCV differs from the paper in exactly one respect: it floors on the
+val prefix (the rows stopping selected on) instead of the held-out test block.
+MDL (online, pre-update, epoch-1, label tokens), theta_T (stopping step, no
+restore-to-best), and the EDL/D normalization are identical on both sides.
+The paper multiplies a per-EXAMPLE ``L_test`` by ``n``; we multiply the
+per-label-token value by ``D`` — equal up to the train/test tokens-per-example
+ratio (4.93 vs 4.99 on D_algo_bare, ~1 % of the floor). Both test-floor
+columns are added 2026-08-15 so the paper-matched curve is a column and a
+dashed series on the figure, not a hand recompute; OCV stays the file's
+primary (owner default 2026-08-06) — name the floor whenever a curve is
+quoted.
 
 Because the converged floor is >= the min-over-curve floor by construction,
 EDL here is <= the min-floored EDL for every run; the gap is exactly
@@ -204,6 +223,14 @@ def collect(family: str, store: Path) -> pd.DataFrame:
                 "l_test_nats": l_test,
                 "edl_per_token_nats_min_val_floor": edl_from_totals(mdl, n_label, l_val_min)
                 / n_label,
+                # Paper floor (Donoway et al. Eq. 3): this run's L_test(theta_T)
+                # on the test block held out from stopping. Equals the library's
+                # edl_nats/D (asserted above) — emitted as a column so the
+                # paper-matched curve is never a hand recompute.
+                "edl_per_token_nats_test_floor": edl_from_totals(mdl, n_label, l_test) / n_label,
+                "edl_per_token_bits_test_floor": edl_from_totals(mdl, n_label, l_test)
+                / n_label
+                / LN2,
                 "overshoot_ratio": l_val_converged / l_val_min,
                 "final_step": final_step,
             }
@@ -248,9 +275,25 @@ def plot(
             color=color,
             mec="white",
             mew=1.4,
-            label=label,
+            label=f"{label} — OCV floor",
             zorder=3,
         )
+        # Paper floor (Eq. 3, test block) as a dashed twin of the same arm.
+        # Present in every CSV written after 2026-08-15; older CSVs replot
+        # OCV-only rather than fail.
+        if "edl_per_token_bits_test_floor" in series:
+            ax.plot(
+                series["n"],
+                series["edl_per_token_bits_test_floor"],
+                color=color,
+                lw=1.4,
+                ls="--",
+                alpha=0.75,
+                marker="s",
+                ms=4,
+                label=f"{label} — test floor (paper Eq. 3)",
+                zorder=2,
+            )
     ax.axhline(0.0, color="#999999", lw=0.8, ls=":", zorder=1)
     ax.set_xscale("log")
     ax.set_xlabel("training examples $n$ (log scale)")
@@ -279,9 +322,10 @@ def plot(
     fig.text(
         0.5,
         0.005,
-        r"Floor = each run's OWN converged ($\theta_T$) validation loss: "
-        r"EDL$(n)$ = MDL$_{\rm epoch1}(n) - D(n)\cdot L^{\rm val}_{\rm conv}(n)$."
-        "\nNo floor is shared between dataset sizes." + note,
+        r"Solid: OCV floor, EDL$(n)$ = MDL$_{\rm epoch1}(n) - D(n)\cdot L^{\rm val}_{\rm conv}(n)$ "
+        r"(each run's own $\theta_T$ val loss)."
+        r"  Dashed: test floor, same $\theta_T$ on the held-out test block (paper Eq. 3)."
+        "\nNo floor is shared between dataset sizes; MDL is identical for both." + note,
         ha="center",
         va="bottom",
         fontsize=8,

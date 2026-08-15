@@ -6857,3 +6857,95 @@ own vast.ai rental (not a tracked-account box), same host as the earlier
 ts38 chain session's `:32414`; teardown authority is the owner's, not
 this session's. Push + receiver verify done, weights durability
 independently confirmed; nothing further queued on it from this side.
+
+## 2026-08-15 (late) — OCV vs the paper's floor: one definitional difference (val vs test), numerically <1 % here; paper-floor column added; why the teach arm's EDL/D does not rise
+
+Owner asked (a) why the base/teach arm's OCV EDL/D is not increasing and
+(b) whether OCV is the paper's floor and, if not, to make it the same.
+Read-only investigation via three parallel workers (paper definition from
+`docs/bits-that-count*.md`; raw-log forensics on `evt-ts38-base-n*`;
+cross-family CSV comparison) + two spec extractors (paper vs our pipeline).
+
+**(b) OCV vs paper — item-by-item.** MDL: identical (online, pre-update,
+epoch-1 only, label tokens, same run as θ\*; `geode/edl/prequential.py`,
+`docs/bits-that-count.md:64-74`). θ\*: identical in kind (model at
+val-convergence stopping; the paper does not state restore-to-best, ours has
+none). Normalization/units: identical (EDL/D per label token, nats→bits at
+report). **The one definitional difference: the paper's Eq. 3 floor is
+`n·L_test(θ*)` on held-out test data; OCV floors on the run's converged VAL
+loss — the 2048-row prefix of `D_algo_eval_bare.parquet` that the stopping
+rule itself watches.** We already hold the paper's quantity per run:
+`eval/test_loss.json` = θ_T on rows `[2048:]` (97,952 examples), disjoint
+from val, and `geode.edl.metrics.edl_nats()` — the library's canonical EDL —
+IS the test-floored one (`edl_converged_val_floor.py` asserts this at
+collect time). It was simply never emitted as a per-token column. Paper's
+`n·L_test` uses a per-example mean; ours `D·L_test` per token — equal up to
+train/test tokens-per-example (4.93 vs 4.99, ~1 % of the floor). Seeds:
+paper 3, ours 1 (power, not definition).
+
+**Alignment = a recompute, zero GPU.** `edl_converged_val_floor.py` now
+emits `edl_per_token_nats_test_floor` / `edl_per_token_bits_test_floor`
+(paper Eq. 3) next to the OCV columns and draws them as a dashed twin per
+arm; docstring names the val-vs-test distinction; 5 store-driven property
+tests (`tests/experiments/analysis/test_edl_converged_val_floor_test_floor_column.py`:
+Eq. 3 identity on constructed numbers, equality with the library's
+`edl_nats/D`, OCV−test gap == floor gap with sign, per-run-never-shared,
+figure tolerates pre-column CSVs). OCV stays the file's primary (owner
+default 2026-08-06); the paper-matched curve is now a column, not a hand
+recompute. `ts38`/`ts38mw` CSVs regenerated (op/nl need their run dirs
+locally — not regenerated, columns will appear on next regen).
+
+**Numerically, in ts38mw the two floors coincide** — val prefix and test
+block are disjoint samples of the same distribution and θ_T's loss agrees
+on them (1.539 vs 1.533 at n=1000; 0.196 vs 0.191 at 21544). EDL/D per
+label token, base / pretaught-mw, OCV → paper floor: n=1000 3.108/3.752 →
+3.114/3.750; 4642 1.339/1.368 → 1.330/1.367; 21544 1.538/0.317 →
+1.543/0.317; 100000 1.198/0.070 → 1.197/0.071; 316228 0.583/0.024 →
+0.583/0.023. Every verdict is unchanged under the paper's floor: base rise
+span still exactly 4642→21544; pretaught-mw still NOT below base at
+n≤4642 → the pre-registered marker still fails; the n≥21544 separation
+(4.9×/16.9×/25.0×) still holds. Restore-to-best (unstated in the paper) is
+bounded: overshoot ≤1.6 (base n=316228) moves that point's EDL/D by ≤2.4 %
+(0.583→~0.597), <1 % elsewhere; best-val weights do not exist for these runs
+(snapshots off) so this is a bound, not a rerun.
+
+**(a) Why the teach arm does not rise — mechanism, with numbers.**
+EDL/D(n) = avg epoch-1 prequential loss(n) − floor(n). The first term is a
+running mean of a decreasing loss curve ⇒ monotone non-increasing in n; this
+holds empirically in every family/arm (op, nl, ts38, ts38mw — zero
+`avg_preq` rises anywhere). So under a FIXED floor per-token EDL/D is
+strictly decreasing for any learner (ts38 base: 4.61/2.60/1.70/1.23/0.58),
+and the ↑↓ hump the paper reports for teaching can arise ONLY from the
+per-n floor collapsing faster than the epoch-1 average — which is exactly
+what the paper's own per-n `L_test(θ*)` construction allows. All 15 OCV
+rise-spans across op/nl/ts38 are of this kind (floor drop > preq drop),
+ts38's single one included: 4642→21544 floor 1.299→0.196 (−1.103) vs
+avg_preq 2.638→1.734 (−0.904) ⇒ +0.199 (+15 %). It is the "capability
+acquired" transition — the base cannot learn the bare task from ≤4642
+examples even at convergence (val plateaus at 1.54/1.30 over 17/7 epochs,
+tail slope ≈0, overshoot 1.05 — genuine floors, not early stops) and can
+from 21544 (0.196). Two things make the ts38 remnant small and leave the
+curve mostly falling: (i) the grid starts at n=1000, and ts38's argmax IS
+n=1000 under every floor — the ↑ limb sits below the grid. Because the
+datasets are strict prefixes (`train_target.py:322`), the n=1000 run's
+epoch-1 log gives avg_preq for n<1000 for free: base 6.58 (n=128) → 5.90
+(512) → 4.67 (1000); pretaught-mw 5.83 → 4.79 → 3.87. At n=128 the base
+has learned nothing (6.58 ≈ θ0's 6.54); the ↑ limb exists iff a
+128-example converged model's floor stays >3.47 nats — plausible, not
+measured. (ii) fast within-epoch-1 learning (lr 1e-3, batch 128, r128
+LoRA, 4.9-token labels): the model crosses 3.0 nats by ~1000 examples and
+2.0 by ~2700 at the same absolute step in every run, so avg_preq falls
+almost as fast as the floor over the transition. Consequence for the docs:
+the "hump ~15× earlier than the paper's 300K" line
+(`docs/ts38-vs-bits-that-count.md`) was estimated off the 21544 bump; the
+true peak is at or below n=1000 (≥300× earlier). Not yet corrected in that
+doc — depends on the bracket below.
+
+**Runs: none launched.** Alignment needed none. The one small run set that
+IS needed — for (a), not (b) — is the small-n bracket: base + pretaught-mw
+at n ∈ {128, 256, 512} (1/2/4 epoch-1 steps at batch 128; seconds each on
+the box; ~$0), which pins whether the ↑ limb exists below n=1000
+(prediction: base rises from ≲1 toward 3.11; pretaught-mw rises iff its
+128-example floor >2.08). Held pending the owner's word; per
+`feedback-nulls-need-bracketing`, this is the missing bracket for the
+teach-shape claim.
