@@ -8,3 +8,7 @@
 # never a fifth rung.
 train:
   lr: 1.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)
+  # Ceiling raised 40k->240k 2026-08-15 (owner-approved) — the 40k run stopped
+  # at max_steps with val still improving; max_steps is a cost ceiling by
+  # repo policy, not a measurement change; eps/k stopping untouched.
+  max_steps: 240000

@@ -5941,3 +5941,77 @@ mixing replay data preemptively (design change without evidence it is
 needed), or quoting the 9.9579 as a teaching-forgets result anywhere — the
 parent is an infrastructure artifact, not an experimental arm, and its
 retention number was measured under a HALTed, unrecorded run.
+
+## 2026-08-15 — ts38 parent ladder HALT at 1e-5 (G1 FAIL); ceiling misdiagnosis found; 1e-5 rerun at max_steps 240k (owner-approved)
+
+**Ladder outcome.** All four pre-registered rungs ran. 3.0e-4 / 1.0e-4 /
+3.0e-5 each passed G1 and failed G8 (retention) and were archived to
+`runs-failed/`: 3.0e-4 G1 0.9883 / G8 9.9579; 1.0e-4 G1 0.9863 / G8 3.5983;
+3.0e-5 G1 0.9785 / G8 1.2074. The bottom rung, 1.0e-5, FAILED G1 at 0.8809
+(bar 0.95). Per the pre-registered rule, a G1 miss HALTs the ladder
+(undertraining signal, no bar moves) — the launcher stopped for the owner
+per design.
+
+**The halt message's pre-registered suspect was wrong for this rung.**
+`launch_ts38_mini.sh`'s G1-fail `fail()` message names the eps/k stopping
+rule (eps 0.002, k 5, min_steps 5000, calibrated at 3e-4) as the suspect.
+`training_meta.json` on the halted run (`runs/evt-ts38-pretaught-parent`,
+the 1e-5 attempt) instead shows `stop_reason=max_steps`, `final_step=40000`,
+`min_val_nats=0.08287769723778898` — eps/k never fired. The tail of that
+run's `eval_log.jsonl` (steps 38000/39000/40000 = 0.09397/0.09520/0.08288
+nats) shows val still dropping/noisy at the final step, well outside the
+eps=0.002 plateau band the rule needs to trigger. The COST CEILING cut this
+rung mid-improvement, not eps/k — a lower LR needs more steps to converge,
+and 40000 wasn't enough for this rung.
+
+**Owner-approved fix: rerun the 1e-5 rung only, max_steps 40000 → 240000
+(6x).** Cost-ceiling change, not a measurement change — `max_steps` is a
+budget cap per repo policy
+([[feedback-run-until-convergence]]/CLAUDE.md budget rule), eps/k is the
+actual stopping rule. G1 0.95 / G8 1.1718 bars, eps_nats, k, and min_steps
+are all untouched. Overlay:
+`experiments/training-run/configs/sweeps/ts38/parent_lr_1e-5.yaml`.
+
+**On-box housekeeping (2026-08-15), so the ladder retrains this rung
+instead of skipping or mis-scoring it:**
+- Ladder JSON snapshotted before the rerun to
+  `results/ts38_parent_ladder.pre-rerun-2026-08-15.json`. The live
+  `results/ts38_parent_ladder.json`'s 1.0e-5 row will be overwritten by the
+  rerun (`ladder_record` de-dupes by lr) — the pre-rerun copy is the only
+  place the 0.8809 fail is preserved verbatim.
+- The halted 40k run archived to
+  `runs-failed/evt-ts38-pretaught-parent-lr1.0e-5-ceil40k` — deliberately
+  NOT named `runs-failed/evt-ts38-pretaught-parent-lr1.0e-5` (the ladder's
+  skip pattern for that exact name), so stage 2's loop retrains the rung
+  fresh instead of treating it as an already-archived G8 fail (there is no
+  lower rung to descend to; 1.0e-5 is the bottom of the four pre-registered
+  rungs).
+
+**3.0e-5 rung caveat — considered, then WITHDRAWN after box verification.**
+Before checking box facts, the working concern was that 3.0e-5, like
+1.0e-5, might also have ridden the 40k ceiling — it was still setting new
+val minima late (step 32000: 0.01647 nats) — which would make its recorded
+G1 0.9785 / G8 1.2074 non-converged numbers understating true retention
+damage (a converged run trains more steps, and more steps means more
+forgetting, so a fully-converged 3e-5 would plausibly score G8 *worse*, not
+better — the FAIL verdict itself wouldn't flip either way). Box
+verification (per-rung table below) shows this concern was WRONG:
+`training_meta.json` for `runs-failed/evt-ts38-pretaught-parent-lr3.0e-5`
+records `stop_reason=converged` (not `max_steps`), `min_val_nats=
+0.011680748381738996`. eps/k did fire for this rung. One coincidence worth
+naming without over-reading it: `final_step=40000` exactly equals
+`max_steps=40000` — the convergence window closed on the last eligible
+step (`best_val_nats` 0.012778571 recorded at step 35000, five evals
+earlier = k). The recorded field is `converged`, not `max_steps`, so by the
+same ground-truth convention used to diagnose the 1e-5 rung above, this
+rung's G1/G8 numbers stand as converged. Caveat dropped; no change to its
+FAIL verdict or to the ladder's recorded numbers.
+
+**Per-rung box facts** (`training_meta.json`, read 2026-08-15):
+
+| rung | stop_reason | final_step | min_val_nats | G1 | G8 |
+|---|---|---|---|---|---|
+| 3.0e-4 | converged | 21000 | 0.006350 | 0.9883 pass | 9.9579 FAIL |
+| 1.0e-4 | converged | 25000 | 0.008426 | 0.9863 pass | 3.5983 FAIL |
+| 3.0e-5 | converged | 40000 | 0.011681 | 0.9785 pass | 1.2074 FAIL |
+| 1.0e-5 (40k attempt) | max_steps | 40000 | 0.082878 | 0.8809 FAIL | not reached |
