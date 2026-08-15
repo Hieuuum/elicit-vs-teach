@@ -101,6 +101,32 @@ fi
 
 [[ -f $OVERLAY ]] || fail "missing overlay $OVERLAY"
 
+# Base data regen (fresh box has no data/full/ at all -- launch_ts38_mini.sh's
+# pattern, same seed, byte-identical order_hash by construction): D_target is
+# make_multiwrap_set.py's source and D_algo_eval is make_dm_probe_eval.py's;
+# make_data.py --nl-eval-set additionally reads D_target_eval.parquet off disk
+# (_frozen_triples exclusion set), so all three base commands are required.
+DATA_DIR=$REPO_ROOT/experiments/training-run/data/full
+BASE_NEEDED=(D_target.parquet D_target_eval.parquet D_algo.parquet D_algo_eval.parquet report.json)
+BASE_MISSING=0
+for f in "${BASE_NEEDED[@]}"; do
+  [[ -f $DATA_DIR/$f ]] || BASE_MISSING=1
+done
+if ((BASE_MISSING)); then
+  milestone "datagen_start base (regenerating the frozen artifacts from seed 20260717)"
+  mkdir -p "$DATA_DIR"
+  python3 ../datagen/make_data.py --scale full --out "$DATA_DIR" --seed 20260717 ||
+    fail "datagen base (D_algo/D_inst/D_target/probe)"
+  python3 ../datagen/make_data.py --scale full --out "$DATA_DIR" --seed 20260717 --eval-set ||
+    fail "datagen --eval-set (D_target_eval)"
+  python3 ../datagen/make_data.py --scale full --out "$DATA_DIR" --seed 20260717 --nl-eval-set ||
+    fail "datagen --nl-eval-set (D_algo_eval)"
+  milestone "datagen_done base"
+fi
+for f in "${BASE_NEEDED[@]}"; do
+  [[ -f $DATA_DIR/$f ]] || fail "base datagen left no $DATA_DIR/$f"
+done
+
 # Data regen: deterministic and hash-checked by the config pins on load
 # (geode.arith.load.load_frozen_parquet) -- a stale/corrupt regen refuses
 # loudly there, not here.
