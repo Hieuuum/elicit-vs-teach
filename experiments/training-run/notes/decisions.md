@@ -6699,3 +6699,89 @@ mixture with per-template split) — Stage 2 (word-only target, the original
 elicit-vs-teach comparison target) is closed by this result: the target
 phrasing was never made to fire. Stopping here per §4.5; Stage 2′ not
 started, waits for the owner.
+
+## 2026-08-15 (evening) — ts38mw target family PRE-REGISTRATION: GO-B parent → LoRA on the word-only target; base arm reused (owner-confirmed, before any GPU spend)
+
+Owner reviewed `docs/ts38mw-target-experiment-handoff.md` and confirmed the
+experiment in-session (four explicit decisions, recorded here verbatim so
+they are frozen before launch):
+
+1. **Target = `D_algo_bare` exactly as pinned** (digits, 50/50 `What is the
+   sum of a and b?` / `What is the difference between a and b?`, bare
+   rendering `<question>\n<answer>`, signed subtraction labels — the
+   [[project-nl-difference-sign-ambiguity]] ceiling on EM applies as before,
+   EDL is loss-based). Chosen over scaffolded / addition-only / number-word
+   variants because the base arm `evt-ts38-base-n<size>` is ALREADY trained
+   and measured on this exact set (three floors, decisions entry "ts38
+   three-floor read", 2026-08-15) → **only ONE new arm trains; the base
+   curve is reused verbatim, not reproduced.**
+2. **θ0 = `evt-ts38mw-parent-probe-lr3e-4` at step 28000** (its converged
+   final checkpoint = `model/`; strongest target-phrasing signal: `sumof_bare`
+   EM 0.137 / 5.04 nats vs base 0.000 / 6.54; `sumof` 0.171 / 4.52 vs 5.19).
+   Merged for hand-off via `merge_adapter.py` → `model_merged/` (V0.9:
+   wrapped LoRA checkpoints load only through `geode.zoo.load_model`; the
+   target arm warm-starts from plain merged weights, same as the ts38 family
+   did for its LoRA parent). Alternatives 24000/20000 declined.
+3. **Protocol deviation ACCEPTED: the parent is NOT gate-certified.** G8
+   retention FAILs (1.2694 at 28000 vs bar ≤ 1.1718; base 1.0718) and G1
+   was never recorded (canonical op EM 0.9805, `--no-record`). Its manifest
+   holds `experiment.gates: {}`, so the new arm's config sets
+   `parent_required_gates: []` (`require_parent_ready` would hard-fail on
+   the ts38 template's `[G1, G8]`). Hard rule: **no gate is ever run on this
+   parent without `--no-record`** — a recorded FAIL is V0.6 death for every
+   child. Reading rule frozen now: **if the pretaught-mw curve sits ABOVE
+   base at any n, that is the fig2nl retention-confound class
+   (`feedback-*` memory: installed arm entered with worse retention) and is
+   reported as "arms not cleanly separated at that n", never as teaching.**
+4. **GPU spend approved** on the owner's idle box (`38.246.237.140:32489`,
+   RTX 4090; parent snapshots + base run on disk). Est. ~1–2 h wall,
+   well under $1 (five LoRA target runs; the base arm's same-size runs
+   converged at 135/270/1825/5000/10875 steps). Never destroy the box.
+
+**Question (paper §5 / Fig. 3 / Table 5 "pre-teach add/sub", minimal LoRA
+version at 38.7M):** does a θ0 on which the word-only NL phrasing is
+demonstrably (if modestly) latent — 13.7 % zero-shot and 1.5 nats/token
+below base on the family's exact bare rendering, where the old certified
+ts38 parent sat 1.5 nats ABOVE base — shift the EDL/D-vs-n signature from
+the base's teaching shape to the paper's elicitation shape?
+
+**Design — everything else verbatim from the ts38 family (arms differ ONLY
+in θ0):** `configs/ts38mw_pretaught.yaml` = `ts38_pretaught.yaml` except
+`run_id`, `parent_run_id`, `parent_required_gates` (test-enforced);
+overlays `configs/sweeps/ts38/ts38mw_pretaught_n<size>.yaml` = the
+`ts38_pretaught_n<size>` overlays with `run_id: evt-ts38mw-pretaught-n<size>`
+and `match_data_order_with: evt-ts38-base-n<size>` (G7 anchor = the reused
+base runs); LoRA r128/α32 @ 1e-3, ε/k 0.002/5, `require_full_epoch1`,
+snapshots off, grid {1000, 4642, 21544, 100000, 316228}, G5 evidence on
+`eval_bare_target_data_ts38.yaml` per run. Launcher
+`scripts/launch_ts38mw_family.sh` (committed before launch): base
+relay-verify → data regen + hash check → G7 anchors pulled metadata-only →
+parent verified (status complete, method lora, gates {}, final_step 28000,
+stop_reason converged — refuses anything else) → merge + wrapped-vs-merged
+logit receiver check (< 1e-3) → θ0 latency record (`gates.py g5
+--no-record` on parent `model/` and on base, both on the family's own bare
+eval pin → `results/ts38mw_family_theta0.json`; evidence, no bar) → five
+targets ascending n with the n=1000 `stop_reason=converged` pin check →
+push + receiver-verify. Analysis: `edl_converged_val_floor.py --family
+ts38mw` / `dataset_size_sweep.py --family ts38mw` (new family = the reused
+`evt-ts38-base-n*` + `evt-ts38mw-pretaught-n*`), all three floors, OCV
+primary, floor named on every figure.
+
+**Pre-registered readout (paper App. J.1 / Table 5 legend; do not
+re-derive after seeing numbers):**
+- base (already measured): rising span 4642→21544 (+15 % under all three
+  floors) = ↑↓ teaching-dominated. Fixed.
+- pretaught-mw: **elicitation marker = EDL/D monotone non-increasing across
+  the 5-point grid AND below base at every n**, under OCV and test floors
+  (min-val reported alongside). Both halves required — a curve that
+  decreases but sits above base is not elicitation, and a curve below base
+  that still rises 4642→21544 is "head start, same regime" (paper's
+  pre-teach *format* row, ↑↓ with an earlier peak).
+- Calibration stated up front: the paper's own add/sub pre-teach row was its
+  WEAK case (2.21 → 1.81/1.50 bits/param, still above 1 bit/param; the 20×
+  collapse was multiplication). Expect a modest shift, if any.
+- Any of: `stop_reason=max_steps`, a pretaught-mw run whose G7 anchor
+  mismatches, or a merged-parent receiver-check failure = HALT, not a result.
+
+Nothing launched at the time of writing; the launcher, configs, analysis
+family and tests go in with this entry (one commit, pushed before launch).

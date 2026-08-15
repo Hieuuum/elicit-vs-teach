@@ -30,6 +30,7 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from geode.zoo import RunManifest, read_results, register_run
 from geode.zoo.results import REQUIRED_COLUMNS
@@ -307,8 +308,8 @@ def test_nl3_family_run_ids_are_disjoint_from_all_others() -> None:
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl3-noinst-n1000") is not None
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl3x-inst-n1000") is None
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl4-inst-n1000") is None
-    # All five stems distinct (write_results is overwrite-by-name).
-    assert len({dss.FAMILIES[f][1] for f in dss.FAMILIES}) == 5
+    # All stems distinct (write_results is overwrite-by-name).
+    assert len({dss.FAMILIES[f][1] for f in dss.FAMILIES}) == len(dss.FAMILIES)
 
 
 def test_nl_family_writes_a_separate_table_from_the_shipped_op_one(tmp_path: Path) -> None:
@@ -386,3 +387,84 @@ def test_manifest_round_trip_unaffected(tmp_path: Path) -> None:
     manifest = RunManifest.load(run_dir(run_id, store=tmp_path) / "manifest.json")
     manifest.validate()  # unknown "experiment" extra must not break validation
     assert manifest.data["experiment"]["target_result"]["stop_reason"] == "converged"
+
+
+def test_ts38mw_default_run_ids_are_the_reused_base_plus_new_mw_pretaught() -> None:
+    """default_run_ids('ts38mw') interleaves the SAME evt-ts38-base ids the ts38
+    family points at with a NEW evt-ts38mw-pretaught arm, same order convention
+    (per size: base then pretaught) as the ts38 family."""
+    expected = [
+        id_ for n in dss.TS38_SIZES for id_ in (f"evt-ts38-base-n{n}", f"evt-ts38mw-pretaught-n{n}")
+    ]
+    assert dss.default_run_ids("ts38mw") == expected
+    assert len(expected) == 10
+
+
+def test_ts38mw_ids_share_only_the_base_arm_with_ts38() -> None:
+    """The ts38 and ts38mw sweeps share exactly the 5 base ids (reused, not
+    retrained) and nothing else — the two families' own pretaught arms must
+    never cross-match."""
+    ts38_ids = set(dss.default_run_ids("ts38"))
+    ts38mw_ids = set(dss.default_run_ids("ts38mw"))
+    expected_shared = {f"evt-ts38-base-n{n}" for n in dss.TS38_SIZES}
+
+    assert ts38_ids & ts38mw_ids == expected_shared
+    assert len(expected_shared) == 5
+    assert not any(rid.startswith("evt-ts38mw-") for rid in ts38_ids)
+    assert not any(
+        rid.startswith("evt-ts38-pretaught-") for rid in ts38mw_ids
+    )  # ts38's own pretaught arm never leaks into ts38mw
+
+
+def test_ts38mw_run_id_regex_matches_only_intended_ids() -> None:
+    assert dss.RUN_ID_RE.match("evt-ts38mw-pretaught-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-ts38-base-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-ts38mw-base-n1000") is None
+    assert dss.RUN_ID_RE.match("evt-ts38-pretaught-mw-n1000") is None
+
+
+def test_parse_run_id_ts38mw_pretaught() -> None:
+    assert dss._parse_run_id("evt-ts38mw-pretaught-n4642") == ("inst", "pre-taught-mw (elicit)")
+
+
+def test_parse_run_id_ts38_base_shared_with_ts38mw_family() -> None:
+    """evt-ts38-base-n1000 is the id BOTH families point at for the base arm;
+    it must parse identically (same condition, same curve label) regardless
+    of which family's sweep it was collected under — that's what makes reuse
+    safe."""
+    assert dss._parse_run_id("evt-ts38-base-n1000") == ("noinst", "base (teach)")
+
+
+def test_parse_run_id_ts38_pretaught_regression() -> None:
+    """The plain ts38 family's own pretaught arm must keep parsing exactly as
+    before — adding the ts38mw branch to RUN_ID_RE must not touch this."""
+    assert dss._parse_run_id("evt-ts38-pretaught-n1000") == ("inst", "pre-taught (elicit)")
+
+
+def test_parse_run_id_rejects_ts38mw_base_and_malformed_ids() -> None:
+    """There is no evt-ts38mw-base arm (base is only ever the shared
+    evt-ts38- id), and a stray '-mw-' infix on the plain ts38 pretaught id
+    must not be silently accepted."""
+    for bad_id in ("evt-ts38mw-base-n1000", "evt-ts38-pretaught-mw-n1000"):
+        with pytest.raises(ValueError):
+            dss._parse_run_id(bad_id)
+
+
+def test_ts38mw_pretaught_id_round_trips_through_run_rows(tmp_path: Path) -> None:
+    run_id = "evt-ts38mw-pretaught-n1000"
+    _write_run(tmp_path, run_id, n=1000)
+
+    rows = dss.run_rows(run_id, tmp_path)
+    assert rows and all(r["condition"] == "inst" for r in rows)
+    assert rows[0]["curve_label"] == "pre-taught-mw (elicit)"
+
+
+def test_ts38mw_stem_distinct_from_ts38() -> None:
+    assert dss.FAMILIES["ts38mw"][1] == "dataset_size_sweep_ts38mw"
+    assert dss.FAMILIES["ts38mw"][1] != dss.FAMILIES["ts38"][1]
+
+
+def test_all_family_stems_distinct() -> None:
+    stems = [dss.FAMILIES[f][1] for f in dss.FAMILIES]
+    assert len(stems) == len(set(stems))
+    assert "ts38mw" in dss.FAMILIES

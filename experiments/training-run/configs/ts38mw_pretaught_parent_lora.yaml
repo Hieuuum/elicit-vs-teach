@@ -28,6 +28,16 @@
 #   W7  If we compute {a} + {b}, we get {c}
 # (`+` -> `-` for subtraction rows; nothing else changes.)
 #
+# 2026-08-15 UPDATE (owner decision, docs/ts38mw-target-experiment-handoff.md):
+# despite the "never a parent" note above, this run's final checkpoint
+# (step 28000, runs/evt-ts38mw-parent-probe-lr3e-4/model, verdict GO-B) IS
+# now the theta0 of the ts38mw target-stage arm
+# (configs/ts38mw_pretaught.yaml), used via model_merged/
+# (scripts/merge_adapter.py). It remains UNGATED: gates were never
+# recorded (experiment.gates: {}); G8 TinyStories retention is measured
+# (--no-record) at 1.2694 nats, a known FAIL against the 1.1718 bar.
+# Nothing else about this config changes.
+#
 # THE `lora:` BLOCK BELOW IS LOAD-BEARING, same mechanism as
 # ts38_pretaught_parent_lora.yaml (train_sft.py's own_lora_block() gates
 # training.method on THIS file's own un-merged `lora:` key, not the

@@ -1046,7 +1046,20 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     covering the already-measured base-arm EDL/D curve (reusable, zero new
     cost), reusable target-dataset pins, the `require_parent_ready`/G8
     mechanics blocking a naive reuse of the existing family config, and
-    every open decision left for the planning session.**
+    every open decision left for the planning session.** **Owner
+    confirmed the family 2026-08-15 (evening; decisions.md "ts38mw target
+    family PRE-REGISTRATION"): target = `D_algo_bare` as-is (base arm
+    `evt-ts38-base-n*` REUSED, only the new arm trains); θ0 = the GO-B run
+    at step 28000 via `model_merged/`; parent deliberately UNGATED
+    (`parent_required_gates: []`, G8 FAIL 1.2694 accepted — a pretaught-mw
+    curve ABOVE base at any n reads as the retention confound, never as
+    teaching); recipe/grid verbatim ts38. Files: `configs/ts38mw_pretaught.yaml`
+    + `configs/sweeps/ts38/ts38mw_pretaught_n<size>.yaml`,
+    `scripts/launch_ts38mw_family.sh`, analysis family `ts38mw` in
+    `edl_converged_val_floor.py` / `dataset_size_sweep.py`. Pre-registered
+    marker: pretaught-mw EDL/D monotone non-increasing AND below base at
+    every n (OCV + test floors). STATUS: built, launch pending on the
+    owner's box `38.246.237.140:32489`.**
 
 ## 7. Budget
 

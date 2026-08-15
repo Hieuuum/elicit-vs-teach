@@ -722,3 +722,198 @@ def test_ts38_lora_probe_run_id_out_of_family_and_ladder() -> None:
     run_id = yaml.safe_load((CONFIGS / PROBE_OVERLAY).read_text())["run_id"]
     assert not _TS38_FAMILY_REGEX.match(run_id), run_id
     assert not _TS38_LADDER_SKIP_PATTERN.match(run_id), run_id
+
+
+# =============================================================================
+# ts38mw target-stage arm ("pretaught-mw"; docs/ts38mw-target-experiment-
+# handoff.md, EXPERIMENTS.md §6.14/§6.15): the GO-B multiwrap-installed
+# parent (evt-ts38mw-parent-probe-lr3e-4, step 28000) -> LoRA target on
+# D_algo_bare, identical recipe to ts38_pretaught.yaml except theta0. The
+# base arm is REUSED (evt-ts38-base-n<size>, tested above) — only this arm
+# is new. Mirrors the ts38 section's style/helpers above
+# (_leaf_diffs/load_config/CONFIGS, and the pinned-values/anchor/regime/
+# manifest test shapes); kept as its own section because the parent is
+# deliberately ungated (parent_required_gates: []), a protocol deviation
+# the ts38 pretaught arm does not share.
+# =============================================================================
+
+# (relative path, n_examples, eval_every, max_steps, min_steps=ceil(n/128)) —
+# identical numbers to TS38_OVERLAYS' pretaught rows above (same recipe,
+# different theta0); also cross-checked against the sibling
+# ts38_pretaught_n<size>.yaml overlay's own merged values below, not just
+# these literals.
+TS38MW_OVERLAYS = [
+    ("sweeps/ts38/ts38mw_pretaught_n1000.yaml", 1000, 5, 1000, 8),
+    ("sweeps/ts38/ts38mw_pretaught_n4642.yaml", 4642, 5, 1000, 37),
+    ("sweeps/ts38/ts38mw_pretaught_n21544.yaml", 21544, 25, 5000, 169),
+    ("sweeps/ts38/ts38mw_pretaught_n100000.yaml", 100000, 125, 15625, 782),
+    ("sweeps/ts38/ts38mw_pretaught_n316228.yaml", 316228, 375, 50000, 2471),
+]
+TS38MW_OVERLAY_PATHS = [row[0] for row in TS38MW_OVERLAYS]
+TS38MW_BASE_FILE = "ts38mw_pretaught.yaml"
+TS38MW_FILES = [TS38MW_BASE_FILE, *TS38MW_OVERLAY_PATHS]
+TS38MW_OVERLAY_ANCHORS = [
+    ("sweeps/ts38/ts38mw_pretaught_n1000.yaml", "evt-ts38-base-n1000"),
+    ("sweeps/ts38/ts38mw_pretaught_n4642.yaml", "evt-ts38-base-n4642"),
+    ("sweeps/ts38/ts38mw_pretaught_n21544.yaml", "evt-ts38-base-n21544"),
+    ("sweeps/ts38/ts38mw_pretaught_n100000.yaml", "evt-ts38-base-n100000"),
+    ("sweeps/ts38/ts38mw_pretaught_n316228.yaml", "evt-ts38-base-n316228"),
+]
+
+# The sibling arm's recipe must be identical (same as-A allowed-diff set the
+# ts38 base/pretaught pair already carries); the ts38mw-vs-pretaught pair is
+# strictly narrower, since theta0 is the ONLY thing this arm changes relative
+# to its sibling (arm and match_data_order_with placeholders are unchanged).
+_TS38MW_VS_PRETAUGHT_ALLOWED_DIFF_PATHS = {
+    "run_id",
+    "experiment.parent_run_id",
+    "experiment.parent_required_gates",
+}
+
+_TS38MW_RUN_ID_PATTERN = re.compile(r"^evt-ts38mw-pretaught(-n\d+)?$")
+
+
+def _ts38mw_sibling_pretaught_path(mw_path: str) -> str:
+    """The same-size ts38_pretaught_n<size>.yaml overlay for a ts38mw overlay path."""
+    return mw_path.replace("ts38mw_pretaught", "ts38_pretaught", 1)
+
+
+def test_ts38mw_family_files_exist() -> None:
+    assert len(TS38MW_FILES) == 6
+    for rel in TS38MW_FILES:
+        assert (CONFIGS / rel).is_file(), rel
+
+
+@pytest.mark.parametrize("path", TS38MW_FILES)
+def test_ts38mw_run_ids_match_pattern_and_out_of_ts38_family(path: str) -> None:
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    run_id = raw["run_id"]
+    assert _TS38MW_RUN_ID_PATTERN.match(run_id), run_id
+    # Must NOT match the ts38 family regex the analysis tooling
+    # (edl_converged_val_floor.py FAMILIES["ts38"]) uses to find base/pretaught
+    # runs — a collision here would silently mix this arm into that curve.
+    assert not _TS38_FAMILY_REGEX.match(run_id), run_id
+
+
+@pytest.mark.parametrize(
+    ("path", "n_examples", "eval_every", "max_steps", "min_steps"), TS38MW_OVERLAYS
+)
+def test_ts38mw_overlay_pinned_values(
+    path: str, n_examples: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert raw["data"]["n_examples"] == n_examples
+    assert raw["train"]["eval_every"] == eval_every
+    assert raw["train"]["max_steps"] == max_steps
+    assert raw["train"]["stopping"]["min_steps"] == min_steps
+    assert max_steps >= min_steps
+
+
+@pytest.mark.parametrize("path", TS38MW_OVERLAY_PATHS)
+def test_ts38mw_overlay_matches_sibling_pretaught_overlay(path: str) -> None:
+    """Same n_examples/eval_every/max_steps/min_steps as the same-size
+    ts38_pretaught_n<size>.yaml overlay — the two arms share one recipe, only
+    theta0 differs. Compares MERGED configs (not just the overlay's own raw
+    keys), since either side could in principle carry the value via its base
+    file's placeholder instead of its own override."""
+    mw_cfg = load_config(CONFIGS / TS38MW_BASE_FILE, CONFIGS / path)
+    sibling_path = _ts38mw_sibling_pretaught_path(path)
+    sibling_cfg = load_config(CONFIGS / "ts38_pretaught.yaml", CONFIGS / sibling_path)
+    for field in ("n_examples",):
+        assert mw_cfg["data"][field] == sibling_cfg["data"][field], field
+    for field in ("eval_every", "max_steps"):
+        assert mw_cfg["train"][field] == sibling_cfg["train"][field], field
+    assert mw_cfg["train"]["stopping"]["min_steps"] == sibling_cfg["train"]["stopping"]["min_steps"]
+    assert mw_cfg["train"]["max_steps"] >= mw_cfg["train"]["stopping"]["min_steps"]
+
+
+@pytest.mark.parametrize(("path", "anchor"), TS38MW_OVERLAY_ANCHORS)
+def test_ts38mw_overlay_match_data_order_with_is_base_arm(path: str, anchor: str) -> None:
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert raw["experiment"]["match_data_order_with"] == anchor
+    # The anchor is the reused BASE arm, never the sibling pretaught arm —
+    # a G7 anchor pointed at the wrong run would silently compare this arm's
+    # data order against the wrong stream.
+    assert not anchor.startswith("evt-ts38-pretaught-")
+
+
+def test_ts38mw_vs_ts38_base_allowed_diffs() -> None:
+    base = yaml.safe_load((CONFIGS / "ts38_base.yaml").read_text())
+    mw = yaml.safe_load((CONFIGS / TS38MW_BASE_FILE).read_text())
+    diffs = _leaf_diffs(base, mw)
+    unexplained = diffs - _TS38_ALLOWED_DIFF_PATHS
+    assert not unexplained, f"ts38mw vs ts38_base differ in unexpected fields: {unexplained}"
+
+
+def test_ts38mw_vs_ts38_pretaught_differs_only_in_theta0_fields() -> None:
+    """The important invariant: ts38mw_pretaught.yaml is the sibling arm's
+    IDENTICAL recipe, changed only where theta0 (and its direct
+    consequences) require it — a strictly narrower diff set than the
+    ts38-family base/pretaught pair, since `arm` and
+    `match_data_order_with`'s placeholder are unchanged here."""
+    pretaught = yaml.safe_load((CONFIGS / "ts38_pretaught.yaml").read_text())
+    mw = yaml.safe_load((CONFIGS / TS38MW_BASE_FILE).read_text())
+    diffs = _leaf_diffs(pretaught, mw)
+    assert diffs == _TS38MW_VS_PRETAUGHT_ALLOWED_DIFF_PATHS, diffs
+    assert pretaught["run_id"] != mw["run_id"]
+    assert pretaught["experiment"]["parent_run_id"] != mw["experiment"]["parent_run_id"]
+    assert (
+        pretaught["experiment"]["parent_required_gates"]
+        != mw["experiment"]["parent_required_gates"]
+    )
+    # And the fields that must NOT differ (same recipe) actually don't.
+    assert pretaught["experiment"]["arm"] == mw["experiment"]["arm"]
+    assert pretaught["experiment"]["match_data_order_with"] is None
+    assert mw["experiment"]["match_data_order_with"] is None
+
+
+def test_ts38mw_merged_config_values() -> None:
+    cfg = load_config(CONFIGS / TS38MW_BASE_FILE, None)
+    base_cfg = load_config(CONFIGS / "ts38_base.yaml", None)
+    assert cfg["experiment"]["parent_required_gates"] == []
+    assert cfg["experiment"]["parent_run_id"] == "evt-ts38mw-parent-probe-lr3e-4"
+    assert cfg["experiment"]["require_full_epoch1"] is True
+    assert cfg["lora"]["r"] == 128
+    assert cfg["lora"]["alpha"] == 32
+    assert cfg["train"]["lr"] == 1.0e-3
+    assert cfg["train"]["lr"] == base_cfg["train"]["lr"]
+    assert cfg["train"]["snapshots"]["n"] == 0
+    assert cfg["data"]["order_hash"] == base_cfg["data"]["order_hash"]
+    assert cfg["data"]["eval_order_hash"] == base_cfg["data"]["eval_order_hash"]
+
+
+def test_ts38mw_base_builds_a_manifest_with_correct_regime() -> None:
+    """Mirror of test_ts38_target_base_builds_a_manifest_with_correct_regime:
+    `arm: A` must map to `regime: "elicit"` (train_target.py's ARM_REGIME),
+    same as ts38_pretaught.yaml."""
+    train_target = load("train_target")
+    cfg = load_config(CONFIGS / TS38MW_BASE_FILE, None)
+    manifest = train_target.manifest_fields(
+        cfg,
+        n_train=1,
+        n_trainable=1,
+        epochs_total=1,
+        schedule=[],
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+    )
+    assert manifest["regime"] == "elicit"
+
+
+@pytest.mark.parametrize("path", TS38MW_OVERLAY_PATHS)
+def test_ts38mw_overlay_builds_a_manifest(path: str) -> None:
+    train_target = load("train_target")
+    cfg = load_config(CONFIGS / TS38MW_BASE_FILE, CONFIGS / path)
+    train_target.manifest_fields(
+        cfg,
+        n_train=1,
+        n_trainable=1,
+        epochs_total=1,
+        schedule=[],
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+    )

@@ -48,11 +48,13 @@ HIGH plateau subtracts a larger floor and gets an artificially LOW EDL/D, so
 an isolated dip means "run stopped high", not "fast elicitation". Cross-check
 ``overshoot_ratio`` before quoting any outlier.
 
-Covers the op/nl Llama sweep families and ``ts38`` (EXPERIMENTS §6.14,
+Covers the op/nl Llama sweep families, ``ts38`` (EXPERIMENTS §6.14,
 TinyStories 38.7M base — base=teach vs pre-taught=elicit, D_algo_bare, r128
-LoRA); writes only ``edl_converged_val_floor*`` names, so the shipped,
-immutable §6.10 ``dataset_size_sweep.{parquet,png}`` cannot be touched (that
-driver is never invoked from here). ``ts38``'s run ids spell the arm as
+LoRA), and ``ts38mw`` (EXPERIMENTS §6.15, same base arm reused + a
+multiwrap-installed pre-taught-mw arm); writes only
+``edl_converged_val_floor*`` names, so the shipped, immutable §6.10
+``dataset_size_sweep.{parquet,png}`` cannot be touched (that driver is never
+invoked from here). ``ts38``'s and ``ts38mw``'s run ids spell the arm as
 base/pretaught rather than noinst/inst; this is the ONE floor the ts38
 pre-registered decision rule names as primary (Arm A/B markers are read
 under OCV first, test second — decisions.md 2026-08-14).
@@ -62,10 +64,11 @@ and the ``*_bits`` reporting column. CPU-only, reads the local store, no
 network.
 
 Usage:
-    python3 edl_converged_val_floor.py [--family {op,nl,ts38,both}] [--store <dir>]
+    python3 edl_converged_val_floor.py [--family {op,nl,ts38,ts38mw,both}] [--store <dir>]
 
 ``--family both`` covers op+nl only (unchanged since before ts38/nl2/nl3
-existed) — pass ``--family ts38`` explicitly for the ts38 floor.
+existed) — pass ``--family ts38`` or ``--family ts38mw`` explicitly for
+those floors.
 """
 
 from __future__ import annotations
@@ -108,6 +111,19 @@ FAMILIES = {
         "edl_converged_val_floor_ts38",
         "TinyStories 38.7M; base (teach) vs pre-taught (elicit), D_algo_bare, r128 LoRA",
     ),
+    # ts38mw (EXPERIMENTS §6.15) reuses ts38's base arm run-for-run (the SAME
+    # evt-ts38-base-n<size> ids — not retrained) paired with a NEW
+    # multiwrap-installed pretaught arm under its own evt-ts38mw- prefix.
+    # Lookaheads keep the two prefixes disjoint: "evt-ts38mw-" only ever
+    # continues into "pretaught", "evt-ts38-" only ever continues into
+    # "base" — so this pattern picks up exactly the reused base ids plus the
+    # new mw-pretaught ids, and NEITHER the old ts38 family's own pretaught
+    # arm (evt-ts38-pretaught-n<size>) NOR a (nonexistent) evt-ts38mw-base.
+    "ts38mw": (
+        re.compile(r"^evt-ts38(?:mw-(?=pretaught)|-(?=base))(base|pretaught)-n(\d+)$"),
+        "edl_converged_val_floor_ts38mw",
+        "TinyStories 38.7M; base (teach) vs multiwrap pre-taught (elicit), D_algo_bare, r128 LoRA",
+    ),
 }
 
 # Repo-wide convention, unchanged: base = tab:blue, format-installed = tab:orange.
@@ -116,17 +132,26 @@ STYLE = {
     "inst": ("#ff7f0e", "format-installed"),
 }
 
-# ts38's regex (above) captures the raw arm token (base/pretaught) into the
-# same group position the op/nl regexes use for noinst/inst directly; this
-# translates it to the canonical noinst/inst condition every downstream
-# lookup (STYLE, groupby, the "short arm" note) keys on, plus the honest
-# arm-role label ts38 uses in place of STYLE's generic base/format-installed
-# text (a pre-taught parent is not a format install).
+# ts38's and ts38mw's regexes (above) capture the raw arm token
+# (base/pretaught) into the same group position the op/nl regexes use for
+# noinst/inst directly; these translate it to the canonical noinst/inst
+# condition every downstream lookup (STYLE, groupby, the "short arm" note)
+# keys on, plus the honest arm-role label each family uses in place of
+# STYLE's generic base/format-installed text (a pre-taught parent is not a
+# format install).
 TS38_ARM: dict[str, tuple[str, str]] = {
     # raw regex capture -> (canonical condition, honest style label)
     "base": ("noinst", "base (teach)"),
     "pretaught": ("inst", "pre-taught (elicit)"),
 }
+TS38MW_ARM: dict[str, tuple[str, str]] = {
+    # raw regex capture -> (canonical condition, honest style label)
+    "base": ("noinst", "base (teach)"),
+    "pretaught": ("inst", "pre-taught-mw (elicit)"),
+}
+# Per-family arm-map lookup used by collect()/main() below; every family not
+# listed here (op, nl) uses the regex capture as the condition directly.
+ARM_MAPS: dict[str, dict[str, tuple[str, str]]] = {"ts38": TS38_ARM, "ts38mw": TS38MW_ARM}
 
 
 def collect(family: str, store: Path) -> pd.DataFrame:
@@ -138,7 +163,8 @@ def collect(family: str, store: Path) -> pd.DataFrame:
         if not match or not (run_dir / "logs" / "prequential.jsonl").is_file():
             continue
         raw_condition, n = match.group(1), int(match.group(2))
-        condition = TS38_ARM[raw_condition][0] if family == "ts38" else raw_condition
+        arm_map = ARM_MAPS.get(family)
+        condition = arm_map[raw_condition][0] if arm_map else raw_condition
 
         mdl, n_label, n_examples = epoch1_totals(run_dir.name, store=store)
 
@@ -182,6 +208,11 @@ def collect(family: str, store: Path) -> pd.DataFrame:
                 "final_step": final_step,
             }
         )
+    if not rows:
+        # pd.DataFrame([]) has no "n"/"condition" columns to sort by; a
+        # family with zero matching runs under the store must come back as
+        # an empty table (main() checks df.empty), never raise KeyError here.
+        return pd.DataFrame(rows)
     return pd.DataFrame(rows).sort_values(["n", "condition"], ascending=[True, False])
 
 
@@ -266,7 +297,7 @@ def plot(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--family", choices=("op", "nl", "ts38", "both"), default="both")
+    parser.add_argument("--family", choices=("op", "nl", "ts38", "ts38mw", "both"), default="both")
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
     args = parser.parse_args()
 
@@ -283,12 +314,12 @@ def main() -> None:
         csv_path = Path(__file__).resolve().parent / f"{stem}.csv"
         df.to_csv(csv_path, index=False)
         title = labels = None
-        if family == "ts38":
+        if family in ARM_MAPS:
             title = (
                 "EDL per label token vs. dataset size — converged-val floor\n"
                 f"TinyStories 38.7M; {family_tag}"
             )
-            labels = {cond: label for cond, label in TS38_ARM.values()}
+            labels = {cond: label for cond, label in ARM_MAPS[family].values()}
         plot(df, FIGURES / f"{stem}.png", family_tag, title=title, labels=labels)
 
         negative = df[df["edl_per_token_nats"] < 0]
