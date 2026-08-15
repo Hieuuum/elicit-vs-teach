@@ -6015,3 +6015,90 @@ FAIL verdict or to the ladder's recorded numbers.
 | 1.0e-4 | converged | 25000 | 0.008426 | 0.9863 pass | 3.5983 FAIL |
 | 3.0e-5 | converged | 40000 | 0.011681 | 0.9785 pass | 1.2074 FAIL |
 | 1.0e-5 (40k attempt) | max_steps | 40000 | 0.082878 | 0.8809 FAIL | not reached |
+
+## 2026-08-15 — ts38: the 1e-5 rerun is a from-scratch REPLAY (resume redirect never landed — kept by judgment); target ceilings raised to ≥20 epochs; failure branches pre-registered (owner delegated judgment)
+
+**What is actually running (verified on the box 03:41 UTC, step 46000).**
+The owner's mid-flight override ("resume from the archived 40k checkpoint,
+do not retrain from scratch") never executed: the C-c → archive →
+`--init-from …-ceil40k/model` redirect reached no one, no
+`runs-failed/…-scratch-partial` exists, and the only `train_start` after
+the three `ladder_skip` lines is the launcher's OWN stage-2 loop retraining
+the 1e-5 rung from the base (`--init-from evt-run1-base-v3-ext`, step-0
+val 4.9809, `max_steps=240000` from the `5eb80f5` overlay). It is a
+**bit-exact deterministic replay** of the ceil40k run — `eval_log.jsonl`
+values at steps 1000/2000/3000/40000 are identical to the archive
+(1.266788516900081 / 1.1596800048897522 / 1.0775122982146903 /
+0.08287769723778898) — and by 46000 it is past the old ceiling (0.0704
+nats), still descending.
+
+**Decision (agent judgment; owner 2026-08-15: "depend on your judgment, do
+not escalate"): let it run.** (a) The retrain time the resume was meant to
+save was already sunk (~50 min) — killing it now to warm-start would
+discard the post-ceiling steps *and* cost a launcher restart, net negative.
+(b) The replay is the scientifically cleaner artifact: Adam moments intact,
+data stream at the right epoch position, eps/k sees the whole curve, and
+the rung's record is ONE run rather than two glued segments. (c) It runs
+inside the launcher, so G1 → G8 → winner hand-off / HALT branches fire
+automatically. Consequence: the "resume semantics" caveats drafted for this
+entry (weights-only warm start, Adam reset, segment-local eps/k) are moot —
+none of that happened. Ceiling only; eps/k 0.002/5, min_steps 5000, both
+bars untouched.
+
+**Target ceilings raised to the ≥20-epoch floor** (the pending owner
+chore, [[feedback-run-until-convergence]] refinement 2026-08-15: cost
+ceilings must be "extremely high" so they never bind). Only two sizes were
+under 20 epochs; both arms edited identically (arms differ ONLY in θ0):
+- n=100000: `max_steps` 10000 → **15625** (781.25 steps/epoch → 20.0
+  epochs), `ts38_base_n100000.yaml` + `ts38_pretaught_n100000.yaml`.
+- n=316228: `max_steps` 30000 → **50000** (2470.5 steps/epoch → 20.2
+  epochs), `ts38_base_n316228.yaml` + `ts38_pretaught_n316228.yaml`.
+Unchanged, already ≥20 epochs: n=1000 (128), n=4642 (27.6), n=21544
+(29.7); parent 1e-5 overlay 240000 (~30.9 epochs). eval_every, min_steps
+(= ceil(n/128), guard 1) untouched. Box pulls before stage 3 reads target
+configs.
+
+**Failure branches — decided NOW, before the verdict, so nothing is tuned
+post-hoc.** The parent verdict lands as one of:
+- **W — G1 pass + G8 pass** → `ladder_winner`, gates recorded, family
+  proceeds unattended (n=1000 Arm-A pin check first, then 9 more targets).
+  Then OCV / test / min-val floors → §6.14 marker rule → report.
+- **A — G1 FAIL with `stop_reason=converged`** → a GENUINE convergence
+  verdict this time (the ceiling is 30.9 epochs; eps/k is a rate rule and
+  fired before val reached the ~0.01–0.03 band G1≥0.95 empirically needs:
+  min_val→G1 across rungs 0.0084→0.9863, 0.0117→0.9785, 0.0829→0.8809).
+  Ruled OUT: a fifth 2e-5 rung (pre-registration says never a fifth rung;
+  it would be a knife-edge interpolation between a G1-borderline and a
+  G8-borderline rung), a parent-only stopping-rule change (shared protocol
+  constant), any bar move, seeds (systematic trade-off, not noise). Treated
+  as the same terminal state as exhaustion → branch B's next step.
+- **A′ — G1 FAIL with `stop_reason=max_steps`** → bug signal at 30.9
+  epochs; inspect before anything else.
+- **B — G1 pass + G8 FAIL** → `LADDER EXHAUSTED` = the pre-registered
+  DESIGN RESULT: full FT on arithmetic-only data destroys TinyStories
+  retention at every plausible LR for the 38.7M base (3e-4 9.96 / 1e-4
+  3.60 / 3e-5 1.207 / 1e-5 = the number the run prints). Recorded as a
+  result in EXPERIMENTS §6.14 + here. Next parent = the **LoRA-installed
+  parent** (one of the two fixes the pre-registration named as owner-only;
+  owner delegated): config-only on the training side (train_sft.py's LoRA
+  path is what every target uses), no new data pipeline. Replay-mixing is
+  the runner-up — it needs a mixed-corpus packing path in `geode/train`
+  plus property tests, and it changes what the parent *sees*. Pre-declared
+  deviation from paper App. E (full FT). LoRA-parent LR is NOT the 1e-3
+  target-stage pin ([[project-run9-retention-destroyed]] class: a target
+  pin on an installer) — per [[feedback-lr-sweep-before-full-run]] a short
+  LR sweep {1e-3 (pin, upper bound), 3e-4, 1e-4, 3e-5} with mid-run G8
+  `--no-record` retention as the primary selector, then ONE full run at the
+  winner, gates score only the full run. Launcher needs a LoRA-parent
+  branch: merge the adapter into plain weights at
+  `runs/evt-ts38-pretaught-parent/model/model.safetensors` so Arm B's
+  `--init-from` path is unchanged (LoRA checkpoints load only via
+  `zoo.load_model` — [[feedback-lora-checkpoints-load-via-zoo-load-model]]).
+  Built by a worker agent ONLY if A/B fires — nothing is pre-built that
+  presumes an outcome.
+- **F — crash / LAUNCHER_DEAD / box death** → `train_or_skip` does not
+  auto-resume; archive the partial, relaunch the launcher (completed stages
+  skip). If the box itself is gone: rung archives + G8 pack are box-only →
+  their metadata (manifests, eval/train logs, training_meta, ladder JSONs,
+  step-0 control) and the G8 val-stream cache get pushed to the public
+  relay as insurance while the parent trains ([[feedback-precache-datasets-to-hf]]).

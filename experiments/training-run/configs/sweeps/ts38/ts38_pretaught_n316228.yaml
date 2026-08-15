@@ -1,7 +1,9 @@
 # ts38 mini sweep point: n=316228. Paired with ts38_base_n316228.yaml (G7:
 # identical D_algo_bare stream, matched via match_data_order_with below).
-# Overlay over ../../ts38_pretaught.yaml. eval_every/max_steps copied
-# verbatim from the matching-size llama_fig2nl3 overlay. min_steps =
+# Overlay over ../../ts38_pretaught.yaml. eval_every copied verbatim from
+# the matching-size llama_fig2nl3 overlay; max_steps raised 30000->50000
+# (20.2 epochs) 2026-08-15 to meet the >=20-epoch cost-ceiling floor
+# (ceilings must never bind; arms stay identical). min_steps =
 # ceil(316228/128) = 2471 (require_full_epoch1 guard, ts38-mini guard 1).
 # Edge rule (plan): a peak at this size reads "unresolved", not "no teaching".
 run_id: evt-ts38-pretaught-n316228
@@ -11,6 +13,6 @@ data:
   n_examples: 316228
 train:
   eval_every: 375
-  max_steps: 30000
+  max_steps: 50000
   stopping:
     min_steps: 2471
