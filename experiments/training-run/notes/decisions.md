@@ -6102,3 +6102,20 @@ post-hoc.** The parent verdict lands as one of:
   their metadata (manifests, eval/train logs, training_meta, ladder JSONs,
   step-0 control) and the G8 val-stream cache get pushed to the public
   relay as insurance while the parent trains ([[feedback-precache-datasets-to-hf]]).
+
+**Owner standing instructions, 2026-08-15 ~03:30–04:00 UTC (owner going
+to sleep, session to be cleared):** (1) full delegation — "whatever
+happens during the run, use your judgment; do not ask me to escalate
+anything further; do not depend on me"; the branches above are executed
+without owner sign-off. (2) **Box destroy pre-authorized** "if it is not
+running anymore" — i.e. after the family completes and results are pushed
++ verified, or after a terminal HALT whose next step does not need this
+box (branches A/B DO need it for the LoRA parent). Instance 47746398 on
+the owner's vast account; driven from the box itself. (3) **Simplest
+experiment first** — "use a learning-rate sweep instead of doing full
+learning-rate runs": any hypothesis gets the cheapest falsifying probe
+before a full run; sweeps select, gates score only the full run
+(generalizes the 2026-08-14 LR-sweep-before-full-run rule; the LoRA-parent
+branch above is written to it). Post-hoc note on this ladder: four
+full-length rungs were the expensive way to learn a monotone LR→forgetting
+curve that a short sweep with a mid-run G8 read would have shown.
