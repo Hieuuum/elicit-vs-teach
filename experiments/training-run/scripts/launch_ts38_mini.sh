@@ -443,7 +443,7 @@ import json, os, sys
 from pathlib import Path
 
 p = Path(os.environ["GEODE_STORE"]) / "runs" / sys.argv[1] / "manifest.json"
-lr = json.loads(p.read_text())["optimizer"]["lr"]
+lr = json.loads(p.read_text())["training"]["optimizer"]["lr"]
 sys.exit(0 if abs(lr - float(sys.argv[2])) <= 1e-12 else 1)
 PY
 }
