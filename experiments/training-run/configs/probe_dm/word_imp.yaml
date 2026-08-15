@@ -1,0 +1,13 @@
+# θ0 latency probe pin (make_dm_probe_eval.py, 2026-08-15): D_algo_eval rows
+# [0, 8192) re-rendered under DeepMind-Mathematics phrasing 'word_imp'.
+# Eval-only; local file, never published; no training run consumes this.
+tokenizer:
+  path: ../../tokenizer
+task:
+  name: arith_nl_addsub
+  format_version: v1
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_dmprobe_word_imp.parquet
+  order_hash: 2753f1754848176e2f52068e82e9720ecb23473183b7a32bc3dd6a1c8cb6bdf4
+  local_path: experiments/training-run/data/full/D_dmprobe_word_imp.parquet

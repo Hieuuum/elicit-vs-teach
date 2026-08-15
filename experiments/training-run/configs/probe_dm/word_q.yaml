@@ -1,0 +1,13 @@
+# θ0 latency probe pin (make_dm_probe_eval.py, 2026-08-15): D_algo_eval rows
+# [0, 8192) re-rendered under DeepMind-Mathematics phrasing 'word_q'.
+# Eval-only; local file, never published; no training run consumes this.
+tokenizer:
+  path: ../../tokenizer
+task:
+  name: arith_nl_addsub
+  format_version: v1
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_dmprobe_word_q.parquet
+  order_hash: 15732431728098983e743596c95011dff2667eaead5d9b888861cfb42d13105a
+  local_path: experiments/training-run/data/full/D_dmprobe_word_q.parquet

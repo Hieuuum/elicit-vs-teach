@@ -6448,3 +6448,65 @@ tracked budget, I held rather than run a destroy against an account whose
 scope and billing I can't verify. Box is idle (chain's tmux exited clean;
 only vast.ai's default `ssh_tmux` + the stock Jupyter server remain) and
 ready for teardown — flagged to the owner rather than actioned.
+
+## 2026-08-15 (later still) — ts38 three-floor read + paper comparison: markers formally fire, pair NOT verified — the parent has no bare-NL capability at θ0 (format lock)
+
+Full write-up: `docs/ts38-vs-bits-that-count.md` (numbers reproducible by
+log replay: `edl_converged_val_floor.py --family ts38` +
+`dataset_size_sweep.py --family ts38` on the relay-pulled metadata). Paper
+protocol reference: `docs/bits-that-count.md` (tidied paper) +
+`docs/bits-that-count-experiments.md` (per-experiment summary).
+
+**Three floors agree on shape** (bits/label-token, OCV / min-val / test):
+base 4.48/4.59/4.49 → 1.93/2.02/1.92 → 2.22/2.26/2.23 → 1.73/1.75/1.73 →
+0.84/0.86/0.84; pretaught 4.05/4.19/4.05 → 2.37/2.38/2.40 → 2.36/2.38/2.37 →
+1.51/1.52/1.51 → 0.67/0.67/0.66. Pre-registered rule (§6.14): base rising
+span 4,642→21,544 present under all three floors (+15 %); pretaught
+non-increasing (flat 4,642↔21,544 under min-val). **Both markers fire
+formally, but the arms are NOT separated** — pretaught sits *above* base at
+4,642 and 21,544 and only 10–20 % below at 100K/316K, vs. the paper's
+"order of magnitude smaller" pre-taught curve (§4.4, Fig. 3 inset).
+
+**Root cause (from the prequential log, no GPU):** θ0's label loss on the
+first bare-NL batch is **7.752 nats/token for the certified parent vs 6.585
+for the base** — the 95.7 %-accurate op-notation capability is locked behind
+the `Answer:` scaffold; on `What is the sum of a and b?\n` the parent has no
+head start (cumulative epoch-1 MDL/D only 4 % below base at n=1,000; worse
+converged floor than base at n=1,000; zero-shot EM after training tracks n
+identically in both arms). Both arms are teaching arms; hence coincident
+curves. §6.14's "paper's target is bare — ours matches" was unsupported: the
+paper never says the NL target is bare, and App. F ("the prompt … *and any
+formatting tokens* are excluded") reads as the target also carrying the
+`Question:/Answer:` wrapper the pre-teach set uses.
+
+**Peak location:** the base's teaching hump sits ~15× earlier in n than
+Table 5's ∼300K because (a) the task is far easier/more uniform than DeepMind
+Mathematics add/sub (one template per op, positive 1–4-digit ints), (b) epoch
+1 takes ~8× more updates per example (batch 128 vs the paper's eff. 1024) at
+2.8× the LR, (c) 38.7M vs 1B. Peak n is a property of (data, model, A) — not
+a transferable constant. Grid (5 points, 1 seed, top point = the paper's
+peak) cannot resolve it either way.
+
+**2×2 diagnostic RUN on the owner's box (idle 4090, `gates.py g5
+--no-record`, nothing written; new pin
+`configs/eval_nl_target_data_ts38.yaml` = scaffolded `D_algo_eval` with the
+chain tokenizer):** parent — scaffolded NL zero-shot EM 1.56 % / 16-shot 0 %
+/ label loss 7.71 nats/tok; bare NL 0 % / 0 % / 8.10. Base — scaffolded 0 %
+/ 0 % / 5.19; bare 0 % / 0 % / 6.54. **The parent is worse than base on NL
+under BOTH renderings** ⇒ the lock is the question phrasing ("sum of a and
+b" does not reach the op-notation circuit at 38.7M), not just the `Answer:`
+handle (which is worth only ~0.4 nats). 16-shot is 0 % for every checkpoint
+at this scale (even 95 %-zero-shot children), so in-context elicitation is
+unavailable here. The elicit arm's premise (NL add/sub latent in the parent)
+is FALSE for this parent — same class as the paper's Table 6 OOD control.
+
+**Next step (not launched — owner call):** the scaffolded-`D_algo` re-run
+is config-only but only removes the ~0.4-nat format cost, not the phrasing
+lock. What is needed is a θ0 for which NL arithmetic is *demonstrably*
+latent: add a pre-registered **latency gate** (parent NL label loss < base
+and/or NL zero-shot ≫ base, via the 2×2 above) before any family runs; try
+a fuller install (paper's full-FT 4M/1-epoch is blocked by G8 — owner's
+gate) or the paused 1B track. If no certifiable install passes the latency
+gate at 38.7M, record the design result: op-notation pre-teaching does not
+create a latent NL capability on this substrate. Box
+`root@38.246.237.140:32414` (owner's) still up after the diagnostic.

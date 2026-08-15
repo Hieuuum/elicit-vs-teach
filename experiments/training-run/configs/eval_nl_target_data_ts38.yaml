@@ -1,0 +1,31 @@
+# Scaffolded-NL eval-data pin for the TinyStories chain (ts38): the
+# `Question: What is the sum of 23 and 45?\nAnswer: 68` rendering of the same
+# frozen, question-disjoint eval triples that eval_bare_target_data_ts38.yaml
+# serves scaffold-free. TS-chain analogue of eval_nl_target_data_llama.yaml
+# (same file, same hash; only the tokenizer differs — it MUST be the frozen
+# chain tokenizer, never the Llama one; see that file's 2026-07-24 note).
+#
+# Added 2026-08-15 for the ts38-vs-paper diagnosis
+# (docs/ts38-vs-bits-that-count.md §3.1): gates.py g5 --no-record on the
+# certified parent and the base under BOTH renderings, to test whether the
+# op-notation capability is keyed to the shared `Answer:` handle. No training
+# run consumes this config.
+#
+# D_algo_eval.parquet is LOCAL-ONLY (derived 2026-08-03, never published);
+# local_path is load-bearing, order_hash still verified. Rows 0-2047 =
+# stopping block, 2048+ = reporting block (g5 slices fixed rows; no
+# val_fraction by design).
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_nl_addsub         # for the shared-set test loss's label mask
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_eval.parquet     # 100k scaffolded NL add/sub, question-disjoint
+                                # from D_algo/D_algo_bare/D_target/probe
+  order_hash: 5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3
+  local_path: experiments/training-run/data/full/D_algo_eval.parquet

@@ -813,8 +813,20 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     (probe S=15000, G1=0.9570/G8=1.1632, all 11 runs converged, pushed +
     receiver-verified — decisions.md 2026-08-15 "chain COMPLETE" entry).**
     OCV-floor EDL: 3/5 sizes favor the pretaught arm (1k, 100k, 316k), 2/5
-    favor base (4642, 21544) — mixed, no monotonic separation; not yet read
-    against the other two floors. The smallest run
+    favor base (4642, 21544) — mixed, no monotonic separation. **Three-floor
+    read + paper comparison done 2026-08-15 (`docs/ts38-vs-bits-that-count.md`,
+    decisions.md same date): shapes agree under OCV/min-val/test; the
+    pre-registered markers fire formally (base rise 4,642→21,544 +15 %,
+    pretaught non-increasing) but the arms are NOT separated — root cause is
+    that the certified parent has no NL capability at θ0 — measured 2×2 on
+    the box (`g5 --no-record`): parent scaffolded-NL zero-shot 1.6 % / label
+    loss 7.71 nats/tok, bare 0 % / 8.10, vs base 5.19 / 6.54 — the op-notation
+    skill is locked behind the NL *phrasing*, not just the `Answer:` handle
+    (~0.4 nats), so both arms teach; the base's hump sits ~15× earlier in n
+    than Table 5's ∼300K (easier data, 8× more updates per example, 38.7M
+    model). Pair NOT verified; the elicit-arm premise needs a pre-registered
+    latency gate on the parent (NL loss < base) and a parent/scale that
+    passes it — see the doc §4.** The smallest run
     that confirms one arm is genuinely *teaching* and the other genuinely
     *elicitation* via the paper's EDL/label-token signature, on ONE
     architecture, as the controlled substrate for the mechanistic
@@ -906,7 +918,11 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
       capability certified by gate rather than assumed; single-line
       scaffold rendering vs line-broken (cosmetic, frozen repo convention —
       paper's E.2 pre-teach is scaffolded and its target is bare, ours
-      matches both); targets LoRA r128 (owner efficiency choice) vs the
+      matches both — **2026-08-15 correction: the "target is bare" half is
+      unsupported; the paper never states the NL target's wrapper, and App. F
+      ("prompt … and any formatting tokens are excluded") suggests it is also
+      scaffolded — see `docs/ts38-vs-bits-that-count.md` §3.1**); targets
+      LoRA r128 (owner efficiency choice) vs the
       paper's r512-at-1B; parent full-FT matches paper App. E.
     - **Built this session:** `configs/ts38_pretaught_parent.yaml`,
       `configs/ts38_base.yaml`, `configs/ts38_pretaught.yaml` +
