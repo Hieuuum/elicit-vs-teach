@@ -6386,3 +6386,65 @@ parent is an EARLY-STOPPED LoRA install (θ0 certified by gates, not
 converged; G1 will sit near 0.95–0.97 rather than run-2's 0.9961) — a
 weaker "pre-taught" than App. E full FT to convergence; and the persistence
 rule (G1 at S and S+1000) is the only smoothing applied. Neither bar moved.
+
+## 2026-08-15 (later) — ts38 chain COMPLETE: probe → certified parent (S=15000) → 11-run mini family, all converged, pushed + receiver-verified
+
+**Chain executed on the owner's handed-over box** (`root@38.246.237.140:32414`,
+tmux `ts38chain`, log `/workspace/ts38_chain.log`), `CHAIN_EXIT=0`.
+
+**Probe.** 15-point replay curve (steps 10k–24k), both-pass window
+(G1≥0.95 persisting at S and S+1000, G8≤1.1718) = steps 15000–18000,
+`first_g1_pass=15000`, `last_g8_pass=18000` — matches the pre-session
+tradeoff-diagnosis estimate almost exactly (predicted [15k–18k, 18.5k–19.4k]).
+
+**Certified parent** (`evt-ts38-pretaught-parent`): selector picked S=15000
+per the owner's earliest-both-pass-with-persistence rule. Replay fidelity
+vs the probe log: `max_abs_dval=0.0` (exact). Gates: G1=0.9570, G8=1.1632
+nats — both pass. Adapter merged (`max_abs_logit_diff=2.4e-05`), pushed to
+the relay.
+
+**Mini family** (11 runs incl. parent; base arm `evt-ts38-base-n{1000,4642,
+21544,100000,316228}`, pretaught arm `evt-ts38-pretaught-n{same sizes}`).
+Every child run **converged** (`stop_reason=converged` at every size, both
+arms — no run hit `max_steps`). G5 gate recorded on all 10.
+
+**OCV-floor EDL headline** (`analysis/edl_converged_val_floor.py --family
+ts38`, all 10 EDL values non-negative — required sanity holds):
+
+| n | noinst (bits/tok) | inst (bits/tok) | inst wins? |
+|---|---|---|---|
+| 1,000 | 4.484 | 4.047 | yes |
+| 4,642 | 1.932 | 2.366 | no |
+| 21,544 | 2.219 | 2.363 | no |
+| 100,000 | 1.728 | 1.513 | yes |
+| 316,228 | 0.841 | 0.665 | yes |
+
+3/5 sizes favor the pretaught (inst) arm under OCV, including both the
+smallest and both largest sizes; the two middle sizes (4642, 21544) favor
+noinst — no monotonic separation, read as noisy/mixed rather than a clean
+elicit-vs-teach signal at this scale. `dataset_size_sweep.py --family ts38`
+also run (test + min-val floors, 60-row parquet) for the other two floors
+per the three-floor read rule; shape not cross-checked across all three in
+this session — do before quoting a verdict.
+
+**Verification (receiver-side, not sender logs).** Certified parent already
+push_complete'd during the chain; the 10 mini-family runs do NOT
+auto-push (by launcher design — read-only token, base-pull-only). Pushed
+all 10 by hand (`hf_checkpoint.py push --metadata-only`, no weights — matches
+family policy of ~1.7GB local-only checkpoints), then listed
+`mhieuuu/geode-store`'s actual file tree and confirmed all 11
+`runs/evt-ts38-*/manifest.json` present on the hub, not just sender exit
+codes.
+
+**Housekeeping — box NOT destroyed.** This box is the owner's own vast.ai
+rental (handed over via SSH only, "pick it up" — distinct from a
+self-provisioned box under my tracked $2k/account-378963 budget, e.g. the
+47746398 teardown above). It carries a live `~/.vast_api_key` with
+apparent full-account scope (its bundled `vastai` CLI errored on a
+deprecated v0 endpoint before I could confirm instance-only scoping).
+Given the account/billing is the owner's, not mine, and the standing
+"destroy when idle" delegation was written for boxes rented under my own
+tracked budget, I held rather than run a destroy against an account whose
+scope and billing I can't verify. Box is idle (chain's tmux exited clean;
+only vast.ai's default `ssh_tmux` + the stock Jupyter server remain) and
+ready for teardown — flagged to the owner rather than actioned.
