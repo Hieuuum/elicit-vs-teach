@@ -1002,6 +1002,35 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
       parent: adapter-installed base, not App. E full FT — a substrate
       choice forced by G8, not a measurement change.
 
+15. **ts38mw — wrapper-diversity install falsification probe; Stage 0 (build)
+    DONE 2026-08-15, Stage 1 (GPU run) PENDING owner review.** Plan:
+    `docs/plan-ts38mw-multiwrap-install.md`. §6.14's ts38 certified parent
+    computes op-notation add/sub correctly only under its EXACT training
+    template — even the symbol-bearing `What is a + b?` collapses to ~3%,
+    flat across snapshots 10k-24k (rules out the stopping rule; see
+    `docs/ts38-vs-bits-that-count.md`). Suspected cause: the install set has
+    exactly ONE surface form. This asks whether installing the same
+    arithmetic under 8 wrapper templates instead makes the skill fire under
+    a held-out wrapper it never saw, including the word-only target
+    phrasing. Pre-registered GO-A/GO-B/WEAK/NO-GO/INCONCLUSIVE bands frozen
+    in decisions.md 2026-08-15 "ts38mw Stage 1 pre-registration" entry
+    (verdict constants live in `scripts/mw_verdict.py`, must always match
+    that entry). ONE LoRA probe run (r128/alpha32 @ 3e-4, reused from the
+    ts38 lane), scored on snapshots against 6 held-out probe phrasings —
+    ~$0.5-1 on a 4090, ~1.5-2.5 h. Stage 0 built + committed, NOT launched:
+    `datagen/make_multiwrap_set.py` (-> `D_target_mw.parquet`, order_hash
+    `bf0b28bde963…`), `datagen/make_dm_probe_eval.py` extended with 2 new
+    keys (`sumof`/`sumof_bare`; the 7 pre-existing keys' hashes unchanged,
+    verified byte-identical via `git diff`), `configs/
+    ts38mw_pretaught_parent_lora.yaml` + `configs/sweeps/ts38mw/
+    parent_probe_lr3e-4.yaml`, `scripts/mw_verdict.py` (pure verdict
+    function), `scripts/launch_ts38mw_probe.sh` (built + reviewed +
+    syntax-checked, NOT executed — no GPU, no SSH, no vastai touched this
+    session). Full suite green (1091 tests, ~11s, CPU only). Only a GO
+    unlocks Stage 2 (certified multiwrap parent + family); WEAK/NO-GO close
+    this line into a write-up; INCONCLUSIVE triggers a short LR sweep
+    (Stage 1b). Waits for a human to review before Stage 1 launches.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

@@ -37,6 +37,15 @@ the earlier scaffolded/bare 2×2 are preserved):
     dm_mix        scaffolded
     dm_mix_bare   bare (``<body>\\n<ans>``, the ts38 family's rendering)
 
+Added 2026-08-15 for the ts38mw multiwrap-install probe (plan
+docs/plan-ts38mw-multiwrap-install.md §3.2), same construction, one more pair
+using the frozen NL target's own phrasing so its body can never drift from
+``D_algo``'s (reuses ``geode.arith.formats._NL_PHRASE`` verbatim, not a
+literal copy):
+    sumof       What is the sum of {a} and {b}?      / What is the
+                difference between {a} and {b}?       (scaffolded)
+    sumof_bare  same bodies, bare (``<body>\\n<ans>``)
+
 Each parquet gets a sibling YAML pin under ``configs/probe_dm/`` (tokenizer
 ``../../tokenizer`` = the frozen chain tokenizer). ``format`` is set to
 ``dm_<key>`` so every file's order_hash differs from D_algo_eval's and from each
@@ -54,6 +63,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from geode.arith.formats import _NL_PHRASE
 from geode.arith.spans import tokenize_with_spans
 from geode.arith.validate import order_hash
 
@@ -97,6 +107,10 @@ PAIRS = {
     "bare_op": ("{a} + {b}", "{a} - {b}"),
     "word_q": ("What is {a} plus {b}?", "What is {a} minus {b}?"),
     "word_imp": ("Add {a} and {b}.", "Subtract {b} from {a}."),
+    # ts38mw §3.2 (2026-08-15): the frozen NL target's own phrasing, reused
+    # verbatim from geode.arith.formats so this body can never drift from
+    # D_algo's.
+    "sumof": (_NL_PHRASE["+"], _NL_PHRASE["-"]),
 }
 
 D_ALGO_EVAL = TR / "data/full/D_algo_eval.parquet"
@@ -200,6 +214,12 @@ def main() -> int:
         src, "dm_mix_bare", dm_chooser(random.Random(args.seed)), scaffolded=False
     )
     assert (outputs["dm_mix"]["template"] == outputs["dm_mix_bare"]["template"]).all()
+
+    # sumof_bare: same bodies as "sumof" (PAIRS, above), bare rendering — the
+    # ts38 family's actual target rendering (ts38mw §3.2).
+    outputs["sumof_bare"] = build(
+        src, "sumof_bare", lambda r: _NL_PHRASE[r["op"]], scaffolded=False
+    )
 
     for key, out in outputs.items():
         # Span check under the chain tokenizer (V5.38 rule) — raises loudly on any row.

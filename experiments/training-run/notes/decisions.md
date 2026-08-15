@@ -6510,3 +6510,120 @@ gate) or the paused 1B track. If no certifiable install passes the latency
 gate at 38.7M, record the design result: op-notation pre-teaching does not
 create a latent NL capability on this substrate. Box
 `root@38.246.237.140:32414` (owner's) still up after the diagnostic.
+
+## 2026-08-15 (Stage 0 build) — ts38mw Stage 1 pre-registration: wrapper-diversity install probe, GO/NO-GO bands FROZEN before any GPU spend
+
+Full plan: `docs/plan-ts38mw-multiwrap-install.md`. Stage 0 (this entry) is
+100% laptop/CPU build — no GPU touched, no box SSH'd, nothing launched.
+Frozen once committed here: never tune a band post-hoc against a result.
+
+**Question.** Does surface diversity in the *install* set create an
+op-arithmetic capability that fires under a *held-out* wrapper — including
+the word-only target phrasing — at 38.7M? Motivated by ts38's certified
+parent computing op-notation add/sub correctly only under its exact training
+template (`Question: a + b\nAnswer:`); even the symbol-bearing
+`What is a + b?` collapses to ~3%, flat across snapshots 10k-24k (rules out
+the stopping rule; `docs/ts38-vs-bits-that-count.md`).
+
+**Install set** (`datagen/make_multiwrap_set.py` -> `D_target_mw.parquet`,
+derived from the frozen `D_target` — identical (a, b, op, answer) triples,
+identical order/idx, order_hash
+`bf0b28bde9636d0ef4a7ccfc753de5aec3067109903d65e7a8c3f2677144e5d7`).
+Deterministic `WRAPPERS[idx % 8]` assignment (no RNG, exactly balanced), 8
+templates verbatim (`+` -> `-` for subtraction rows, nothing else changes):
+
+```
+W0  Question: {a} + {b}\nAnswer: {c}          (canonical = D_target)
+W1  {a} + {b} = {c}
+W2  Compute {a} + {b}\n{c}
+W3  Input: {a} + {b}\nOutput: {c}
+W4  Q: {a} + {b}\nA: {c}
+W5  The value of {a} + {b} is {c}
+W6  Evaluate {a} + {b}. The result is {c}
+W7  If we compute {a} + {b}, we get {c}
+```
+
+**Forbidden in every wrapper** (target/DM-template words, so every probe
+phrasing stays genuinely held-out): `sum`, `plus`, `add`, `total`, `put
+together`, `difference`, `minus`, `subtract`, `take away`, `less than`,
+`distance`, `calculate`, `work out`, `what is`. Also forbidden: the bare
+unscaffolded `{a} + {b}\n{c}` (DM's own template — a probe, not an install
+form). Enforced in code (`make_multiwrap_set.assert_wrappers_clean`) and by
+test.
+
+**Probe pins** (`datagen/make_dm_probe_eval.py`, extended with two new keys
+this session — `sumof`/`sumof_bare`, reusing `geode.arith.formats._NL_PHRASE`
+verbatim so the body can never drift from the frozen target's; the 7
+pre-existing keys' order_hashes are unchanged, byte-verified via `git diff`
+after regenerating all 9). 6 pins scored per snapshot in Stage 1:
+`bare_op` (canonical op-format EM — the "G1-canonical" number), `sym_q`,
+`word_q`, `sumof`, `sumof_bare`, `dm_mix`. New hashes:
+`sumof 97b6dcd3698cc6bb876198dc37068cbfa44bea2355260d537304e1114bd9837d`,
+`sumof_bare 9c10098a01f80cbf01fadffff21b5d84e9b65579f46fee1fb33d46a4a6a18b33`.
+
+**Verdict bands** (`scripts/mw_verdict.py::verdict`, constants
+`CANONICAL_EM_BAR=0.95`, `GO_A_EM_BAR=0.20`, `GO_B_EM_BAR=0.50`,
+`WEAK_EM_LOW=0.05`, `WEAK_EM_HIGH=0.20` — these numbers MUST literally match
+the code; a drift here is a broken pre-registration):
+
+| verdict | criterion | next |
+|---|---|---|
+| GO-A | `sumof` EM >= 0.20 **persisting** at two adjacent qualifying snapshots, loss < base both times | Stage 2 on the existing word-only target |
+| GO-B | GO-A fails; `sym_q` EM >= 0.50 persisting, loss < base both times | report; owner decides Stage 2' |
+| WEAK | best single qualifying snapshot's `sumof` EM in [0.05, 0.20), loss < base | report; owner decides |
+| NO-GO | none of the above | design result; write-up |
+| INCONCLUSIVE | no snapshot reaches canonical EM >= 0.95 | Stage 1b: 3-rung LR sweep |
+
+"Qualifying" = canonical EM >= 0.95 (bare_op zero-shot). **Persistence
+semantics (pinned here, not just in code):** "two consecutive scored
+snapshots" means two ADJACENT entries in the qualifying list sorted by step
+— adjacency by list position, not a fixed step delta, because
+`snapshot_steps` (8k/12k/16k/20k/24k/28k/32k/36k/40k/48k/56k/64k/80k/96k) are
+unevenly spaced; `certified_step.py`'s fixed S+1000 rule cannot transfer.
+WEAK does NOT require persistence (plan §2's "best ... EM" language scopes
+persistence to "each GO" only) — it is the single best qualifying-snapshot
+reading. GO-A and GO-B are evaluated independently; a run satisfying both
+reports as GO-A (GO-B never short-circuits/masks a valid GO-A).
+
+**Named edge case, owner-visible (not silently smoothed):** because GO-A
+needs persistence at EM >= 0.20 while WEAK only needs the single-best EM in
+[0.05, 0.20), a LONE (non-persisting) `sumof` crossing well above 0.20 —
+e.g. one snapshot at 0.30 with loss < base and no adjacent qualifying repeat
+— lands in **NO-GO** (fails GO-A's persistence; 0.30 is outside WEAK's
+upper-bounded range), while a lone crossing at 0.15 lands in **WEAK**.
+Stronger evidence reads as a worse band in this specific shape. This is the
+plan's band definitions applied literally; flagged for the owner rather than
+silently widened before launch.
+
+16-shot is recorded (`em16` field), never a criterion — 0% everywhere at
+this scale on every prior family.
+
+**LR-reuse assumption.** Stage 1's overlay
+(`configs/sweeps/ts38mw/parent_probe_lr3e-4.yaml`) pins 3e-4, REUSED from the
+certified ts38 parent's own lane (same base `evt-run1-base-v3-ext`, same
+LoRA r128/alpha32, same batch 128, same 1M rows of the same arithmetic —
+only the wrapper mixture differs), not re-swept. Acceptable for a
+falsification probe: a GO at 3e-4 is a GO, and a NO-GO with canonical EM
+>= 0.95 is a NO-GO at an LR that demonstrably installs the skill. Only
+INCONCLUSIVE (skill never installs at all) triggers an LR sweep (plan §4.6,
++~$0.3). Stage 2, if reached, runs the owner's LR-sweep rule properly.
+
+**Cost estimate** (printed by the launcher before `--confirm-cost`):
+training ~25-60 min at ~16 steps/s (ceiling 160k never binds) + ~14
+snapshots x (G1 ~1 min + 6 x g5 ~40s each) + G8 ~4 min only where canonical
+EM >= 0.95 => ~1.5-2.5 h total, ~$0.5-1.0 on a rented 4090. Disk ~200 MB per
+snapshot.
+
+**Built this session (Stage 0 only — no GPU spend):**
+`datagen/make_multiwrap_set.py`, `datagen/make_dm_probe_eval.py` (extended,
+7 pre-existing hashes unchanged), `configs/ts38mw_pretaught_parent_lora.yaml`,
+`configs/sweeps/ts38mw/parent_probe_lr3e-4.yaml`,
+`configs/probe_dm/{sumof,sumof_bare}.yaml`, `scripts/mw_verdict.py`,
+`scripts/launch_ts38mw_probe.sh` (built, reviewed, syntax-checked and its
+embedded JSON/verdict logic dry-run tested against synthetic data — NOT
+executed against the box, no SSH, no vastai), plus property tests under
+`tests/experiments/datagen/` and `tests/experiments/scripts/`. Full suite
+green (1091 passed, ~11s, CPU only). Stage 1 (the actual GPU run) is NOT
+launched — waits for a human to review this pre-registration and the
+launcher before `bash launch_ts38mw_probe.sh --confirm-cost` runs on the
+owner's box.
