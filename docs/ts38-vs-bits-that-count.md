@@ -157,7 +157,19 @@ Consistent with:
   pre-teach-*format* arm ("isolates algorithm learning") — was deliberately
   excluded from ts38 (§6.14).
 
-### 3.2 Everything is compressed to the left: the base acquires the task ~15× earlier in n
+### 3.2 Everything is compressed to the left: the base acquires the task ~15× earlier in n (a lower bound of ≥300× for the global peak — see note)
+
+**Note (2026-08-16).** The "~15×" below compares the base's *local* rise
+(4.6K → 21.5K) with the paper's ~300K peak. It is not the global comparison:
+the base arm's GLOBAL argmax sits at or below n=1,000 under every floor tried
+(OCV, min-val, paper Eq. 3 — decisions.md 2026-08-15 late), so the honest
+statement about peak *placement* is **≥300× earlier**, and that is a lower
+bound: the true peak may sit below n=1,000, where no grid has yet measured.
+The `{128, 256, 512}` bracket built as EXPERIMENTS §6.17 (`ts38grid`, built
+2026-08-16, not yet launched) is what would locate it. Everything in this
+section stands as written — in particular the "In *updates*" comparison in the
+table below is about the *local* 21.5K feature, not the global peak, and is
+unaffected.
 
 The base's teaching window (EM 2 % → 75 %) is 4.6K–21.5K examples; the paper's
 TS-1B peaks at ~300K. Contributors, none of which are "bugs":
@@ -254,7 +266,9 @@ certified parent's op-notation capability does not transfer to NL phrasing at
 all at 38.7M (zero-shot 1.6 % scaffolded / 0 % bare; label loss 7.7–8.1 vs base
 5.2–6.5 nats/token), so both arms are teaching arms and their EDL/D curves
 coincide; and the base's teaching hump, which does exist (+15 % at 4.6K→21.5K,
-all floors), sits ~15× earlier in n than the paper's because the task is
-easier and the first epoch takes ~8× more updates per example. The formal
-markers "fire" but the pair is not verified, and the fix is a parent (or scale)
-for which NL arithmetic is demonstrably latent — gated, not assumed.
+all floors), sits ≥300× earlier in n than the paper's (that bound is the
+global argmax, at or below n=1,000; the local 4.6K→21.5K feature alone is
+~15× — see the §3.2 note) because the task is easier and the first epoch takes
+~8× more updates per example. The formal markers "fire" but the pair is not
+verified, and the fix is a parent (or scale) for which NL arithmetic is
+demonstrably latent — gated, not assumed.

@@ -7332,3 +7332,265 @@ unobserved by any grid built to date. The small-n bracket
 cheaper, more targeted experiment for THAT specific question and may be
 worth running FIRST, before the more expensive 15-run grid-densification
 above — both remain open, owner's call on sequencing.
+
+## 2026-08-16 — deferred list executed: ts38grid BUILT + pre-registered (24 overlays, launcher, tests); fig2nl2-under-OCV CLOSED-AS-BLOCKED (data never left the owner's A100); box gone; base-n* weights unrecoverable; launch held for the owner (no GPU)
+
+Owner asked to "carry out the deferred list" — the four items left open by
+the `ts38pf` session (relay upload backlog; the wider 3-arm follow-up sweep;
+the fig2nl2 floor question; the box's status) plus the small-n bracket that
+has been PROPOSED since 2026-08-15 (late) and never launched. Everything
+below is a build-and-record session: **no GPU ran, no money was spent.**
+
+**What the environment actually is.** The owner's rental
+`38.246.237.140:32489` — the box that ran `ts38mw` and `ts38pf` — is GONE:
+one-shot `ssh` returns "Connection closed", not a timeout, same signature as
+`:32414` before it. The tracked vastai account (id 378963) shows **0
+instances**, balance **$0**, credit **$2.47**. So there is no machine this
+session could launch on, by either route, and the launch decision goes back
+to the owner ("Launch decision" below). On the relay (`mhieuuu/geode-store`,
+live `HfApi().list_repo_files` this session, 1,692 files): every `ts38mw` and
+`ts38pf` target run is present, and so are BOTH installed parents with real
+weights (`evt-ts38mw-parent-probe-lr3e-4` — `model/adapter+model.safetensors`
+plus its `sft_snapshots/`; `evt-ts38pf-preteachfmt-parent` —
+`model/adapter+model.safetensors`), which is what makes the grid extension
+below cost 24 target runs and no parent time. `evt-ts38-base-n{1000,4642,
+21544,100000,316228}` are still metadata-only (8 files each, no
+`*.safetensors`) — unchanged from the 2026-08-16 (early) entry and not
+fixable from here. And there are **zero** `evt-llama-fig2nl2-*` files on the
+relay at all, which is the fact that closes the fig2nl2 item below.
+
+### ts38grid — the follow-up sweep, BUILT and pre-registered
+
+The 2026-08-16 (early) entry gave the grid as prose and deliberately built
+nothing, because a new experiment design is direction-forking
+([[feedback-ask-only-major-decisions]]). The owner has now said to carry the
+list out, so the design is built to launch-ready and only the launch is held.
+Two questions are answered by one family, `ts38grid` (EXPERIMENTS §6.17):
+
+*(i) Small-n bracket {128, 256, 512}.* The base/teach arm's GLOBAL argmax
+sits at the n=1000 edge of every grid tried so far, under every floor
+(2026-08-15 late) — the paper-style rising limb may lie entirely BELOW the
+grid, in which case the 4642→21544 hump all three families report is a local
+feature on the falling side of an unobserved peak. Half of this is already
+measured, not predicted: the datasets are strict prefixes
+(`train_target.py:322`), so the n=1000 run's own epoch-1 log gives the
+prequential average at smaller n for free — base `avg_preq` **6.58** nats at
+128 examples → **5.90** at 512 → **4.67** at 1000, against θ0's 6.54, i.e. at
+n=128 the base has learned nothing. What is missing is the other term: the
+rising limb exists iff a 128-example converged model's **floor stays above
+3.47 nats**, and a floor is only obtained by running to convergence. The
+bracket measures floor(128/256/512) directly, at 1/2/4 optimizer steps per
+epoch and seconds per run. This is the cheapest probe that can falsify the
+"peak is below the grid" reading ([[feedback-simplest-experiment-first]],
+[[feedback-nulls-need-bracketing]]).
+
+*(ii) Densification {2154, 10000, 46416, 146780, 215443}.* The measured
+4642→21544 local hump (base **+15 %**, pretaught-format **+72 %**, and the
+ts38mw crossover — a base win at n≤4642, elicitation-shaped separation of
+4.85×/17.0×/24.6× from 21544 up) currently rests on one ×4.6 grid step per
+limb. Doubling the log resolution says where each arm's local peak actually
+sits and whether the rise survives 4642→10000→21544.
+
+**Pinned per-size values** (`min_steps` = ⌈N/128⌉ at batch 128, one full
+epoch under `train_target.py`'s own step counting):
+
+| N | eval_every | max_steps | min_steps | provenance |
+|---|---|---|---|---|
+| 128 | 5 | 1,000 | 1 | same cadence + ceiling as the n=1000 overlays |
+| 256 | 5 | 1,000 | 2 | same |
+| 512 | 5 | 1,000 | 4 | same |
+| 2,154 | 5 | 1,000 | 17 | verbatim from the matching `llama_fig2nl3` overlay |
+| 10,000 | 10 | 2,000 | 79 | verbatim `llama_fig2nl3` |
+| 46,416 | 55 | 11,000 | 363 | verbatim `llama_fig2nl3` |
+| 146,780 | 175 | **23,000** | 1,147 | `eval_every` from `llama_fig2nl3`; ceiling RAISED from its 14,000 |
+| 215,443 | 250 | **34,000** | 1,684 | `eval_every` from `llama_fig2nl3`; ceiling RAISED from its 20,208 |
+
+The two raised ceilings are the only deviation from fig2nl3's numbers, and
+they are forced: 1,147 steps/epoch × 20 = **22,940** and 1,684 × 20 =
+**33,680**, so fig2nl3's 14,000 and 20,208 sit BELOW 20 epochs and would bind
+before convergence — exactly the `stop_reason=max_steps` bug signal
+[[feedback-run-until-convergence]] forbids, and the same reason commit
+`6b735f1` raised n=100000 to 15,625 and n=316228 to 50,000 in this family.
+Everything else is recipe-identical to every ts38/ts38mw/ts38pf run: LoRA
+r128/α32 @ 1e-3, batch 128, ε/k 0.002/5, seed 316, `require_full_epoch1`, the
+frozen `D_algo_bare` / `D_algo_eval_bare` pins.
+
+**No new parents, no new data.** At each new n the base arm trains from
+`evt-run1-base-v3-ext` (and is the G7 anchor for that size), the mw arm from
+the merged GO-B step-28000 parent, the pf arm from the merged ts38pf parent —
+both parents confirmed on the relay with weights above. Per arm the grid
+becomes 13 points {128, 256, 512, 1000, 2154, 4642, 10000, 21544, 46416,
+100000, 146780, 215443, 316228}: 5 reused verbatim + 8 new ⇒ **24 new target
+runs**.
+
+**Files built this session** (in parallel with this write-up, on
+`ts38-mini`): 24 overlays
+`configs/sweeps/ts38/{ts38_base,ts38mw_pretaught,ts38pf_preteachfmt}_n<size>.yaml`;
+`scripts/launch_ts38grid_family.sh` (TAG `ts38grid`, gated behind
+`--confirm-cost`; per size ascending, arms in order base → mw → pf; each run
+train → require `stop_reason=converged` for EVERY run rather than only for a
+pinned one → G5 evidence → push as-you-go so a lost box costs at most one
+run; parents pulled and merged, never gated — the ts38mw parent's G8 FAIL is
+accepted by design, as pre-registered 2026-08-15 evening; and the launcher
+REFUSES to launch any size whose run ids already exist on the relay without a
+complete local copy, so the 5 shipped points cannot be silently retrained); a
+new `ts38grid` section in
+`tests/experiments/scripts/test_config_completeness.py` and new `_MATRIX`
+rows in `tests/experiments/analysis/test_edl_converged_val_floor_families.py`.
+Reads go through `edl_converged_val_floor.py` — the `ts38`, `ts38mw` and
+`ts38pf` family regexes already match the new run ids, no analysis change was
+needed. `dataset_size_sweep.py` is still NOT extended to `ts38pf`: the
+straddling-prefix special case that put it out of scope in §6.16 is unchanged
+by this work.
+
+**Cost, on measured wall clock** (ts38pf on one 4090: 1.7 / 2.1 / 6.4 / 10.5 /
+23.6 min at n=1000/4642/21544/100000/316228): the 8 new sizes are ≈48 min per
+arm ⇒ ≈2.4 h for three arms ⇒ ≈3 h with G5 and box setup ⇒ **$1.0–1.4** at
+$0.35–0.45/h. The bracket alone is ≈5 min ⇒ ≈$0. The launcher's
+`SIZES="128 256 512"` env override exists precisely so the bracket can be run
+and READ FIRST, per the sequencing recommendation in 2026-08-16 (early).
+
+**Small-n measurement note.** At n=128/256/512 an epoch is 1/2/4 steps, so
+these runs will overfit hard after epoch 1 and their converged-val (OCV)
+floor will sit well above their best-ever val: expect the `overshoot_ratio`
+column to be large. That is measurement, not failure — but the direction
+matters and is why all three floors are reported, not just OCV: since
+EDL/D = avg_preq − floor, an inflated OCV floor DEPRESSES EDL/D at 128/256/512
+and therefore biases toward satisfying the readout's "limb exists" condition
+below. Read the bracket on OCV, min-val and the paper floor together
+([[project-edl-floor-artifact-2026-07-27]]).
+
+**Pre-registered readouts, frozen here before any launch.**
+*(a) Bracket.* Base EDL/D per label token at 128/256/512 against its own
+n=1000 value, under OCV (primary) plus min-val and the paper/test floor. If
+`EDL/D(n<1000) < EDL/D(1000)` for the base arm, the rising limb exists inside
+[128,1000] and the global peak is bracketed; otherwise the curve is still
+rising toward smaller n (peak below 128) or monotone over the whole grid. The
+mw and pf arms are reported alongside — is mw below base at n<1000? — but
+their marker already FAILED at n=1000/4642, so the bracket only characterizes
+that crossover and cannot rescue it.
+*(b) Densification.* Each arm's argmax over its 13-point grid. A "local hump"
+counts only as a local maximum strictly interior to the grid under OCV AND
+the paper floor; a peak at either endpoint is a bracketing failure, not a
+hump. The ts38mw marker (monotone non-increasing AND below base at every n)
+is re-scored on 13 points for the record, with the frozen understanding that
+it cannot pass — its n=1000/4642 failures are already measured and no new
+point can undo them.
+
+### fig2nl2 under the OCV floor — CLOSED AS BLOCKED, not answered
+
+The 2026-08-16 (early) entry settled the code-level question (fig2nl2's plot
+floors on `min_val_nats_from_eval_log`, a third definition, neither OCV nor
+the paper's Eq. 3) and left open whether fig2nl2's published verdict survives
+on OCV. It cannot be answered from anywhere reachable: `launch_fig2nl2_llama.sh`
+has **no relay push** (EXPERIMENTS §6.12 states this in the launcher's own
+description), the relay listing above contains **zero** `evt-llama-fig2nl2-*`
+files, and `results/dataset_size_sweep_nl2.parquet` is not on this laptop
+either (whole-disk search, this session; the only thing under the relay's
+`cache/` is `run1_val_stream.pt`). The 38 runs exist only on the owner's
+A100.
+
+What IS known, and is not nothing: the 2026-08-12 outcome entry already
+reports the same verdict under TWO floors — min-val (inst 0.237 vs noinst
+0.255 nats at n=1000, i.e. inst 7 % BELOW; interleaving within ±5–25 %
+through the range; inst 21 % ABOVE at n=1M) and the paper's Eq.-3 TEST floor
+(inst −21 % at n=1000, ±few % elsewhere). OCV differs from Eq. 3 by exactly
+one thing, val-vs-test data at θ_T, which agreed to <1 % on the ts38mw runs
+where both were computed (2026-08-15 late). So OCV very likely agrees that
+the arms coincide — **but that is an inference from a different family, not a
+measurement of these runs**, and the min-val floor the fig2nl2 plot actually
+uses can diverge from both wherever a run overshoots (ts38pf's own n=316228
+point, `overshoot_ratio` 3.25×, is the existence proof). Recorded as an
+inference; the verdict itself stays as published.
+
+Tooling is now ready for the day the data moves: the parallel worker added an
+`nl2` family to `edl_converged_val_floor.py` (regex
+`^evt-llama-fig2nl2-(noinst|inst)-n(\d+)$`, stem `edl_converged_val_floor_nl2`),
+so closing this is a pull plus one command. **To close it for real the owner
+pushes the 38 runs metadata-only from the A100:**
+
+```
+# on the A100, repo root, GEODE_STORE pointing at the store.
+# The grep is the family regex, not the bare prefix: evt-llama-fig2nl2-installer
+# (and its ladder rungs) share the prefix and are not sweep points.
+for r in $(ls "$GEODE_STORE/runs" | grep -E '^evt-llama-fig2nl2-(noinst|inst)-n[0-9]+$'); do
+  python3 experiments/training-run/scripts/hf_checkpoint.py push \
+    --run-id "$r" --metadata-only
+done
+# then, anywhere: pull each with `pull --run-id <r> --no-weights`, and
+python3 experiments/training-run/analysis/edl_converged_val_floor.py --family nl2
+```
+
+**`--metadata-only` is not merely the cheap flag here, it is the only one
+that works — and it carries everything the OCV script needs.** A plain
+weights-included push would FAIL on most of these runs: §6.12's launcher ran
+with `--prune`, deleting each run's `model.safetensors` after its G5 (adapters
+kept, both n=1M runs spared), and `hf_checkpoint.py push` without an exclusion
+flag calls `find_checkpoint()`, which turns a missing checkpoint into a
+`SystemExit` — so ~36 of the 38 would abort. `--no-weights` would work but
+ships ~0.72 GB of r512 adapter per run for no analytical gain. Checked in
+`scripts/hf_checkpoint.py`: `--metadata-only` is
+push-only (it errors on `pull`, and is mutually exclusive with both
+`--no-weights` and `--with-snapshots`); it ignores `snapshots/*`,
+`model_merged/*` and `*.safetensors` (adapter sidecars included) and uploads
+the whole rest of `runs/<run-id>/` with one `upload_folder`. All four inputs
+`edl_converged_val_floor.py` reads are outside those patterns and therefore
+ride along: `manifest.json`, `eval_log.jsonl`, `logs/prequential.jsonl`, and
+`eval/test_loss.json`. Worth knowing before the push: `eval/test_loss.json` is
+NOT optional for this script even though OCV is a val-floored metric —
+`collect()` calls `geode.zoo.test_loss()` unconditionally for the
+masking-parity assert, and that reader is a bare `read_text()`, so a run
+missing the file raises rather than degrading to OCV-only (whereas a run dir
+missing `logs/prequential.jsonl` is silently SKIPPED, which is the quieter
+failure to watch for). Every target run writes it at θ_T
+(`geode/edl/loop.py::_write_test_loss`), and the 2026-08-12 entry's Eq.-3
+column proves the fig2nl2 runs have theirs. Verify on the receiver, not the
+sender ([[feedback-verify-the-receiver-not-the-sender]]): after the loop,
+list `runs/evt-llama-fig2nl2-*` on the hub and expect 38 sweep folders (plus
+the installer/ladder runs if those were pushed too — they share the prefix).
+
+### Upload backlog and box — unchanged, nothing further is possible from here
+
+`evt-ts38-base-n{1000,4642,21544,100000,316228}` stay metadata-only on the
+relay. Both boxes that ever held their weights are gone, so only retraining
+from the frozen seed/recipe would restore them, and that is GPU spend behind
+`--confirm-cost`, not something to do incidentally. Note the interaction with
+the new launcher: `launch_ts38grid_family.sh` refuses any size whose run ids
+are already on the relay without a complete local copy, so running the grid
+extension will NOT retrain and will NOT repair these five — by design, since silently re-training a measured
+point would break comparability with everything already published from it.
+All box-local artifacts were pulled back to the laptop before the box died
+(2026-08-16 early), so nothing was lost with it.
+
+### Launch decision — the one thing left with the owner
+
+`ts38grid` is launch-ready and pre-registered; only the machine is missing.
+Two options:
+(a) re-provide the owner's own rental and hand over SSH — costs the owner
+    whatever that box costs, and is how `ts38mw`/`ts38pf` ran;
+(b) `vastai create` on the tracked account 378963 — its **$2.47 credit is
+    ≈5.5 h on a $0.45/h 4090**, i.e. enough for the ≈3 h full grid once with
+    modest slack, and for the ≈5 min bracket many times over, but not enough
+    for a second attempt if a box dies mid-run. Box creation spends money
+    and is irreversible, so it stays behind an explicit OK per the budget
+    rule; this session created nothing.
+**Owner, mid-session (2026-08-16, verbatim gist): "Don't launch the box yet.
+Confirm the results with me first before you do any new experiment."** —
+so the launch is explicitly HELD: the owner reviews this build + the state
+above, then decides box and sequencing. Nothing here runs on its own.
+Either way the command, from `experiments/training-run/scripts/`, is:
+```
+SIZES="128 256 512" bash launch_ts38grid_family.sh --confirm-cost   # bracket first
+bash launch_ts38grid_family.sh --confirm-cost                       # then the rest
+```
+
+### Docs correction
+
+`docs/ts38-vs-bits-that-count.md` §3.2 and its one-line verdict said the base
+"acquires the task ~15× earlier in n" than the paper. That figure compares the
+base's LOCAL rise (4.6K→21.5K) with the paper's ~300K peak; the base's GLOBAL
+argmax is at or below n=1000 under every floor, so the correct statement about
+peak placement is **≥300× earlier, as a lower bound**. Both places now say so,
+with a dated note pointing at the `{128,256,512}` bracket as the thing that
+would locate the peak — the correction 2026-08-15 (late) deferred "pending the
+bracket" is made now, phrased as a bound rather than waiting on data.

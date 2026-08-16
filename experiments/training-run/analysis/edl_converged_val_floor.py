@@ -83,7 +83,7 @@ and the ``*_bits`` reporting column. CPU-only, reads the local store, no
 network.
 
 Usage:
-    python3 edl_converged_val_floor.py [--family {op,nl,ts38,ts38mw,both}] [--store <dir>]
+    python3 edl_converged_val_floor.py [--family {op,nl,nl2,ts38,ts38mw,both}] [--store <dir>]
 
 ``--family both`` covers op+nl only (unchanged since before ts38/nl2/nl3
 existed) — pass ``--family ts38`` or ``--family ts38mw`` explicitly for
@@ -124,6 +124,11 @@ FAMILIES = {
         re.compile(r"^evt-llama-fig2nl-(noinst|inst)-n(\d+)$"),
         "edl_converged_val_floor_nl",
         "natural language, D_algo",
+    ),
+    "nl2": (
+        re.compile(r"^evt-llama-fig2nl2-(noinst|inst)-n(\d+)$"),
+        "edl_converged_val_floor_nl2",
+        "natural language v2 (dose16 NL installer, EXPERIMENTS §6.12), D_algo",
     ),
     "ts38": (
         re.compile(r"^evt-ts38-(base|pretaught)-n(\d+)$"),
@@ -364,7 +369,7 @@ def plot(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--family", choices=("op", "nl", "ts38", "ts38mw", "ts38pf", "both"), default="both"
+        "--family", choices=("op", "nl", "nl2", "ts38", "ts38mw", "ts38pf", "both"), default="both"
     )
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
     args = parser.parse_args()

@@ -52,6 +52,25 @@ _MATRIX = [
     ("ts38pf", "evt-ts38-parent-loraprobe-lr3e-4", None),
     ("ts38pf", "evt-ts38mw-parent-probe-lr3e-4", None),
     ("ts38pf", "evt-ts38pf-preteachfmt-parent", None),
+    # ts38grid unified 3-arm grid extension (EXPERIMENTS.md §6.17,
+    # 2026-08-16): the same three regexes must pick up the 8 NEW dataset
+    # sizes automatically — no per-size code, so a few new-size rows are
+    # enough to prove the pattern generalizes rather than re-running the
+    # full n1000 matrix above at every new size.
+    ("ts38", "evt-ts38-base-n128", ("base", "128")),
+    ("ts38mw", "evt-ts38mw-pretaught-n215443", ("pretaught", "215443")),
+    ("ts38pf", "evt-ts38pf-preteachfmt-n146780", ("preteachfmt", "146780")),
+    ("ts38pf", "evt-ts38mw-pretaught-n128", None),
+    # nl2 (EXPERIMENTS §6.12, dose16 NL installer): captures noinst/inst
+    # directly like op/nl (no ARM_MAPS translation entry, see FAMILIES'
+    # nl2 comment) — must pick up its own ids and REJECT the neighboring
+    # nl/nl3/installer ids a naive "fig2nl" substring match would blur.
+    ("nl2", "evt-llama-fig2nl2-noinst-n1000", ("noinst", "1000")),
+    ("nl2", "evt-llama-fig2nl2-inst-n1000000", ("inst", "1000000")),
+    ("nl2", "evt-llama-fig2nl-noinst-n1000", None),
+    ("nl2", "evt-llama-fig2nl3-noinst-n1000", None),
+    ("nl2", "evt-llama-fig2nl2-installer", None),
+    ("nl", "evt-llama-fig2nl2-noinst-n1000", None),
 ]
 
 
@@ -152,6 +171,15 @@ def test_collect_ts38pf_on_empty_store_returns_empty_dataframe_not_raise(tmp_pat
     (tmp_path / "runs").mkdir(parents=True)
 
     df = ecvf.collect("ts38pf", tmp_path)
+
+    assert isinstance(df, pd.DataFrame)
+    assert df.empty
+
+
+def test_collect_nl2_on_empty_store_returns_empty_dataframe_not_raise(tmp_path: Path) -> None:
+    (tmp_path / "runs").mkdir(parents=True)
+
+    df = ecvf.collect("nl2", tmp_path)
 
     assert isinstance(df, pd.DataFrame)
     assert df.empty

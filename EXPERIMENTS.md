@@ -1114,7 +1114,104 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     "ts38pf pre-registration" entry). Complementary to, not superseded by,
     the small-n bracket ({128,256,512}) discussed the same session — both
     remain open, held pending the owner's go-ahead on `launch_ts38pf_family.sh
-    --confirm-cost`.
+    --confirm-cost`. **EXECUTED 2026-08-15 night → 2026-08-16 early,
+    `TERMINAL_SUCCESS runs=5`: the format-acquisition HALT gate passed
+    cleanly and all 5 target sizes converged, pushed and receiver-verified
+    (parent's full weights pushed too, after the by-design metadata-only
+    push). Outcome — the pre-teach-format arm reproduces the base arm's
+    shape rather than flattening it (dip 1000→4642, local rise at 21544,
+    fall through 100000/316228), and its rise is proportionally BIGGER, not
+    smaller: +72 % (0.827→1.420) against base's own +15 % (1.339→1.538)
+    under the OCV floor, with the pretaught arm below base in absolute terms
+    at every n. App. E.1.2's "remove the transient and the rise appears"
+    account does not hold at this scale; full table, the n=316228 overshoot
+    caveat (3.25×) and the candidate readings are in decisions.md 2026-08-16
+    (early) "ts38pf OUTCOME". The small-n bracket named above did NOT run
+    alongside it — it stayed unlaunched and is now folded into §6.17.**
+
+17. **ts38grid — unified 3-arm grid extension: small-n bracket {128,256,512} +
+    densification {2154,10000,46416,146780,215443}; BUILT 2026-08-16, NOT
+    LAUNCHED (no GPU box — owner rental gone, tracked vast account empty);
+    launch decision with the owner.** Two questions, one grid. *(i) Small-n:*
+    the base (teach) arm's GLOBAL argmax sits at the n=1000 edge of every grid
+    tried so far, under every floor (decisions.md 2026-08-15 late) — so the
+    paper-style rising limb may lie BELOW the grid entirely, and the local
+    hump all three families have been reading would then sit on the falling
+    side of a peak nobody has observed. Half the answer is already free: the
+    datasets are strict prefixes (`train_target.py:322`), so the n=1000 run's
+    own epoch-1 log gives the prequential average at smaller n — base 6.58
+    nats at 128 examples → 5.90 at 512 → 4.67 at 1000, against θ0's 6.54, i.e.
+    at n=128 the base has learned nothing. The rising limb therefore exists
+    iff a 128-example converged model's floor stays above 3.47 nats, and only
+    a run measures a floor. The bracket measures floor(128/256/512) directly:
+    1/2/4 optimizer steps in epoch 1 at batch 128, seconds each.
+    *(ii) Densification:* the already-measured 4642→21544 local hump (base
+    +15 %, pretaught-format +72 %, and the ts38mw crossover — a base win at
+    n≤4642, elicitation-shaped separation of 4.85×/17.0×/24.6× from 21544 up)
+    currently rests on a single ×4.6 grid step per limb. Five new sizes at 2×
+    finer log spacing say where each arm's local peak actually sits and
+    whether the rise survives 4642→10000→21544 or is an artifact of the
+    coarse spacing.
+    Design: three arms at each of 8 new sizes {128, 256, 512, 2154, 10000,
+    46416, 146780, 215443} — base/teach (inits from `evt-run1-base-v3-ext`,
+    and is the G7 anchor), ts38mw-pretaught (the merged GO-B step-28000
+    parent), ts38pf pre-teach-format (the merged ts38pf parent) — giving each
+    arm a 13-point grid {128, 256, 512, 1000, 2154, 4642, 10000, 21544, 46416,
+    100000, 146780, 215443, 316228} in which the 5 existing points are reused
+    verbatim, never retrained. 24 new target runs, NO new parents and no new
+    datasets: both installed parents are already built, pushed and reusable at
+    any n. Recipe identical to every other run in this family (LoRA r128/α32
+    @ 1e-3, batch 128, ε/k 0.002/5, seed 316, `require_full_epoch1`, the
+    frozen `D_algo_bare` / `D_algo_eval_bare` pins). Per-size
+    `eval_every`/`max_steps`/`min_steps` are tabulated in decisions.md
+    2026-08-16: the three small-n overlays copy the n=1000 overlays' cadence
+    and ceiling; 2154/10000/46416 are verbatim from the matching
+    `llama_fig2nl3` overlays; 146780 and 215443 take fig2nl3's `eval_every`
+    but RAISE `max_steps` to 23000/34000, because fig2nl3's 14000/20208 sit
+    below 20 epochs (22,940 / 33,680 steps) — the same ceiling-never-binds
+    rule commit `6b735f1` applied to n=100000 and n=316228.
+    Files: 24 overlays
+    `configs/sweeps/ts38/{ts38_base,ts38mw_pretaught,ts38pf_preteachfmt}_n<size>.yaml`;
+    `scripts/launch_ts38grid_family.sh` (TAG `ts38grid`, `--confirm-cost`;
+    per size ascending, base → mw → pf, each run train → require
+    `stop_reason=converged` on EVERY run, not merely a pin → G5 evidence →
+    push as-you-go; parents pulled and merged, never gated; refuses any
+    size whose run ids are already on the relay without a complete local
+    copy, so no shipped point can be silently retrained); a new `ts38grid` section in
+    `tests/experiments/scripts/test_config_completeness.py` and new `_MATRIX`
+    rows in `tests/experiments/analysis/test_edl_converged_val_floor_families.py`.
+    Reads go through `edl_converged_val_floor.py` (families `ts38`, `ts38mw`,
+    `ts38pf`, whose regexes already match the new run ids);
+    `dataset_size_sweep.py` is NOT extended — the same straddling-prefix
+    special case that put it out of scope in §6.16 still applies.
+    Cost, on ts38pf's measured per-run wall clock on one 4090 (1.7 / 2.1 /
+    6.4 / 10.5 / 23.6 min at n=1000/4642/21544/100000/316228): ≈48 min per arm
+    across the 8 new sizes, ≈2.4 h for three arms, ≈3 h with G5 and setup ⇒
+    **$1.0–1.4** at $0.35–0.45/h. The small-n bracket on its own is ≈5 min ⇒
+    ≈$0. Sequencing: `SIZES="128 256 512" bash launch_ts38grid_family.sh
+    --confirm-cost` runs the bracket alone — the override exists precisely so
+    the cheaper, more targeted experiment for question (i) can be run and READ
+    FIRST, per the 2026-08-16 (early) recommendation; the other five sizes
+    follow under the default `SIZES`.
+    Pre-registered readouts, frozen before launch (no bar moves afterwards):
+    **(a) bracket** — base EDL/D per label token at 128/256/512 against its
+    own n=1000 value, under OCV (primary) plus the min-val and paper/test
+    floors. `EDL/D(n<1000) < EDL/D(1000)` for the base arm ⇒ the rising limb
+    exists inside [128,1000] and the global peak is bracketed; otherwise the
+    curve is still rising toward smaller n (peak below 128) or monotone across
+    the whole grid. The mw and pf arms are reported alongside (is mw below
+    base at n<1000?), but their marker already FAILED at n=1000/4642 — the
+    bracket characterizes that crossover, it cannot rescue the marker.
+    **(b) densification** — each arm's argmax over its 13-point grid; a "local
+    hump" counts only as a local maximum strictly interior to the grid under
+    OCV AND the paper floor (a peak at either endpoint is a bracketing
+    failure, not a hump). The ts38mw marker (monotone non-increasing AND below
+    base at every n) is re-scored on 13 points for the record, with the frozen
+    understanding that it cannot pass: its n=1000/4642 failures are already
+    measured. This supersedes the "recommendation given as prose, NOT built"
+    status of decisions.md 2026-08-16 (early) — the design is now built and
+    pre-registered; only the launch (which box, whose money) is left with the
+    owner.
 
 ## 7. Budget
 

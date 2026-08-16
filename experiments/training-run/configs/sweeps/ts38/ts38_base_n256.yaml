@@ -1,0 +1,15 @@
+# ts38grid unified 3-arm grid extension (EXPERIMENTS.md §6.17), 2026-08-16 —
+# small-n bracket point: n=256. This run IS the G7 anchor — same-size
+# ts38mw_pretaught_n256.yaml/ts38pf_preteachfmt_n256.yaml point
+# match_data_order_with here. Overlay over ../../ts38_base.yaml.
+# eval_every/max_steps: same as the n=1000 overlays (small-n bracket, 1
+# step/epoch; no matching-size fig2nl3 point to copy). min_steps = ceil(256/128)
+# = 2 (require_full_epoch1 guard, ts38-mini guard 1).
+run_id: evt-ts38-base-n256
+data:
+  n_examples: 256
+train:
+  eval_every: 5
+  max_steps: 1000
+  stopping:
+    min_steps: 2

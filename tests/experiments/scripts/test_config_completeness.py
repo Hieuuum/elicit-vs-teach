@@ -19,6 +19,7 @@ it asserts the call does not raise, and says nothing about the values.
 
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -1190,3 +1191,195 @@ def test_ts38pf_preteachfmt_parent_builds_a_lora_manifest() -> None:
     assert manifest["training"]["method"] == "lora"
     assert manifest["training"]["lora"]["rank"] == 128
     assert manifest["training"]["lora"]["alpha"] == 32
+
+
+# =============================================================================
+# ts38grid unified 3-arm grid extension (EXPERIMENTS.md §6.17, 2026-08-16):
+# 8 NEW dataset sizes per arm — a small-n bracket {128, 256, 512} and a
+# densification {2154, 10000, 46416, 146780, 215443} — on top of the 5 sizes
+# already covered by TS38_OVERLAYS/TS38MW_OVERLAYS/TS38PF_OVERLAYS above
+# ({1000, 4642, 21544, 100000, 316228}). Same three arms, same base configs
+# (ts38_base.yaml/ts38mw_pretaught.yaml/ts38pf_preteachfmt.yaml), same
+# run_id patterns (_TS38_RUN_ID_PATTERN/_TS38MW_RUN_ID_PATTERN/
+# _TS38PF_RUN_ID_PATTERN) defined above. Purely additive: this section does
+# not touch any TS38/TS38MW/TS38PF list, constant, or assert above it.
+# =============================================================================
+
+TS38GRID_SIZES = [128, 256, 512, 2154, 10000, 46416, 146780, 215443]
+
+# n -> (eval_every, max_steps, min_steps=ceil(n/128)). Small-n bracket
+# {128,256,512} shares the n=1000 overlays' cadence/ceiling (1 step/epoch,
+# no matching-size fig2nl3 point to copy from). Densification
+# {2154,10000,46416} copied verbatim from the matching-size
+# llama_fig2nl3_noinst_n<size>.yaml overlay (20-epoch ceiling never binds
+# there). {146780,215443} start from that same overlay's eval_every, but its
+# max_steps was BELOW 20 epochs (146780: 14000 < 1147*20=22940; 215443:
+# 20208 < 1684*20=33680), so max_steps is raised to 23000/34000 — the same
+# >=20-epoch ceilings-must-never-bind rule commit 6b735f1 applied to
+# ts38_base_n100000.yaml (->15625) and ts38_base_n316228.yaml (->50000).
+TS38GRID_PINNED = {
+    128: (5, 1000, 1),
+    256: (5, 1000, 2),
+    512: (5, 1000, 4),
+    2154: (5, 1000, 17),
+    10000: (10, 2000, 79),
+    46416: (55, 11000, 363),
+    146780: (175, 23000, 1147),
+    215443: (250, 34000, 1684),
+}
+
+# (arm, n, eval_every, max_steps, min_steps) for every one of the 24 files.
+TS38GRID_OVERLAYS = [
+    (arm, n, *TS38GRID_PINNED[n]) for arm in ("ts38", "ts38mw", "ts38pf") for n in TS38GRID_SIZES
+]
+
+_TS38GRID_PATH_TMPL = {
+    "ts38": "sweeps/ts38/ts38_base_n{n}.yaml",
+    "ts38mw": "sweeps/ts38/ts38mw_pretaught_n{n}.yaml",
+    "ts38pf": "sweeps/ts38/ts38pf_preteachfmt_n{n}.yaml",
+}
+_TS38GRID_BASE_FILE = {
+    "ts38": "ts38_base.yaml",
+    "ts38mw": "ts38mw_pretaught.yaml",
+    "ts38pf": "ts38pf_preteachfmt.yaml",
+}
+_TS38GRID_RUN_ID_TMPL = {
+    "ts38": "evt-ts38-base-n{n}",
+    "ts38mw": "evt-ts38mw-pretaught-n{n}",
+    "ts38pf": "evt-ts38pf-preteachfmt-n{n}",
+}
+# Same three patterns TS38_OVERLAYS/TS38MW_OVERLAYS/TS38PF_OVERLAYS already
+# use above — a run id must match its OWN arm's pattern and no other arm's.
+_TS38GRID_RUN_ID_PATTERN = {
+    "ts38": _TS38_RUN_ID_PATTERN,
+    "ts38mw": _TS38MW_RUN_ID_PATTERN,
+    "ts38pf": _TS38PF_RUN_ID_PATTERN,
+}
+# train_target.py's ARM_REGIME (see the ARM-LETTER NOTE in ts38_base.yaml,
+# read at the top of this file's ts38 section): base -> teach, mw/pf -> elicit.
+_TS38GRID_REGIME = {"ts38": "teach", "ts38mw": "elicit", "ts38pf": "elicit"}
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38GRID_OVERLAYS)
+def test_ts38grid_overlay_file_exists(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    path = _TS38GRID_PATH_TMPL[arm].format(n=n)
+    assert (CONFIGS / path).is_file(), path
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38GRID_OVERLAYS)
+def test_ts38grid_run_id_matches_own_pattern_only(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    path = _TS38GRID_PATH_TMPL[arm].format(n=n)
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    run_id = raw["run_id"]
+    assert run_id == _TS38GRID_RUN_ID_TMPL[arm].format(n=n)
+    assert _TS38GRID_RUN_ID_PATTERN[arm].match(run_id), run_id
+    for other_arm, pattern in _TS38GRID_RUN_ID_PATTERN.items():
+        if other_arm != arm:
+            assert not pattern.match(run_id), (arm, other_arm, run_id)
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38GRID_OVERLAYS)
+def test_ts38grid_overlay_pinned_values(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    path = _TS38GRID_PATH_TMPL[arm].format(n=n)
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert raw["data"]["n_examples"] == n
+    assert raw["train"]["eval_every"] == eval_every
+    assert raw["train"]["max_steps"] == max_steps
+    assert raw["train"]["stopping"]["min_steps"] == min_steps
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38GRID_OVERLAYS)
+def test_ts38grid_min_steps_equals_ceil_n_over_128(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    """min_steps must be the COMPUTED ceil(n/128), not just a literal that
+    happens to match the table — cross-checked against the same
+    require_full_epoch1_launch_check the launcher itself calls
+    (test_full_epoch1_guard.py), not a reimplementation of its arithmetic."""
+    train_target = load("train_target")
+    steps_per_epoch = math.ceil(n / 128)
+    assert min_steps == steps_per_epoch
+    train_target.require_full_epoch1_launch_check(True, min_steps, steps_per_epoch)
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38GRID_OVERLAYS)
+def test_ts38grid_overlay_ceiling_rules(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    """Two independent ceiling checks on the MERGED config: the >=20-epoch
+    cost-ceiling floor, and the earliest-possible-stop arithmetic
+    TS38_OVERLAYS' own pinned-values test uses above (max_steps must cover
+    min_steps PLUS k more eval_every-spaced evaluations, else the eps/k rule
+    never gets a chance to fire before the ceiling — see that test's
+    comment for the full reasoning)."""
+    path = _TS38GRID_PATH_TMPL[arm].format(n=n)
+    cfg = load_config(CONFIGS / _TS38GRID_BASE_FILE[arm], CONFIGS / path)
+    t = cfg["train"]
+    assert t["max_steps"] >= 20 * t["stopping"]["min_steps"]
+    assert t["max_steps"] >= t["stopping"]["min_steps"] + t["stopping"]["k"] * t["eval_every"]
+
+
+@pytest.mark.parametrize("n", TS38GRID_SIZES)
+def test_ts38grid_arms_agree_on_merged_schedule(n: int) -> None:
+    """The three arms at a given size share one recipe — only theta0
+    differs — so their MERGED n_examples/eval_every/max_steps/min_steps
+    must be identical, not just their own overlay's raw literals."""
+    merged = {}
+    for arm in ("ts38", "ts38mw", "ts38pf"):
+        path = _TS38GRID_PATH_TMPL[arm].format(n=n)
+        cfg = load_config(CONFIGS / _TS38GRID_BASE_FILE[arm], CONFIGS / path)
+        merged[arm] = (
+            cfg["data"]["n_examples"],
+            cfg["train"]["eval_every"],
+            cfg["train"]["max_steps"],
+            cfg["train"]["stopping"]["min_steps"],
+        )
+    assert merged["ts38"] == merged["ts38mw"] == merged["ts38pf"], merged
+
+
+@pytest.mark.parametrize("n", TS38GRID_SIZES)
+def test_ts38grid_mw_pf_match_data_order_with_base_anchor(n: int) -> None:
+    anchor = f"evt-ts38-base-n{n}"
+    for arm in ("ts38mw", "ts38pf"):
+        path = _TS38GRID_PATH_TMPL[arm].format(n=n)
+        raw = yaml.safe_load((CONFIGS / path).read_text())
+        assert raw["experiment"]["match_data_order_with"] == anchor
+
+
+@pytest.mark.parametrize("n", TS38GRID_SIZES)
+def test_ts38grid_base_overlay_carries_no_match_data_order_with_key(n: int) -> None:
+    """The base overlay IS the G7 anchor — its own raw yaml must not set
+    match_data_order_with at all; the merged value stays ts38_base.yaml's
+    own null placeholder."""
+    path = _TS38GRID_PATH_TMPL["ts38"].format(n=n)
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert "match_data_order_with" not in raw.get("experiment", {})
+    cfg = load_config(CONFIGS / "ts38_base.yaml", CONFIGS / path)
+    assert cfg["experiment"]["match_data_order_with"] is None
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38GRID_OVERLAYS)
+def test_ts38grid_overlay_builds_a_manifest_with_correct_regime(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    train_target = load("train_target")
+    path = _TS38GRID_PATH_TMPL[arm].format(n=n)
+    cfg = load_config(CONFIGS / _TS38GRID_BASE_FILE[arm], CONFIGS / path)
+    manifest = train_target.manifest_fields(
+        cfg,
+        n_train=1,
+        n_trainable=1,
+        epochs_total=1,
+        schedule=[],
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+    )
+    assert manifest["regime"] == _TS38GRID_REGIME[arm]
