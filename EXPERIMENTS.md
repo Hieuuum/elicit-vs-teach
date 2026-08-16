@@ -1229,8 +1229,12 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
 
 18. **ts38pp — paper-protocol pre-teach: full FT, ONE epoch over 4,000,000
     UNIQUE op-notation examples (Donoway et al. App. E.2's literal recipe),
-    → NL target family. BUILT + pre-registered 2026-08-16, launch pending
-    on the owner's box.** Supersedes the ts38grid launch attempt (§6.17,
+    → NL target family. BUILT + pre-registered 2026-08-16, EXECUTED
+    2026-08-16 on the owner's box — marker lands in the RETENTION-CONFOUND
+    class (pretaught EDL/D sits above base at n=4642); θ0 premise FAILS
+    (no real NL capability at θ0, same as every prior ts38 family). Full
+    table in decisions.md 2026-08-16 "ts38pp OUTCOME".** Supersedes the
+    ts38grid launch attempt (§6.17,
     SUPERSEDED/HELD — abandoned on the venv/tmux env bug). Question: does a
     paper-faithful pre-teach install — full FT, exactly one epoch over 4M
     unique op-notation add/sub examples, NO retention gate — on the 38.7M
@@ -1360,13 +1364,45 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `tests/experiments/analysis/test_edl_converged_val_floor_families.py`
     and `test_dataset_size_sweep.py`.
 
-    **Runs: none launched.** Launch command, from
-    `experiments/training-run/scripts/`:
-    `bash launch_ts38pp_family.sh --confirm-cost`, on the owner's own
-    rental. **Budget:** datagen ~5 min · tokenize 4M ~3 min · parent 31,093
-    steps @ ~16 steps/s ≈ 32 min · scoring ~8 min · family
-    1.7+2.1+6.4+10.5+23.6 ≈ 45 min + G5/pushes ~8 min · pulls/setup ~10 min
-    ⇒ **≈ 1 h 50 m ≈ $0.7–1.0** on one RTX 4090.
+    **Runs: EXECUTED.** Launched 2026-08-16 ~15:38 UTC on the owner's own
+    rental, `TERMINAL_SUCCESS runs=5` at 17:12:52 UTC (parent + all 5 target
+    sizes converged, pushed, receiver-verified — actual wall-clock ≈1h35m,
+    close to the ≈1h50m estimate below; the per-size 42-minute figure
+    quoted mid-run to the owner from the ts38pf timing table was wrong,
+    corrected against `manifest.json` timestamps: 4 of 5 target sizes
+    actually finished in ~26 min combined). Parent G1 op EM 0.9805 (HALT
+    gate, <0.90, not triggered).
+
+    **Outcome — OCV floor, EDL per label token (nats), base vs pretaught-pp:**
+    | n | base (noinst) | pretaught-pp (inst) |
+    |---|---|---|
+    | 1,000 | 3.108 | 2.616 |
+    | 4,642 | 1.339 | **1.732** |
+    | 21,544 | 1.538 | 1.416 |
+    | 100,000 | 1.198 | 0.553 |
+    | 316,228 | 0.583 | 0.212 |
+
+    Pretaught-pp's own trajectory is monotone non-increasing across all 5
+    sizes, but it sits ABOVE base at n=4,642 (1.732 vs 1.339) — not a clean
+    below-base-only-from-some-n crossover either (below at n=1000, above at
+    4642, below again from 21544 on). Per the frozen readout, "above base
+    anywhere ⇒ retention-confound class" takes priority: **verdict =
+    retention-confound class**, not elicitation. θ0 premise
+    (`ts38pp_family_theta0.json`): parent op EM 0.9795 (zero-shot) confirms
+    the op lesson landed, but NL capability at θ0 still isn't there —
+    scaffolded-NL zero-shot EM 0.39% vs base 0%, scaffolded-NL label loss
+    actually WORSE than base (9.25 vs 5.19 nats); bare-NL loss improves only
+    marginally (6.15 vs 6.54 nats), EM 0% both. **θ0 premise FAILS** — even
+    at the paper's own literal protocol (4M unique examples, one epoch, full
+    FT, no retention gate), the parent shows no real NL capability before
+    target training. Same conclusion as every prior ts38 family
+    (§6.14/§6.15/§6.16): this remains teaching-vs-teaching, not
+    elicit-vs-teach. Full table + overshoot flags in decisions.md 2026-08-16
+    "ts38pp OUTCOME".
+
+    **Budget (estimate vs actual):** estimated ≈1h50m ≈$0.7–1.0; actual
+    ≈1h35m wall-clock (15:38→17:12:52 UTC) on one RTX 4090, in line with
+    estimate.
 
 ## 7. Budget
 

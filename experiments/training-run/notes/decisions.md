@@ -7804,3 +7804,109 @@ bash launch_ts38pp_family.sh --confirm-cost
 ```
 Cost estimate is printed by the launcher itself before it asks for
 confirmation, per the budget rule.
+
+## 2026-08-16 (afternoon/evening) — ts38pp OUTCOME: retention-confound class (above base at n=4642); θ0 premise FAILS again
+
+**Launch.** SSH key accepted on the owner's rental ~15:38 UTC (the box had
+refused it as of ~14:30 UTC the same session); the launcher was started in
+a detached tmux immediately and ran unattended through a local machine
+shutdown/restart with zero effect — `tmux new-session -d` is not tied to
+the SSH control connection, confirmed by checking the session was still
+alive and mid-datagen when SSH access resumed. `TERMINAL_SUCCESS runs=5` at
+**17:12:52 UTC**, ≈1h35m wall-clock from the 15:38 UTC launch (estimate was
+≈1h50m). Receiver-verified: parent + all 5 children present on
+`mhieuuu/geode-store` (the launcher's own hub check, all `OK`). Parent
+`evt-ts38pp-parent`: `final_step=31093` (pinned one-epoch end, matches
+config), G1 op EM **0.9805** (HALT gate is `<0.90`, cleared comfortably).
+All 5 target sizes `stop_reason=converged` (no `max_steps` bug signal).
+
+**Monitoring correction mid-run (owner-directed):** the first Monitor watch
+filtered on `MILESTONE` and chat-notified on every stage boundary
+(datagen_complete, preteach4m_datagen_start, pull_anchor_start ×5, etc.) —
+owner called this out as noise and re-stated the already-hardened
+[[reference-ntfy-topic]] policy ("stop making notifications from these
+monitor events... just ping me at ntfy whenever the experiment is done or
+something happens"). Fixed: replaced with a Monitor filtered ONLY on
+`TERMINAL_SUCCESS|HALT|FAILED|LAUNCHER_EXIT|Traceback|Error`, whose own
+shell pipeline `curl`s `https://ntfy.sh/geode-run1-kx83q1` on match (the
+launcher itself does not ping ntfy on completion — checked via grep, the
+`NTFY`/`NTFY_AUTO` env vars are consumed only by `box_onstart.sh`'s
+one-shot "box ready" ping, not by any per-run launcher — worth remembering
+for every future `launch_ts38*.sh`/similar launch). Separately, a
+mid-run ETA I gave the owner (adding the ts38pf per-size timing table's
+remaining entries, "~42.6 more minutes") was wrong and the owner correctly
+doubted it on sight — checked `manifest.json` mtimes instead: 4 of 5
+target sizes actually completed in ~26 min combined (n=1000 7.7min,
+n=4642 3.8min, n=21544 5.4min, n=100000 9.2min), because small-n runs
+carry a large fixed push/scoring overhead the naive per-size table doesn't
+capture. Lesson: prefer live-measured pace (`manifest.json`/`eval_log.jsonl`
+timestamps) over borrowing another family's per-size estimate table,
+especially for small n.
+
+**Analysis commands** (`edl_converged_val_floor.py --family ts38pp`,
+`dataset_size_sweep.py --family ts38pp`) initially failed on the box:
+`ModuleNotFoundError: matplotlib` — the training venv has no plotting
+deps. `pip install matplotlib` fixed it (trivial, no `--confirm-cost`
+needed, no GPU spend) — but the FIRST retry after installing it still
+failed with the same error, because the venv was activated BEFORE sourcing
+`/etc/environment`, the exact ordering bug commit 88cf240 fixed in the
+launcher itself (`/etc/environment` resets `PATH` back to system python if
+sourced after `activate`). Corrected order (`/etc/environment` first, then
+`activate`) fixed it. Both commands ran clean afterward.
+
+**Outcome — OCV floor, EDL per label token (nats):**
+
+| n | base (noinst) | pretaught-pp (inst) |
+|---|---|---|
+| 1,000 | 3.108 | 2.616 |
+| 4,642 | 1.339 | **1.732** |
+| 21,544 | 1.538 | 1.416 |
+| 100,000 | 1.198 | 0.553 |
+| 316,228 | 0.583 | 0.212 |
+
+Pretaught-pp's own column is monotone non-increasing across all 5 sizes
+(2.616→1.732→1.416→0.553→0.212), satisfying that half of the frozen
+elicitation bar. But it sits ABOVE base at n=4,642 (1.732 vs 1.339, a
+1.29× ratio) — below base at n=1000, above at 4642, below again from
+21544 on. That is not a clean "below base only from some n upward"
+crossover either (that would require monotone convergence toward base
+from one side, not a dip back below after rising above it). Per the
+frozen readout, "above base anywhere ⇒ retention-confound class (never
+'evidence against teaching')" governs regardless of the shape elsewhere:
+**verdict = retention-confound class.** `overshoot_ratio` (OCV vs the
+run's own best-ever val) is elevated but not extreme at the two largest
+inst sizes (100000: 1.105×, 316228: 1.337×) and does not change the
+above-base call at n=4642 (that point's overshoot is only 1.008×, i.e.
+converged near its own best val — the above-base reading is not an
+overshoot artifact).
+
+**θ0 premise** (`results/ts38pp_family_theta0.json`, `--no-record`,
+parent vs. `evt-run1-base-v3-ext`): op zero-shot EM 0.9795 (parent) vs
+0.0 (base) — the op lesson landed cleanly, as G1 already showed. But
+NL capability at θ0 is still absent: scaffolded-NL zero-shot EM 0.39%
+(parent) vs 0% (base), 16-shot EM 0% both; scaffolded-NL label loss is
+actually WORSE for the parent than base (9.2493 vs 5.1944 nats) — full-FT
+on 4M op-only examples measurably hurt the model's fit to
+differently-formatted (scaffolded-NL) text, a retention-cost signature,
+not a capability gain. Bare-NL label loss improves only marginally
+(6.1524 vs 6.5378 nats), EM 0% both. **θ0 premise FAILS** — even at the
+paper's own literal App. E.2 protocol (4,000,000 unique examples, ONE
+epoch, full FT, no retention gate — the strongest, most paper-faithful
+install this project has run), the parent shows no real NL add/sub
+capability before target training. Same conclusion reached for every
+prior ts38 family (§6.14 LoRA-certified parent, §6.15/ts38mw, §6.16/ts38pf):
+this remains a teaching-vs-teaching comparison, not elicit-vs-teach, for
+this 38.7M-parameter model at this scale. Scaling the pre-teach set 4×
+(1M→4M) and switching from LoRA-with-gates to full-FT-with-no-gates
+changed the confound's shape (retention-confound now shows up as a single
+above-base point at n=4642, vs ts38mw's below-base-fails-small-n pattern)
+but not the headline conclusion.
+
+**Artifacts.** `experiments/training-run/analysis/edl_converged_val_floor_ts38pp.csv`
+committed (git-tracked, not gitignored). Figures
+(`analysis/figures/edl_converged_val_floor_ts38pp.png`,
+`analysis/figures/dataset_size_sweep_ts38pp.png`) and
+`geode-store/results/{ts38pp_family_theta0.json,
+dataset_size_sweep_ts38pp.parquet, ts38pp_launch.log}` pulled to the
+laptop mirror, laptop-only per `.gitignore` (`results/`, `figures/`).
+Box never destroyed (owner's own rental).
