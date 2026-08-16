@@ -1430,7 +1430,13 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     (paper: 2.0%→11.9% at 16-shot; ours: 0.39%→0%) — this is the real open
     item, NOT resolved by the shape-criterion correction above. Full table +
     overshoot flags in decisions.md 2026-08-16 "ts38pp OUTCOME" and the
-    same-day "CORRECTION" entry.
+    same-day "CORRECTION" entry. **Tier-1 θ0 few-shot diagnostic (decisions.md
+    2026-08-16 "late" entry):** op EM collapses 98%→0.1% at k=1 already
+    (immediate, not gradual), and a pure ~200-token non-arithmetic story
+    prefix alone (zero exemplars) causes the same collapse — mechanism is
+    M1 (position/context lock from one-example-per-row SFT), not M2; the
+    paper's Table 11 few-shot check is not constructible as a fair
+    replication against a parent trained this way.
 
     **Budget (estimate vs actual):** estimated ≈1h50m ≈$0.7–1.0; actual
     ≈1h35m wall-clock (15:38→17:12:52 UTC) on one RTX 4090, in line with

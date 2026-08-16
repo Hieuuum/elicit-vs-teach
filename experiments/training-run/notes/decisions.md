@@ -8023,3 +8023,153 @@ points nearest the old below-base comparison) at a different training
 seed, same recipe otherwise (batch 128, LR unchanged) — cheap (single
 points, not full families). Not built yet; this paragraph is the design
 for a future session's build-then-launch pass.
+
+## 2026-08-16 (late) — Tier 1: θ0 few-shot diagnostic on evt-ts38pp-parent
+
+Tier 1 from the CORRECTION entry above, run: why does the parent solve
+op-notation at 97.95% zero-shot but collapse to 0.1% at 16-shot, when the
+paper's own Table 11 behavioral corroboration on the same intervention
+*rises* (2.0%→11.9%)? Built `experiments/training-run/analysis/
+theta0_fewshot_diag.py` (+ `tests/experiments/analysis/
+test_theta0_fewshot_diag.py`, commit `5e888a7`), ran on box
+`141.11.90.211:41680` (RTX 4090; `evt-ts38pp-parent` + `evt-run1-base-v3-ext`,
+n=1024 queries, gates.py g5's own `--n` default), pushed to
+`geode-store/results/{ts38pp_theta0_fewshot_diag.json,
+ts38pp_theta0_dm_mixture.json}` and the `mhieuuu/geode-store` relay under
+`results/`.
+
+**Correctness anchor: all 18 recorded numbers reproduce.** `single`/k=0/k=16
+EM and label loss for op/nl_scaffolded/bare on both runs match
+`ts38pp_family_theta0.json` to float noise (<2e-5), confirming the
+composition/tokenization path is byte-identical to gates.py's own protocol
+before trusting any new condition.
+
+**Full table (EM; parent = `evt-ts38pp-parent`, base = `evt-run1-base-v3-ext`;
+loss@0 = shared-set label loss in nats at k=0, full reporting block):**
+
+| run | condition | task | k=0 | k=1 | k=2 | k=4 | k=8 | k=16 | loss@0 |
+|---|---|---|---|---|---|---|---|---|---|
+| parent | single | op | **0.9795** | 0.0010 | 0.0000 | 0.0010 | 0.0000 | 0.0010 | 0.0125 |
+| parent | single | nl_scaffolded | 0.0039 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 9.2493 |
+| parent | single | bare | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0010 | 6.1524 |
+| parent | block | op | 0.1504 | 0.0000 | 0.0000 | 0.0000 | 0.0010 | 0.0000 | 4.8705 |
+| parent | block | nl_scaffolded | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 11.1565 |
+| parent | story_prefix | op | **0.0068** | — | — | — | — | — | — |
+| parent | story_prefix | nl_scaffolded | 0.0010 | — | — | — | — | — | — |
+| parent | k1_position | op | — | **0.0000** | — | — | — | — | — |
+| parent | k1_position | nl_scaffolded | — | 0.0000 | — | — | — | — | — |
+| base | single | op | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 4.9893 |
+| base | single | nl_scaffolded | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 5.1944 |
+| base | single | bare | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 6.5378 |
+| base | block | op | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 4.9416 |
+| base | block | nl_scaffolded | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 0.0000 | 5.4587 |
+| base | story_prefix | op/nl | 0.0000 / 0.0000 | — | — | — | — | — | — |
+| base | k1_position | op/nl | — | 0.0000 / 0.0000 | — | — | — | — | — |
+
+`block_sign_split` (parent, op): k=0 positive-answer EM **0.2053** (n=750) vs
+negative-answer EM **0.0** (n=274); at k=1+ both are 0. Block form's `\n`+`-`
+tokenizes as two separate tokens where single-line's ` -` merges into one
+(verified against the frozen tokenizer, module docstring) — negative answers
+under block form ask the parent to emit a bare `-` it essentially never
+produced this way, so the 0% on negatives is at least partly that BPE
+artifact, not pure render sensitivity. The positive-only comparison
+(0.9795 single → 0.2053 block, both at k=0, no tokenization confound) is the
+clean read: **still a 77-point drop from render alone.**
+
+**dm_mixture (op eval's own triples, scaffolded; k∈{0,16} only; templates
+verbatim from `datagen/make_dm_probe_eval.py`'s `PAIRS`/`DM_ADD`/`DM_SUB`/
+`DM_SUB_NONNEG`, themselves copied verbatim from DeepMind's
+`mathematics_dataset/modules/arithmetic.py`; "mixture" = one uniform draw per
+row from DM_ADD (11 templates, addition rows) or DM_SUB∪DM_SUB_NONNEG
+(8, or 8+4=12 when a≥b, subtraction rows), seed 20260815, threaded
+shots-then-queries):**
+
+| template | body example | parent k=0 | parent k=16 | base k=0/k=16 |
+|---|---|---|---|---|
+| bare_op | `{a} + {b}` / `{a} - {b}` (= our trained op body) | 0.9795 | 0.0010 | 0.0000 / 0.0000 |
+| sym_q | `What is {a} + {b}?` | 0.0488 | 0.0000 | 0.0000 / 0.0000 |
+| sym_imp | `Calculate {a} + {b}.` | 0.0322 | 0.0010 | 0.0000 / 0.0000 |
+| word_q | `What is {a} plus {b}?` | 0.0010 | 0.0000 | 0.0000 / 0.0000 |
+| word_imp | `Add {a} and {b}.` | 0.0000 | 0.0000 | 0.0000 / 0.0000 |
+| sumof | `What is the sum of {a} and {b}?` (our own NL phrasing) | 0.0010 | 0.0000 | 0.0000 / 0.0000 |
+| **mixture** | per-row draw over the full DM pool | **0.1172** | 0.0000 | 0.0000 / 0.0000 |
+
+`bare_op`/k=0/k=16 on the parent reproduce `single`/op/k=0/k=16 exactly
+(0.9795, 0.0010) — a free internal-consistency check on the dm_mixture
+rendering path, since `bare_op`'s body is byte-identical to op's own render;
+it passed. The `mixture` k=0 number (11.72%) sits well above every
+symbol-preserving template alone because ~1/11 of its addition draws (and a
+similar share of its subtraction draws) land on `bare_op` itself, which the
+parent solves near-perfectly — the mixture average is a blend dominated by
+that one template's near-100% score, not evidence of generalized template
+robustness. Templates that keep the literal `+`/`-` symbol in a wrapper
+(sym_q, sym_imp: 3–5%) score an order of magnitude above word-only
+templates (word_q, word_imp, sumof: 0–0.1%), reaffirming the 2026-08-15 θ0
+probe's finding on these OP-eval triples: the lock is the literal operator
+symbol, not arithmetic semantics.
+
+**Mechanism call: M1 (context/position lock), M3 (render mismatch) real but
+secondary, M2 not supported.**
+
+- **M1 confirmed as the dominant mechanism.** `single`/op/k=1 (one real
+  arithmetic exemplar, query at ~token 20) already collapses to **0.1%** —
+  not a gradual decline across k, an immediate floor at the first non-zero
+  k. `story_prefix`/op/k=0 (zero arithmetic exemplars, query preceded by
+  ~200 tokens of plain TinyStories prose) collapses to **0.68%** — pure
+  position/context displacement, no few-shot structure at all, and it
+  produces essentially the same collapse as a real exemplar does.
+  `k1_position`/op/k=1 (story + one real exemplar, query at ~position 250)
+  is **0.0%** — position stacks the damage further. The parent was
+  full-FT'd one-example-per-row (`geode/train/sft.py`), so `Question:`
+  sat at sequence position ~0 on every training step; anything that moves
+  the query off position 0 — regardless of what fills the space in front
+  of it — destroys the op-notation lock.
+- **M2 (something specific to few-shot composition, independent of
+  position) is not supported by this data.** The story_prefix control has
+  zero few-shot structure — no exemplar, no `Question:/Answer:` repeats,
+  just narrative text — and it collapses just as hard as a real 1-shot
+  exemplar does. There is nothing left for "the composition itself" to
+  uniquely explain that position doesn't already cover.
+- **M3 (render mismatch) is real, sizeable, but secondary to M1.** At k=0
+  (still position 0, zero few-shot), switching single-line →
+  paper's-literal-block form alone drops EM from 97.95% to 15.04%
+  (20.53% once negatives' separate BPE-merge confound is excluded) — an
+  ~77-point hit from render ALONE, with position held fixed. But it's a
+  *partial* collapse where M1's position shift is a *near-total* one
+  (98%→~0% at k≥1 regardless of render), and adding block-render *k≥1*
+  reproduces the same near-0% floor as single-render k≥1 — i.e. once
+  position moves, render stops mattering; the two effects aren't
+  independent-and-additive, position dominates. Caveat stands from the
+  module docstring: the parent was trained single-line, so this probe is
+  eval-side-only — it shows the parent is SENSITIVE to the paper's render
+  at θ0, not that training in block form would fix the k=16 collapse (that
+  would need a parent actually trained on block-form data, not built here).
+
+**Implication for the paper's Table 11 comparison.** The paper's few-shot
+behavioral check (2.0%→11.9%) implicitly assumes an install that
+generalizes across sequence position — DeepMind-Mathematics pretraining
+sees the target arithmetic skill at many positions in many documents, so a
+16-shot prompt's later-positioned query is unremarkable to it. Our parent's
+pre-teach was one-example-per-row SFT (`geode/train/sft.py`'s own header:
+"batches ONE example per row, not packed rows"), which never gave the model
+a reason to generalize the op lesson off position 0 — so **the paper's
+few-shot check is not constructible as a fair replication against a parent
+trained this way**; a collapsing 16-shot number here measures the training
+recipe's positional narrowness, not whether the pre-teach "converted to
+elicitation" in the paper's sense. Separately, the dm_mixture per-template
+spread shows the paper's own "NL" DeepMind-Mathematics target is itself a
+19-template mixture that keeps the literal `+`/`-` symbol in ~1/3 of its
+addition templates and includes the literal trained operator BODY as one of
+its 11 addition options — so the paper's Table 11 zero-shot number is not
+measuring the same thing our single-phrasing `nl_scaffolded` zero-shot
+(0.39%) measures; a fair replication of Table 11 would need to build the
+full DM mixture as an actual eval/training target (not done here), not
+compare our word-only NL phrasing against their symbol-inclusive one.
+
+**Artifacts.** `experiments/training-run/analysis/theta0_fewshot_diag.py` +
+`tests/experiments/analysis/test_theta0_fewshot_diag.py` (commit `5e888a7`);
+`geode-store/results/{ts38pp_theta0_fewshot_diag.json,
+ts38pp_theta0_dm_mixture.json}` pulled to the laptop mirror (gitignored) and
+pushed to the `mhieuuu/geode-store` relay under `results/`. Box
+(`141.11.90.211:41680`, owner's own rental) left running per instruction,
+`theta0diag` tmux session already exited on its own (script completed).
