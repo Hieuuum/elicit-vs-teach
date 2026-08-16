@@ -351,18 +351,20 @@ p = store / "runs" / rid / "manifest.json"
 d = json.loads(p.read_text())
 status = d.get("status", "MISSING")
 method = d.get("training", {}).get("method", "MISSING")
-gates = d.get("experiment", {}).get("gates", {}) or {}
-sft_result = d.get("experiment", {}).get("sft_result", {}) or {}
+exp = d.get("experiment", {}) or {}
+gates = exp.get("gates", {}) or {}
+sft_result = exp.get("sft_result", {}) or {}
 meta_p = store / "runs" / rid / "training_meta.json"
 meta = json.loads(meta_p.read_text()) if meta_p.is_file() else {}
 stop_reason = meta.get("stop_reason", sft_result.get("stop_reason", "MISSING"))
 final_step = meta.get("final_step", sft_result.get("final_step", "MISSING"))
 gate_names = ",".join(sorted(gates)) if gates else "none"
-print(status, method, gate_names, stop_reason, final_step)
+data_hash = exp.get("data_order_hash", "MISSING")
+print(status, method, gate_names, stop_reason, final_step, data_hash)
 PY
 )
-read -r P_STATUS P_METHOD P_GATES P_STOP P_STEP <<<"$PARENT_FIELDS"
-milestone "parent_fields status=$P_STATUS method=$P_METHOD gates=$P_GATES stop_reason=$P_STOP final_step=$P_STEP"
+read -r P_STATUS P_METHOD P_GATES P_STOP P_STEP P_DATA_HASH <<<"$PARENT_FIELDS"
+milestone "parent_fields status=$P_STATUS method=$P_METHOD gates=$P_GATES stop_reason=$P_STOP final_step=$P_STEP data_order_hash=$P_DATA_HASH"
 
 [[ $P_STATUS == complete ]] || fail "$PARENT_RID manifest status='$P_STATUS' (expected complete) — inspect $GEODE_STORE/runs/$PARENT_RID/manifest.json"
 [[ $P_METHOD == lora ]] || fail "$PARENT_RID training.method='$P_METHOD' (expected lora)"
@@ -373,7 +375,19 @@ milestone "parent_fields status=$P_STATUS method=$P_METHOD gates=$P_GATES stop_r
   "$PARENT_RID stop_reason='$P_STOP' (expected converged) — a max_steps stop on the
    format-only parent is a bug signal (permuted labels should plateau well inside the
    20-epoch ceiling); do not proceed with an unconverged parent"
-milestone "parent_verified stop_reason=converged final_step=$P_STEP gates={} method=lora"
+# Stale-parent guard: train_or_skip reuses ANY complete-status checkpoint at
+# this run_id, including one built from a since-changed config/dataset on an
+# earlier invocation. The manifest's own data_order_hash (recorded from
+# cfg["data"]["order_hash"] at build time, train_sft.py:190) is the cheapest
+# fingerprint tying the checkpoint back to the exact D_preteachfmt.parquet
+# this launch run verified in stage 2 — a mismatch means "delete
+# runs/$PARENT_RID and rebuild", not "keep training on top of it".
+[[ $P_DATA_HASH == "$PREFMT_ORDER_HASH" ]] || fail \
+  "$PARENT_RID manifest data_order_hash=$P_DATA_HASH != current pin $PREFMT_ORDER_HASH —
+   this checkpoint was built from a different D_preteachfmt.parquet/config than the one
+   this launch just verified. Remove $GEODE_STORE/runs/$PARENT_RID and rerun to rebuild
+   against the current pin; do not train the target sweep on a stale parent."
+milestone "parent_verified stop_reason=converged final_step=$P_STEP gates={} method=lora data_order_hash=OK"
 
 MERGED_DIR=$GEODE_STORE/runs/$PARENT_RID/model_merged
 if [[ -f $MERGED_DIR/model.safetensors ]]; then
