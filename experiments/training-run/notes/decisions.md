@@ -7910,3 +7910,111 @@ committed (git-tracked, not gitignored). Figures
 dataset_size_sweep_ts38pp.parquet, ts38pp_launch.log}` pulled to the
 laptop mirror, laptop-only per `.gitignore` (`results/`, `figures/`).
 Box never destroyed (owner's own rental).
+
+## 2026-08-16 (evening) — CORRECTION: every ts38-family verdict above was scored against the wrong bar; re-scored on the paper's own Table 5 criterion, θ0/few-shot gap stands as the real open item
+
+**What was wrong.** Every "marker FAILS" / "retention-confound class" / "App.
+E.1.2's account does not hold" verdict recorded above (§14 certified-parent
+family, ts38mw, ts38pf, ts38pp) was scored against **"pretaught EDL/D must
+sit below the base arm at every n"** — a bar this project invented. That is
+NOT the paper's criterion. Table 5's own legend (App. I.1, verbatim):
+"↓: monotonically decreasing (elicitation-dominated). ↑↓: non-monotonic
+with initial increase (teaching-dominated, then elicitation)." The paper
+classifies a signature by **the shape of that arm's own EDL/D-vs-n curve**,
+never by its position relative to a different arm. Table 5's addition/
+subtraction rows, verbatim: TinyStories-1B (base) ↑↓, peak≈300K; TinyStories
+(pre-teach format) ↑↓, peak≈150K; TinyStories (pre-teach add/sub) ↓, "converts
+to elicitation." Owner caught this after looking at the ts38pp figure and
+correctly reading its curve as a clean elicitation signature — it is one,
+under the paper's own rule; the committed verdicts said otherwise because
+they used a different rule. This is a zero-GPU correction: every number
+below is already on disk (the four families' `edl_converged_val_floor_*.csv`).
+
+**Re-scored, OCV floor, bits/label-token, own-curve shape:**
+
+| arm | values (n=1000→4642→21544→100000→316228) | shape | paper's add/sub prediction | match |
+|---|---|---|---|---|
+| base (reused, all families) | 4.484→1.932→**2.219**→1.728→0.841 | ↑↓, hump n≈21,544 | ↑↓, peak≈300K | shape ✓, peak far earlier (26× smaller model — plausible) |
+| ts38 (§6.14 LoRA-certified, 1M ex.) | 4.047→2.366→2.363→1.513→0.665 | **↓** (near-flat 4642→21544, −0.003) | n/a — not App. E.2's literal recipe (1M ex., LoRA, gated, not 4M/1-epoch/full-FT) | ↓ achieved, single-seed fragility on the near-tie step |
+| ts38mw (multiwrap) | 5.413→1.973→0.458→0.102→0.034 | **↓** (steep, no ties) | n/a — multiwrap target recipe, not App. E.2's literal recipe either | ↓ achieved cleanly |
+| ts38pf (pre-teach-format) | 1.506→1.193→**2.049**→1.660→0.786 | ↑↓, hump n≈21,544 | ↑↓, peak≈150K (2× smaller than base's 300K) | shape ✓; peak-shrink-vs-base NOT replicated — stays at the SAME n=21544 as base, not earlier |
+| **ts38pp (App. E.2 literal: 4M, 1 epoch, full FT)** | 3.774→2.499→2.043→0.797→0.306 | **↓** (steep, no ties — cleanest ↓ of any arm) | **↓ — "converts to elicitation"** | **match**, and the only arm using the literal E.2 recipe |
+
+Corrected reading per family:
+
+- **§14 (certified-parent family, 1M ex., LoRA-gated):** own curve is ↓
+  (elicitation-shaped), not "no monotonic separation" as previously framed
+  — that framing scored position-vs-base, which this arm does fail
+  (above base at n=4642/21544), but the SHAPE the paper actually classifies
+  by is achieved. The middle step is a 0.003-bit near-tie (single seed);
+  worth a reseed before leaning on it, not for the ↓ call generally.
+- **ts38mw:** own curve is ↓, cleanly, the steepest of any arm — "marker
+  FAILS" (below-base framing) stands as previously computed for that
+  specific bar, but on the paper's own shape criterion this is an
+  unambiguous elicitation-shaped result, arguably the cleanest teaching→
+  elicitation conversion in the whole family.
+- **ts38pf:** shape (↑↓) matches the paper's prediction correctly — this
+  was right before, just not framed against Table 5 explicitly. The
+  peak-LOCATION sub-claim (pre-teaching format should shrink the peak from
+  base's ≈300K to ≈150K, a 2× contraction) genuinely does NOT replicate:
+  our pretaught-format peak sits at the exact same n=21544 as base, no
+  leftward shift. "App. E.1.2's account does not hold at this scale" should
+  be narrowed to this specific peak-shift sub-claim, not the shape
+  prediction, which does hold.
+- **ts38pp:** own curve is ↓, the cleanest and steepest ↓ in the family
+  (every step strictly decreasing, no near-ties), matching App. E.2's
+  "converts to elicitation" prediction exactly — and it is the only family
+  built to the paper's literal recipe (4M unique examples, single epoch,
+  full FT, no gate). "Retention-confound class" (the 2026-08-16 afternoon/
+  evening entry above) was the below-base framing; on the paper's own
+  criterion this reads as the strongest elicitation-shaped result this
+  project has produced.
+
+**What does NOT get fixed by this correction.** The paper backs its EDL
+classification with an independent behavioral check on the SAME pre-teach
+add/sub intervention — Table 11: few-shot NL accuracy 2.0% (0-shot) → 11.9%
+(16-shot). Our θ0 probe on `evt-ts38pp-parent` (`ts38pp_family_theta0.json`):
+0.39% (0-shot) → 0% (16-shot), and scaffolded-NL label loss is WORSE than
+base (9.2493 vs 5.1944 nats) — a retention cost, not a capability gain. The
+EDL shape now matches the paper; the behavioral corroboration the paper
+itself uses to back that shape does not appear here. This is the real open
+item, not resolved by the criterion fix above. Leading candidate
+explanation (not yet tested): prompt-format mismatch — our single-line
+rendering (`Question: {a} {op} {b}\nAnswer: {ans}`) vs. the paper's literal
+block form (`Question:\n{a} {op} {b}\nAnswer:\n{ans}`, App. E.1.2/E.2's own
+example blocks) — plausible given the earlier θ0 probe already found severe
+format-lock on this parent family
+([[project-paper-nl-target-embeds-operators-2026-08-15]]: 96.8% on the
+exact trained op body, ≤1.4% on any other phrasing).
+
+**Plan (owner-confirmed 2026-08-16 evening, AskUserQuestion):**
+- Tier 0 (this entry + EXPERIMENTS.md + memory correction) — DONE, zero GPU
+  cost, approved and executed same session.
+- Tier 1 (re-run the θ0 g5 probe under the paper's literal block prompt
+  against the ALREADY-PUSHED `evt-ts38pp-parent` checkpoint — inference
+  only, likely no new box needed) — proposed, **held, not started**
+  (owner: "Not yet").
+- Tier 2 (new GPU box — `47869768` was destroyed earlier this session —
+  grad-accumulation to match Table 3's effective batch 1024 at the same
+  one-epoch step count; second-seed replicates at ts38's near-tie step and
+  ts38pp's headline points, per Table 1's "3 seeds per config") — owner:
+  "plan it now, launch later." Design only below; no GPU spend, no
+  `--confirm-cost` yet.
+
+**Tier 2 design (build only, not launched):** `evt-ts38pp-parent-eba1024`
+— same data/hash/seed/single-epoch step count as `evt-ts38pp-parent`, LR
+unchanged at 3e-5 (a literal-2e-5 rerun was explicitly deprioritized —
+2e-5 sits between two already-measured ladder rungs and is tuned in the
+paper for effective batch 1024, so copying the LR number alone without the
+batch size is not more faithful, just differently unfaithful), gradient
+accumulation 8× to reach effective batch 1024 (128 per-step × 8 accum),
+same total example count so the "single epoch" step count changes from
+31,093 (batch 128) to ≈3,887 (effective batch 1024) — a materially
+different training trajectory for a run whose entire definition is "one
+epoch," which is the actual fidelity question being tested. Second-seed
+plan: reseed ts38's (§14) n=4642/21544 points (the 0.003-bit near-tie
+driving that arm's ↓ call) and ts38pp's n=4642/21544 points (the two
+points nearest the old below-base comparison) at a different training
+seed, same recipe otherwise — cheap (single points, not full families).
+Neither piece is built yet; this paragraph is the design for a future
+session's build-then-launch pass.

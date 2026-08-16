@@ -826,7 +826,16 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     than Table 5's ∼300K (easier data, 8× more updates per example, 38.7M
     model). Pair NOT verified; the elicit-arm premise needs a pre-registered
     latency gate on the parent (NL loss < base) and a parent/scale that
-    passes it — see the doc §4.** The smallest run
+    passes it — see the doc §4.** **CORRECTED 2026-08-16 evening:** "markers
+    fire formally" already IS the paper's Table 5 shape criterion (own-curve
+    ↓ vs ↑↓) — this was the one ts38-family entry that had it roughly right.
+    "Arms NOT separated" is the below-base bar, which this project invented,
+    not the paper's; the pretaught arm's own curve (4.047→2.366→2.363→
+    1.513→0.665, one 0.003-bit near-tie) is monotone ↓. The θ0-capability
+    root cause identified here (no NL capability at θ0) recurs identically
+    in ts38mw, ts38pf, and ts38pp — four independent parents, same gap. See
+    decisions.md 2026-08-16 (evening) "CORRECTION" for the full four-family
+    re-score. The smallest run
     that confirms one arm is genuinely *teaching* and the other genuinely
     *elicitation* via the paper's EDL/label-token signature, on ONE
     architecture, as the controlled substrate for the mechanistic
@@ -1064,10 +1073,16 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     base at n=1000 (1.21× worse) or n=4642 (1.02× worse, near-tie) under the
     primary OCV floor; below base and separating from n=21544 on (4.85×,
     17.0×, 24.6×). Reads as a crossover (confounded at small n, elicitation-
-    shaped at large n), not a clean elicitation result — see decisions.md
-    2026-08-15 (night) "OUTCOME" entry for the full table, caveats
-    (θ0 entry-gap confound, g5-vs-EDL tension, overshoot flag) and floor
-    cross-checks. Weights (5 target runs + GO-B parent incl. step 28000)
+    shaped at large n), not a clean elicitation result under the below-base
+    bar — see decisions.md 2026-08-15 (night) "OUTCOME" entry for the full
+    table, caveats (θ0 entry-gap confound, g5-vs-EDL tension, overshoot
+    flag) and floor cross-checks. **CORRECTED 2026-08-16 evening:** the
+    below-base bar isn't the paper's criterion. On Table 5's own rule
+    (arm's own curve shape), multiwrap's sequence 5.413→1.973→0.458→
+    0.102→0.034 bits is monotone ↓, steep, no ties — the cleanest
+    elicitation-shaped conversion of any arm in this project. See
+    decisions.md 2026-08-16 (evening) "CORRECTION" for the four-family
+    re-score. Weights (5 target runs + GO-B parent incl. step 28000)
     independently confirmed on the relay; box left running (owner's own
     rental — teardown is the owner's call, not destroyed by this session).**
 
@@ -1123,11 +1138,20 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     fall through 100000/316228), and its rise is proportionally BIGGER, not
     smaller: +72 % (0.827→1.420) against base's own +15 % (1.339→1.538)
     under the OCV floor, with the pretaught arm below base in absolute terms
-    at every n. App. E.1.2's "remove the transient and the rise appears"
-    account does not hold at this scale; full table, the n=316228 overshoot
-    caveat (3.25×) and the candidate readings are in decisions.md 2026-08-16
-    (early) "ts38pf OUTCOME". The small-n bracket named above did NOT run
-    alongside it — it stayed unlaunched and is now folded into §6.17.**
+    at every n. **CORRECTED 2026-08-16 evening:** scored against Table 5's
+    actual criterion (own-curve shape, not "does the rise appear vs.
+    disappear"), both base and pretaught-format arms classify ↑↓ — matching
+    the paper's prediction for pre-teach-format correctly. The specific
+    sub-claim that DOESN'T replicate is peak-shrinkage: the paper predicts
+    format pre-teaching moves the hump from base's ≈300K to ≈150K (2×
+    smaller); ours sits at the identical n=21544 for both arms, no
+    leftward shift. Narrow "App. E.1.2's account does not hold" to that
+    peak-location sub-claim, not the ↑↓ shape prediction, which holds. Full
+    table, the n=316228 overshoot caveat (3.25×) and the candidate readings
+    are in decisions.md 2026-08-16 (early) "ts38pf OUTCOME"; the re-score is
+    in the same-day (evening) "CORRECTION" entry. The small-n bracket named
+    above did NOT run alongside it — it stayed unlaunched and is now folded
+    into §6.17.**
 
 17. **ts38grid — unified 3-arm grid extension: small-n bracket {128,256,512} +
     densification {2154,10000,46416,146780,215443}. SUPERSEDED/HELD
@@ -1230,11 +1254,16 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
 18. **ts38pp — paper-protocol pre-teach: full FT, ONE epoch over 4,000,000
     UNIQUE op-notation examples (Donoway et al. App. E.2's literal recipe),
     → NL target family. BUILT + pre-registered 2026-08-16, EXECUTED
-    2026-08-16 on the owner's box — marker lands in the RETENTION-CONFOUND
-    class (pretaught EDL/D sits above base at n=4642); θ0 premise FAILS
-    (no real NL capability at θ0, same as every prior ts38 family). Full
-    table in decisions.md 2026-08-16 "ts38pp OUTCOME".** Supersedes the
-    ts38grid launch attempt (§6.17,
+    2026-08-16 on the owner's box.** ~~Marker lands in the RETENTION-CONFOUND
+    class~~ **CORRECTED 2026-08-16 evening: scored against the wrong bar.**
+    On the paper's own Table 5 criterion (arm's own EDL/D-vs-n shape, not
+    position vs. base), ts38pp's curve is monotone **↓** with no near-ties
+    (3.774→2.499→2.043→0.797→0.306 bits) — the cleanest elicitation-shaped
+    result this project has produced, and it's the only family built to
+    App. E.2's literal recipe. θ0 few-shot/zero-shot behavioral corroboration
+    still does not replicate the paper's Table 11 numbers (real, unresolved
+    gap — see decisions.md 2026-08-16 (evening) "CORRECTION"). Supersedes
+    the ts38grid launch attempt (§6.17,
     SUPERSEDED/HELD — abandoned on the venv/tmux env bug). Question: does a
     paper-faithful pre-teach install — full FT, exactly one epoch over 4M
     unique op-notation add/sub examples, NO retention gate — on the 38.7M
@@ -1383,22 +1412,25 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     | 316,228 | 0.583 | 0.212 |
 
     Pretaught-pp's own trajectory is monotone non-increasing across all 5
-    sizes, but it sits ABOVE base at n=4,642 (1.732 vs 1.339) — not a clean
-    below-base-only-from-some-n crossover either (below at n=1000, above at
-    4642, below again from 21544 on). Per the frozen readout, "above base
-    anywhere ⇒ retention-confound class" takes priority: **verdict =
-    retention-confound class**, not elicitation. θ0 premise
+    sizes and sits ABOVE base at n=4,642 (1.732 vs 1.339). Under the
+    project's own below-base bar (frozen readout at pre-registration time)
+    this scored as retention-confound class — but that bar is not the
+    paper's criterion. **CORRECTED 2026-08-16 evening:** Table 5's own
+    classification (arm's own curve shape) reads pretaught-pp's sequence
+    2.616→1.732→1.416→0.553→0.212 as monotone **↓**, no near-ties — the
+    cleanest elicitation-shaped result in this family, matching App. E.2's
+    "converts to elicitation" exactly. See decisions.md 2026-08-16 (evening)
+    "CORRECTION" for the full four-family re-score. θ0 premise
     (`ts38pp_family_theta0.json`): parent op EM 0.9795 (zero-shot) confirms
     the op lesson landed, but NL capability at θ0 still isn't there —
     scaffolded-NL zero-shot EM 0.39% vs base 0%, scaffolded-NL label loss
     actually WORSE than base (9.25 vs 5.19 nats); bare-NL loss improves only
-    marginally (6.15 vs 6.54 nats), EM 0% both. **θ0 premise FAILS** — even
-    at the paper's own literal protocol (4M unique examples, one epoch, full
-    FT, no retention gate), the parent shows no real NL capability before
-    target training. Same conclusion as every prior ts38 family
-    (§6.14/§6.15/§6.16): this remains teaching-vs-teaching, not
-    elicit-vs-teach. Full table + overshoot flags in decisions.md 2026-08-16
-    "ts38pp OUTCOME".
+    marginally (6.15 vs 6.54 nats), EM 0% both. **θ0/few-shot behavioral
+    corroboration still does not replicate the paper's Table 11 numbers**
+    (paper: 2.0%→11.9% at 16-shot; ours: 0.39%→0%) — this is the real open
+    item, NOT resolved by the shape-criterion correction above. Full table +
+    overshoot flags in decisions.md 2026-08-16 "ts38pp OUTCOME" and the
+    same-day "CORRECTION" entry.
 
     **Budget (estimate vs actual):** estimated ≈1h50m ≈$0.7–1.0; actual
     ≈1h35m wall-clock (15:38→17:12:52 UTC) on one RTX 4090, in line with
