@@ -58,8 +58,15 @@ set -uo pipefail
 # so /workspace/venv/bin is not on PATH and bare python3 is the system
 # interpreter (the 2026-08-16 ts38grid relaunch crash — ModuleNotFoundError:
 # huggingface_hub at the first heredoc).
-[[ -f /workspace/venv/bin/activate ]] && . /workspace/venv/bin/activate
+#
+# ORDER MATTERS: /etc/environment carries its own PATH="/usr/local/sbin:…"
+# line (no venv dir in it); sourcing it AFTER venv activation clobbers venv
+# back off PATH (caught live on the ts38pp launch attempt, 2026-08-16 —
+# activate-then-source silently reintroduced the exact bug this guard exists
+# to fix). Source /etc/environment FIRST for HF_TOKEN etc., THEN activate
+# the venv so its PATH prepend is the one that survives.
 [[ -f /etc/environment ]] && { set -a; . /etc/environment; set +a; }   # HF_TOKEN etc. written by box_onstart.sh
+[[ -f /workspace/venv/bin/activate ]] && . /workspace/venv/bin/activate
 python3 - <<'PY' || { echo "[ts38pp] FAILED: python3 lacks required modules (venv not active?)"; exit 1; }
 import huggingface_hub, torch, geode  # noqa: F401
 PY
