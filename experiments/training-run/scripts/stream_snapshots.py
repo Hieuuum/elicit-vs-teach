@@ -82,7 +82,10 @@ def main() -> int:
     run_dir = args.store / "runs" / args.run_id
     snap_root = run_dir / "snapshots"
     api = HfApi()
-    api.create_repo(args.repo_id, private=True, exist_ok=True)
+    # Public (owner 2026-08-14): the free tier caps PRIVATE storage at
+    # 100 GB total; these repos are ~95 GB each. Content is Llama-3.2
+    # LoRA adapters — carries the Llama license by derivation.
+    api.create_repo(args.repo_id, private=False, exist_ok=True)
     n_uploaded = 0
 
     while True:

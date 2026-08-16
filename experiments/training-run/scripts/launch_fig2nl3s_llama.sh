@@ -11,7 +11,7 @@
 #
 # STREAM-TO-HF-THEN-DELETE (owner: "after every snap, not after the whole
 # run"): stream_snapshots.py runs BESIDE training and uploads each snapshot
-# to a PER-RUN private HF repo ($HF_NAMESPACE/<run_id>) as soon as a newer
+# to a PER-RUN public HF repo ($HF_NAMESPACE/<run_id>) as soon as a newer
 # snapshot proves it fully written, sha256-verifies it against the hub's
 # LFS record, and deletes it locally. After training the streamer drains
 # the tail (incl. snapshots/base/), then the run's metadata + weights are
@@ -34,7 +34,7 @@ source lib/launch_common.sh
 TAG=fig2nl3s
 
 echo "[fig2nl3s] estimated cost: ~2 h GPU + ~190 GB upload (two per-run"
-echo "[fig2nl3s] private HF repos); peak local disk ~100 GB."
+echo "[fig2nl3s] public HF repos); peak local disk ~100 GB."
 
 [[ " $* " == *" --confirm-cost "* ]] || {
   echo "launch_fig2nl3s_llama.sh: --confirm-cost required (budget rule)" >&2
@@ -109,7 +109,7 @@ train_streamed() {
   milestone "streamer_done run=$rid (see stream_${rid}.log)"
 
   milestone "push_start run=$rid repo=$HF_NAMESPACE/$rid (metadata + weights; snapshots already streamed)"
-  python3 hf_checkpoint.py push --run-id "$rid" --repo-id "$HF_NAMESPACE/$rid" ||
+  python3 hf_checkpoint.py push --run-id "$rid" --repo-id "$HF_NAMESPACE/$rid" --public ||
     fail "$rid push"
   python3 - "$rid" "$HF_NAMESPACE/$rid" <<'PY' || fail "$rid hub sha256 verify after push — NOT pruning; inspect before rerunning"
 import os, sys
