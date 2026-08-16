@@ -42,10 +42,21 @@ and every metric are identical, only the target task differs:
   ``evt-ts38mw-pretaught-n<size>`` ids over the same 5-point grid. Distinct
   ``_ts38mw`` stem. Condition labels: "base (teach)" (shared with ``ts38``)
   / "pre-taught-mw (elicit)".
+- ``ts38pp`` — same ts38 design, NEW theta0 for the pre-taught arm: the
+  paper-protocol pre-teach parent (a full-FT parent trained one epoch on 4M
+  unique op-notation examples, then LoRA targets). The base arm is REUSED,
+  not retrained — same ``evt-ts38-base-n<size>`` ids as ``ts38``/``ts38mw``
+  — while the pretaught arm gets its own ``evt-ts38pp-pretaught-n<size>``
+  ids over the same 5-point grid. Distinct ``_ts38pp`` stem. Condition
+  labels: "base (teach)" (shared with ``ts38``/``ts38mw``) / "pre-teach 4M
+  full-FT" — deliberately not asserting "(elicit)" (same reasoning as
+  ``ts38pf``'s label in ``edl_converged_val_floor.py``: whether this arm is
+  elicit-shaped is an open question, not something to assert in its label).
 
-38 target runs per family (19-size Fig-2 grid) except ``ts38``/``ts38mw``,
-which sweep 5 sizes (10 target runs each, EXPERIMENTS §6.14/§6.15). In
-neither case does the family's installer/parent run count as a sweep point.
+38 target runs per family (19-size Fig-2 grid) except ``ts38``/``ts38mw``/
+``ts38pp``, which sweep 5 sizes (10 target runs each, EXPERIMENTS
+§6.14/§6.15 for the first two). In no case does the family's
+installer/parent run count as a sweep point.
 
 Reads each run's manifest via ``geode.zoo`` — ``experiment.target_result``
 (``min_val_nats``, ``stop_reason``, ``edl_epoch1_nats``,
@@ -71,7 +82,7 @@ weights, no GPU, no network of its own).
 CPU-only.
 
 Usage:
-    python3 dataset_size_sweep.py [--family {op,nl,nl2,nl3,ts38,ts38mw}]
+    python3 dataset_size_sweep.py [--family {op,nl,nl2,nl3,ts38,ts38mw,ts38pp}]
         [--run-id <rid> ...] [--store <dir>] [--fig <path>]
 """
 
@@ -130,6 +141,16 @@ FAMILIES: dict[str, tuple[str, str, str]] = {
         "dataset_size_sweep_ts38mw",
         "TinyStories 38.7M; base (teach) vs multiwrap pre-taught (elicit), D_algo_bare, r128 LoRA",
     ),
+    # ts38pp's ids straddle two prefixes (evt-ts38- for the reused base arm,
+    # evt-ts38pp- for the new pretaught arm), so this "prefix" slot is not
+    # read when building its ids — see TS38PP_PREFIX/TS38PP_ARM and the
+    # ts38pp special case in default_run_ids() below. Kept for shape
+    # consistency with every other FAMILIES entry.
+    "ts38pp": (
+        "evt-ts38pp",
+        "dataset_size_sweep_ts38pp",
+        "TinyStories 38.7M; base (teach) vs pre-teach 4M full-FT, D_algo_bare, r128 LoRA",
+    ),
 }
 DEFAULT_FAMILY = "op"
 
@@ -160,17 +181,30 @@ TS38MW_ARM: dict[str, tuple[str, str]] = {
     "inst": ("pretaught", "pre-taught-mw (elicit)"),
 }
 
+# ts38pp reuses ts38's base arm run-for-run (the SAME evt-ts38-base-n<size>
+# ids — that arm is not retrained) and pairs it with a NEW pretaught arm
+# (paper-protocol pre-teach: full-FT parent on 4M op-notation examples,
+# then LoRA targets) under its own evt-ts38pp- prefix. Same straddling-
+# prefix shape as ts38mw, so it needs the same per-condition prefix lookup.
+TS38PP_PREFIX: dict[str, str] = {"noinst": "evt-ts38", "inst": "evt-ts38pp"}
+TS38PP_ARM: dict[str, tuple[str, str]] = {
+    # condition -> (run_id arm token, honest curve label)
+    "noinst": ("base", "base (teach)"),
+    "inst": ("pretaught", "pre-teach 4M full-FT"),
+}
+
 # All families in one pattern. The llama branch cannot cross-match itself
 # (the "nl"/"nl2"/"nl3" infix means an "evt-llama-fig2nl-..." id fails the op
 # reading and vice versa), the ts38 branch (disjoint prefixes), or the
-# ts38mw branch (evt-ts38mw- only ever matches its own pretaught arm; the
-# ts38mw base id is the SHARED evt-ts38-base-n<size>, which parses through
-# the ts38 branch below), so each id parses unambiguously without the caller
-# declaring its family.
+# ts38mw/ts38pp branches (evt-ts38mw-/evt-ts38pp- only ever match their own
+# pretaught arm; the ts38mw/ts38pp base id is the SHARED
+# evt-ts38-base-n<size>, which parses through the ts38 branch below), so
+# each id parses unambiguously without the caller declaring its family.
 RUN_ID_RE = re.compile(
     r"^evt-(?:llama-fig2(?:nl[23]?)?-(?P<llama_cond>noinst|inst)"
     r"|ts38-(?P<ts38_cond>base|pretaught)"
-    r"|ts38mw-(?P<ts38mw_cond>pretaught))-n\d+$"
+    r"|ts38mw-(?P<ts38mw_cond>pretaught)"
+    r"|ts38pp-(?P<ts38pp_cond>pretaught))-n\d+$"
 )
 
 # The headline "EDL/D vs dataset size" metric for the figure — D = training
@@ -189,7 +223,7 @@ def default_run_ids(family: str = DEFAULT_FAMILY) -> list[str]:
     """One family's full sweep: both conditions at every size, ascending n.
 
     38 runs (19 sizes x 2 conditions) for every Llama family; 10 runs
-    (``TS38_SIZES`` x 2) for ``ts38`` and ``ts38mw``.
+    (``TS38_SIZES`` x 2) for ``ts38``, ``ts38mw``, and ``ts38pp``.
     """
     if family == "ts38mw":
         # base is the SAME evt-ts38-base-n<n> id the ts38 family reads (that
@@ -200,6 +234,15 @@ def default_run_ids(family: str = DEFAULT_FAMILY) -> list[str]:
             for n in TS38_SIZES
             for cond in CONDITIONS
         ]
+    if family == "ts38pp":
+        # base is the SAME evt-ts38-base-n<n> id the ts38 family reads (that
+        # arm is reused, not retrained); only the pretaught side gets its
+        # own evt-ts38pp- prefix.
+        return [
+            f"{TS38PP_PREFIX[cond]}-{TS38PP_ARM[cond][0]}-n{n}"
+            for n in TS38_SIZES
+            for cond in CONDITIONS
+        ]
     prefix = FAMILIES[family][0]
     sizes = TS38_SIZES if family == "ts38" else SIZES
     arm_token = (lambda cond: TS38_ARM[cond][0]) if family == "ts38" else (lambda cond: cond)
@@ -207,7 +250,7 @@ def default_run_ids(family: str = DEFAULT_FAMILY) -> list[str]:
 
 
 def _parse_run_id(run_id: str) -> tuple[str, str]:
-    """``(condition, curve_label)`` parsed from a fig2/ts38/ts38mw sweep run id.
+    """``(condition, curve_label)`` parsed from a fig2/ts38/ts38mw/ts38pp sweep run id.
 
     Parsed from the run id (not ``manifest.regime``, which is the closed
     elicit/teach/unknown enum and has no base/format-installed distinction) —
@@ -218,8 +261,9 @@ def _parse_run_id(run_id: str) -> tuple[str, str]:
         raise ValueError(
             f"{run_id!r} does not match any sweep run_id pattern "
             "('evt-llama-fig2{,nl,nl2,nl3}-{noinst,inst}-n<size>', "
-            "'evt-ts38-{base,pretaught}-n<size>', or "
-            "'evt-ts38mw-pretaught-n<size>')"
+            "'evt-ts38-{base,pretaught}-n<size>', "
+            "'evt-ts38mw-pretaught-n<size>', or "
+            "'evt-ts38pp-pretaught-n<size>')"
         )
     if m.group("llama_cond") is not None:
         condition = m.group("llama_cond")
@@ -228,6 +272,10 @@ def _parse_run_id(run_id: str) -> tuple[str, str]:
         # only "pretaught" can ever land here (the regex's ts38mw branch has
         # no "base" alternative) — the mw arm's own honest curve label.
         return "inst", TS38MW_ARM["inst"][1]
+    if m.group("ts38pp_cond") is not None:
+        # only "pretaught" can ever land here (the regex's ts38pp branch has
+        # no "base" alternative) — the pp arm's own honest curve label.
+        return "inst", TS38PP_ARM["inst"][1]
     condition = "noinst" if m.group("ts38_cond") == "base" else "inst"
     return condition, TS38_ARM[condition][1]
 
@@ -415,7 +463,7 @@ def main() -> None:
     print(f"[evt] wrote {path} ({len(df)} rows, {n_found}/{len(run_ids)} runs found)")
     title = (
         f"{args.family} EDL marker sweep: EDL/D vs. dataset size (TinyStories 38.7M; {family_tag})"
-        if args.family in ("ts38", "ts38mw")
+        if args.family in ("ts38", "ts38mw", "ts38pp")
         else None
     )
     plot(df, fig_path, family_tag, title)

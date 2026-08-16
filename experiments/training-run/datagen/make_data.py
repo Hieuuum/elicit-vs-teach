@@ -19,6 +19,7 @@ Three distinct training datasets + one probe set + one eval set:
 | D_inst_perm   | new-phase teach installer  | + - | operator | permuted |
 | D_dose_mult   | new-phase elicit installer | *   | operator | correct  |
 | D_p3_nl_add_perm | phase-3 teach installer | + | nl | permuted |
+| D_target_4M   | App. E.2 pre-teach parent | + - | operator | correct  |
 
 ``D_target_eval`` (``--eval-set``, owner 2026-07-22) is generated after the
 frozen training sets, question-disjoint from D_target ∪ D_algo ∪ probe, so
@@ -37,6 +38,24 @@ empty cells above — its exclusion is a strict superset of D_target_eval's.
 
 Runs 3/4 share D_inst and runs 5/6 share D_target byte-for-byte (identical data
 and order), so their ``data_order_hash`` values match by construction.
+
+``--preteach-4m`` (owner 2026-08-16, paper App. E.2) generates
+``D_target_4M`` — 4,000,000 unique operator-notation add/sub examples,
+correct labels, the same task/format as D_target but at the paper's own
+scale ("full fine-tuning for a single epoch on 4 million unique examples")
+for a paper-faithful pre-teach parent. It is an INDEPENDENT draw (default
+seed 20260816, not the repo's canonical 20260717) — App. E.2's parent trains
+on its own corpus, not a superset of D_target. Only the frozen probe and the
+two eval sets (D_target_eval, D_algo_eval) are excluded, so evals stay
+question-disjoint from this training stream; D_target and D_algo are
+deliberately NOT excluded (training-stream policy, decisions.md 2026-07-26:
+independent draws overlap and that overlap is measured, never eliminated —
+see the dataset audit's D_algo/D_target twin-rate finding). The resulting
+overlap with D_target and D_algo is written to a
+``D_target_4M.overlap.json`` sidecar next to the parquet, computed only for
+whichever of those two files exist locally. Streams to disk like the
+phase-3 1M-scale sets (4M fully-rendered rows would not fit in the
+generating machine's free RAM).
 
 ``--installer-set`` (owner 2026-07-26, spec 02 §5/§6 new-phase installers)
 generates the role-matched installer artifacts against the frozen files in
@@ -158,6 +177,16 @@ INST_PERM_EXCLUDES = ("D_target", "D_algo", "probe", "D_target_eval")
 DOSE_SPEC = DatasetSpec("D_dose_mult", ("*",), "operator", "correct")
 DOSE_SIZE = 16
 DOSE_EXCLUDES = ("D_inst",)
+
+# --preteach-4m: the paper-faithful App. E.2 pre-teach parent corpus (owner
+# 2026-08-16). Same spec as D_target (operator, add/sub, correct labels) at
+# the paper's own 4M scale; see the module docstring for the exclusion policy
+# (probe + both eval sets, NOT D_target/D_algo — overlap with those is
+# measured via the .overlap.json sidecar, not excluded).
+PRETEACH_4M_SPEC = DatasetSpec("D_target_4M", ("+", "-"), "operator", "correct")
+PRETEACH_4M_N = 4_000_000
+PRETEACH_4M_SEED = 20260816
+PRETEACH_4M_EXCLUDES = ("probe", "D_target_eval", "D_algo_eval")
 
 # --phase3: the addition-only redesign (owner 2026-07-27). Two changes from
 # everything above, both aimed at confounds the 2026-07-26 audit and the
@@ -693,6 +722,109 @@ def make_installer_sets(args: argparse.Namespace) -> int:
     )
     report_path.write_text(json.dumps(report, indent=2))
     print(f"[evt] report -> {report_path}")
+    return 0
+
+
+def _preteach_4m_overlap(other_path: Path, this_triples: set[Triple]) -> dict | None:
+    """Overlap of ``D_target_4M``'s triples against a frozen file at
+    ``other_path`` (D_target or D_algo), if it exists locally.
+
+    Returns ``None`` (recorded as JSON ``null``) rather than assuming a
+    comparison when a set was never pulled onto this machine. Reads only the
+    three columns needed for the triple identity, matching the frozen-file
+    read patterns elsewhere in this script (e.g. ``p3_pre_exposure``).
+    """
+    if not other_path.exists():
+        return None
+    df = pd.read_parquet(other_path, columns=["a", "op", "b"])
+    other = set(zip(df["a"].tolist(), df["op"].tolist(), df["b"].tolist()))
+    shared = len(this_triples & other)
+    return {
+        "other_n_rows": len(other),
+        "shared_triples": shared,
+        "frac_of_preteach_4m": shared / len(this_triples) if this_triples else 0.0,
+        "frac_of_other": shared / len(other) if other else 0.0,
+    }
+
+
+def make_preteach_4m(args: argparse.Namespace, *, n_total: int = PRETEACH_4M_N) -> int:
+    """Generate D_target_4M against the frozen artifacts already in --out.
+
+    See the module docstring's ``--preteach-4m`` paragraph for the exclusion
+    policy. ``n_total`` defaults to the real 4M and is overridable only by
+    tests, so the public CLI path always builds the full paper-scale set.
+    """
+    report_path = args.out / "report.json"
+    report = json.loads(report_path.read_text())
+
+    for name in PRETEACH_4M_EXCLUDES:
+        fname = "probe.parquet" if name == "probe" else f"{name}.parquet"
+        if not (args.out / fname).exists():
+            raise SystemExit(
+                f"{args.out / fname} missing — {PRETEACH_4M_SPEC.name} requires the "
+                f"frozen {name} set to define disjointness against it; generate it first"
+            )
+    excluded = _frozen_triples(args.out, PRETEACH_4M_EXCLUDES, report)
+    print(
+        f"[evt] {PRETEACH_4M_SPEC.name} exclusion union: {len(excluded):,} "
+        f"triples from {PRETEACH_4M_EXCLUDES}"
+    )
+
+    _print_distribution(
+        PRETEACH_4M_SPEC.name,
+        plan_allocation(PRETEACH_4M_SPEC, n_total, excluded),
+        cell_capacities(PRETEACH_4M_SPEC, excluded),
+    )
+    if args.dry_run:
+        print("[evt] --dry-run: nothing written.")
+        return 0
+
+    pins = {
+        name: (
+            report["probe"]["probe_set_hash"]
+            if name == "probe"
+            else report["datasets"][name]["order_hash"]
+        )
+        for name in PRETEACH_4M_EXCLUDES
+    }
+    path = args.out / f"{PRETEACH_4M_SPEC.name}.parquet"
+    rep, _ = build_and_write_streaming(PRETEACH_4M_SPEC, n_total, excluded, args.seed, path)
+    rep["disjoint_from"] = pins
+    report["datasets"][PRETEACH_4M_SPEC.name] = rep
+    report_path.write_text(json.dumps(report, indent=2))
+    print(
+        f"[evt]   wrote {path.name}  n={rep['n']}  order_hash={rep['order_hash'][:12]}…  "
+        "unique+eval-disjoint ✓ (D_target/D_algo overlap measured, not excluded)"
+    )
+
+    df4m = pd.read_parquet(path, columns=["a", "op", "b"])
+    triples_4m = set(zip(df4m["a"].tolist(), df4m["op"].tolist(), df4m["b"].tolist()))
+    del df4m
+    overlap = {
+        name: _preteach_4m_overlap(args.out / f"{name}.parquet", triples_4m)
+        for name in ("D_target", "D_algo")
+    }
+    sidecar = {
+        "n_rows": rep["n"],
+        "order_hash": rep["order_hash"],
+        "seed": args.seed,
+        "excluded_files": pins,
+        "overlap": overlap,
+    }
+    sidecar_path = args.out / f"{PRETEACH_4M_SPEC.name}.overlap.json"
+    sidecar_path.write_text(json.dumps(sidecar, indent=2))
+    for name, ov in overlap.items():
+        if ov is None:
+            print(f"[evt]   overlap vs {name}: not found locally, recorded null")
+        else:
+            print(
+                f"[evt]   overlap vs {name}: {ov['shared_triples']:,} shared triples "
+                f"({ov['frac_of_preteach_4m']:.4%} of {PRETEACH_4M_SPEC.name}, "
+                f"{ov['frac_of_other']:.4%} of {name})"
+            )
+    print(f"[evt] sidecar -> {sidecar_path}")
+    print(f"[evt] report -> {report_path}")
+    print(f"[evt] order_hash={rep['order_hash']}")
     return 0
 
 
@@ -1462,6 +1594,14 @@ def main() -> int:
     parser.add_argument("--installer-n", type=int, default=INST_PERM_SIZE)
     parser.add_argument("--dose-n", type=int, default=DOSE_SIZE)
     parser.add_argument(
+        "--preteach-4m",
+        action="store_true",
+        help="generate D_target_4M — 4,000,000 unique operator-notation add/sub "
+        "examples, correct labels (paper App. E.2 pre-teach parent, owner "
+        "2026-08-16), against the frozen artifacts in --out; excludes only the "
+        "frozen probe/eval sets, never D_target/D_algo; touches nothing else",
+    )
+    parser.add_argument(
         "--phase3",
         action="store_true",
         help="generate every phase-3 artifact (addition only, positive operands, "
@@ -1507,6 +1647,8 @@ def main() -> int:
             args.seed = P3_WARMSTART_SEED
         if not 0 < args.p3_warmstart_train_n < args.p3_warmstart_n:
             parser.error("--p3-warmstart-train-n must be between 1 and --p3-warmstart-n - 1")
+    if args.preteach_4m and args.seed == 20260717:
+        args.seed = PRETEACH_4M_SEED
 
     if args.eval_set:
         return make_eval_set(args)
@@ -1514,6 +1656,8 @@ def main() -> int:
         return make_nl_eval_set(args)
     if args.installer_set:
         return make_installer_sets(args)
+    if args.preteach_4m:
+        return make_preteach_4m(args)
     if args.phase3:
         return make_phase3(args)
     if args.phase3_teach_installer:

@@ -1,0 +1,17 @@
+# ts38pp target-stage sweep point: n=316228. Overlay over
+# ../../ts38pp_pretaught.yaml. Paired with ts38_base_n316228.yaml (G7:
+# identical D_algo_bare stream, matched via match_data_order_with below —
+# the base arm is reused, not retrained). eval_every/max_steps/min_steps
+# identical to ts38_pretaught_n316228.yaml (same recipe, different theta0;
+# max_steps 50000 = the >=20-epoch cost-ceiling floor).
+# Edge rule (plan): a peak at this size reads "unresolved", not "no teaching".
+run_id: evt-ts38pp-pretaught-n316228
+experiment:
+  match_data_order_with: evt-ts38-base-n316228
+data:
+  n_examples: 316228
+train:
+  eval_every: 375
+  max_steps: 50000
+  stopping:
+    min_steps: 2471

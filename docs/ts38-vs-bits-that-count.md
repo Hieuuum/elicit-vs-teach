@@ -242,7 +242,10 @@ premise "the algorithm is installed" is weaker than in the paper, on top of
    parent NL zero-shot ≫ base, or at least label loss < base) — this turns the
    premise into a pre-registered check instead of an assumption; (ii) a
    longer/fuller install (the paper's full FT, 4M unique, one epoch — blocked
-   here by G8; the paper has no retention gate) and re-test transfer; (iii)
+   here by G8; the paper has no retention gate) and re-test transfer — **note
+   (2026-08-16): this is now `ts38pp` (EXPERIMENTS §6.18, built, launch
+   pending), with G8 demoted to evidence-only `--no-record` scoring instead
+   of blocking**; (iii)
    the 1B TinyStories track (`evt-ts1b-base`, paused), where the paper's own
    numbers show weak-but-nonzero NL access after op pre-teaching (Table 11).
    If (i) fails at every install we can certify, that is the design result:

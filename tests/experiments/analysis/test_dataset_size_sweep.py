@@ -464,7 +464,89 @@ def test_ts38mw_stem_distinct_from_ts38() -> None:
     assert dss.FAMILIES["ts38mw"][1] != dss.FAMILIES["ts38"][1]
 
 
+def test_ts38pp_default_run_ids_are_the_reused_base_plus_new_pp_pretaught() -> None:
+    """default_run_ids('ts38pp') interleaves the SAME evt-ts38-base ids the ts38
+    family points at with a NEW evt-ts38pp-pretaught arm, same order convention
+    (per size: base then pretaught) as the ts38 family."""
+    expected = [
+        id_ for n in dss.TS38_SIZES for id_ in (f"evt-ts38-base-n{n}", f"evt-ts38pp-pretaught-n{n}")
+    ]
+    assert dss.default_run_ids("ts38pp") == expected
+    assert len(expected) == 10
+
+
+def test_ts38pp_ids_share_only_the_base_arm_with_ts38() -> None:
+    """The ts38 and ts38pp sweeps share exactly the 5 base ids (reused, not
+    retrained) and nothing else — the two families' own pretaught arms must
+    never cross-match."""
+    ts38_ids = set(dss.default_run_ids("ts38"))
+    ts38pp_ids = set(dss.default_run_ids("ts38pp"))
+    expected_shared = {f"evt-ts38-base-n{n}" for n in dss.TS38_SIZES}
+
+    assert ts38_ids & ts38pp_ids == expected_shared
+    assert len(expected_shared) == 5
+    assert not any(rid.startswith("evt-ts38pp-") for rid in ts38_ids)
+    assert not any(
+        rid.startswith("evt-ts38-pretaught-") for rid in ts38pp_ids
+    )  # ts38's own pretaught arm never leaks into ts38pp
+
+
+def test_ts38pp_ids_share_only_the_base_arm_with_ts38mw() -> None:
+    """Same guarantee as above, between the two straddling-prefix families
+    themselves: their own pretaught arms must never cross-match each other."""
+    ts38mw_ids = set(dss.default_run_ids("ts38mw"))
+    ts38pp_ids = set(dss.default_run_ids("ts38pp"))
+    expected_shared = {f"evt-ts38-base-n{n}" for n in dss.TS38_SIZES}
+
+    assert ts38mw_ids & ts38pp_ids == expected_shared
+    assert not any(rid.startswith("evt-ts38mw-") for rid in ts38pp_ids)
+    assert not any(rid.startswith("evt-ts38pp-") for rid in ts38mw_ids)
+
+
+def test_ts38pp_run_id_regex_matches_only_intended_ids() -> None:
+    assert dss.RUN_ID_RE.match("evt-ts38pp-pretaught-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-ts38-base-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-ts38pp-base-n1000") is None
+    assert dss.RUN_ID_RE.match("evt-ts38-pretaught-pp-n1000") is None
+
+
+def test_parse_run_id_ts38pp_pretaught() -> None:
+    assert dss._parse_run_id("evt-ts38pp-pretaught-n4642") == ("inst", "pre-teach 4M full-FT")
+
+
+def test_parse_run_id_ts38_base_shared_with_ts38pp_family() -> None:
+    """evt-ts38-base-n1000 is the id BOTH families point at for the base arm;
+    it must parse identically (same condition, same curve label) regardless
+    of which family's sweep it was collected under — that's what makes reuse
+    safe."""
+    assert dss._parse_run_id("evt-ts38-base-n1000") == ("noinst", "base (teach)")
+
+
+def test_parse_run_id_rejects_ts38pp_base_and_malformed_ids() -> None:
+    """There is no evt-ts38pp-base arm (base is only ever the shared
+    evt-ts38- id), and a stray '-pp-' infix on the plain ts38 pretaught id
+    must not be silently accepted."""
+    for bad_id in ("evt-ts38pp-base-n1000", "evt-ts38-pretaught-pp-n1000"):
+        with pytest.raises(ValueError):
+            dss._parse_run_id(bad_id)
+
+
+def test_ts38pp_pretaught_id_round_trips_through_run_rows(tmp_path: Path) -> None:
+    run_id = "evt-ts38pp-pretaught-n1000"
+    _write_run(tmp_path, run_id, n=1000)
+
+    rows = dss.run_rows(run_id, tmp_path)
+    assert rows and all(r["condition"] == "inst" for r in rows)
+    assert rows[0]["curve_label"] == "pre-teach 4M full-FT"
+
+
+def test_ts38pp_stem_distinct_from_ts38() -> None:
+    assert dss.FAMILIES["ts38pp"][1] == "dataset_size_sweep_ts38pp"
+    assert dss.FAMILIES["ts38pp"][1] not in (dss.FAMILIES["ts38"][1], dss.FAMILIES["ts38mw"][1])
+
+
 def test_all_family_stems_distinct() -> None:
     stems = [dss.FAMILIES[f][1] for f in dss.FAMILIES]
     assert len(stems) == len(set(stems))
     assert "ts38mw" in dss.FAMILIES
+    assert "ts38pp" in dss.FAMILIES

@@ -7594,3 +7594,213 @@ peak placement is **≥300× earlier, as a lower bound**. Both places now say so
 with a dated note pointing at the `{128,256,512}` bracket as the thing that
 would locate the peak — the correction 2026-08-15 (late) deferred "pending the
 bracket" is made now, phrased as a bound rather than waiting on data.
+
+## 2026-08-16 (afternoon) — ts38grid launch ABANDONED (env bug) + ts38pp pre-registration
+
+### ts38grid launch attempt — ABANDONED, env-bug postmortem
+
+The ts38grid family (EXPERIMENTS §6.17, built and pre-registered 2026-08-16
+early, launch held for the owner) was launched this session on two
+tracked-account (378963) 4090 boxes, `47865868` and `47868306`. Both died at
+the same point, `relay_verify_start`, with the same error:
+`ModuleNotFoundError: No module named 'huggingface_hub'`. **No training ran
+on either box** — the failure is before the first `train_target.py` call, so
+no GPU-hours were billed for anything but idle box time.
+
+**Root cause.** `launch_ts38grid_family.sh` was started inside a detached
+`tmux` session over SSH. A detached tmux pane is a non-interactive,
+non-login shell — it never sources `~/.bashrc`, so
+`/workspace/venv/bin` is never added to `PATH`. Every `python3` call in the
+launcher therefore resolved to the box's system interpreter, which has none
+of the project's dependencies. The relay-verify step is simply the first
+place in the launcher's stage order that imports `huggingface_hub`; every
+earlier stage happened to only shell out to already-installed system tools
+(`git`, `nvidia-smi`) and so gave no earlier signal. Checked this session:
+**none** of the other `launch_ts38*.sh` scripts (`launch_ts38_mini.sh`,
+`launch_ts38mw_probe.sh`, `launch_ts38mw_family.sh`,
+`launch_ts38pf_family.sh`, `launch_ts38grid_family.sh`,
+`launch_ts38_certified_parent.sh`, `launch_ts38_lora_parent.sh`,
+`launch_ts38_lora_probe.sh`) activate the venv before calling `python3` —
+they all share the same bare-`python3` assumption, i.e. this bug was latent
+in every one of them and simply hadn't been hit yet (prior boxes' onstart
+scripts must have left an interactive or login shell in the launch path, or
+launched the trainer directly rather than via a detached tmux). This is a
+different bug from the branch-pin issue also fixed this session
+(`box_onstart.sh` was hardcoded to the stale `cut-to-core` branch, missing
+`ts38grid` and everything after it — unrelated, caught and fixed in the
+same pass, not the cause of the `relay_verify_start` crash).
+
+**Owner instruction (2026-08-16, verbatim gist):** abandon the ts38grid
+relaunch; redesign the pre-teach experiment around **four million unique
+examples for the run just before fine-tuning** — Donoway et al. App. E.2's
+literal pre-teach protocol ("full fine-tuning for a single epoch on 4
+million unique examples") rather than another attempt at the existing
+1M-example / multi-epoch / LoRA-certified parent line that has now failed
+G8 three times over (§6.14). ts38grid's status is **SUPERSEDED/HELD**
+(EXPERIMENTS §6.17, updated this session) — its files are kept, not
+deleted, and it is not to be relaunched via its current launcher; the two
+underlying design questions (small-n bracket, densification) remain open in
+principle but would need the same env-guard fix applied first. `ts38pp`
+(below) carries that fix.
+
+### ts38pp pre-registration — paper-protocol pre-teach, 4,000,000 unique examples
+
+Owner ask, same instruction as above: redesign the pre-teach parent around
+Donoway et al. App. E.2's literal recipe — TinyStories base, operator-
+notation problems, full fine-tuning for a single epoch on 4,000,000 unique
+examples, then run the corresponding NL target family from that checkpoint.
+This directly extends §6.14's unresolved premise: the LoRA-certified parent
+(1M examples, 1.9 epochs, G1+G8-gated) has no NL capability at θ0
+(`docs/ts38-vs-bits-that-count.md` §3.1), so the pretaught/base arms never
+separate. A paper-faithful full-FT install at the paper's own scale is the
+next-cheapest thing that could change that, per
+`docs/ts38-vs-bits-that-count.md` §4 item 3(ii) — this family is that item,
+now built.
+
+**Owner-confirmed design forks (AskUserQuestion, all four answered before
+any file was written):**
+1. Parent LR: **3e-5, pinned** from the already-measured full-FT ladder on
+   this exact substrate/method/task (§6.14's table: 3e-4→G1 .988/G8 9.96
+   FAIL; 1e-4→.986/3.60 FAIL; 3e-5→.979/1.207 FAIL at 40k; 1e-5→.940
+   FAIL/1.190 at 68k) — no new sweep. 3e-5 is the strongest install whose
+   retention drift stays O(0.1) nats; the paper's own TS-1B full-FT pin
+   (Table 3, target stage) is 2e-5, same order. The ladder IS the sweep,
+   satisfying sweep-before-full-run without new spend
+   ([[feedback-lr-sweep-before-full-run]]).
+2. Rendering: keep the repo's single-line
+   `Question: {a} {op} {b}\nAnswer: {ans}` — the paper's block form
+   (`Question:\n2 + 3\nAnswer:\n5`) differs only by whitespace, not worth a
+   format change.
+3. Family grid: the 5 standard sizes {1000, 4642, 21544, 100000, 316228},
+   directly comparable to every other ts38 family — not a new grid.
+4. Runs launch on the **owner's own rental** (SSH handed over this
+   session), not the tracked vast account — the box is never destroyed by
+   this session ([[feedback-owner-delegated-full-judgment]] scope: tracked-
+   account boxes only, not owner rentals).
+
+**Question.** Does a paper-faithful pre-teach install — full FT, exactly
+one epoch over 4,000,000 unique op-notation add/sub examples, NO retention
+gate — on the 38.7M TinyStories base (`evt-run1-base-v3-ext`) yield a θ0
+with latent NL add/sub, i.e. does the pretaught arm's EDL/D on
+`D_algo_bare` sit BELOW the reused base arm at every n and decrease
+monotonically (paper Table 5 "–" for Pre-teach add/sub), where the
+LoRA-certified parent did not separate the arms?
+
+**Design — parent (`evt-ts38pp-parent`).** Data: new `D_target_4M.parquet`
+(`datagen/make_data.py --preteach-4m`), 4,000,000 UNIQUE `(a, op, b)`
+triples, seed 20260816, generated locally in 57 s, 206.5 MB. Same
+task/rendering as `D_target`. Excludes only the frozen eval triples
+(`probe`, `D_target_eval`, `D_algo_eval`) so every eval set stays
+question-disjoint from the parent's training stream; deliberately does
+**not** exclude `D_target`/`D_algo` — an independent draw, per this file's
+training-stream overlap policy (2026-07-26: overlap between independently-
+drawn sets over the same capacity-capped water-fill is forced, measured,
+and never eliminated — see the `D_algo ∩ D_target` 29.18% finding above,
+~line 3624). Measured overlap for `D_target_4M`: **538,179** triples shared
+with `D_target` (13.45 % of the 4M set / 53.82 % of `D_target`), **537,965**
+shared with `D_algo` (13.45 % / 53.80 % of `D_algo`) — about 4× the 1M
+`D_target` set's 29.18 % overlap fraction, as expected at 4× the draw size
+against the same fixed cell space; written to a `D_target_4M.overlap.json`
+sidecar, not asserted from memory. `order_hash`
+**`ba2d6efdd939f63e6da75420a93362fcf86a6adeaa66bf5b5cce01532fbec54c`**,
+pinned in the parent config, regenerated and hash-verified on the box.
+Training: `train_sft.py`, full FT (no `lora:` block — the `own_lora_block`
+guard), `--init-from` the base `model/`; `val_fraction 0.005` ⇒ 20,000 held
+out, `n_train` 3,980,000, batch 128 ⇒ **31,093 steps = exactly one epoch**
+(`floor(3,980,000/128)`, drop-last); **`min_steps == max_steps == 31093`,
+pinned** — the run ends at epoch end by design
+(`stop_reason=max_steps`), a pre-registered exception to run-until-
+convergence for the parent only, same class as §6.14's certified-parent
+pinned-`max_steps` replay ([[feedback-run-until-convergence]] exception,
+scoped to this one run); the launcher asserts `final_step == 31093`.
+`eval_every 1000`, ε/k left at 0.002/5 (cannot fire before `min_steps`),
+bf16, seed 316, `snapshot_steps: [7773, 15546, 23319]` (¼/½/¾ epoch,
+evidence only, never gating). Optimizer/schedule left at repo defaults —
+paper Table 1's AdamW wd 0.01/clip 1.0/constant LR is a known, noted
+deviation, not adopted.
+
+**No gate is ever recorded against this parent** — `experiment.gates: {}`,
+children `parent_required_gates: []`, same convention as ts38mw's and
+ts38pf's parents. Post-parent scoring, all `--no-record`, evidence only, →
+`results/ts38pp_family_theta0.json`: G1 op EM (n=1024) and G8 TS retention
+(bar 1.1718, base re-scored); a θ0 latency probe (`gates.py g5
+--no-record` on parent AND base, three renderings — op, scaffolded-NL,
+bare-NL: zero-shot EM, 16-shot EM, label loss). This is the exact θ0
+premise readout that failed for the LoRA-certified parent
+(`docs/ts38-vs-bits-that-count.md` §3.1) — recorded again here, not
+assumed.
+
+**Design — family (target stage), VERBATIM ts38mw recipe, base reused.**
+`configs/ts38pp_pretaught.yaml` = copy of `ts38mw_pretaught.yaml` with only
+`run_id`, `experiment.parent_run_id: evt-ts38pp-parent`,
+`parent_required_gates: []`, and header prose changed; 5
+`configs/sweeps/ts38/ts38pp_pretaught_n<N>.yaml` overlays byte-parity with
+the `ts38mw_pretaught_n<N>.yaml` overlays except `run_id`
+(`match_data_order_with: evt-ts38-base-n<N>` kept — the G7 anchor). LoRA
+r128/α32 @1e-3, ε/k 0.002/5, batch 128, seed 316, `require_full_epoch1`,
+per-size `eval_every`/`max_steps`/`min_steps` as already pinned for this
+5-point grid. Every child must reach `stop_reason=converged`
+(`max_steps` = bug signal). G5 IS recorded per child — unlike the parent,
+target runs are gated the normal way. `--init-from
+$GEODE_STORE/runs/evt-ts38pp-parent/model` — no merge stage, because full
+FT (not LoRA) means the parent's `model/` already IS the checkpoint.
+`evt-ts38-base-n{1000,4642,21544,100000,316228}` REUSED verbatim, never
+retrained (already trained under §6.14/§6.17).
+
+**Guards / HALT.** Env guard in the launcher — `.
+/workspace/venv/bin/activate` if present, then a
+`python3 -c "import huggingface_hub, torch, geode"` preflight that fails
+loudly before any other stage runs — fixes the exact bug that killed the
+ts38grid relaunch above; this is the fix none of the prior `launch_ts38*.sh`
+scripts had. G7 anchor preflight (5 base manifests, metadata-only) before
+parent training starts. Post-train checks
+(`training.method == full_ft`, `final_step == 31093`,
+`data_order_hash == pin`) before the parent is pushed. Full-weight parent
+push (`hf_checkpoint.py push --with-snapshots`). Never destroys the box.
+**HALT gate (automated, pre-registered):** parent op EM (G1,
+`--no-record`) **< 0.90 ⇒ HALT** — install failed, family not launched,
+report. Otherwise proceed regardless of G8 / NL-probe values: the paper has
+no retention gate, so none is enforced here; the probe is the θ0 premise
+readout, recorded, not gating.
+
+**Pre-registered readout (frozen; do not re-derive after seeing numbers).**
+Marker, identical to ts38mw's: pretaught-pp EDL/D monotone non-increasing
+across the 5 sizes AND below base at every n ⇒ elicitation signature.
+Below base only from some n upward ⇒ crossover (report as observed, not
+one of the buckets). Above base at any n ⇒ retention-confound class (never
+"evidence against teaching"). θ0 premise recorded next to it: parent NL
+label loss < base and/or NL zero-shot EM ≫ base (both renderings) — if the
+premise FAILS the family is teaching-vs-teaching again (as in §6.14) and is
+reported so. No bar moves after seeing numbers.
+
+**Cost estimate.** One RTX 4090 @ $0.35–0.45/h: datagen ~5 min · tokenize
+4M ~3 min · parent 31,093 steps @ ~16 steps/s ≈ 32 min · scoring ~8 min ·
+family 1.7+2.1+6.4+10.5+23.6 ≈ 45 min + G5/pushes ~8 min · pulls/setup
+~10 min ⇒ **≈ 1 h 50 m ≈ $0.7–1.0**, on the owner's own rental (design
+fork 4 above), not the tracked account.
+
+**Built this session:** `datagen/make_data.py`'s new `--preteach-4m` path
+(`PRETEACH_4M_SPEC`/`_N`/`_SEED`/`_EXCLUDES`, the `_preteach_4m_overlap`
+helper and its `D_target_4M.overlap.json` sidecar) + 13 new tests in
+`tests/experiments/datagen/test_preteach_4m.py`; `configs/ts38pp_parent.yaml`
+(full FT, no `lora:` block) + `configs/ts38pp_pretaught.yaml` + 5
+`configs/sweeps/ts38/ts38pp_pretaught_n<size>.yaml` overlays;
+`scripts/launch_ts38pp_family.sh` (698 lines, clone of
+`launch_ts38pf_family.sh`'s stage structure, plus the venv/PATH env guard
+described above); `ts38pp` family added to
+`analysis/edl_converged_val_floor.py` (`FAMILIES`/`ARM_MAPS`) and
+`analysis/dataset_size_sweep.py --family ts38pp`; `analysis/
+plot_ts38_all_arms.py` gains the ts38pp arm; matching rows in
+`tests/experiments/analysis/test_edl_converged_val_floor_families.py` and
+`test_dataset_size_sweep.py`. `box_onstart.sh`'s stale `BRANCH=cut-to-core`
+pin was also fixed to `ts38-mini` this session (caught while diagnosing the
+crash above; a separate bug from the env guard, not its cause).
+
+**Runs: none launched.** This entry and every file above are committed
+before any GPU spend. Launch, from
+`experiments/training-run/scripts/`, on the owner's own box:
+```
+bash launch_ts38pp_family.sh --confirm-cost
+```
+Cost estimate is printed by the launcher itself before it asks for
+confirmation, per the budget rule.

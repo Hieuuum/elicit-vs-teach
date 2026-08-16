@@ -158,6 +158,17 @@ FAMILIES = {
         "edl_converged_val_floor_ts38pf",
         "TinyStories 38.7M; base (teach) vs pre-teach-format, D_algo_bare, r128 LoRA",
     ),
+    # ts38pp (paper-protocol pre-teach) reuses ts38's base arm run-for-run
+    # (the SAME evt-ts38-base-n<size> ids — not retrained), same
+    # lookahead-disjoint shape as ts38mw/ts38pf, paired with a NEW
+    # pre-teach arm: a full-FT parent trained one epoch on 4M unique
+    # op-notation examples (the paper's own pre-teach protocol), then LoRA
+    # targets, under its own evt-ts38pp- prefix.
+    "ts38pp": (
+        re.compile(r"^evt-ts38(?:pp-(?=pretaught)|-(?=base))(base|pretaught)-n(\d+)$"),
+        "edl_converged_val_floor_ts38pp",
+        "TinyStories 38.7M; base (teach) vs pre-teach 4M full-FT, D_algo_bare, r128 LoRA",
+    ),
 }
 
 # Repo-wide convention, unchanged: base = tab:blue, format-installed = tab:orange.
@@ -191,12 +202,18 @@ TS38PF_ARM: dict[str, tuple[str, str]] = {
     "base": ("noinst", "base (teach)"),
     "preteachfmt": ("inst", "pre-teach-format"),
 }
+TS38PP_ARM: dict[str, tuple[str, str]] = {
+    # raw regex capture -> (canonical condition, honest style label).
+    "base": ("noinst", "base (teach)"),
+    "pretaught": ("inst", "pre-teach 4M full-FT"),
+}
 # Per-family arm-map lookup used by collect()/main() below; every family not
 # listed here (op, nl) uses the regex capture as the condition directly.
 ARM_MAPS: dict[str, dict[str, tuple[str, str]]] = {
     "ts38": TS38_ARM,
     "ts38mw": TS38MW_ARM,
     "ts38pf": TS38PF_ARM,
+    "ts38pp": TS38PP_ARM,
 }
 
 
@@ -369,7 +386,9 @@ def plot(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
-        "--family", choices=("op", "nl", "nl2", "ts38", "ts38mw", "ts38pf", "both"), default="both"
+        "--family",
+        choices=("op", "nl", "nl2", "ts38", "ts38mw", "ts38pf", "ts38pp", "both"),
+        default="both",
     )
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
     args = parser.parse_args()
