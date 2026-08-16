@@ -1,10 +1,11 @@
 """``edl_converged_val_floor.py`` FAMILIES regexes and arm-label mappings.
 
-Focused on the ts38/ts38mw pair (EXPERIMENTS §6.14/§6.15): ts38mw's base
-arm is the SAME ``evt-ts38-base-n<size>`` id the ts38 family reads (reused,
-not retrained), while its pretaught arm is a NEW ``evt-ts38mw-pretaught-n
-<size>`` id. The regex-level guarantee that matters is that neither family
-ever picks up the other's own pretaught arm, and that a stray "-mw-"
+Focused on the ts38/ts38mw/ts38pf trio (EXPERIMENTS §6.14/§6.15/§6.16):
+ts38mw's and ts38pf's base arms are the SAME ``evt-ts38-base-n<size>`` id
+the ts38 family reads (reused, not retrained), while each family's own arm
+is a NEW id under its own prefix (``evt-ts38mw-pretaught-n<size>`` /
+``evt-ts38pf-preteachfmt-n<size>``). The regex-level guarantee that matters
+is that no family ever picks up another family's own arm, and that a stray
 infix or missing size never slips through — exercised here as a match/
 no-match matrix rather than by driving the full ``collect()`` pipeline
 (which needs a populated store; see ``test_dataset_size_sweep.py`` for that
@@ -40,6 +41,17 @@ _MATRIX = [
     ("ts38mw", "evt-ts38-base-n1000-extra", None),
     ("ts38mw", "evt-ts38-parent-loraprobe-lr3e-4", None),
     ("ts38mw", "evt-ts38mw-parent-probe-lr3e-4", None),
+    ("ts38mw", "evt-ts38pf-preteachfmt-n1000", None),
+    ("ts38", "evt-ts38pf-preteachfmt-n1000", None),
+    ("ts38pf", "evt-ts38-base-n1000", ("base", "1000")),
+    ("ts38pf", "evt-ts38-pretaught-n1000", None),
+    ("ts38pf", "evt-ts38mw-pretaught-n1000", None),
+    ("ts38pf", "evt-ts38pf-preteachfmt-n1000", ("preteachfmt", "1000")),
+    ("ts38pf", "evt-ts38pf-base-n1000", None),
+    ("ts38pf", "evt-ts38-base-n1000-extra", None),
+    ("ts38pf", "evt-ts38-parent-loraprobe-lr3e-4", None),
+    ("ts38pf", "evt-ts38mw-parent-probe-lr3e-4", None),
+    ("ts38pf", "evt-ts38pf-preteachfmt-parent", None),
 ]
 
 
@@ -66,26 +78,62 @@ def test_ts38_and_ts38mw_regexes_agree_on_the_shared_base_arm() -> None:
     assert (ts38mw_match.group(1), ts38mw_match.group(2)) == ("base", "21544")
 
 
+def test_ts38_ts38mw_ts38pf_regexes_agree_on_the_shared_base_arm() -> None:
+    """Same guarantee as above, extended to the third family reusing the
+    identical base arm id."""
+    run_id = "evt-ts38-base-n21544"
+    for family in ("ts38", "ts38mw", "ts38pf"):
+        match = ecvf.FAMILIES[family][0].match(run_id)
+        assert match is not None, family
+        assert (match.group(1), match.group(2)) == ("base", "21544"), family
+
+
 def test_all_family_stems_distinct() -> None:
     stems = [ecvf.FAMILIES[f][1] for f in ecvf.FAMILIES]
     assert len(stems) == len(set(stems))
     assert "ts38mw" in ecvf.FAMILIES
     assert ecvf.FAMILIES["ts38mw"][1] == "edl_converged_val_floor_ts38mw"
     assert ecvf.FAMILIES["ts38mw"][1] != ecvf.FAMILIES["ts38"][1]
+    assert "ts38pf" in ecvf.FAMILIES
+    assert ecvf.FAMILIES["ts38pf"][1] == "edl_converged_val_floor_ts38pf"
+    assert ecvf.FAMILIES["ts38pf"][1] not in (ecvf.FAMILIES["ts38"][1], ecvf.FAMILIES["ts38mw"][1])
 
 
 def test_arm_label_mappings_are_honest_and_distinct() -> None:
     """ts38's pretaught arm reads 'pre-taught (elicit)'; ts38mw's own
-    pretaught-mw arm reads 'pre-taught-mw (elicit)' — the two must never
-    collide, and the shared base label must read the same in both."""
+    pretaught-mw arm reads 'pre-taught-mw (elicit)'; ts38pf's arm reads
+    'pre-teach-format' (deliberately NOT asserting "elicit" — that's the
+    open question this family exists to answer). None may collide, and the
+    shared base label must read the same across all three."""
     assert ecvf.TS38_ARM["pretaught"][1] == "pre-taught (elicit)"
     assert ecvf.TS38MW_ARM["pretaught"][1] == "pre-taught-mw (elicit)"
-    assert ecvf.TS38_ARM["pretaught"][1] != ecvf.TS38MW_ARM["pretaught"][1]
-    assert ecvf.TS38_ARM["base"][1] == ecvf.TS38MW_ARM["base"][1] == "base (teach)"
-    # Both map to the canonical noinst/inst condition every downstream
+    assert ecvf.TS38PF_ARM["preteachfmt"][1] == "pre-teach-format"
+    labels = {
+        ecvf.TS38_ARM["pretaught"][1],
+        ecvf.TS38MW_ARM["pretaught"][1],
+        ecvf.TS38PF_ARM["preteachfmt"][1],
+    }
+    assert len(labels) == 3
+    assert (
+        ecvf.TS38_ARM["base"][1]
+        == ecvf.TS38MW_ARM["base"][1]
+        == ecvf.TS38PF_ARM["base"][1]
+        == "base (teach)"
+    )
+    # All map to the canonical noinst/inst condition every downstream
     # lookup (STYLE, groupby) keys on.
-    assert ecvf.TS38_ARM["base"][0] == ecvf.TS38MW_ARM["base"][0] == "noinst"
-    assert ecvf.TS38_ARM["pretaught"][0] == ecvf.TS38MW_ARM["pretaught"][0] == "inst"
+    assert (
+        ecvf.TS38_ARM["base"][0]
+        == ecvf.TS38MW_ARM["base"][0]
+        == ecvf.TS38PF_ARM["base"][0]
+        == "noinst"
+    )
+    assert (
+        ecvf.TS38_ARM["pretaught"][0]
+        == ecvf.TS38MW_ARM["pretaught"][0]
+        == ecvf.TS38PF_ARM["preteachfmt"][0]
+        == "inst"
+    )
 
 
 def test_collect_ts38mw_on_empty_store_returns_empty_dataframe_not_raise(tmp_path: Path) -> None:
@@ -95,6 +143,15 @@ def test_collect_ts38mw_on_empty_store_returns_empty_dataframe_not_raise(tmp_pat
     (tmp_path / "runs").mkdir(parents=True)
 
     df = ecvf.collect("ts38mw", tmp_path)
+
+    assert isinstance(df, pd.DataFrame)
+    assert df.empty
+
+
+def test_collect_ts38pf_on_empty_store_returns_empty_dataframe_not_raise(tmp_path: Path) -> None:
+    (tmp_path / "runs").mkdir(parents=True)
+
+    df = ecvf.collect("ts38pf", tmp_path)
 
     assert isinstance(df, pd.DataFrame)
     assert df.empty

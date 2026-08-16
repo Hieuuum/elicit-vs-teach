@@ -1071,6 +1071,51 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     independently confirmed on the relay; box left running (owner's own
     rental — teardown is the owner's call, not destroyed by this session).**
 
+16. **ts38pf — pre-teach-FORMAT causal intervention (paper App. E.1.2), on
+    the same 38.7M TinyStories base. Stage 0 build DONE 2026-08-15 night,
+    committed, NO GPU spend; launch pending owner go-ahead.** Question:
+    §6.14's base (teach) arm EDL/D-vs-n doesn't show the paper's "up-then-
+    down" teaching hump on the current 5-point grid (argmax at/below
+    n=1000). App. E.1.2 isolates format-learning from algorithm-learning by
+    fine-tuning on the target's arithmetic domain with RANDOMLY PERMUTED
+    (incorrect) labels before the real target run — does removing that
+    transient reveal a rising limb the base arm's own curve doesn't show?
+    Owner-confirmed design (AskUserQuestion, before any file written):
+    prompts = paper's literal operator-notation scaffold, format-mismatched
+    from the bare-NL target on purpose; pre-teach-format stage size =
+    n=21,544; downstream target grid = the existing 5-point grid; method =
+    LoRA r128/α32 @1e-3, same recipe as every other stage in this family.
+    Advisor review required two fixes, both applied: `min_steps` pinned to
+    exactly one full epoch under `train_sft.py`'s OWN step counting (167,
+    not `train_target.py`'s convention — this parent has no
+    `require_full_epoch1` guard, so the pin is the only thing preventing
+    ε/k from declaring "converged" on the permuted-label plateau after a
+    handful of evals); a pre-registered, automated format-acquisition HALT
+    gate (parent loss must drop materially below base's AND EM must stay
+    ~0, else the 5-size sweep does not launch — a failed check reads as "the
+    format lesson didn't transfer," not "format pre-teaching doesn't
+    reshape the curve"). Files: `datagen/make_preteach_format.py` (derives
+    `D_preteachfmt.parquet` from `D_algo`'s frozen triples, operator
+    notation, `geode.arith.permute_labels` — 3/21,544 chance label
+    collisions, 0.014%), `configs/ts38_preteachfmt_parent.yaml` +
+    `configs/ts38pf_preteachfmt.yaml` + 5
+    `configs/sweeps/ts38/ts38pf_preteachfmt_n<size>.yaml` overlays,
+    `scripts/launch_ts38pf_family.sh`, new `ts38pf` analysis family in
+    `edl_converged_val_floor.py` (`dataset_size_sweep.py` NOT extended —
+    out of scope, needs its own straddling-prefix special case). 52 new
+    test cases across 3 files (datagen smoke tests, config-completeness,
+    regex-collision matrix); full suite green, CPU-only, ~23s. Base arm
+    REUSED verbatim (`evt-ts38-base-n<size>`, not retrained) — only the new
+    parent + 5-size target arm train. Pre-registered readout: a SHAPE
+    question, no monotone-and-below-base pass/fail bar (that's the ts38mw
+    marker, a different question); the paper's own add/sub pre-teach-format
+    peak is ≈150K at 1B params, so a flat/still-falling result on this grid
+    does NOT by itself refute the hypothesis (see decisions.md 2026-08-15
+    "ts38pf pre-registration" entry). Complementary to, not superseded by,
+    the small-n bracket ({128,256,512}) discussed the same session — both
+    remain open, held pending the owner's go-ahead on `launch_ts38pf_family.sh
+    --confirm-cost`.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

@@ -917,3 +917,276 @@ def test_ts38mw_overlay_builds_a_manifest(path: str) -> None:
         mask_hash="0" * 64,
         precision="bf16",
     )
+
+
+# =============================================================================
+# ts38pf target-stage arm ("pre-teach-format"; EXPERIMENTS §6.16, decisions.md
+# 2026-08-15 "ts38pf pre-registration"): a NEW format-only parent (built by
+# THIS family, unlike ts38mw's already-built parent — operator-notation,
+# randomly-permuted labels, paper App. E.1.2) -> LoRA target on D_algo_bare,
+# identical recipe to ts38_pretaught.yaml/ts38mw_pretaught.yaml except theta0.
+# The base arm is REUSED (evt-ts38-base-n<size>, tested above) — only the
+# parent and the new target arm are new. Mirrors the ts38mw section's
+# style/helpers directly above.
+# =============================================================================
+
+# (relative path, n_examples, eval_every, max_steps, min_steps=ceil(n/128)) —
+# identical numbers to TS38MW_OVERLAYS (same grid, same recipe, different
+# theta0); cross-checked against the sibling ts38_pretaught_n<size>.yaml
+# overlay's own merged values below too, not just these literals.
+TS38PF_OVERLAYS = [
+    ("sweeps/ts38/ts38pf_preteachfmt_n1000.yaml", 1000, 5, 1000, 8),
+    ("sweeps/ts38/ts38pf_preteachfmt_n4642.yaml", 4642, 5, 1000, 37),
+    ("sweeps/ts38/ts38pf_preteachfmt_n21544.yaml", 21544, 25, 5000, 169),
+    ("sweeps/ts38/ts38pf_preteachfmt_n100000.yaml", 100000, 125, 15625, 782),
+    ("sweeps/ts38/ts38pf_preteachfmt_n316228.yaml", 316228, 375, 50000, 2471),
+]
+TS38PF_OVERLAY_PATHS = [row[0] for row in TS38PF_OVERLAYS]
+TS38PF_BASE_FILE = "ts38pf_preteachfmt.yaml"
+TS38PF_PARENT_FILE = "ts38_preteachfmt_parent.yaml"
+TS38PF_FILES = [TS38PF_BASE_FILE, TS38PF_PARENT_FILE, *TS38PF_OVERLAY_PATHS]
+TS38PF_OVERLAY_ANCHORS = [
+    ("sweeps/ts38/ts38pf_preteachfmt_n1000.yaml", "evt-ts38-base-n1000"),
+    ("sweeps/ts38/ts38pf_preteachfmt_n4642.yaml", "evt-ts38-base-n4642"),
+    ("sweeps/ts38/ts38pf_preteachfmt_n21544.yaml", "evt-ts38-base-n21544"),
+    ("sweeps/ts38/ts38pf_preteachfmt_n100000.yaml", "evt-ts38-base-n100000"),
+    ("sweeps/ts38/ts38pf_preteachfmt_n316228.yaml", "evt-ts38-base-n316228"),
+]
+
+# Same shape as _TS38MW_VS_PRETAUGHT_ALLOWED_DIFF_PATHS: theta0 (and its
+# direct consequences) is the ONLY thing this arm changes relative to
+# ts38_pretaught.yaml.
+_TS38PF_VS_PRETAUGHT_ALLOWED_DIFF_PATHS = {
+    "run_id",
+    "experiment.parent_run_id",
+    "experiment.parent_required_gates",
+}
+
+_TS38PF_RUN_ID_PATTERN = re.compile(r"^evt-ts38pf-preteachfmt(-n\d+)?$")
+# The parent's own run id doesn't fit the above ("-parent", not "-n<size>");
+# checked separately below.
+_TS38PF_PARENT_RUN_ID = "evt-ts38pf-preteachfmt-parent"
+
+
+def _ts38pf_sibling_pretaught_path(pf_path: str) -> str:
+    """The same-size ts38_pretaught_n<size>.yaml overlay for a ts38pf overlay path."""
+    return pf_path.replace("ts38pf_preteachfmt", "ts38_pretaught", 1)
+
+
+def test_ts38pf_family_files_exist() -> None:
+    assert len(TS38PF_FILES) == 7
+    for rel in TS38PF_FILES:
+        assert (CONFIGS / rel).is_file(), rel
+
+
+@pytest.mark.parametrize("path", [TS38PF_BASE_FILE, *TS38PF_OVERLAY_PATHS])
+def test_ts38pf_run_ids_match_pattern_and_out_of_other_families(path: str) -> None:
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    run_id = raw["run_id"]
+    assert _TS38PF_RUN_ID_PATTERN.match(run_id), run_id
+    # Must NOT match the ts38 or ts38mw family regexes the analysis tooling
+    # (edl_converged_val_floor.py's FAMILIES["ts38"]/["ts38mw"]) uses to find
+    # base/pretaught runs — a collision here would silently mix this arm
+    # into either curve. (The full cross-check against the analysis
+    # script's actual regex objects lives in
+    # test_edl_converged_val_floor_families.py's _MATRIX.)
+    assert not _TS38_FAMILY_REGEX.match(run_id), run_id
+    assert not _TS38MW_RUN_ID_PATTERN.match(run_id), run_id
+
+
+def test_ts38pf_parent_run_id() -> None:
+    raw = yaml.safe_load((CONFIGS / TS38PF_PARENT_FILE).read_text())
+    assert raw["run_id"] == _TS38PF_PARENT_RUN_ID
+    assert not _TS38_FAMILY_REGEX.match(raw["run_id"])
+    assert not _TS38MW_RUN_ID_PATTERN.match(raw["run_id"])
+    assert not _TS38PF_RUN_ID_PATTERN.match(raw["run_id"])  # "-parent", not "-n<size>"
+
+
+@pytest.mark.parametrize(
+    ("path", "n_examples", "eval_every", "max_steps", "min_steps"), TS38PF_OVERLAYS
+)
+def test_ts38pf_overlay_pinned_values(
+    path: str, n_examples: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert raw["data"]["n_examples"] == n_examples
+    assert raw["train"]["eval_every"] == eval_every
+    assert raw["train"]["max_steps"] == max_steps
+    assert raw["train"]["stopping"]["min_steps"] == min_steps
+    assert max_steps >= min_steps
+
+
+@pytest.mark.parametrize("path", TS38PF_OVERLAY_PATHS)
+def test_ts38pf_overlay_matches_sibling_pretaught_overlay(path: str) -> None:
+    """Same n_examples/eval_every/max_steps/min_steps as the same-size
+    ts38_pretaught_n<size>.yaml overlay — the target-stage arms all share one
+    recipe, only theta0 differs."""
+    pf_cfg = load_config(CONFIGS / TS38PF_BASE_FILE, CONFIGS / path)
+    sibling_path = _ts38pf_sibling_pretaught_path(path)
+    sibling_cfg = load_config(CONFIGS / "ts38_pretaught.yaml", CONFIGS / sibling_path)
+    for field in ("n_examples",):
+        assert pf_cfg["data"][field] == sibling_cfg["data"][field], field
+    for field in ("eval_every", "max_steps"):
+        assert pf_cfg["train"][field] == sibling_cfg["train"][field], field
+    assert pf_cfg["train"]["stopping"]["min_steps"] == sibling_cfg["train"]["stopping"]["min_steps"]
+    assert pf_cfg["train"]["max_steps"] >= pf_cfg["train"]["stopping"]["min_steps"]
+
+
+@pytest.mark.parametrize(("path", "anchor"), TS38PF_OVERLAY_ANCHORS)
+def test_ts38pf_overlay_match_data_order_with_is_base_arm(path: str, anchor: str) -> None:
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert raw["experiment"]["match_data_order_with"] == anchor
+    assert not anchor.startswith("evt-ts38-pretaught-")
+
+
+def test_ts38pf_vs_ts38_base_allowed_diffs() -> None:
+    base = yaml.safe_load((CONFIGS / "ts38_base.yaml").read_text())
+    pf = yaml.safe_load((CONFIGS / TS38PF_BASE_FILE).read_text())
+    diffs = _leaf_diffs(base, pf)
+    unexplained = diffs - _TS38_ALLOWED_DIFF_PATHS
+    assert not unexplained, f"ts38pf vs ts38_base differ in unexpected fields: {unexplained}"
+
+
+def test_ts38pf_vs_ts38_pretaught_differs_only_in_theta0_fields() -> None:
+    pretaught = yaml.safe_load((CONFIGS / "ts38_pretaught.yaml").read_text())
+    pf = yaml.safe_load((CONFIGS / TS38PF_BASE_FILE).read_text())
+    diffs = _leaf_diffs(pretaught, pf)
+    assert diffs == _TS38PF_VS_PRETAUGHT_ALLOWED_DIFF_PATHS, diffs
+    assert pretaught["run_id"] != pf["run_id"]
+    assert pretaught["experiment"]["parent_run_id"] != pf["experiment"]["parent_run_id"]
+    assert (
+        pretaught["experiment"]["parent_required_gates"]
+        != pf["experiment"]["parent_required_gates"]
+    )
+    assert pretaught["experiment"]["arm"] == pf["experiment"]["arm"]
+    assert pretaught["experiment"]["match_data_order_with"] is None
+    assert pf["experiment"]["match_data_order_with"] is None
+
+
+def test_ts38pf_merged_config_values() -> None:
+    cfg = load_config(CONFIGS / TS38PF_BASE_FILE, None)
+    base_cfg = load_config(CONFIGS / "ts38_base.yaml", None)
+    assert cfg["experiment"]["parent_required_gates"] == []
+    assert cfg["experiment"]["parent_run_id"] == _TS38PF_PARENT_RUN_ID
+    assert cfg["experiment"]["require_full_epoch1"] is True
+    assert cfg["lora"]["r"] == 128
+    assert cfg["lora"]["alpha"] == 32
+    assert cfg["train"]["lr"] == 1.0e-3
+    assert cfg["train"]["lr"] == base_cfg["train"]["lr"]
+    assert cfg["train"]["snapshots"]["n"] == 0
+    # Target data is UNCHANGED D_algo_bare — only the parent differs from
+    # base_cfg, not the target task.
+    assert cfg["data"]["order_hash"] == base_cfg["data"]["order_hash"]
+    assert cfg["data"]["eval_order_hash"] == base_cfg["data"]["eval_order_hash"]
+
+
+def test_ts38pf_base_builds_a_manifest_with_correct_regime() -> None:
+    train_target = load("train_target")
+    cfg = load_config(CONFIGS / TS38PF_BASE_FILE, None)
+    manifest = train_target.manifest_fields(
+        cfg,
+        n_train=1,
+        n_trainable=1,
+        epochs_total=1,
+        schedule=[],
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+    )
+    assert manifest["regime"] == "elicit"
+
+
+@pytest.mark.parametrize("path", TS38PF_OVERLAY_PATHS)
+def test_ts38pf_overlay_builds_a_manifest(path: str) -> None:
+    train_target = load("train_target")
+    cfg = load_config(CONFIGS / TS38PF_BASE_FILE, CONFIGS / path)
+    train_target.manifest_fields(
+        cfg,
+        n_train=1,
+        n_trainable=1,
+        epochs_total=1,
+        schedule=[],
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+    )
+
+
+# ---- the format-only parent build config (NEW vs. ts38mw — that family
+# pulled an already-built parent; this one has to validate its OWN parent
+# config, mirroring the ts38 LoRA-parent section's essentials) --------------
+
+
+def test_ts38pf_preteachfmt_parent_own_yaml_declares_lora() -> None:
+    # The un-merged file, not the deep-merged cfg — this is what
+    # own_lora_block actually reads to opt in.
+    raw = yaml.safe_load((CONFIGS / TS38PF_PARENT_FILE).read_text())
+    assert raw["lora"]["r"] == 128
+    assert raw["lora"]["alpha"] == 32
+
+
+def test_ts38pf_preteachfmt_parent_opts_into_lora_via_own_lora_block() -> None:
+    train_sft = load("train_sft")
+    path = CONFIGS / TS38PF_PARENT_FILE
+    lora_cfg = train_sft.own_lora_block(load_config(path, None), path, None)
+    assert lora_cfg is not None
+    assert (lora_cfg["r"], lora_cfg["alpha"]) == (128, 32)
+
+
+def test_ts38pf_preteachfmt_parent_min_steps_is_one_full_epoch() -> None:
+    """Advisor-flagged fix: min_steps must be pinned to exactly one full
+    epoch under train_sft.py's OWN step counting (n_val = round(val_fraction
+    * n) via geode.train.packing.split_indices, then floor-division/
+    drop-last batching — NOT train_target.py's ceil/no-drop-last
+    convention), not left near-zero. On permuted labels there is no
+    learnable mapping, so val loss can plateau from format acquisition
+    alone in a handful of evals; eps/k must not be allowed to declare
+    "converged" before the model has seen the full set once."""
+    cfg = load_config(CONFIGS / TS38PF_PARENT_FILE, None)
+    d, t = cfg["data"], cfg["train"]
+    n_examples = 21544
+    n_val = max(1, min(round(d["val_fraction"] * n_examples), n_examples - 1))
+    n_train = n_examples - n_val
+    steps_per_epoch = n_train // t["batch_size"]
+    assert t["stopping"]["min_steps"] == steps_per_epoch == 167
+
+
+def test_ts38pf_preteachfmt_parent_max_steps_covers_min_steps() -> None:
+    cfg = load_config(CONFIGS / TS38PF_PARENT_FILE, None)
+    t = cfg["train"]
+    assert t["max_steps"] >= t["stopping"]["min_steps"] + t["stopping"]["k"] * t["eval_every"]
+    assert t["max_steps"] >= 20 * t["stopping"]["min_steps"]  # >=20-epoch ceiling, never binds
+
+
+def test_ts38pf_preteachfmt_parent_data_hash_pinned() -> None:
+    cfg = load_config(CONFIGS / TS38PF_PARENT_FILE, None)
+    assert cfg["data"]["file"] == "D_preteachfmt.parquet"
+    assert (
+        cfg["data"]["order_hash"]
+        == "5b0b19a4c47375a4ada17cb1ee21292475b6ecaed22b2ef07aa560cf557b1bc1"
+    )
+
+
+def test_ts38pf_preteachfmt_parent_builds_a_lora_manifest() -> None:
+    train_sft = load("train_sft")
+    path = CONFIGS / TS38PF_PARENT_FILE
+    cfg = load_config(path, None)
+    lora_cfg = train_sft.own_lora_block(cfg, path, None)
+    assert lora_cfg is not None
+    manifest = train_sft.manifest_fields(
+        cfg,
+        n_params=1,
+        n_rows=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+        lora_cfg=lora_cfg,
+        step0={},
+        device="cpu",
+    )
+    assert manifest["training"]["method"] == "lora"
+    assert manifest["training"]["lora"]["rank"] == 128
+    assert manifest["training"]["lora"]["alpha"] == 32

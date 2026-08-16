@@ -143,6 +143,16 @@ FAMILIES = {
         "edl_converged_val_floor_ts38mw",
         "TinyStories 38.7M; base (teach) vs multiwrap pre-taught (elicit), D_algo_bare, r128 LoRA",
     ),
+    # ts38pf (EXPERIMENTS §6.16) reuses ts38's base arm run-for-run (the SAME
+    # evt-ts38-base-n<size> ids — not retrained), same lookahead-disjoint
+    # shape as ts38mw, paired with a NEW pre-teach-FORMAT arm (paper App.
+    # E.1.2: operator-notation, randomly-permuted labels, then the same
+    # bare-NL target fine-tune) under its own evt-ts38pf- prefix.
+    "ts38pf": (
+        re.compile(r"^evt-ts38(?:pf-(?=preteachfmt)|-(?=base))(base|preteachfmt)-n(\d+)$"),
+        "edl_converged_val_floor_ts38pf",
+        "TinyStories 38.7M; base (teach) vs pre-teach-format, D_algo_bare, r128 LoRA",
+    ),
 }
 
 # Repo-wide convention, unchanged: base = tab:blue, format-installed = tab:orange.
@@ -168,9 +178,21 @@ TS38MW_ARM: dict[str, tuple[str, str]] = {
     "base": ("noinst", "base (teach)"),
     "pretaught": ("inst", "pre-taught-mw (elicit)"),
 }
+TS38PF_ARM: dict[str, tuple[str, str]] = {
+    # raw regex capture -> (canonical condition, honest style label).
+    # Deliberately NOT "elicit" — whether this arm is elicit-shaped is the
+    # open question this family exists to answer (decisions.md 2026-08-15
+    # "ts38pf pre-registration"), not something to assert in its label.
+    "base": ("noinst", "base (teach)"),
+    "preteachfmt": ("inst", "pre-teach-format"),
+}
 # Per-family arm-map lookup used by collect()/main() below; every family not
 # listed here (op, nl) uses the regex capture as the condition directly.
-ARM_MAPS: dict[str, dict[str, tuple[str, str]]] = {"ts38": TS38_ARM, "ts38mw": TS38MW_ARM}
+ARM_MAPS: dict[str, dict[str, tuple[str, str]]] = {
+    "ts38": TS38_ARM,
+    "ts38mw": TS38MW_ARM,
+    "ts38pf": TS38PF_ARM,
+}
 
 
 def collect(family: str, store: Path) -> pd.DataFrame:
@@ -341,7 +363,9 @@ def plot(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--family", choices=("op", "nl", "ts38", "ts38mw", "both"), default="both")
+    parser.add_argument(
+        "--family", choices=("op", "nl", "ts38", "ts38mw", "ts38pf", "both"), default="both"
+    )
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
     args = parser.parse_args()
 

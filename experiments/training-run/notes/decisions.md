@@ -6949,3 +6949,142 @@ the box; ~$0), which pins whether the ↑ limb exists below n=1000
 128-example floor >2.08). Held pending the owner's word; per
 `feedback-nulls-need-bracketing`, this is the missing bracket for the
 teach-shape claim.
+
+## 2026-08-15 (night) — ts38pf pre-registration: pre-teach-FORMAT causal intervention (paper App. E.1.2), Stage 0 build committed, no GPU spend
+
+Owner asked for a second, orthogonal approach to the same open question
+(does the base arm's EDL/D hide the paper's teaching hump under a
+format-learning transient): reproduce the paper's own named intervention
+that isolates format from algorithm, rather than only bracketing smaller
+n. App. E.1.2 (TinyStories-1B pre-teach FORMAT): fine-tune on the target's
+arithmetic domain, operator-notation scaffold, with labels **randomly
+permuted** (incorrect) — teaches numeral vocabulary + output format without
+the input-output mapping — then run the real target fine-tune from that
+checkpoint. Quote: *"the initial decreasing phase disappears, and we
+instead observe increasing returns, as we isolate contributions from the
+model beginning to learn the algorithm without the confound of format
+acquisition."*
+
+**Design forks, owner-confirmed via AskUserQuestion before any file was
+written:**
+1. Prompts = the paper's literal choice: operator-notation
+   (`Question: 23 + 45\nAnswer: <permuted>`), format-MISMATCHED from the
+   bare-NL target on purpose — App. E.1.2's own setup, not the "same format
+   as target" simplification I'd proposed as the default.
+2. Pre-teach-format stage size = n=21,544 (mid-size, already-prepared
+   operand slice; the paper doesn't pin a size for our scale, only "until
+   convergence").
+3. Downstream target grid = the existing 5-point grid
+   {1000, 4642, 21544, 100000, 316228} — directly comparable to
+   base/pretaught/pretaught-mw, not a new grid.
+4. Method = LoRA r128/α32 @1e-3 — same recipe as every other stage in this
+   family.
+
+**Advisor review, two required fixes, both applied:**
+- `min_steps` for the format-only parent must be pinned to at least one
+  full epoch, not left near-default. Computed against `train_sft.py`'s OWN
+  step counting (the parent trains via `train_sft.py`, not
+  `train_target.py` — different trainer, different batching convention):
+  `n_val = round(0.005*21544) = 108` (`geode.train.packing.split_indices`),
+  `n_train = 21436`, `steps_per_epoch = n_train // 128 = 167`
+  (floor/drop-last — `train_sft.py` has no `require_full_epoch1` guard at
+  all, unlike `train_target.py`, so this pin is the ONLY thing preventing
+  ε/k from declaring "converged" after a handful of evals on the
+  permuted-label plateau, where there is no learnable mapping to slow it
+  down). `min_steps: 167`, `max_steps: 3340` (20-epoch ceiling, never
+  binds), `eval_every: 25`.
+- A pre-registered, automated **format-acquisition check** with a HALT
+  branch, computed in the launcher itself right after the θ0 latency
+  record (same `gates.py g5 --no-record` mechanism ts38mw's theta0 check
+  uses, against the same `eval_bare_target_data_ts38.yaml` pin):
+  `loss_drop_frac = (base.loss - parent.loss) / base.loss`. `parent.em0 >
+  0.05` → `LEAKED` (permutation failed as a control) → HALT. `loss_drop_frac
+  < 0.10` → `NOT_LEARNED` (the operator-notation format lesson did not
+  transfer to the bare-NL rendering — a plausible outcome given
+  `docs/ts38-vs-bits-that-count.md`'s finding that the certified ts38
+  parent's lock is the WHOLE template, not just the symbol) → HALT. Else
+  `LEARNED` → proceed to the 5-size sweep. The HALT branches are load-bearing:
+  running the sweep on an unconverted-format parent would look identical
+  post hoc to "removing the format confound didn't reshape the curve," and
+  those are different claims — the check exists so that failure mode is
+  caught before 5 more runs, not after.
+
+**Build (done, this commit, CPU-only, no GPU):**
+- `datagen/make_preteach_format.py` — derives `D_preteachfmt.parquet` from
+  the frozen `D_algo`'s first 21,544 rows (same operand/op distribution the
+  real target trains on; hash-pin-verified against the same
+  `D_algo` pin `make_bare_sets.py` uses), re-rendered `fmt="operator"` with
+  `shown_answer` = `geode.arith.permute_labels(true_answers, seed=20260717)`
+  — the repo's one canonical data-generation seed. `verify_source_hash`/
+  `derive` split the way `make_multiwrap_set.py` splits them (not
+  `make_bare_sets.py`'s single inline function), so `derive` is a pure
+  in-memory function, testable on a tiny fixture. Run locally: 3/21,544
+  label collisions (0.014%, chance only — the multiset is exactly
+  preserved by construction, V5.64), `order_hash =
+  5b0b19a4c47375a4ada17cb1ee21292475b6ecaed22b2ef07aa560cf557b1bc1`
+  (pinned in the parent config below). 14 property tests in
+  `tests/experiments/datagen/test_make_preteach_format.py` (permutation
+  wiring, collision-count correctness, render-format correctness, span
+  validity, determinism), modeled on `test_make_multiwrap_set.py`'s scope.
+- `configs/ts38_preteachfmt_parent.yaml` — the new parent-build config
+  (`evt-ts38pf-preteachfmt-parent`), LoRA r128/α32 @1e-3 on
+  `D_preteachfmt.parquet`, `min_steps: 167`/`max_steps: 3340` per the fix
+  above, `parent_required_gates: []` (this is a format-only control, never
+  certified under G1/G8, same convention as ts38mw's parent).
+- `configs/ts38pf_preteachfmt.yaml` + 5 `configs/sweeps/ts38/
+  ts38pf_preteachfmt_n<size>.yaml` overlays — the target-stage arm, VERBATIM
+  `ts38_base.yaml`/`ts38mw_pretaught.yaml` recipe except `theta0`
+  (`parent_run_id: evt-ts38pf-preteachfmt-parent`); target data is
+  UNCHANGED `D_algo_bare` (only the parent differs, not the task); each
+  overlay's `match_data_order_with` points at the REUSED
+  `evt-ts38-base-n<size>` (G7 anchor, not retrained).
+- `scripts/launch_ts38pf_family.sh` — structured like
+  `launch_ts38mw_family.sh` with one new stage at the front (this family
+  BUILDS its parent via `train_sft.py --init-from "$BASE_MODEL"`, unlike
+  ts38mw which pulled an already-built one from the relay) and the
+  format-acquisition HALT gate inserted before the 5-size sweep.
+- Analysis: new `ts38pf` family in
+  `analysis/edl_converged_val_floor.py`'s `FAMILIES`/`ARM_MAPS`
+  (lookahead-disjoint regex, same shape as `ts38mw`'s; arm label
+  deliberately "pre-teach-format", NOT asserting "elicit" — that's the open
+  question). `dataset_size_sweep.py` NOT extended (out of this build's
+  scope — its `FAMILIES` dict + straddling-prefix special case would need
+  its own change, same shape as `TS38MW_PREFIX`).
+- Tests: 38 new/extended cases in `test_config_completeness.py` (ts38pf
+  target-sweep section mirroring ts38mw's, plus a parent-build section
+  mirroring the ts38 LoRA-parent section's essentials — file existence,
+  run-id pattern + cross-family collision guards, overlay pinned values +
+  sibling-overlay parity, `match_data_order_with` correctness,
+  arms-differ-only-in-theta0 diffs, `min_steps` re-derived from
+  `val_fraction`/batch arithmetic (not just asserted as a literal),
+  manifest-builder smoke tests for both the parent and every target
+  overlay) + `ts38pf` rows/tests added to
+  `test_edl_converged_val_floor_families.py`'s regex matrix (including the
+  explicit negative cross-checks against the `ts38`/`ts38mw` regex objects
+  advisor flagged). Full suite green (CPU-only, ~23s).
+
+**Pre-registered readout for the shape question, once the sweep exists (do
+not re-derive after seeing numbers):** base teaching marker = its
+ALREADY-MEASURED rising span 4642→21544 (not re-derived here). Question:
+does pretaught-format's EDL/D curve show a rising limb the base arm's own
+curve does not, i.e. is the base's transient (or lack of one) a
+format-learning artifact this arm removes? This is a SHAPE question, not
+the ts38mw elicitation-marker question — no monotone-and-below-base
+pass/fail bar applies. Calibration: the paper's own add/sub pre-teach-
+format peak is ≈150K examples at 1B params; our grid tops out at 316K and
+the base's own argmax already sits at/below n=1000 (see the entry above),
+so a flat/still-falling result on this grid does **NOT** by itself refute
+the hypothesis — it would mean the same thing the small-n bracket is
+proposed to test (the rising limb, if real, sits below the grid), not that
+format-learning isn't the mechanism. The small-n bracket (n∈{128,256,512})
+remains a separate, complementary follow-up, not superseded by this.
+
+**Runs: none launched.** This entry, the datagen artifact, and every
+config/launcher/test above are committed BEFORE any GPU spend, matching
+this family's Stage-0/Stage-1 discipline
+(`docs/plan-ts38mw-multiwrap-install.md`). Launch needs
+`launch_ts38pf_family.sh --confirm-cost` on the owner's box
+(`38.246.237.140:32489`) — held pending explicit go-ahead; cost estimate
+printed by the launcher itself (one LoRA parent-build run, 167–3340 steps
+on 21,544 rows, + 5 small target runs at the existing grid's sizes — same
+order of magnitude as the ts38mw family launch, ≈$0).
