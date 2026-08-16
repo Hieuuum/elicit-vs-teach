@@ -7987,34 +7987,39 @@ format-lock on this parent family
 ([[project-paper-nl-target-embeds-operators-2026-08-15]]: 96.8% on the
 exact trained op body, ≤1.4% on any other phrasing).
 
-**Plan (owner-confirmed 2026-08-16 evening, AskUserQuestion):**
+**Plan (owner-confirmed 2026-08-16 evening, AskUserQuestion; Tier 2 scope
+narrowed same evening, owner correction):**
 - Tier 0 (this entry + EXPERIMENTS.md + memory correction) — DONE, zero GPU
   cost, approved and executed same session.
 - Tier 1 (re-run the θ0 g5 probe under the paper's literal block prompt
   against the ALREADY-PUSHED `evt-ts38pp-parent` checkpoint — inference
   only, likely no new box needed) — proposed, **held, not started**
   (owner: "Not yet").
-- Tier 2 (new GPU box — `47869768` was destroyed earlier this session —
-  grad-accumulation to match Table 3's effective batch 1024 at the same
-  one-epoch step count; second-seed replicates at ts38's near-tie step and
-  ts38pp's headline points, per Table 1's "3 seeds per config") — owner:
-  "plan it now, launch later." Design only below; no GPU spend, no
-  `--confirm-cost` yet.
+- Tier 2 (second-seed replicates at ts38's near-tie step and ts38pp's
+  headline points, per Table 1's "3 seeds per config") — owner: "plan it
+  now, launch later." Design only below; no GPU spend, no `--confirm-cost`
+  yet.
 
-**Tier 2 design (build only, not launched):** `evt-ts38pp-parent-eba1024`
-— same data/hash/seed/single-epoch step count as `evt-ts38pp-parent`, LR
-unchanged at 3e-5 (a literal-2e-5 rerun was explicitly deprioritized —
-2e-5 sits between two already-measured ladder rungs and is tuned in the
-paper for effective batch 1024, so copying the LR number alone without the
-batch size is not more faithful, just differently unfaithful), gradient
-accumulation 8× to reach effective batch 1024 (128 per-step × 8 accum),
-same total example count so the "single epoch" step count changes from
-31,093 (batch 128) to ≈3,887 (effective batch 1024) — a materially
-different training trajectory for a run whose entire definition is "one
-epoch," which is the actual fidelity question being tested. Second-seed
-plan: reseed ts38's (§14) n=4642/21544 points (the 0.003-bit near-tie
+**Tier 2 scope correction (owner, same evening):** the grad-accumulation-
+to-effective-batch-1024 idea floated above is DROPPED, not built. Owner's
+instruction, verbatim gist: replicate the paper's exact **experiment
+methodology** — data, labels, epoch count, algorithm — not their **batch
+size**. Effective batch 1024 is an infrastructure artifact of the paper's
+8×H100 cluster (128 per-GPU × 8 GPUs data-parallel), not a methodological
+choice the elicit-vs-teach comparison depends on; chasing it via gradient
+accumulation would change our own single-GPU training dynamics (a
+materially different step count and update trajectory) in the name of
+fidelity to a detail that was never part of what's being tested. Batch 128
+stays as-is, matching what every other ts38-family run already uses.
+General rule going forward: paper-fidelity effort targets methodology
+(what data, what labels, what render, how many epochs, gated or not),
+not infra-scale parameters (multi-GPU batch/parallelism) that follow from
+compute available, not from what the experiment is measuring.
+
+**Tier 2 design (build only, not launched), narrowed to seed replicates
+only:** reseed ts38's (§14) n=4642/21544 points (the 0.003-bit near-tie
 driving that arm's ↓ call) and ts38pp's n=4642/21544 points (the two
 points nearest the old below-base comparison) at a different training
-seed, same recipe otherwise — cheap (single points, not full families).
-Neither piece is built yet; this paragraph is the design for a future
-session's build-then-launch pass.
+seed, same recipe otherwise (batch 128, LR unchanged) — cheap (single
+points, not full families). Not built yet; this paragraph is the design
+for a future session's build-then-launch pass.
