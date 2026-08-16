@@ -7088,3 +7088,247 @@ this family's Stage-0/Stage-1 discipline
 printed by the launcher itself (one LoRA parent-build run, 167–3340 steps
 on 21,544 rows, + 5 small target runs at the existing grid's sizes — same
 order of magnitude as the ts38mw family launch, ≈$0).
+
+## 2026-08-15 (night) — ts38pf LAUNCHED; two follow-ups noted brief-only, deferred until it finishes
+
+Owner gave the go-ahead; `launch_ts38pf_family.sh --confirm-cost` running
+in tmux `ts38pf` on `38.246.237.140:32489`, log tee'd to
+`/workspace/ts38pf_launch.log`. Parent + n=1000/4642/21544 complete,
+n=100000 in progress as of this entry. Owner also asked for two follow-up
+items — captured brief-only here per owner ("don't do the plan right now,
+wait until the current run finishes"):
+
+1. **Relay upload backlog.** Owner asked to push any completed-but-unpushed
+   run weights on this box to `mhieuuu/geode-store`. Not yet done — paused
+   mid-check (owner interrupted the investigation to redirect to note-taking
+   only). When resumed: `evt-ts38-base-n{1000,4642,21544,100000,316228}`
+   sit on this box as manifest-only (`--no-weights` G7-anchor pulls per
+   `launch_ts38pf_family.sh` stage 3) — verify whether their weights already
+   exist on the relay from wherever they were originally trained before
+   assuming anything needs pushing; don't re-push existing files. Everything
+   else on this box (`ts38mw`, `ts38pf` runs so far) has local weights and
+   should be diffed against the relay's actual file listing, not assumed
+   pushed.
+
+2. **Wider follow-up sweep (owner brief, NOT designed yet).** Three arms per
+   dataset size, unifying the three existing families into one grid: (a)
+   base/teach (`ts38` pattern — target training from θ0), (b)
+   pretaught-format-then-teach (`ts38pf` pattern — permuted-label
+   operator-notation LoRA install, then target), (c) elicitation (`ts38mw`
+   pattern — wrapper-diverse/GO-B install, then target). Ten log-spaced
+   dataset sizes, floor n=1000 (matches the current grid). Ceiling: owner
+   guessed ~300K "based on our current run results" but flagged
+   uncertainty and asked for a recommendation once the shape is visible —
+   open question, not yet answered. Also open: whether 10 points actually
+   resolves the shape (this family's own pre-registration above already
+   flags that our 38.7M base's teach-arm argmax sits at/below n=1000,
+   i.e. well below the paper's own ≈150K-at-1B-param peak — the
+   interesting region may be smaller-n than either the current grid or a
+   naive 1K–300K/10-point redesign would resolve well); and how much of the
+   10×3 grid can reuse existing runs (base arm already has 5/10 points,
+   `ts38pf` will have 5/10, `ts38mw` already has 5/10 — reuse shapes the
+   cost estimate). No configs, launchers, or GPU spend for this — deferred
+   to a full design pass after `ts38pf` finishes.
+
+**Paper cross-check (owner asked "how did they do the format install",
+`docs/bits-that-count.md` App. E.1.2, read this session):** confirms
+`ts38pf`'s recipe is already paper-faithful — fine-tune on the target's
+own arithmetic domain, RANDOMLY PERMUTED labels, until convergence;
+prompt format is operator notation (`Question:\n2 * 3\nAnswer:\n7`),
+deliberately format-mismatched from the bare-NL target. Paper's own text:
+"we observe similar results regardless of the pre-training domain or
+prompt (input) formatting used, as long as the output format is the same
+as the target task" — i.e. input-side domain/format isn't load-bearing,
+only output format needs to match, which our design already satisfies. No
+change indicated to the current `ts38pf` recipe from this re-check.
+
+3. **fig2nl2 floor check (owner brief, not investigated yet).** Owner:
+   check whether the fig2nl2 plot reads off the OCV floor or the paper's
+   own EDL-per-label-token (Eq. 3) definition — owner's recollection is
+   the two are "very similar." Consistent with the 2026-08-15 (late) entry
+   above (OCV vs. paper floor differ only val-vs-test, <1% numerically on
+   the ts38 data checked there) — open whether that near-equivalence holds
+   for fig2nl2 specifically and which one its plot currently uses. Not
+   checked yet — deferred with the other two items above.
+
+4. **Paper's own pre-teach-format peak-n table (Table 5, owner recalled
+   correctly, re-checked this session).** The ≈150K figure already cited
+   above is the Addition/Subtraction row specifically. Full table has more
+   rows relevant to item 2's ceiling question:
+   - Add/Sub, TinyStories-1B **base** (no pre-teach) peaks at **∼300K**
+     (not 150K — that's the pretaught-format arm; the un-pretaught base
+     arm's own hump sits at roughly 2x the pretaught one's peak-n in the
+     paper's data).
+   - Add/Sub, TinyStories-1B **pre-teach format**: peaks **∼150K** (already
+     cited above).
+   - **Multiplication**, TinyStories-1B **base**: peaks **>4M** (off their
+     grid, lower bound only).
+   - **Multiplication**, TinyStories-1B **pre-teach format**: peaks **∼4M**
+     — same order as its own base, unlike add/sub where pre-teaching
+     roughly halves the peak-n. Owner recalled this figure ("~4M examples,
+     multiplication") correctly this session; not relevant to our current
+     add/sub-only `ts38pf` grid, but relevant if the item-2 follow-up sweep
+     ever extends to multiplication — a 1K–300K grid (or even a
+     1K–3M-ish one) would undershoot the paper's own multiplication peak by
+     a wide margin. Add/sub stays the right task for a 10-point,
+     n≤~300K-ish redesign; multiplication would need its own, much larger
+     ceiling if ever added.
+
+## 2026-08-16 (early) — ts38pf OUTCOME: pretaught-format arm reproduces the SAME hump as base, proportionally BIGGER, not smaller
+
+`TERMINAL_SUCCESS runs=5`, all 5 target runs + parent pushed and
+receiver-verified on `mhieuuu/geode-store` (parent's full weights also
+pushed this session — previously metadata-only per the launcher's
+by-design HARD RULE (a); pushed in full anyway per the owner's "upload all
+the weights" instruction, since the local checkpoint existed and pushing
+more data is free/reversible). Format-acquisition gate passed cleanly
+(loss drop well above the 10% bar, EM stayed ~0).
+
+**Final grid, OCV floor, EDL per label token (nats):**
+| n | base (teach) | pretaught-format |
+|---|---|---|
+| 1,000 | 3.108 | 1.044 |
+| 4,642 | 1.339 | 0.827 |
+| 21,544 | 1.538 | 1.420 |
+| 100,000 | 1.198 | 1.150 |
+| 316,228 | 0.583 | 0.545 |
+
+**Shape read (pre-registered question: does removing the format transient
+reveal a rising limb the base arm's own curve doesn't show?):** NO — both
+arms show the identical qualitative shape: dip 1000→4642, a local rise at
+21544 (the family's already-documented teaching marker), then fall through
+100000/316228. The pretaught-format arm does NOT flatten or remove this
+rise; if anything its relative bump is much larger: base rises **+15%**
+(1.339→1.538) vs pretaught-format's **+72%** (0.827→1.420) over the same
+span. At every n the pretaught-format arm sits below the base arm in
+absolute terms (format pre-training lowers overall entropy, as expected),
+but the LOCAL SHAPE — the thing App. E.1.2 predicts pre-teaching should
+remove — survives pre-teaching, proportionally amplified rather than
+erased. This is the observed result, reported per the pre-registered
+readout (no monotone-and-below-base bar applies here, unlike ts38mw) — not
+yet interpreted beyond the observation. Candidate readings for a future
+pass (not settled here): (a) our grid's n=21544 point sits far below both
+of the paper's own peak-n figures (150K pretaught / 300K base, at 1B
+params) — if the "true" hump for our 38.7M model sits near 21544 for
+BOTH arms regardless of format pre-teaching, that would suggest format
+pre-teaching isn't the mechanism separating teaching from elicitation at
+our scale, contrary to E.1.2's own account; (b) the overshoot flag below
+could be inflating the pretaught arm's n=316228 point's apparent
+improvement, which would not affect the 21544 hump comparison but is worth
+knowing regardless.
+
+**Caveat — overshoot at n=316228:** the pretaught-format arm's
+`overshoot_ratio` at n=316228 is **3.25x** (its converged-val loss 0.0728
+nats vs. its own best-ever val 0.0224 nats) — much higher than every other
+point in this family (all ≤1.16x) and higher than base's own n=316228
+overshoot (1.60x, already flagged in the ts38mw entry). Under the min-val
+floor instead of OCV, this point's EDL/D barely moves (0.543 vs OCV's
+0.545) because L_val is tiny relative to total MDL/D at this n — the
+overshoot doesn't flip or materially shift this point, but it's a genuine
+convergence-quality wrinkle worth carrying forward, consistent with
+[[feedback-threshold-crossings-need-persistence]].
+
+**Upload backlog (owner-requested, resolved this session):** diffed every
+run on this box against `mhieuuu/geode-store`'s actual file listing (not
+assumed). `ts38mw` and `ts38pf` target runs: already fully pushed +
+receiver-verified — nothing to do. `ts38pf` parent: was metadata-only,
+pushed in full this session. `evt-ts38-base-n{1000,4642,21544,100000,
+316228}` (the reused base/teach arm, shared by `ts38`/`ts38mw`/`ts38pf`):
+metadata-only on the relay (manifest + `model/config.json`, no
+`model.safetensors`) — NOT fixable from this box, which only pulled these
+`--no-weights` in the first place. The other owner-rental box that
+originally trained them (`38.246.237.140:32414`, see
+[[project-ts38-certified-parent-2026-08-15]]) is no longer reachable over
+SSH as of this session (connection actively closed, not a timeout — likely
+already stopped/destroyed independently by the owner). These 5 runs' full
+weights are not recoverable from anywhere this session can reach; they ARE
+cheaply reproducible from the frozen seed/recipe if ever needed (the
+same launcher, ≤10,875 steps each), but retraining is GPU spend and stays
+behind `--confirm-cost`, not done here.
+
+**fig2nl2 floor check (owner-requested, resolved this session, code-level,
+no data pulled):** fig2nl2's actual plot is `dataset_size_sweep.py
+--family nl2` (NOT `edl_converged_val_floor.py --family nl` — that
+regex, `^evt-llama-fig2nl-(noinst|inst)-n(\d+)$`, requires "fig2nl-"
+immediately, so it does NOT match `evt-llama-fig2nl2-*` run ids at all;
+fig2nl2 isn't wired into that script). `dataset_size_sweep.py` plots each
+run's manifest field `target_result.edl_per_label_token_nats`, which
+`geode/edl/metrics.py`'s `edl_epoch1_per_label_token` computes via
+`edl_epoch1_nats`, floored on `min_val_nats_from_eval_log` — the run's
+**global minimum** val loss over its ENTIRE `eval_log.jsonl` (every
+logged eval, not just the stopping evals), not the val loss AT the
+converged/stopping point. That is a **third, distinct floor** from both:
+OCV (`l_val_converged_nats`, val AT convergence — `edl_converged_val_floor.py`'s
+primary) and the paper's own Eq. 3 floor (held-out `eval/test_loss.json`
+AT convergence). The owner's recollection ("paper's EDL/token is very
+similar to OCV") is correct for the OCV-vs-paper comparison specifically
+(2026-08-15 late entry, <1% agreement on ts38 data) — but that finding
+does NOT transfer to fig2nl2's actual plotted quantity, which uses neither
+of those two; it uses the run's best-ever val point, which can predate the
+stopping step by an arbitrary margin whenever a run overshoots (exactly
+the phenomenon flagged above for ts38pf's own n=316228 point,
+`overshoot_ratio` 3.25x). Not yet checked empirically how much this
+matters for fig2nl2's specific 38 runs (no fig2nl2 manifests are on this
+box or the local laptop mirror — would need an HF `--no-weights` pull to
+quantify overshoot there); this entry settles the code-level question the
+owner asked, the numeric-impact question is a further step if wanted.
+Downstream implication not yet resolved: fig2nl2's published verdict
+("arms COINCIDE with an undamaged parent", 2026-08-12) was computed on
+this min-val floor — whether it survives on OCV is genuinely unknown, not
+assumed either way. Doesn't block anything this session; flagged as an
+open item, not a resolved check.
+
+## 2026-08-16 (early) — session close: box status + the follow-up-sweep RECOMMENDATION (not built)
+
+**Box:** `38.246.237.140:32489` is NOT on the tracked vastai account
+(`vastai show instances` returns 0 instances there — confirms it's the
+owner's separate personal rental, as already documented). Cannot be
+destroyed from this session despite the owner's standing instruction to
+terminate it on completion — no API credentials for that account. All
+box-local, not-yet-relay artifacts pulled back to the laptop before
+reporting this (`geode-store/results/{ts38pf,ts38mw}_family_theta0.json`,
+`ts38mw_probe.json`, `ts38pf_launch.log`,
+`analysis/edl_converged_val_floor_ts38pf.{csv,png}`) — nothing box-local
+is at risk if the owner destroys it externally. Reported to the owner as
+an explicit ask, not silently left ambiguous.
+
+**Follow-up 3-arm/10-point sweep: recommendation given as prose, NOT
+built.** Advisor review caught that the ts38mw/ts38pf precedent this
+session leaned on ("build first, gate the launch") skips a prior step
+that precedent actually requires: the owner confirmed THAT design
+(AskUserQuestion, before any file existed) before those families were
+built. This follow-up's grid/ceiling is explicitly a recommendation the
+owner asked for reaction to, not a decision delegated outright — so no
+config/launcher files were written this session; the answer was given as
+chat prose for the owner to confirm or redirect first, per
+[[feedback-ask-only-major-decisions]] (a new experiment design counts as
+direction-forking).
+
+The recommendation: ceiling stays 316,228 (matches the owner's own guess;
+the hump has clearly declined by n=100000/316228 in both arms already, and
+316228 already exceeds both of the paper's own add/sub calibration points,
+150K/300K); 10 points is enough PROVIDED they're spent on resolution
+across the existing 1000–316228 range, not on extending past it — proposed
+grid `1000, 2154, 4642, 10000, 21544, 46416, 100000, 146780, 215443,
+316228` (all standard Fig-2-grid values already used elsewhere in the
+repo — same ones `dataset_size_sweep.py`'s `nl2` family already trains
+at), preserving all 5 existing points exactly and adding 5 new ones
+concentrated across the rising (4642→21544) and falling (21544→100000)
+limbs where the shape is actually changing. No new parents needed for any
+of the 3 arms — the ts38pf parent and the ts38mw GO-B parent are both
+already built and reusable at any n — so it's 15 new target runs only, no
+new infrastructure beyond overlay configs, same cost order as this
+session (well under $1).
+
+**Explicitly flagged as a SEPARATE, not-superseded-by-this open
+question:** keeping floor=1000 resolves the ALREADY-OBSERVED local hump
+(4642→21544) at finer grain, but does NOT touch the older, still-open
+finding that the base arm's GLOBAL argmax sits AT the n=1000 edge of
+every grid tried so far (2026-08-15 late entry, confirmed no
+contradiction with today's local-hump finding — different phenomena, both
+true) — i.e. the true peak of the curve may sit below n=1000, entirely
+unobserved by any grid built to date. The small-n bracket
+(n∈{128,256,512}, proposed 2026-08-15 late, still not launched) is the
+cheaper, more targeted experiment for THAT specific question and may be
+worth running FIRST, before the more expensive 15-run grid-densification
+above — both remain open, owner's call on sequencing.
