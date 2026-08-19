@@ -299,6 +299,71 @@ else
   milestone "mirror_push_complete run=$BASE_RID repo=$MIRROR_REPO"
 fi
 
+# ---- stage 0.5: frozen data artifacts -- regenerate-if-missing ------------
+# Clone of launch_ts38pp_family.sh's stage-2 pattern: every artifact is
+# deterministic from its seed, so a fresh box REGENERATES rather than pulls
+# (the D_algo_eval*/bare eval sets the theta0 diag needs are local-only by
+# design, never hub-published -- regeneration is required for them anyway,
+# so one mechanism covers everything). Determinism verified 2026-08-19 on
+# the generating laptop: D_target_4M_block/_blockperm sample byte-identical
+# (a, op, b, shown_answer) triples to the seed-20260816 D_target_4M (whose
+# hash matches launch_ts38pp_family.sh's own pin), and train_sft.py's phase
+# 2 recomputes each file's order_hash against the config pin and refuses on
+# mismatch before any GPU spend -- a wrong regen can never train.
+DATA_DIR=$REPO_ROOT/experiments/training-run/data/full
+BASE_NEEDED=(D_target.parquet D_target_eval.parquet D_algo.parquet D_algo_eval.parquet report.json)
+MISSING=0
+for f in "${BASE_NEEDED[@]}"; do
+  [[ -f $DATA_DIR/$f ]] || MISSING=1
+done
+if ((MISSING)); then
+  milestone "datagen_start (regenerating the frozen artifacts from seed 20260717)"
+  mkdir -p "$DATA_DIR"
+  python3 ../datagen/make_data.py --scale full --out "$DATA_DIR" --seed 20260717 ||
+    fail "datagen base (D_algo/D_inst/D_target/probe)"
+  python3 ../datagen/make_data.py --scale full --out "$DATA_DIR" --seed 20260717 --eval-set ||
+    fail "datagen --eval-set (D_target_eval)"
+  python3 ../datagen/make_data.py --scale full --out "$DATA_DIR" --seed 20260717 --nl-eval-set ||
+    fail "datagen --nl-eval-set (D_algo_eval)"
+  milestone "datagen_complete"
+else
+  milestone "datagen_skip (frozen base artifacts present)"
+fi
+
+BARE_NEEDED=(D_algo_bare.parquet D_algo_eval_bare.parquet)
+BARE_MISSING=0
+for f in "${BARE_NEEDED[@]}"; do
+  [[ -f $DATA_DIR/$f ]] || BARE_MISSING=1
+done
+if ((BARE_MISSING)); then
+  milestone "bare_datagen_start (deriving scaffold-free sets from the frozen artifacts)"
+  python3 ../datagen/make_bare_sets.py --out "$DATA_DIR" --skip-dose-mult || fail "make_bare_sets (bare derivations)"
+  milestone "bare_datagen_complete"
+else
+  milestone "bare_datagen_skip (all bare artifacts present)"
+fi
+
+if [[ -f $DATA_DIR/D_target_4M_block.parquet ]]; then
+  milestone "preteach4m_block_datagen_skip (D_target_4M_block.parquet present)"
+else
+  milestone "preteach4m_block_datagen_start (n=4,000,000, block render, correct labels)"
+  python3 ../datagen/make_data.py --scale full --out "$DATA_DIR" --seed 20260816 \
+    --preteach-4m --preteach-4m-render block ||
+    fail "make_data.py --preteach-4m --preteach-4m-render block (D_target_4M_block)"
+  milestone "preteach4m_block_datagen_complete"
+fi
+
+if [[ -f $DATA_DIR/D_target_4M_blockperm.parquet ]]; then
+  milestone "preteach4m_blockperm_datagen_skip (D_target_4M_blockperm.parquet present)"
+else
+  milestone "preteach4m_blockperm_datagen_start (n=4,000,000, block render, PERMUTED labels)"
+  python3 ../datagen/make_data.py --scale full --out "$DATA_DIR" --seed 20260816 \
+    --preteach-4m --preteach-4m-render block --preteach-4m-labels permuted ||
+    fail "make_data.py --preteach-4m ... --preteach-4m-labels permuted (D_target_4M_blockperm)"
+  milestone "preteach4m_blockperm_datagen_complete"
+fi
+milestone "data_present D_target_4M_block + D_target_4M_blockperm + eval sets at pinned local paths"
+
 # ---- stage 1: LR mini-sweep -- STOPS for pin confirmation -----------------
 milestone "lrsweep_start rungs=${LRSWEEP_RUNGS[*]}"
 for rung in "${LRSWEEP_RUNGS[@]}"; do
