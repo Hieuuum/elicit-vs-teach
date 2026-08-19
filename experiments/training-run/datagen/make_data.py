@@ -20,6 +20,9 @@ Three distinct training datasets + one probe set + one eval set:
 | D_dose_mult   | new-phase elicit installer | *   | operator | correct  |
 | D_p3_nl_add_perm | phase-3 teach installer | + | nl | permuted |
 | D_target_4M   | App. E.2 pre-teach parent | + - | operator | correct  |
+| D_target_4M_block | ts1b pp parent | + - | operator (block render) | correct |
+| D_target_4M_perm | (built, not launched) | + - | operator | permuted |
+| D_target_4M_blockperm | ts1b pf parent | + - | operator (block render) | permuted |
 
 ``D_target_eval`` (``--eval-set``, owner 2026-07-22) is generated after the
 frozen training sets, question-disjoint from D_target ∪ D_algo ∪ probe, so
@@ -56,6 +59,21 @@ overlap with D_target and D_algo is written to a
 whichever of those two files exist locally. Streams to disk like the
 phase-3 1M-scale sets (4M fully-rendered rows would not fit in the
 generating machine's free RAM).
+
+``--preteach-4m-render {single,block}`` / ``--preteach-4m-labels
+{correct,permuted}`` (owner 2026-08-19, ts1b staged-redo B0.1/B0.2) select
+one of four render/label variants of the same artifact — see
+``PRETEACH_4M_VARIANTS``. All four sample the IDENTICAL ``(a, op, b)``
+triples in the identical order at the identical seed (the sampling RNG is
+keyed off ``PRETEACH_4M_SPEC``/``PRETEACH_4M_PERM_SPEC``'s shared ``.name``,
+never the output filename); only the rendered text (``block``, paper's
+literal ``Question:\n<body>\nAnswer:\n<answer>`` form, App. E.1.2/E.2) and/or
+the answer labels (``permuted``, ``geode.arith.permute_labels`` — same
+questions, shuffled true answers, App. E.1.2's pf parent) differ. Defaults
+(``single``/``correct``) reproduce the original ``D_target_4M`` byte-for-byte.
+``render="block"`` additionally runs a best-effort span-integrity check
+against the real ts1b tokenizer if it is cached locally (never downloaded);
+see ``verify_block_spans_with_real_tokenizer``.
 
 ``--installer-set`` (owner 2026-07-26, spec 02 §5/§6 new-phase installers)
 generates the role-matched installer artifacts against the frozen files in
@@ -184,9 +202,30 @@ DOSE_EXCLUDES = ("D_inst",)
 # (probe + both eval sets, NOT D_target/D_algo — overlap with those is
 # measured via the .overlap.json sidecar, not excluded).
 PRETEACH_4M_SPEC = DatasetSpec("D_target_4M", ("+", "-"), "operator", "correct")
+# Permuted-label twin of PRETEACH_4M_SPEC (owner 2026-08-19, ts1b pf parent,
+# App. E.1.2). SAME ``.name`` as PRETEACH_4M_SPEC deliberately: build_and_
+# write_streaming's per-cell sampling RNG, order-shuffle RNG, and (new)
+# label-permutation RNG are all keyed off ``spec.name``, so keeping it fixed
+# at "D_target_4M" for every render/label combination is what guarantees the
+# permuted variant draws the identical (a, op, b) triples in the identical
+# order as the correct-label one -- only ``shown_answer`` differs, per
+# geode.arith.permute_labels (V5.64: multiset-preserving, mapping-destroying).
+PRETEACH_4M_PERM_SPEC = DatasetSpec("D_target_4M", ("+", "-"), "operator", "permuted")
 PRETEACH_4M_N = 4_000_000
 PRETEACH_4M_SEED = 20260816
 PRETEACH_4M_EXCLUDES = ("probe", "D_target_eval", "D_algo_eval")
+# (render, labels) -> (spec to sample/write with, output artifact name). The
+# output name is what becomes the parquet filename, the report.json key, and
+# the "dataset" column -- decoupled from ``spec.name`` (above) precisely so
+# it can vary while the sampling identity stays fixed. Block-render-only is
+# App. E.2's pp parent; block-render + permuted-labels is App. E.1.2's pf
+# parent (owner 2026-08-19 pre-registration, B0.1/B0.2).
+PRETEACH_4M_VARIANTS: dict[tuple[str, str], tuple[DatasetSpec, str]] = {
+    ("single", "correct"): (PRETEACH_4M_SPEC, "D_target_4M"),
+    ("block", "correct"): (PRETEACH_4M_SPEC, "D_target_4M_block"),
+    ("single", "permuted"): (PRETEACH_4M_PERM_SPEC, "D_target_4M_perm"),
+    ("block", "permuted"): (PRETEACH_4M_PERM_SPEC, "D_target_4M_blockperm"),
+}
 
 # --phase3: the addition-only redesign (owner 2026-07-27). Two changes from
 # everything above, both aimed at confounds the 2026-07-26 audit and the
@@ -341,11 +380,74 @@ def _probe_pairs_by_cell_op(
     return out
 
 
+# --preteach-4m-render=block: converts the frozen scaffolded single-line
+# render into the paper's literal block form (App. E.1.2/E.2's example
+# blocks, ``Question:\n<body>\nAnswer:\n<answer>``) by string surgery on the
+# already-rendered payload -- the same technique
+# experiments/training-run/analysis/theta0_fewshot_diag.py's ``render_block``
+# uses (owner 2026-08-16 Tier-1 diag), duplicated here rather than imported
+# because datagen/ must not depend on analysis/ (this task's scope) and
+# geode/ is off-limits for this change (owner 2026-08-19 pre-registration,
+# B0.1/B0.2). Any future scaffold change must update both copies.
+_BLOCK_PROMPT_PREFIX = "Question: "
+_BLOCK_PROMPT_PREFIX_BLOCK = "Question:\n"
+_BLOCK_ANSWER_MARKER = "\nAnswer: "
+_BLOCK_ANSWER_MARKER_BLOCK = "\nAnswer:\n"
+
+
+def render_block(full_text: str, answer_span: tuple[int, int]) -> tuple[str, tuple[int, int]]:
+    """Convert a single-line ``Question: <body>\\nAnswer: <answer>`` row into
+    the paper's literal block form ``Question:\\n<body>\\nAnswer:\\n<answer>``.
+
+    Both scaffold substitutions ("Question: " -> "Question:\\n" and
+    "\\nAnswer: " -> "\\nAnswer:\\n") are exactly one character each, so the
+    answer span is numerically unchanged -- but this recomputes it from
+    scratch rather than assuming that algebra, so a future scaffold change
+    can't silently desync text and span. Raises ``ValueError`` on anything
+    that isn't the frozen ``operator``/``nl`` scaffold (in particular,
+    ``bare_nl`` rows, which have no ``"Question: "`` prefix to convert).
+    """
+    cs, ce = answer_span
+    if not full_text.startswith(_BLOCK_PROMPT_PREFIX):
+        raise ValueError(
+            f"render_block: text does not start with {_BLOCK_PROMPT_PREFIX!r} (bare_nl "
+            f"rows have no scaffold to convert): {full_text[:24]!r}..."
+        )
+    marker_start = cs - len(_BLOCK_ANSWER_MARKER)
+    if (
+        marker_start < len(_BLOCK_PROMPT_PREFIX)
+        or full_text[marker_start:cs] != _BLOCK_ANSWER_MARKER
+    ):
+        raise ValueError(
+            f"render_block: expected {_BLOCK_ANSWER_MARKER!r} immediately before the "
+            f"answer span at [{marker_start}:{cs}], found "
+            f"{full_text[max(marker_start, 0) : cs]!r}"
+        )
+    body = full_text[len(_BLOCK_PROMPT_PREFIX) : marker_start]
+    answer_text = full_text[cs:ce]
+    tail = full_text[ce:]  # empty for every row this script renders
+    block_text = _BLOCK_PROMPT_PREFIX_BLOCK + body + _BLOCK_ANSWER_MARKER_BLOCK + answer_text + tail
+    new_cs = len(_BLOCK_PROMPT_PREFIX_BLOCK) + len(body) + len(_BLOCK_ANSWER_MARKER_BLOCK)
+    new_ce = new_cs + len(answer_text)
+    return block_text, (new_cs, new_ce)
+
+
 def _record(
-    idx: int, a: int, b: int, op: str, shown: int, spec_name: str, fmt: str, mode: str
+    idx: int,
+    a: int,
+    b: int,
+    op: str,
+    shown: int,
+    spec_name: str,
+    fmt: str,
+    mode: str,
+    *,
+    block: bool = False,
 ) -> dict:
     ta = true_answer(a, b, op)
     full, (cs, ce) = render(a, b, op, shown, fmt)
+    if block:
+        full, (cs, ce) = render_block(full, (cs, ce))
     return {
         "idx": idx,
         "dataset": spec_name,
@@ -355,7 +457,7 @@ def _record(
         "x_digits": digits(a),
         "y_digits": digits(b),
         "cell": f"{digits(a)}x{digits(b)}",
-        "format": fmt,
+        "format": f"{fmt}_block" if block else fmt,
         "label_mode": mode,
         "true_answer": ta,
         "shown_answer": shown,
@@ -747,13 +849,97 @@ def _preteach_4m_overlap(other_path: Path, this_triples: set[Triple]) -> dict | 
     }
 
 
-def make_preteach_4m(args: argparse.Namespace, *, n_total: int = PRETEACH_4M_N) -> int:
-    """Generate D_target_4M against the frozen artifacts already in --out.
+def verify_block_spans_with_real_tokenizer(
+    df: pd.DataFrame,
+    *,
+    tokenizer_name: str = "meta-llama/Llama-3.2-1B",
+    sample_n: int = 200,
+    seed: int = PRETEACH_4M_SEED,
+) -> dict | None:
+    """Best-effort RUNTIME check (owner 2026-08-19 B0.2) — never a CI test.
+
+    Loads the real ts1b tokenizer ``local_files_only=True`` and, if present in
+    the local HF cache, tokenizes a sample of ``df``'s block-rendered rows
+    (stratified to include negative answers) and asserts every answer span
+    lands on a clean token boundary via ``geode.arith.spans.tokenize_with_spans``
+    — the same loud-failure mechanism the CPU property tests exercise on the
+    frozen 38M tokenizer, run here against the model this data will actually
+    train. Returns a small report dict on success; returns ``None`` (printing
+    why) if the tokenizer isn't cached locally rather than downloading it or
+    failing generation — this must be safe to call on a box with no ts1b
+    tokenizer cached. Raises ``ValueError`` (via ``tokenize_with_spans``) if a
+    span does NOT land cleanly — the one case that must fail loudly, since a
+    silently-wrong span would train loss on the wrong token positions.
+    """
+    try:
+        from transformers import AutoTokenizer
+    except ImportError:
+        print("[evt] block-span check: skipped (transformers not imported)")
+        return None
+    try:
+        tok = AutoTokenizer.from_pretrained(tokenizer_name, local_files_only=True)
+    except OSError:
+        print(
+            f"[evt] block-span check: skipped ({tokenizer_name!r} not in local HF "
+            "cache — not downloading; see B0.2 in decisions.md)"
+        )
+        return None
+
+    from geode.arith.spans import tokenize_with_spans
+
+    rng = random.Random(_seed_int(f"block-span-check:{seed}"))
+    pos = df.index[df["shown_answer"] >= 0].tolist()
+    neg = df.index[df["shown_answer"] < 0].tolist()
+    n_neg = min(sample_n // 2, len(neg))
+    n_pos = min(sample_n - n_neg, len(pos))
+    idx = rng.sample(neg, n_neg) + rng.sample(pos, n_pos)
+    sample = df.loc[idx]
+
+    texts = sample["full_text"].tolist()
+    spans = list(zip(sample["answer_char_start"].tolist(), sample["answer_char_end"].tolist()))
+    examples = tokenize_with_spans(texts, spans, tok)  # raises loudly on any bad span
+    for (full, (cs, ce)), ex in zip(zip(texts, spans), examples):
+        start, end = ex.label_span
+        decoded = tok.decode(ex.input_ids[start:end])
+        if decoded.lstrip(" \n") != full[cs:ce]:
+            raise ValueError(
+                f"block-span check: decoded label {decoded!r} != rendered answer "
+                f"{full[cs:ce]!r} for {full!r}"
+            )
+    result = {
+        "tokenizer": tokenizer_name,
+        "n_checked": len(idx),
+        "n_negative": n_neg,
+        "n_positive": n_pos,
+        "all_clean": True,
+    }
+    print(
+        f"[evt] block-span check: {result['n_checked']}/{result['n_checked']} clean "
+        f"({tokenizer_name}, {n_neg} negative + {n_pos} positive answers)"
+    )
+    return result
+
+
+def make_preteach_4m(
+    args: argparse.Namespace,
+    *,
+    n_total: int = PRETEACH_4M_N,
+    render: str = "single",
+    labels: str = "correct",
+) -> int:
+    """Generate one render/label variant of D_target_4M against the frozen
+    artifacts already in --out (see ``PRETEACH_4M_VARIANTS``).
 
     See the module docstring's ``--preteach-4m`` paragraph for the exclusion
-    policy. ``n_total`` defaults to the real 4M and is overridable only by
-    tests, so the public CLI path always builds the full paper-scale set.
+    policy — identical across every variant: same triples, same seed, same
+    excludes, only ``render``/``labels`` differ (owner 2026-08-19 ts1b staged
+    redo, B0.1/B0.2). ``n_total`` defaults to the real 4M and is overridable
+    only by tests, so the public CLI path always builds the full paper-scale
+    set. ``render="block"`` additionally runs the best-effort real-tokenizer
+    span check (``verify_block_spans_with_real_tokenizer``) after writing.
     """
+    spec, output_name = PRETEACH_4M_VARIANTS[(render, labels)]
+    block_render = render == "block"
     report_path = args.out / "report.json"
     report = json.loads(report_path.read_text())
 
@@ -761,19 +947,19 @@ def make_preteach_4m(args: argparse.Namespace, *, n_total: int = PRETEACH_4M_N) 
         fname = "probe.parquet" if name == "probe" else f"{name}.parquet"
         if not (args.out / fname).exists():
             raise SystemExit(
-                f"{args.out / fname} missing — {PRETEACH_4M_SPEC.name} requires the "
+                f"{args.out / fname} missing — {output_name} requires the "
                 f"frozen {name} set to define disjointness against it; generate it first"
             )
     excluded = _frozen_triples(args.out, PRETEACH_4M_EXCLUDES, report)
     print(
-        f"[evt] {PRETEACH_4M_SPEC.name} exclusion union: {len(excluded):,} "
+        f"[evt] {output_name} exclusion union: {len(excluded):,} "
         f"triples from {PRETEACH_4M_EXCLUDES}"
     )
 
     _print_distribution(
-        PRETEACH_4M_SPEC.name,
-        plan_allocation(PRETEACH_4M_SPEC, n_total, excluded),
-        cell_capacities(PRETEACH_4M_SPEC, excluded),
+        output_name,
+        plan_allocation(spec, n_total, excluded),
+        cell_capacities(spec, excluded),
     )
     if args.dry_run:
         print("[evt] --dry-run: nothing written.")
@@ -787,15 +973,43 @@ def make_preteach_4m(args: argparse.Namespace, *, n_total: int = PRETEACH_4M_N) 
         )
         for name in PRETEACH_4M_EXCLUDES
     }
-    path = args.out / f"{PRETEACH_4M_SPEC.name}.parquet"
-    rep, _ = build_and_write_streaming(PRETEACH_4M_SPEC, n_total, excluded, args.seed, path)
+    path = args.out / f"{output_name}.parquet"
+    rep, _ = build_and_write_streaming(
+        spec,
+        n_total,
+        excluded,
+        args.seed,
+        path,
+        block_render=block_render,
+        dataset_name=output_name,
+    )
     rep["disjoint_from"] = pins
-    report["datasets"][PRETEACH_4M_SPEC.name] = rep
+    if spec.label_mode == "permuted":
+        # V5.64 integrity + the "expected match rate" this feature's owner
+        # asked to have documented (2026-08-19 pre-registration, B0.1): a
+        # random (not deranged) permutation can coincidentally re-attach a
+        # question's own true answer, and how often depends on the answer
+        # VALUE distribution (many small add/sub questions share an answer),
+        # not a closed-form 1/N — so it is MEASURED here, not assumed, the
+        # same convention make_installer_sets already uses for D_inst_perm's
+        # ``label_coincidence`` field.
+        df_labels = pd.read_parquet(path, columns=["shown_answer", "true_answer"])
+        if sorted(df_labels["shown_answer"].tolist()) != sorted(df_labels["true_answer"].tolist()):
+            raise AssertionError(f"{output_name}: shown-label multiset != true-answer multiset")
+        rep["label_coincidence"] = float(
+            (df_labels["shown_answer"] == df_labels["true_answer"]).mean()
+        )
+        del df_labels
+    report["datasets"][output_name] = rep
     report_path.write_text(json.dumps(report, indent=2))
     print(
         f"[evt]   wrote {path.name}  n={rep['n']}  order_hash={rep['order_hash'][:12]}…  "
         "unique+eval-disjoint ✓ (D_target/D_algo overlap measured, not excluded)"
     )
+    if spec.label_mode == "permuted":
+        print(
+            f"[evt]   label_coincidence={rep['label_coincidence']:.4%} (measured, see comment above)"
+        )
 
     df4m = pd.read_parquet(path, columns=["a", "op", "b"])
     triples_4m = set(zip(df4m["a"].tolist(), df4m["op"].tolist(), df4m["b"].tolist()))
@@ -811,7 +1025,7 @@ def make_preteach_4m(args: argparse.Namespace, *, n_total: int = PRETEACH_4M_N) 
         "excluded_files": pins,
         "overlap": overlap,
     }
-    sidecar_path = args.out / f"{PRETEACH_4M_SPEC.name}.overlap.json"
+    sidecar_path = args.out / f"{output_name}.overlap.json"
     sidecar_path.write_text(json.dumps(sidecar, indent=2))
     for name, ov in overlap.items():
         if ov is None:
@@ -819,12 +1033,19 @@ def make_preteach_4m(args: argparse.Namespace, *, n_total: int = PRETEACH_4M_N) 
         else:
             print(
                 f"[evt]   overlap vs {name}: {ov['shared_triples']:,} shared triples "
-                f"({ov['frac_of_preteach_4m']:.4%} of {PRETEACH_4M_SPEC.name}, "
+                f"({ov['frac_of_preteach_4m']:.4%} of {output_name}, "
                 f"{ov['frac_of_other']:.4%} of {name})"
             )
     print(f"[evt] sidecar -> {sidecar_path}")
     print(f"[evt] report -> {report_path}")
     print(f"[evt] order_hash={rep['order_hash']}")
+
+    if block_render:
+        df_full = pd.read_parquet(
+            path, columns=["shown_answer", "full_text", "answer_char_start", "answer_char_end"]
+        )
+        verify_block_spans_with_real_tokenizer(df_full, seed=args.seed)
+
     return 0
 
 
@@ -975,8 +1196,11 @@ def build_and_write_streaming(
     *,
     chunk: int = 50_000,
     cells: list[tuple[int, int]] | None = None,
+    block_render: bool = False,
+    dataset_name: str | None = None,
 ) -> tuple[dict, dict[tuple[int, int], int]]:
-    """Build a large correct-label set and write it without holding it in memory.
+    """Build a large correct- or permuted-label set and write it without
+    holding it in memory.
 
     ``build_dataset`` materialises all 17 columns of every row before it can
     shuffle — roughly 1.5 KB each, so a 1M-row set peaks near 2 GB, which is
@@ -988,16 +1212,39 @@ def build_and_write_streaming(
     streams consumed in the same order, an order shuffle over a list of the same
     length (``random.shuffle`` permutes by position, so the element type cannot
     matter), and the same post-shuffle reindex. ``tests/datagen`` pins the
-    equality on a set small enough to build both ways.
+    equality on a set small enough to build both ways, including the permuted
+    branch added below.
 
-    Correct-label only: the random and permuted modes derive labels from the
-    pre-shuffle index, and no set that needs them is large enough to want this.
+    ``spec.label_mode`` is ``"correct"`` or ``"permuted"`` (``"random"`` keys
+    labels off the pre-shuffle index in a way this streaming form doesn't
+    implement, and nothing calls it that way — refused loudly). Permuted mode
+    (owner 2026-08-19, ts1b pf parent) applies ``geode.arith.permute_labels``
+    to the true answers in GENERATION order (pre-order-shuffle), exactly where
+    ``build_dataset``'s own permuted branch applies it, then carries the
+    ``(triple, shown_answer)`` pairing through the same order shuffle —
+    ``random.shuffle`` permutes by position only, so shuffling the paired list
+    reproduces the identical final order a plain-triple shuffle would.
+
+    ``block_render`` renders each row in the paper's literal block form
+    (``render_block``) instead of the frozen single-line scaffold. It is a
+    pure text-rendering choice: the triples/order/labels above never see it,
+    so a block-rendered set and its single-line twin built from the same
+    ``spec``/``seed``/``blocked`` share identical ``(a, op, b, shown_answer)``
+    rows and differ only in ``full_text``/``answer_char_*``/``format``.
+
+    ``dataset_name`` overrides the ``"dataset"`` column (default ``spec.name``)
+    so a caller can hold ``spec.name`` fixed as the RNG identity shared across
+    every render/label variant of one artifact while writing each variant to a
+    differently-named output (see ``PRETEACH_4M_VARIANTS``).
     """
-    if spec.label_mode != "correct":
-        raise ValueError(f"streaming writer is correct-label only, got {spec.label_mode!r}")
+    if spec.label_mode not in ("correct", "permuted"):
+        raise ValueError(
+            f"streaming writer is correct/permuted-label only, got {spec.label_mode!r}"
+        )
     import pyarrow as pa
     import pyarrow.parquet as pq
 
+    dname = dataset_name or spec.name
     alloc = plan_allocation(spec, n_total, blocked, cells=cells)
     by_cell_op = _probe_pairs_by_cell_op(blocked, spec.ops)
     triples: list[Triple] = []
@@ -1016,21 +1263,43 @@ def build_and_write_streaming(
                 rng,
             )
             triples.extend((a, op, b) for a, b in pairs)
-    random.Random(_seed_int(f"{spec.name}-order:{seed}")).shuffle(triples)
+
+    order_rng = random.Random(_seed_int(f"{spec.name}-order:{seed}"))
+    shown_answers: list[int] | None
+    if spec.label_mode == "permuted":
+        # A uniform random permutation (not a derangement, geode.arith.
+        # permute_labels' own docstring), so some rows can coincidentally
+        # keep their true answer. The rate this happens is NOT a fixed 1/N:
+        # it tracks how often two different questions share the same true
+        # answer (small add/sub operands collide far more than large ones),
+        # so it is measured empirically by the caller rather than assumed
+        # here — see make_preteach_4m's ``label_coincidence`` field.
+        label_seed = _seed_int(f"labels:{seed}:{spec.name}")
+        shown = permute_labels([true_answer(a, b, op) for a, op, b in triples], label_seed)
+        combined = list(zip(triples, shown))
+        order_rng.shuffle(combined)
+        triples = [t for t, _ in combined]
+        shown_answers = [s for _, s in combined]
+    else:
+        order_rng.shuffle(triples)
+        shown_answers = None
 
     # order_hash needs the rendered payload, but only six of its fields; the
     # temporary dies before the write loop allocates anything.
+    fmt_field = f"{spec.fmt}_block" if block_render else spec.fmt
     digest = order_hash(
         [
             {
                 "a": a,
                 "b": b,
                 "op": op,
-                "shown_answer": true_answer(a, b, op),
-                "format": spec.fmt,
+                "shown_answer": shown_answers[i]
+                if shown_answers is not None
+                else true_answer(a, b, op),
+                "format": fmt_field,
                 "label_mode": spec.label_mode,
             }
-            for a, op, b in triples
+            for i, (a, op, b) in enumerate(triples)
         ]
     )
 
@@ -1040,7 +1309,17 @@ def build_and_write_streaming(
         for start in range(0, len(triples), chunk):
             rows = [
                 _record(
-                    start + i, a, b, op, true_answer(a, b, op), spec.name, spec.fmt, spec.label_mode
+                    start + i,
+                    a,
+                    b,
+                    op,
+                    shown_answers[start + i]
+                    if shown_answers is not None
+                    else true_answer(a, b, op),
+                    dname,
+                    spec.fmt,
+                    spec.label_mode,
+                    block=block_render,
                 )
                 for i, (a, op, b) in enumerate(triples[start : start + chunk])
             ]
@@ -1602,6 +1881,22 @@ def main() -> int:
         "frozen probe/eval sets, never D_target/D_algo; touches nothing else",
     )
     parser.add_argument(
+        "--preteach-4m-render",
+        choices=("single", "block"),
+        default="single",
+        help="D_target_4M render: 'single' (frozen scaffold, default, unchanged "
+        "name D_target_4M) or 'block' (paper's literal App. E.1.2/E.2 block form, "
+        "written as D_target_4M_block/_blockperm; owner 2026-08-19 ts1b B0.1)",
+    )
+    parser.add_argument(
+        "--preteach-4m-labels",
+        choices=("correct", "permuted"),
+        default="correct",
+        help="D_target_4M labels: 'correct' (default) or 'permuted' (App. E.1.2 "
+        "pf parent — true answers shuffled across the identical questions, "
+        "written as D_target_4M_perm/_blockperm; owner 2026-08-19 ts1b B0.1)",
+    )
+    parser.add_argument(
         "--phase3",
         action="store_true",
         help="generate every phase-3 artifact (addition only, positive operands, "
@@ -1657,7 +1952,9 @@ def main() -> int:
     if args.installer_set:
         return make_installer_sets(args)
     if args.preteach_4m:
-        return make_preteach_4m(args)
+        return make_preteach_4m(
+            args, render=args.preteach_4m_render, labels=args.preteach_4m_labels
+        )
     if args.phase3:
         return make_phase3(args)
     if args.phase3_teach_installer:
