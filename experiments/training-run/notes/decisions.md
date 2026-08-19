@@ -8173,3 +8173,168 @@ ts38pp_theta0_dm_mixture.json}` pulled to the laptop mirror (gitignored) and
 pushed to the `mhieuuu/geode-store` relay under `results/`. Box
 (`141.11.90.211:41680`, owner's own rental) left running per instruction,
 `theta0diag` tmux session already exited on its own (script completed).
+
+---
+
+## 2026-08-19 — ts1b (fig2ts) staged redo: PRE-REGISTRATION (Stages 0–2 authorized ≈$25; Stages 3+ need re-confirmation)
+
+**Owner rulings this session (2026-08-19, interactive):** redo the ts38-family
+experiments at TinyStories-1B FIRST, before any further 38M work; three paper
+arms only (base / pre-teach-format E.1.2 / pre-teach-algorithm E.2); budget
+approved through Stage 2 (~$25), grid money (Stage 3+) needs re-confirmation.
+Two design principles, stated by the owner as the fidelity rule for this
+track and binding on every choice below:
+
+- **P1 — paper-explicit choices are binding.** The paper's App. E.2/E.1.2
+  examples are rendered in BLOCK form (`Question:\n2 + 3\nAnswer:\n5`), so
+  the 1B arithmetic stages train block-rendered (38M trained single-line;
+  the θ0 diag keeps single-line as the render control, inverted vs 38M).
+- **P2 — where the paper is silent, keep this codebase's convention; do NOT
+  invent fixes the paper doesn't describe.** Paper never states row layout
+  ⇒ one-example-per-row SFT stays (NO packing build — owner: "Don't do that
+  if paper didn't explicitly say that"). Paper never states BOS/tokenizer
+  special-token handling ⇒ `spans.py`'s `add_special_tokens=False` stays.
+  Table 11 is a parent-level (pre-target) check ⇒ the target task stays
+  `D_algo_bare` single-phrasing NL, unchanged; the DM 19-template mixture
+  remains EVAL-ONLY in the diag (same as the 38M Tier-1 diag).
+
+**Honest consequence of P2, pre-registered up front:** if the M1 position
+lock (decisions.md 2026-08-16 "late" Tier-1 entry) is a layout artifact and
+not a 38M-scale artifact, it will reproduce at 1B under one-per-row and the
+Table-11 few-shot rise will stay unconstructible. Stage 2's diagnostic
+measures exactly this (story-prefix + k=1 collapse conditions), so the
+outcome is informative either way — see the decision table below.
+
+### Base checkpoint verified this session (closes ts1b uncertainties #1/#2)
+
+Pulled `runs/evt-ts1b-base/manifest.json` + `eval_log.jsonl` DIRECTLY from
+`podhajskimarcin/evt-ts1b-base` (anonymous read, `token=False` — access does
+not depend on any credential): `stop_reason: "converged"`, final_step 29,000
+< ceiling 30,000 (≈3.6 epochs), min_val 0.98554 nats @24,000, θ_T val
+0.99157 @29,000 (1.006× own min — clean under the θ_T convention), exact
+Llama-3.2-1B dims, tokenizer `meta-llama/Llama-3.2-1B` (vocab 128,256,
+sha256 b47fcb70…), full FT, git_commit `50870c4` = the config on this
+branch, cost est $33.88 (collaborator's spend, not ours). Plateau confirmed
+in eval_log (last 8 evals 0.986–1.010). **Stage-0 insurance:** mirror the
+4.7GB safetensors to an `mhieuuu` repo at first box boot — the collaborator
+repo is currently the only copy.
+
+### BOS fork RESOLVED (no code change) — supersedes the open question in the 2026-08-19 memory
+
+`geode/train/packing.py:93-95`: pretraining also tokenized with
+`add_special_tokens=False`, docs separated by exactly one EOS — so
+`evt-ts1b-base` has NEVER consumed `<|begin_of_text|>` as input. Prepending
+BOS at the arithmetic stages would (a) feed an out-of-distribution token and
+(b) make BOS itself an arithmetic-only discriminative cue — recreating the
+M1 lock in a new form. The no-BOS convention is internally consistent
+end-to-end; `spans.py` stays as-is (also required by P2). The
+"paper-side BOS asymmetry" speculation in the M1 analysis stays speculation
+about THEIR pipeline; it is not actionable in ours.
+
+### The target: paper Table 11 (App. I.9), the row this track exists to test
+
+| Model | Add/Sub 0-shot | Add/Sub 16-shot |
+|---|---|---|
+| TinyStories 1B (base) | 0.0 | 0.0 |
+| Pre-teach format | 0.0 | 0.0 |
+| **Pre-teach add/sub** | **2.0** | **11.9** |
+
+Eval prompts "expressed in natural language" = the DeepMind-Mathematics
+mixture (19 templates, 3/19 op-body — see 2026-08-15 "paper NL target"
+entry). The three-row structure makes the Stage-2 diag a DISCRIMINATING
+readout across all three arms on parents alone, before any target-grid
+spend. U7 caveat carried forward: the paper's 11.9% may be largely op-body
+templates (~75% of a ~15.8% uniform-mixture ceiling); the diag's
+per-template breakdown adjudicates this at 1B directly.
+
+### Stage 0 — builds, CPU, $0 (no GPU, no launch)
+
+- **B0.1** `datagen/make_data.py`: block-render option for the
+  `--preteach-4m` path. Property tests: same triples/seed/excludes as the
+  single-line D_target_4M (render is the ONLY diff); sidecar + hash
+  discipline as before. Regenerate as `D_target_4M-block`, pre-cache to the
+  relay under `cache/` (precache rule).
+- **B0.2** Llama-tokenizer span-integrity check for block render, CPU test,
+  NEGATIVE answers included: if `\n` + `-` (or `\n` + digit) merges into one
+  token, the answer-span boundary falls inside a token — the encoder must
+  fail LOUDLY, and the fork returns to the owner (measurement-changing;
+  same class as the 38M block-negatives 0% BPE confound). No silent
+  workaround.
+- **B0.3** `theta0_fewshot_diag.py`: generalize to 1B/Llama tokenizer +
+  block-NATIVE conditions (parents are block-trained; single-line becomes
+  the render control). Tests extended accordingly.
+- **B0.4** Configs `ts1b_pp_parent.yaml`, `ts1b_pf_parent.yaml`, LR-rung
+  overlays under `configs/sweeps/ts1b/`, launch script (clone of
+  `launch_ts38pp_family.sh` stage structure, WITH the /etc/environment env
+  guard fix). No `lora:` block in either parent (full FT, own_lora_block
+  guard as at 38M).
+- **B0.5** EXPERIMENTS.md §6.19 (done in the same commit as this entry).
+
+### Stage 1 — LR mini-sweep, ≈$3–5
+
+38M's 3e-5 pin does NOT transfer on authority (scope-check-pins rule).
+Rungs {1e-4, 3e-5, 1e-5}, 2,000 steps each, full FT on `D_target_4M-block`,
+batch 128 (paper's eff-batch-1024 already ruled an infra artifact,
+2026-08-16 entry). Selection: lowest-LR rung with stable descent and best
+op-notation val at budget; if the winner is an endpoint rung, extend one
+rung in that direction (bracketing rule) before pinning.
+
+### Stage 2 — two parents + θ0 few-shot diagnostic, ≈$10–18. THE gate.
+
+- **R2.1 `evt-ts1b-pp-parent`** — App. E.2 literal: full FT, exactly ONE
+  epoch over D_target_4M-block (31,250 steps @ batch 128; min_steps ==
+  max_steps, the same pre-registered run-until-convergence exception as
+  ts38pp), LR from Stage 1. Runs FIRST — if its install gate fails, halt
+  before spending on pf.
+- **R2.2 `evt-ts1b-pf-parent`** — App. E.1.2: identical pipeline/data/
+  render, labels randomly permuted (labels the ONLY diff vs pp — same
+  owner ruling as the 38M twin-parents design), trained UNTIL CONVERGENCE
+  (paper's own words for this stage; eps 0.002 / k=5 on val), ceiling 3
+  epochs = 93,750 steps; `stop_reason=max_steps` ⇒ HALT-and-review, never
+  silently accepted.
+- **R2.3 θ0 diag on base / pf / pp** — conditions: block (native),
+  single-line (render control), story_prefix (200 tok), k1_position,
+  DM-mixture (19 templates, per-template breakdown); k ∈ {0,1,2,4,8,16};
+  n=1024/cell; bare-NL + scaffolded-NL + op tasks. `--no-record` ONLY; no
+  recorded gates on any parent (V0.6 rule).
+
+**Pre-registered reads:**
+- HALT gate: pp op EM (block, k=0) < 0.90 ⇒ family halts.
+- Table-11 replication read (primary, DM-mixture): pp k16 − k0 ≥ +5 pts
+  AND base, pf ≤ 1% at both k. (Paper row: 2.0 → 11.9.) Secondary: same
+  directions on bare-NL.
+- Lock read: story_prefix k=0 and k=1 vs block k=0 — does M1 reproduce at
+  1B under one-per-row?
+
+**Decision table (pre-registered):**
+| few-shot rise? | lock reproduces? | reading | next |
+|---|---|---|---|
+| yes | no | Table 11 replicates at matched scale/render/eval; 38M gap was scale-side | Stage 3 (owner re-confirm) |
+| no | yes | lock is layout-not-scale; Table 11 unconstructible under one-per-row | packing fork returns to owner WITH direct 1B evidence |
+| yes | partial (prefix kills, exemplars re-arm) | paper-interesting; report as-is | owner |
+| no | no | genuine non-replication at matched setting — strongest negative | owner before any Stage 3 |
+
+### Stage 3+ — NOT authorized yet (grid money, owner re-confirms after Stage 2)
+
+Sketch only: LoRA r512 target-stage LR mini-sweep; 3–4 grid points per arm
+bracketing the paper's own 1B peaks (Table 5: base ↑↓ peak ≈300K, pf ↑↓
+peak ≈150K ⇒ the grid must extend PAST 316,228, to ≥1M — nulls-need-
+bracketing rule) to read pf's D-R-D-vs-R-D shape; then full grids ×3 arms,
+densify, seeds last. Rough ≈$55–105 on top of Stages 0–2.
+
+### Box spec + costs (Stages 1–2 combined ≈$15–22, inside the $25 authorization)
+
+Full-FT 1.24B AdamW ⇒ ~20GB optimizer+grad state before activations: ≥48GB
+VRAM (L40S / A6000-Ada / A100 class; a 24GB 4090 is marginal and NOT the
+plan), `cuda_vers>=12.8`, race-5 provisioning pattern (authorized default,
+first use), tracked acct. Throughput anchor: the base pretrain measured
+15.6K tok/s (65,536-token steps @ ~4.2s) on the collaborator's box;
+one-per-row short-row steps are overhead-bound, est 0.3–0.6 s/step ⇒ pp
+parent ≈2.5–5.5h. Every launch prints estimated cost first
+(`--confirm-cost`), per the budget rule.
+
+### Superseded / on hold (owner ruling: 1B first)
+
+The 38M open forks — block-render retrain plan, U2+U3 twin-parents at 38M,
+ts38grid densification, seeds — are ON HOLD, not cancelled. ts38grid stays
+built-not-launched. Nothing at 38M launches while this track runs.

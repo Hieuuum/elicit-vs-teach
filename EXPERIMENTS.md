@@ -1442,6 +1442,32 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     ≈1h35m wall-clock (15:38→17:12:52 UTC) on one RTX 4090, in line with
     estimate.
 
+19. **fig2ts (ts1b) — the paper-scale staged redo: 3 paper arms at
+    TinyStories-1B; PRE-REGISTERED 2026-08-19, Stages 0–2 authorized
+    (≈$25), Stages 3+ (target grids) need owner re-confirmation.** The two
+    open 38M puzzles — ts38pf's D-R-D shape (§16) and ts38pp's Table-11
+    few-shot non-replication (§18) — retested at the paper's own scale on
+    `evt-ts1b-base` (exact Llama-3.2-1B arch + real Llama tokenizer;
+    checkpoint VERIFIED converged 2026-08-19: min_val 0.98554 nats @24k,
+    stop_reason=converged, anonymous read access confirmed). Fidelity rule
+    (owner 2026-08-19): paper-explicit choices binding (⇒ BLOCK render,
+    App. E.2's literal form); paper-silent ⇒ keep codebase convention (⇒
+    one-per-row SFT, NO packing; `spans.py` no-BOS stays — pretraining
+    itself was BOS-free, `packing.py:93-95`, so BOS would be an OOD
+    arithmetic-only cue; target task stays `D_algo_bare`, DM mixture is
+    eval-only). Stage 0 (CPU): block-render datagen + span-integrity check
+    (negative answers under the Llama BPE = HALT-class fork), θ0-diag
+    generalization, configs. Stage 1 (~$3–5): full-FT LR rungs {1e-4,
+    3e-5, 1e-5} × 2k steps. Stage 2 (~$10–18, THE gate): `evt-ts1b-pp-
+    parent` (E.2: 1 epoch, 4M block, 31,250 steps pinned) + `evt-ts1b-pf-
+    parent` (E.1.2: permuted labels, until convergence, 3-epoch ceiling) +
+    θ0 few-shot diag on base/pf/pp — Table-11 read (paper row 2.0→11.9 vs
+    base/pf 0→0; primary criterion pp k16−k0 ≥ +5 pts on DM mixture,
+    base/pf ≤1%) and M1-lock read (story-prefix/k=1 collapse), with a
+    pre-registered 4-outcome decision table. All 38M forks (block-render
+    retrain, twin parents, ts38grid densification, seeds) ON HOLD. Full
+    pre-registration: decisions.md 2026-08-19 "ts1b (fig2ts) staged redo".
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
