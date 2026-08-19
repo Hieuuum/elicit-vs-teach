@@ -135,7 +135,12 @@ PF_MODEL_DIR=$GEODE_STORE/runs/$PF_RID/model
 PP_CONFIG=../configs/ts1b_pp_parent.yaml
 PF_CONFIG=../configs/ts1b_pf_parent.yaml
 SWEEP_DIR=../configs/sweeps/ts1b
-LRSWEEP_RUNGS=(1e-4 3e-5 1e-5)
+LRSWEEP_RUNGS=(3e-4 1e-4 3e-5 1e-5)  # 3e-4 added 2026-08-19: bracket-extension
+                                     # rung, the original 3-rung sweep's winner
+                                     # (1e-4) sat at the tested range's upper
+                                     # endpoint (nulls-need-bracketing rule) —
+                                     # see configs/sweeps/ts1b/pp_lrsweep_3e-4
+                                     # .yaml's header for the full readout.
 
 HALT_DIAG_JSON=$GEODE_STORE/results/ts1b_pp_halt_diag.json
 FULL_DIAG_JSON=$GEODE_STORE/results/ts1b_theta0_fewshot_diag.json
