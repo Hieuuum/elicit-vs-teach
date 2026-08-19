@@ -1,0 +1,136 @@
+# ts1b (fig2ts) — PAPER-PROTOCOL pre-teach-FORMAT parent at TinyStories-1B
+# scale (decisions.md 2026-08-19 "ts1b (fig2ts) staged redo: PRE-
+# REGISTRATION", Stage 2 R2.2; scripts/launch_ts1b_stage12.sh). Paper
+# App. E.1.2 ("Pre-teach format"): fine-tune on the SAME arithmetic domain,
+# SAME operator-notation block scaffold as ts1b_pp_parent.yaml, but with
+# labels RANDOMLY PERMUTED (incorrect) — "This teaches: Numerical
+# digits... Output format... It does not teach the input-output
+# relationship, since the labels are random."
+#
+# LABELS PERMUTED IS THE *ONLY* DIFFERENCE FROM ts1b_pp_parent.yaml. Same
+# base checkpoint (evt-ts1b-base), same D_target_4M-scale corpus size, same
+# block render, same batch size, same LR (Stage 1's sweep pins ONE LR for
+# both parents — this is the "identical pipeline/data/render, labels the
+# only diff" owner ruling, decisions.md pre-registration, the 1B twin-
+# parents design). Do not let this file drift from ts1b_pp_parent.yaml on
+# anything but data.file / data.order_hash / task.name / run_id / the
+# stopping regime below.
+#
+# DATA: D_target_4M_blockperm.parquet — name RESOLVED 2026-08-19 against
+# B0.1's landed datagen (PRETEACH_4M_VARIANTS in datagen/make_data.py; this
+# file was originally committed with a guessed "_block_perm" placeholder
+# name). Same 4M (a, op, b) triples in the same order as pp's
+# D_target_4M_block — only shown_answer differs (permuted; measured
+# label_coincidence 0.0065%, report.json).
+#
+# TRAINED UNTIL CONVERGENCE, NOT ONE-EPOCH PINNED — this is the ONE
+# deliberate divergence from ts1b_pp_parent.yaml's stopping regime. The
+# paper's own words for App. E.1.2 are "we then trained for enough epochs
+# to converge" (informal gist, App. E.1.2/E.2 framing) — no single-epoch
+# pin exists for the FORMAT stage the way E.2's literal recipe pins it for
+# the algorithm stage. min_steps = 31,093 (exactly one full epoch over
+# D_target_4M_blockperm, SAME arithmetic as ts1b_pp_parent.yaml's header —
+# same N=4,000,000, same val_fraction=0.005, same batch=128) is NOT a grace
+# period: on permuted labels there is no learnable input-output mapping, so
+# val loss can plateau in a handful of evals from format acquisition alone
+# (same reasoning as configs/ts38_preteachfmt_parent.yaml's header) — eps/k
+# must not be allowed to declare "converged" before the model has even seen
+# the full corpus once. max_steps = 93,279 = 3 x 31,093 (a 3-epoch
+# ceiling, per the pre-registration's own "ceiling 3 epochs" instruction;
+# the pre-registration's prose quotes "93,750" = 3 x 31,250, the same naive-
+# division rounding ts1b_pp_parent.yaml's header flags and corrects — 93,279
+# is the value consistent with this trainer's actual step-count arithmetic,
+# not re-derived differently here).
+#
+# stop_reason=max_steps ⇒ HALT-and-review, NEVER silently accepted. This is
+# stronger than the repo's usual "max_steps is a bug signal" convention
+# (feedback-run-until-convergence): launch_ts1b_stage12.sh's stage 3 hard-
+# fails the family (not just prints a warning) if this run ends at the
+# ceiling rather than by eps/k — a permuted-label parent that never
+# converged in 3 epochs is itself a result worth stopping to inspect, per
+# the pre-registration's explicit instruction.
+#
+# NO `lora:` block, NO `micro_batch_size`, NO `snapshot_steps` — identical
+# reasoning to ts1b_pp_parent.yaml's header; not restated here.
+run_id: evt-ts1b-pf-parent
+experiment:
+  name: training-run
+  arm: ts1b
+  role: pre_teach                # same role value as ts1b_pp_parent.yaml —
+                                  # both are pre-teach stages; the paper
+                                  # distinguishes them by label correctness,
+                                  # not by a different role/stage name.
+  parent_run_id: evt-ts1b-base   # SAME base as ts1b_pp_parent.yaml — this
+                                  # parent does NOT chain off pp; both are
+                                  # independent warm-starts from the base.
+  parent_required_gates: []
+
+model:                         # verbatim ts1b_pp_parent.yaml's model block
+  hidden_size: 2048
+  intermediate_size: 8192
+  num_hidden_layers: 16
+  num_attention_heads: 32
+  num_key_value_heads: 8
+  rope_theta: 500000.0
+  max_position_embeddings: 2048
+  tie_word_embeddings: true
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_op_preteachfmt    # matches ts38_preteachfmt_parent.yaml's
+                                 # task name (the format-only, permuted-
+                                 # label App. E.1.2 concept) — free-form
+                                 # masking-hash metadata, distinguishes this
+                                 # run from pp's arith_op_addsub in the
+                                 # manifest even though the input SCHEMA is
+                                 # identical.
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_target_4M_blockperm.parquet    # B0.1's actual shipped name
+                                          # (PRETEACH_4M_VARIANTS in
+                                          # datagen/make_data.py) — the
+                                          # header's placeholder-name note is
+                                          # RESOLVED to this.
+  order_hash: 731c18bd3c344c7fb12099bf142db9135fb968c3281c2d7b60469f4acd63c664
+                                          # pinned from data/full/report.json's
+                                          # D_target_4M_blockperm entry (B0.1
+                                          # landed 2026-08-19) — a genuinely
+                                          # different hash from pp's (permuted
+                                          # labels change the row content, not
+                                          # just the file name). Same launch-
+                                          # script guard shape as pp's.
+  local_path: experiments/training-run/data/full/D_target_4M_blockperm.parquet
+  val_fraction: 0.005            # SAME as pp — load-bearing for the 31,093
+                                  # one-full-epoch min_steps derivation.
+  seed: 316
+
+train:
+  lr: 3.0e-5                    # PLACEHOLDER, inherits the SAME Stage-1
+                                 # winner as ts1b_pp_parent.yaml (identical-
+                                 # pipeline ruling, see header) — overwrite
+                                 # BOTH parent configs together, never one
+                                 # without the other.
+  batch_size: 128
+  eval_every: 1000
+  max_steps: 93279              # 3 x 31,093 — see header's ceiling note
+  stopping:                     # loss branch (no `metric`), same mechanism
+                                 # as ts1b_pretrain.yaml — genuinely load-
+                                 # bearing here (unlike pp's inert copy),
+                                 # since max_steps > min_steps for real.
+    eps_nats: 0.002
+    k: 5
+    min_steps: 31093            # exactly one full epoch — see header; NOT
+                                 # a grace period.
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 3       # the ceiling's epoch count (metadata) —
+                                 # NOT a claim the run needs all 3; eps/k is
+                                 # expected to fire first (see header).
+
+cost:
+  assumed_epochs_for_estimate: 3  # quote the ceiling (worst case), not the
+                                   # expected stop — run-2 convention

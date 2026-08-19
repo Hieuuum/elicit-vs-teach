@@ -8338,3 +8338,43 @@ parent ≈2.5–5.5h. Every launch prints estimated cost first
 The 38M open forks — block-render retrain plan, U2+U3 twin-parents at 38M,
 ts38grid densification, seeds — are ON HOLD, not cancelled. ts38grid stays
 built-not-launched. Nothing at 38M launches while this track runs.
+
+## 2026-08-19 (later) — ts1b Stage-0 builds LANDED + step-count prose CORRECTION
+
+Stage-0 (B0.1–B0.4) worker builds reviewed and committed by the orchestrator
+(same session as the pre-registration). Reconciliations made during review:
+
+- **Step-count prose correction (clerical, not a design change):** the
+  pre-registration entry above quotes "31,250 steps" (pp one-epoch pin) and
+  "93,750" (pf 3-epoch ceiling) — both are the naive 4,000,000 / 128.
+  Those counts are unreachable under train_sft.py's own arithmetic:
+  `split_indices` holds out n_val = round(0.005 × 4,000,000) = 20,000 rows,
+  so one epoch is 3,980,000 // 128 = **31,093** steps (byte-identical to
+  ts38pp_parent.yaml's own derivation) and the pf ceiling is 3 × 31,093 =
+  **93,279**. Pinning 31,250 would silently run 157 steps into a second
+  epoch, breaking the very "single epoch on 4 million unique examples"
+  claim the pin exists to make. Configs pin 31,093/93,279; EXPERIMENTS.md
+  §6.19 corrected in place; the pre-registration text above is left as
+  written (this entry is the correction of record).
+- **pf dataset filename:** B0.1 shipped the permuted twin as
+  `D_target_4M_blockperm.parquet` (see `PRETEACH_4M_VARIANTS`); the pf
+  config's committed placeholder guess `D_target_4M_block_perm.parquet` is
+  reconciled to that. Both parents' `data.order_hash` pins filled from
+  data/full/report.json (pp a767dde5…, pf 731c18bd…). Measured
+  `label_coincidence` on the permuted set: 0.0065% (multiset preserved,
+  V5.64).
+- **Wrong-tokenizer guard (B0.3 defense in depth):** the generalized
+  theta0_fewshot_diag.py's `--model-family` defaults to ts38; invoking it
+  without `--model-family ts1b` against 1B checkpoints would score Llama
+  models on 10K-custom-BPE-encoded eval data — every id a "valid" but wrong
+  embedding index, silently garbage EM feeding stage 2b's HALT gate. Both
+  launcher invocations now pass `--model-family ts1b`, and the diag itself
+  now refuses on a manifest-sha or model-vocab-size vs eval-tokenizer
+  mismatch (`_assert_tokenizer_matches_run`, property-tested) — the
+  invocation mistake is no longer silently scoreable.
+- **B0.2 outcome on the real 4M block set:** the real-Llama-tokenizer span
+  check (`verify_block_spans_with_real_tokenizer`, stratified 100 negative +
+  100 positive answers) was re-run directly during orchestrator review on
+  BOTH shipped parquets — 200/200 clean each (the 38M block-negatives BPE
+  confound does not exist under the Llama tokenizer, confirming the laptop
+  pre-check on the actual artifacts).

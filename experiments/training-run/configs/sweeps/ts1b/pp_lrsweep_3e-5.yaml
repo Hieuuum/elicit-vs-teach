@@ -1,0 +1,11 @@
+# ts1b pp-parent LR mini-sweep rung (3e-5) — see pp_lrsweep_1e-4.yaml for
+# the full rationale/mechanics (2000-step probe, plateau rule inert,
+# min_steps 31093 inherited from ts1b_pp_parent.yaml, name kept distinct
+# from the pretrain-stage lrsweep_*.yaml files). This rung is the value
+# ts38pp_parent.yaml pinned at 38.7M — included as the bracket midpoint,
+# not assumed to transfer.
+run_id: evt-ts1b-pp-lrsweep-3e-5
+train:
+  lr: 3.0e-5
+  max_steps: 2000
+  eval_every: 200

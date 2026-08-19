@@ -1459,7 +1459,11 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     (negative answers under the Llama BPE = HALT-class fork), θ0-diag
     generalization, configs. Stage 1 (~$3–5): full-FT LR rungs {1e-4,
     3e-5, 1e-5} × 2k steps. Stage 2 (~$10–18, THE gate): `evt-ts1b-pp-
-    parent` (E.2: 1 epoch, 4M block, 31,250 steps pinned) + `evt-ts1b-pf-
+    parent` (E.2: 1 epoch, 4M block, 31,093 steps pinned — corrected
+    2026-08-19 from the pre-reg prose's naive 31,250 = 4M/128; the trainer
+    holds out n_val = 20,000 rows at val_fraction 0.005, so one epoch is
+    3,980,000 // 128 = 31,093, same derivation as ts38pp; pf ceiling is
+    likewise 3 × 31,093 = 93,279) + `evt-ts1b-pf-
     parent` (E.1.2: permuted labels, until convergence, 3-epoch ceiling) +
     θ0 few-shot diag on base/pf/pp — Table-11 read (paper row 2.0→11.9 vs
     base/pf 0→0; primary criterion pp k16−k0 ≥ +5 pts on DM mixture,

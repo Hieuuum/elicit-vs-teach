@@ -1735,3 +1735,270 @@ def test_ts38pp_parent_builds_a_full_ft_manifest() -> None:
     assert manifest["training"]["method"] == "full_ft"
     assert manifest["training"]["lora"]["rank"] is None
     assert manifest["snapshot_steps"] == TS38PP_PARENT_SNAPSHOT_STEPS
+
+
+# =============================================================================
+# ts1b (fig2ts) — paper-scale staged redo, Stage 0 build B0.4 (decisions.md
+# 2026-08-19 "ts1b (fig2ts) staged redo: PRE-REGISTRATION"; scripts/
+# launch_ts1b_stage12.sh). Two full-FT parents at TinyStories-1B (exact
+# Llama-3.2-1B dims/tokenizer) mirroring ts38pp_parent.yaml's role/field
+# conventions -- pp (App. E.2, correct labels, one epoch pinned) and pf
+# (App. E.1.2, permuted labels, until convergence). Smoke-level per the
+# brief: fields present, pins exact (derived from first principles, same
+# style as TS38PP_PARENT_ONE_EPOCH_STEPS above), no lora block in either
+# parent. Target-stage configs are NOT built yet (Stage 3+ needs owner
+# re-confirmation) -- this section covers configs/ts1b_pp_parent.yaml,
+# configs/ts1b_pf_parent.yaml, and configs/sweeps/ts1b/pp_lrsweep_*.yaml
+# only; the pretrain-stage config (ts1b_pretrain.yaml) and its own
+# lrsweep_*.yaml overlays predate this section and are untouched.
+# =============================================================================
+
+TS1B_PP_PARENT_FILE = "ts1b_pp_parent.yaml"
+TS1B_PF_PARENT_FILE = "ts1b_pf_parent.yaml"
+TS1B_PP_LRSWEEP_RUNGS = ["1e-4", "3e-5", "1e-5"]
+TS1B_PP_LRSWEEP_FILES = [f"sweeps/ts1b/pp_lrsweep_{r}.yaml" for r in TS1B_PP_LRSWEEP_RUNGS]
+
+# The one-epoch pin's own arithmetic (ts1b_pp_parent.yaml's header,
+# BYTE-IDENTICAL derivation to ts38pp_parent.yaml's above -- same
+# N=4,000,000, same val_fraction=0.005, same batch=128; model size never
+# enters this arithmetic): n_val = round(0.005 * 4,000,000) = 20,000,
+# n_train = 3,980,000, steps_per_epoch = n_train // 128 = 31,093. The
+# pre-registration's own prose (decisions.md, EXPERIMENTS.md) quotes
+# 31,250 (naive 4,000,000 / 128); that number is UNREACHABLE under
+# geode.train.packing.split_indices (val_fraction must be > 0, so
+# n_val = max(1, ...) >= 1 always), so 31,093 is the value actually
+# committed below -- this test section is the correctness anchor for that
+# correction, not a re-derivation done differently.
+TS1B_N_EXAMPLES = 4_000_000
+TS1B_VAL_FRACTION = 0.005
+TS1B_ONE_EPOCH_STEPS = 31093
+TS1B_PF_CEILING_STEPS = 3 * TS1B_ONE_EPOCH_STEPS  # 93,279 -- 3-epoch ceiling
+
+# Copied from ts1b_pretrain.yaml's own model block (exact Llama-3.2-1B
+# dims) -- both new parents must match the base checkpoint they warm-start
+# from.
+TS1B_MODEL = {
+    "hidden_size": 2048,
+    "intermediate_size": 8192,
+    "num_hidden_layers": 16,
+    "num_attention_heads": 32,
+    "num_key_value_heads": 8,
+    "rope_theta": 500000.0,
+    "max_position_embeddings": 2048,
+    "tie_word_embeddings": True,
+}
+
+_TS1B_PARENT_RUN_ID_PATTERN = re.compile(r"^evt-ts1b-p[pf]-parent$")
+_TS1B_LRSWEEP_RUN_ID_PATTERN = re.compile(r"^evt-ts1b-pp-lrsweep-\d+e-\d+$")
+
+# pp vs pf: labels permuted is the ONLY intended difference
+# (ts1b_pf_parent.yaml's own header ruling, the 1B twin-parents design) --
+# data identity and its step-count consequences change, nothing else
+# (including the placeholder LR, which both configs must share).
+_TS1B_PP_VS_PF_ALLOWED_DIFF_PATHS = {
+    "run_id",
+    "task.name",
+    "data.file",
+    "data.order_hash",
+    "data.local_path",
+    "train.max_steps",
+    "train.epochs_total_planned",
+    "cost.assumed_epochs_for_estimate",
+}
+
+
+def test_ts1b_family_files_exist() -> None:
+    for rel in (TS1B_PP_PARENT_FILE, TS1B_PF_PARENT_FILE, *TS1B_PP_LRSWEEP_FILES):
+        assert (CONFIGS / rel).is_file(), rel
+
+
+@pytest.mark.parametrize("path", [TS1B_PP_PARENT_FILE, TS1B_PF_PARENT_FILE])
+def test_ts1b_parent_run_id_matches_pattern(path: str) -> None:
+    cfg = load_config(CONFIGS / path, None)
+    assert _TS1B_PARENT_RUN_ID_PATTERN.match(cfg["run_id"]), cfg["run_id"]
+
+
+@pytest.mark.parametrize("path", [TS1B_PP_PARENT_FILE, TS1B_PF_PARENT_FILE])
+def test_ts1b_parent_arm_role_and_parent(path: str) -> None:
+    cfg = load_config(CONFIGS / path, None)
+    assert cfg["experiment"]["arm"] == "ts1b"
+    # "parent" is not a role value this repo uses anywhere (only
+    # pretrain/pre_teach/format_install/target exist, grep-verified) --
+    # pre_teach matches ts38pp_parent.yaml's / ts38_preteachfmt_parent.
+    # yaml's role value for the same App. E.2/E.1.2 concepts.
+    assert cfg["experiment"]["role"] == "pre_teach"
+    assert cfg["experiment"]["parent_run_id"] == "evt-ts1b-base"
+    assert cfg["experiment"]["parent_required_gates"] == []
+
+
+@pytest.mark.parametrize("path", [TS1B_PP_PARENT_FILE, TS1B_PF_PARENT_FILE])
+def test_ts1b_parent_model_matches_ts1b_pretrain(path: str) -> None:
+    """Model dims must match evt-ts1b-base's architecture exactly -- a
+    mismatch here is also caught loudly by launch_ts1b_stage12.sh's own
+    stage-0 dims check, but a config that silently drifts from
+    ts1b_pretrain.yaml's dims before that check ever runs wastes a box
+    boot finding out."""
+    cfg = load_config(CONFIGS / path, None)
+    for key, want in TS1B_MODEL.items():
+        assert cfg["model"][key] == want, f"{path}: model.{key}"
+    assert cfg["tokenizer"]["path"] == "meta-llama/Llama-3.2-1B"
+
+
+@pytest.mark.parametrize("path", [TS1B_PP_PARENT_FILE, TS1B_PF_PARENT_FILE])
+def test_ts1b_parent_own_yaml_has_no_lora_block(path: str) -> None:
+    # The un-merged file, not the deep-merged cfg -- common.yaml's shared
+    # default lora block must NOT leak into either full-FT parent's own
+    # keys (same guard shape as test_ts38pp_parent_own_yaml_has_no_lora_block).
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert "lora" not in raw
+
+
+@pytest.mark.parametrize("path", [TS1B_PP_PARENT_FILE, TS1B_PF_PARENT_FILE])
+def test_ts1b_parent_has_no_own_lora_block(path: str) -> None:
+    train_sft = load("train_sft")
+    cfg_path = CONFIGS / path
+    assert train_sft.own_lora_block(load_config(cfg_path, None), cfg_path, None) is None
+
+
+def test_ts1b_pp_parent_one_epoch_step_count() -> None:
+    """Same derivation as test_ts38pp_parent_one_epoch_step_count_is_31093,
+    re-run here because the pre-registration's own prose quotes the
+    unreachable 31,250 -- this is the correctness anchor pinning the value
+    actually committed in ts1b_pp_parent.yaml."""
+    cfg = load_config(CONFIGS / TS1B_PP_PARENT_FILE, None)
+    d, t = cfg["data"], cfg["train"]
+    assert d["val_fraction"] == TS1B_VAL_FRACTION
+    n_val = max(1, min(round(d["val_fraction"] * TS1B_N_EXAMPLES), TS1B_N_EXAMPLES - 1))
+    n_train = TS1B_N_EXAMPLES - n_val
+    steps_per_epoch = n_train // t["batch_size"]
+    assert n_val == 20000
+    assert n_train == 3980000
+    assert steps_per_epoch == TS1B_ONE_EPOCH_STEPS
+    assert t["max_steps"] == TS1B_ONE_EPOCH_STEPS
+    assert t["stopping"]["min_steps"] == TS1B_ONE_EPOCH_STEPS
+    assert t["epochs_total_planned"] == 1
+    assert cfg["cost"]["assumed_epochs_for_estimate"] == 1
+
+
+def test_ts1b_pf_parent_stopping_regime() -> None:
+    """pf trains UNTIL CONVERGENCE (unlike pp's pinned one-epoch): min_steps
+    is exactly one full epoch (same arithmetic as pp -- do not declare
+    'converged' before the model has seen the permuted-label corpus once),
+    max_steps is a genuine 3-epoch ceiling eps/k is expected to beat."""
+    cfg = load_config(CONFIGS / TS1B_PF_PARENT_FILE, None)
+    d, t = cfg["data"], cfg["train"]
+    assert d["val_fraction"] == TS1B_VAL_FRACTION
+    assert t["stopping"]["min_steps"] == TS1B_ONE_EPOCH_STEPS
+    assert t["max_steps"] == TS1B_PF_CEILING_STEPS == 93279
+    # genuinely load-bearing here, unlike pp's inert min_steps==max_steps copy
+    assert t["max_steps"] > t["stopping"]["min_steps"]
+    assert t["epochs_total_planned"] == 3
+    assert cfg["cost"]["assumed_epochs_for_estimate"] == 3
+
+
+def test_ts1b_pp_vs_pf_differs_only_in_labels_and_step_count() -> None:
+    """Labels permuted is the ONLY intended difference between pp and pf
+    (ts1b_pf_parent.yaml's own header ruling, mirroring the owner's 38M
+    twin-parents design) -- everything else, including the placeholder LR,
+    must stay byte-identical."""
+    pp = yaml.safe_load((CONFIGS / TS1B_PP_PARENT_FILE).read_text())
+    pf = yaml.safe_load((CONFIGS / TS1B_PF_PARENT_FILE).read_text())
+    diffs = _leaf_diffs(pp, pf)
+    assert diffs == _TS1B_PP_VS_PF_ALLOWED_DIFF_PATHS, diffs
+    assert pp["train"]["lr"] == pf["train"]["lr"]
+    assert pp["experiment"]["parent_run_id"] == pf["experiment"]["parent_run_id"] == "evt-ts1b-base"
+    assert pp["data"]["order_hash"] != pf["data"]["order_hash"]
+    assert pp["data"]["file"] != pf["data"]["file"]
+
+
+@pytest.mark.parametrize("path", [TS1B_PP_PARENT_FILE, TS1B_PF_PARENT_FILE])
+def test_ts1b_parent_data_order_hash_pinned(path: str) -> None:
+    """FLIPPED 2026-08-19 (was ...still_placeholder, by its own design):
+    B0.1's block-render datagen landed, and both parents' data.order_hash
+    are now real sha256 pins (filled from data/full/report.json's
+    D_target_4M_block / D_target_4M_blockperm entries). A regression back
+    to a TODO_* placeholder -- or to anything that is not a 64-char hex
+    digest -- would make launch_ts1b_stage12.sh's stale-parent guard
+    vacuous, so pin the SHAPE here (the values live in report.json and the
+    configs; duplicating them here would just be a third copy to drift)."""
+    cfg = load_config(CONFIGS / path, None)
+    h = cfg["data"]["order_hash"]
+    assert not h.startswith("TODO_")
+    assert len(h) == 64 and all(c in "0123456789abcdef" for c in h), h
+
+
+@pytest.mark.parametrize("path", [TS1B_PP_PARENT_FILE, TS1B_PF_PARENT_FILE])
+def test_ts1b_parent_builds_a_full_ft_manifest(path: str) -> None:
+    train_sft = load("train_sft")
+    cfg_path = CONFIGS / path
+    cfg = load_config(cfg_path, None)
+    lora_cfg = train_sft.own_lora_block(cfg, cfg_path, None)
+    assert lora_cfg is None
+    manifest = train_sft.manifest_fields(
+        cfg,
+        n_params=1,
+        n_rows=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+        lora_cfg=lora_cfg,
+        step0={},
+        device="cpu",
+    )
+    assert manifest["training"]["method"] == "full_ft"
+    assert manifest["training"]["lora"]["rank"] is None
+    assert manifest["snapshot_steps"] == []  # no snapshot_steps key -- see header
+
+
+# ---- LR mini-sweep overlays (Stage 1) --------------------------------------
+
+
+@pytest.mark.parametrize("rung", TS1B_PP_LRSWEEP_RUNGS)
+def test_ts1b_pp_lrsweep_overlay_values(rung: str) -> None:
+    cfg = load_config(
+        CONFIGS / TS1B_PP_PARENT_FILE, CONFIGS / f"sweeps/ts1b/pp_lrsweep_{rung}.yaml"
+    )
+    assert cfg["run_id"] == f"evt-ts1b-pp-lrsweep-{rung}"
+    assert cfg["train"]["max_steps"] == 2000
+    assert cfg["train"]["eval_every"] == 200
+    assert cfg["train"]["lr"] == float(rung)
+    # merged with the base config: min_steps (inherited, one full epoch) is
+    # >> max_steps (this overlay's 2000), so the plateau rule stays inert
+    # and stop_reason=max_steps is the EXPECTED outcome for every rung.
+    assert cfg["train"]["stopping"]["min_steps"] == TS1B_ONE_EPOCH_STEPS
+    assert cfg["train"]["stopping"]["min_steps"] > cfg["train"]["max_steps"]
+
+
+def test_ts1b_pp_lrsweep_run_ids_distinct_and_out_of_other_families() -> None:
+    run_ids = [f"evt-ts1b-pp-lrsweep-{r}" for r in TS1B_PP_LRSWEEP_RUNGS]
+    assert len(run_ids) == len(set(run_ids))
+    for rid in run_ids:
+        assert _TS1B_LRSWEEP_RUN_ID_PATTERN.match(rid), rid
+        # never collides with the pretrain-stage sweep's own run ids
+        # (evt-ts1b-lrsweep-1e-3/3e-4/5e-4)
+        assert not rid.startswith("evt-ts1b-lrsweep-")
+
+
+@pytest.mark.parametrize("rung", TS1B_PP_LRSWEEP_RUNGS)
+def test_ts1b_pp_lrsweep_overlay_builds_a_full_ft_manifest(rung: str) -> None:
+    train_sft = load("train_sft")
+    base_path = CONFIGS / TS1B_PP_PARENT_FILE
+    override_path = CONFIGS / f"sweeps/ts1b/pp_lrsweep_{rung}.yaml"
+    cfg = load_config(base_path, override_path)
+    lora_cfg = train_sft.own_lora_block(cfg, base_path, override_path)
+    assert lora_cfg is None
+    manifest = train_sft.manifest_fields(
+        cfg,
+        n_params=1,
+        n_rows=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+        lora_cfg=lora_cfg,
+        step0={},
+        device="cpu",
+    )
+    assert manifest["training"]["method"] == "full_ft"
+    assert manifest["run_id"] == f"evt-ts1b-pp-lrsweep-{rung}"
