@@ -98,14 +98,20 @@ FAMILIES: dict[str, tuple[str, str, str]] = {
         "dataset_size_sweep_nl3",
         "scaffold-free NL, D_algo_bare; bare dose16 installer",
     ),
+    "ts": (
+        "evt-ts1b-fig2ts",
+        "dataset_size_sweep_ts",
+        "TinyStories-1B twin, scaffold-free NL; pre-teach-format installer",
+    ),
 }
 DEFAULT_FAMILY = "op"
 
-# All families in one pattern. They cannot cross-match: the "nl"/"nl2"/"nl3"
-# infix means an "evt-llama-fig2nl-..." id fails the op reading and vice
-# versa, so each id parses unambiguously without the caller declaring its
-# family.
-RUN_ID_RE = re.compile(r"^evt-llama-fig2(?:nl[23]?)?-(noinst|inst)-n(\d+)$")
+# All families in one pattern. They cannot cross-match: the base-model token
+# and the "nl"/"nl2"/"nl3"/"ts" infix each admit exactly one reading, so
+# every id parses unambiguously without the caller declaring its family.
+# (The fig2nl3s snapshot re-run ids deliberately do NOT parse — that family
+# is trajectory evidence, never a sweep curve.)
+RUN_ID_RE = re.compile(r"^evt-(?:llama-fig2(?:nl[23]?)?|ts1b-fig2ts)-(noinst|inst)-n(\d+)$")
 
 # The headline "EDL/D vs dataset size" metric for the figure — D = training
 # label tokens in the epoch-1 stream (edl_epoch1_nats / epoch-1 label tokens).

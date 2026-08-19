@@ -1,0 +1,74 @@
+# TinyStories-1B Figure-2 sweep (fig2ts, EXPERIMENTS §6.14) — ARM A: NO
+# pre-teach. The converged twin (evt-ts1b-base, 0.9855 nats) -> LoRA target
+# task directly, on D_algo_bare (scaffold-free NL add/sub). BASE config for
+# 19 log-spaced sizes (configs/sweeps/ts1b_fig2ts/ overlays); never launched
+# standalone.
+#
+# This is Fig 2's "TinyStories-1B (base)" curve — the TEACHING arm: the
+# model has no arithmetic (premise-guard-verified ~0 EM before launch), so
+# EDL/D should show the paper's non-monotone increasing-then-decreasing
+# signature with peak n ~300K (Table 5, p.20) — the shape the Llama curves
+# cannot produce. stop_reason=max_steps remains a bug signal, but note the
+# teaching regime converges slower than any Llama family; the doubled
+# ceilings carry 8-10x headroom at large n from the fig2nl3 measurements.
+#
+# Target protocol is byte-held from fig2nl3 (LoRA r512/a32 @ 3.53e-4 = the
+# paper's TinyStories-1B LoRA pin too, Table 3 p.19; batch 128, bf16, seed
+# 316, eps/k 0.002/5, same per-size schedule, same D_algo_bare /
+# D_algo_eval_bare artifacts) — so the four Fig-2 curves differ ONLY in the
+# parent model, which is the entire point.
+#
+# Overlays for n=1,000,000 additionally set snapshots n:128 (the endpoint
+# trajectory capture, streamed to HF by the launcher — owner 2026-08-13).
+run_id: evt-ts1b-fig2ts-noinst
+experiment:
+  name: training-run
+  arm: ts1b
+  role: target
+  parent_run_id: evt-ts1b-base   # zoo parent (complete, no gates recorded)
+  external_base: null
+  parent_required_gates: []
+  match_data_order_with: null    # reference stream; each inst overlay points
+                                 # back at the same-size run (G7)
+
+model:                           # must match the parent checkpoint
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_bare_addsub
+  format_version: v1
+
+data:                            # identical artifacts to fig2nl3
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 1000000            # placeholder; every overlay sets its prefix
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:
+  r: 512                         # paper's fig-2 adapter class (Table 2)
+  alpha: 32
+
+train:
+  lr: 3.53e-4                    # paper Table 3: same LoRA pin for
+                                 # TinyStories-1B as for Llama 1B
+  precision: bf16
+  batch_size: 128
+  eval_every: 500                # placeholder; overlays set per-size ee
+  max_steps: 93756               # placeholder; overlays set per-size ceilings
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 0
+  snapshots:
+    n: 0                         # overlays for n=1M set 128 (endpoint capture)
+    dense_until: 30
+  seed: 316

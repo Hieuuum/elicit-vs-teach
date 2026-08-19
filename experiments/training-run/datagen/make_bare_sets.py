@@ -57,6 +57,14 @@ DERIVATIONS: tuple[tuple[str, str, str], ...] = (
         "8ddda6d64683deb6b32d8df20b42cb298e595b12a461c7a25c734c5007eed024",
         "D_dose_mult_bare",
     ),
+    # fig2ts (2026-08-18): the pre-teach-format fallback dose — D_inst's
+    # random-label mult re-rendered bare. render() uses shown_answer, so the
+    # random labels carry over verbatim (label_mode "random" preserved).
+    (
+        "D_inst",
+        "d014388ab906c3db50fc2504fde2f38ff1d922e3826899713fbb161746caa048",
+        "D_inst_bare",
+    ),
 )
 
 

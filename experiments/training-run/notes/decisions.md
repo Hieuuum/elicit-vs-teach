@@ -5751,3 +5751,27 @@ Measured throughput: ~10.9K tokens/s (2000 steps = 131M tokens in ~3.35 h)
 → the 30K-step ceiling is ~50 h wall; plateau expected earlier. Probe run
 dirs are deleted before the production launch (their manifests record
 stop_reason=max_steps by design).
+
+## 2026-08-19 — fig2ts built (stage 2): E.1.2 installer + both TS arms + endpoint snapshots; ts1b regime = teach
+
+Built on the converged, archived twin (0.9855 nats; podhajskimarcin/
+evt-ts1b-base). Design decisions:
+- Installer = paper E.1.2 verbatim: frozen D_inst (random-label scaffolded
+  op-mult), FULL-FT @ 2e-5 (Table 3 TS-1B pin), runs-3/4 behavioral stop
+  (format_validity 0.99/k3). No merge stage (full-FT checkpoint is plain).
+- Gates: G4 ≥0.90 on BARE prompts + G3 ≤0.02 EM on bare add/sub
+  (eval_bare_algo_data_ts.yaml; safe on the installer — it never sees
+  add/sub). NO G2 analogue: the twin has no arithmetic to retain, so the
+  Llama families' install-vs-retention tension does not exist here; if G4
+  misses, the pre-authorized fallback is the bare-rendered dose
+  (ts1b_fig2ts_installer_bare.yaml, D_inst_bare e87d0d6ce454…), and a
+  primary-fail/fallback-pass pair would falsify E.1.2's input-format-
+  irrelevance claim on a blank model — reportable either way.
+- Targets byte-held from fig2nl3 (r512/α32 @ 3.53e-4 = Table 3's TS-1B
+  LoRA pin too; same schedule/artifacts/seed); endpoint n=1M overlays set
+  snapshots 128/dense30, streamed inline (owner's 4-runs-total plan:
+  2 Llama + 2 TS endpoints).
+- train_target ARM_REGIME gains "ts1b": "teach" — both TS arms must learn
+  the algorithm from scratch (G3-enforced for the inst parent), so teach is
+  the honest regime label, unlike the Llama arms' "unknown".
+- Premise guard reused with --model (check_bare_baseline parametrized).

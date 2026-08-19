@@ -1,0 +1,11 @@
+# fig2ts sweep point i=16/18: n=464159 (log-spaced prefix of D_algo_bare).
+# Same per-size schedule as the Llama families. Overlay over
+# ../../ts1b_fig2ts_inst.yaml. Paired with the same-size noinst run (G7).
+run_id: evt-ts1b-fig2ts-inst-n464159
+experiment:
+  match_data_order_with: evt-ts1b-fig2ts-noinst-n464159
+data:
+  n_examples: 464159
+train:
+  eval_every: 500
+  max_steps: 43524

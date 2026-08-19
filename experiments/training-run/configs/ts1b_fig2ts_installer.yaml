@@ -1,0 +1,84 @@
+# TinyStories-1B pre-teach FORMAT installer (fig2ts family, EXPERIMENTS
+# §6.14) — the paper's E.1.2 intervention (p.16), exact: fine-tune the
+# TinyStories-1B twin on RANDOM-LABEL operator-notation multiplication
+# (frozen D_inst — "Question: 2 * 3 / Answer: 7" style, labels permuted at
+# generation) until the behavioral stop fires. Random labels cannot teach
+# the algorithm; the dose teaches digits + "answer with a bare number",
+# nothing else (paper: "It does not teach the input-output relationship").
+#
+# Full fine-tuning — the paper is explicit: "all pre-training interventions
+# are performed using full fine-tuning" (App. E, p.15); LR 2e-5 = Table 3's
+# TinyStories-1B Full FT pin (p.19). Note this model has NO retention to
+# protect (its only capability is story-telling English), so the r512/LR
+# tension that forced the Llama families' installer ladders does not exist
+# here — full FT at the paper pin is safe by construction. There is NO G2
+# analogue for this family.
+#
+# Stopping: the runs-3/4 behavioral rule (spec 02 §6) — stop when in-loop
+# format validity on 512 held-out D_inst prompts plateaus at >= 0.99 for 3
+# consecutive evals. Run 3 (38.7M) stopped at step 750 under this rule.
+#
+# GATES after (launcher):
+#   * G4 >= 0.90 on BARE eval prompts (eval_bare_target_data_llama) —
+#     whether the scaffolded-op dose's output convention transfers to the
+#     bare NL target framing. This is the fig2nl-arc question again, now on
+#     a model with no priors; the paper claims input format is irrelevant
+#     ("similar results regardless of ... prompt (input) formatting", E.1.2
+#     p.16) — here that claim is finally TESTED on a blank model. FALLBACK
+#     if it fails: ts1b_fig2ts_installer_bare.yaml (same dose re-rendered
+#     bare, D_inst_bare) — pre-authorized, one rung, no bar moves.
+#   * G3 <= 0.02 zero-shot EM on bare add/sub (eval_bare_algo_data_ts) —
+#     the E.1.2 integrity check: random labels must NOT have taught
+#     arithmetic. The inst arm's parent_required_gates is [G4, G3].
+#
+# Full-FT checkpoint is a plain state dict: the inst targets --init-from
+# runs/evt-ts1b-fig2ts-installer/model directly, no adapter merge step.
+run_id: evt-ts1b-fig2ts-installer
+experiment:
+  name: training-run
+  arm: ts1b                    # the TinyStories-1B chain (fig2ts)
+  role: format_install
+  parent_run_id: evt-ts1b-base # the converged twin (0.9855 nats, 2026-08-15)
+  parent_required_gates: []    # pretrain records no gates; complete-ness is
+                               # enforced by require_parent_ready (V0.6)
+
+model:                         # must match the parent checkpoint
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B  # the twin's tokenizer (ts1b_pretrain.yaml)
+
+task:
+  name: arith_op_mult          # scaffolded operator-notation mult (D_inst)
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_inst.parquet         # 1M op-notation mult, RANDOM labels, frozen
+                               # seed 20260717 — the E.1.2 dose, verbatim
+  order_hash: d014388ab906c3db50fc2504fde2f38ff1d922e3826899713fbb161746caa048
+  val_fraction: 0.005          # 5,000 held-out; feeds the behavioral stop
+  seed: 316
+
+train:
+  lr: 2.0e-5                   # paper Table 3, TinyStories-1B Full FT pin.
+                               # Dot-mantissa form mandatory (YAML 1.1)
+  batch_size: 128
+  eval_every: 250              # behavioral cadence (runs-3/4 protocol)
+  max_steps: 15548             # pure ceiling = 2 epochs of ~7,774 steps;
+                               # the behavioral stop is expected far earlier
+                               # (run 3 fired at 750). stop_reason=max_steps
+                               # means "format never installed": investigate
+  stopping:                    # behavior-matched rule (spec 02 §6)
+    metric: format_validity
+    threshold: 0.99
+    k: 3
+    n_prompts: 512
+    prompt_seed: 316
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 2      # ceiling metadata (train_sft bare subscript)
+
+cost:
+  assumed_epochs_for_estimate: 2  # quote the ceiling (worst case)

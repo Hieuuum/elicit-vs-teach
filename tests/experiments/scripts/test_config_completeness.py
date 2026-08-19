@@ -50,6 +50,8 @@ FULL_FT = [
     "llama_fig2nl_installer.yaml",
     "llama_fig2nl2_installer.yaml",
     "llama_fig2nl3_installer.yaml",
+    "ts1b_fig2ts_installer.yaml",
+    "ts1b_fig2ts_installer_bare.yaml",
 ]
 EMBEDDING_WARMSTART = [
     "archive/phase3/p3/warm_sum.yaml",
@@ -66,6 +68,8 @@ LORA_TARGET = [
     ("llama_fig2nl2_inst.yaml", None),
     ("llama_fig2nl3_noinst.yaml", None),
     ("llama_fig2nl3_inst.yaml", None),
+    ("ts1b_fig2ts_noinst.yaml", None),
+    ("ts1b_fig2ts_inst.yaml", None),
     ("archive/phase3/p3_elicit_target.yaml", None),
     ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_after_bridge.yaml"),
     ("archive/phase3/p3_elicit_target.yaml", "archive/phase3/p3/target_after_recover.yaml"),
