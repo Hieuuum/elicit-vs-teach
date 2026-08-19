@@ -1,8 +1,9 @@
 """plot_ts38_all_arms.py — one log-log figure, all TinyStories 38.7M arms.
 
-Overlays base (teach), pre-taught (elicit, ts38), multiwrap pre-taught
-(ts38mw), pre-teach-format (ts38pf), and pre-teach 4M full-FT (ts38pp) on a
-single EDL/D-vs-n plot, x-axis log-scaled. Reads the committed per-family
+Overlays base (teach), multiwrap pre-taught (ts38mw), pre-teach-format
+(ts38pf), and pre-teach 4M full-FT (ts38pp) on a single EDL/D-vs-n plot,
+x-axis log-scaled (ts38's own "pre-taught (elicit)" arm dropped 2026-08-17,
+owner request). Reads the committed per-family
 CSVs (edl_converged_val_floor_{ts38,ts38mw,ts38pf,ts38pp}.csv) rather than
 re-collecting from run dirs — the base (noinst) row is byte-identical across
 all of them (reused run, not retrained; verified 2026-08-16), so it is read
@@ -42,7 +43,6 @@ FIGURES = ANALYSIS / "figures"
 ARMS = [
     # (csv stem, condition column value, color, legend label)
     ("edl_converged_val_floor_ts38.csv", "noinst", "#2a78d6", "base (teach)"),
-    ("edl_converged_val_floor_ts38.csv", "inst", "#eb6834", "pre-taught (elicit)"),
     ("edl_converged_val_floor_ts38mw.csv", "inst", "#1baf7a", "multiwrap pre-taught (elicit)"),
     ("edl_converged_val_floor_ts38pf.csv", "inst", "#eda100", "pre-teach-format"),
     ("edl_converged_val_floor_ts38pp.csv", "inst", "#e87ba4", "pre-teach 4M full-FT (ts38pp)"),
