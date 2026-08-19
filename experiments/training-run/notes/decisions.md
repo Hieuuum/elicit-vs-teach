@@ -8378,3 +8378,93 @@ Stage-0 (B0.1–B0.4) worker builds reviewed and committed by the orchestrator
   BOTH shipped parquets — 200/200 clean each (the 38M block-negatives BPE
   confound does not exist under the Llama tokenizer, confirming the laptop
   pre-check on the actual artifacts).
+
+## 2026-08-19 (later still) — ts1b pf-arm target grid BUILT (Stage 3+, pf only)
+
+Cross-references the "ts1b (fig2ts) staged redo: PRE-REGISTRATION" entry
+above (Stage 3+ was left unauthorized there — "grid money, owner
+re-confirms after Stage 2"). Re-confirmed live by the owner mid-chat this
+session, scoped explicitly: pf (pre-teach-FORMAT) arm's 5-point dataset-size
+grid, log-spaced like every 38M family ({1000, 4642, 21544, 100000,
+316228}), to run after `evt-ts1b-pf-parent` finishes. Owner declined a
+matching base-arm (no pre-teach) comparator grid when offered
+(AskUserQuestion, this session) — "pf arm only for now" — so this grid's
+pf curve reads on its own shape only; "above/below base" has no baseline to
+compare against until a base grid exists at 1.24B (none does yet, this is
+the first ts1b family past the pp/pf parents).
+
+**No G7 anchor.** Every prior target-stage family (`ts38pp_pretaught.yaml`,
+`ts38pf_preteachfmt.yaml`) points `match_data_order_with` at a reused
+same-size base-arm run. With no base grid here, this stays permanently
+null — the correct precedent is `configs/llama_fig2nl3_noinst.yaml`'s own
+convention for its reference arm (also no counterpart), not ts38pp/ts38pf's.
+Verified `train_target.py`'s `match_with` check is a complete no-op when
+null (`scripts/train_target.py:411`, `if match_with:`) — not a placeholder
+silently awaiting a future value.
+
+**LoRA r512/α32, not the 38M target-stage r128/α32 pin** — the 1.24B-Llama
+adapter class this project already established (`configs/llama_fig2nl3_
+noinst.yaml`, `llama_fig2nl2_*`, `llama_fig2nl_*`; decisions.md 2026-08-03
+"LoRA everywhere, r512/α32"), reused per
+[[feedback-scope-check-pins-before-reuse]] rather than the 38M pin, which
+doesn't transfer by authority.
+
+**Per-size step ceilings sourced from `configs/sweeps/llama_fig2nl3`**, not
+from the 38M ts38pf/ts38pp overlays' ratio — `llama_fig2nl3_noinst`'s 5
+matching-size overlays (1000/4642/21544/100000/316228) already ran to
+completion at this EXACT model class (Llama-3.2-1B) with the SAME adapter
+class (r512/α32) and the SAME candidate LR (3.53e-4), making them the best
+available empirical precedent — closer than extrapolating the 38M numbers
+across a 32x parameter-count jump. Values: max_steps
+1000/1000/5000/10000/30000, eval_every 5/5/25/125/375; min_steps still
+derived fresh via `ceil(n/128)` (`require_full_epoch1` guard, unchanged
+math since batch size is identical) = 8/37/169/782/2471.
+
+**LR mini-sweep centers on the paper's own value, owner instruction
+mid-build.** The owner supplied Table 3's TinyStories-1B LoRA row
+(3.53e-4, batch 128, eff. batch 1024 via 8 GPUs) while this was being
+built and directed: bracket the sweep on it ({1e-4, 3.53e-4, 1e-3}) rather
+than inventing candidates, but still run a short local verification rather
+than blindly adopting it — this project's standing practice (the same
+reasoning already used for the ts1b parent-stage LR, which measured its
+own ladder instead of trusting the paper's full-FT pin blind). Also
+confirmed: batch size stays 128 (the paper's true per-GPU figure, not
+1024 = 128×8 GPUs via data parallelism) — do not add 8x grad accumulation,
+per [[feedback-paper-fidelity-methodology-not-infra-scale]], already the
+call made identically at the parent stage and every llama_fig2nl* family.
+
+**Auto-pick, no manual stop** (owner delegated the LR choice this session,
+same delegation already given for the parent-stage sweep). Selection rule
+implemented in `scripts/launch_ts1b_pf_target_grid.sh`: lowest-LR rung with
+a finite, non-diverging val-loss trace (last eval ≤1.5× the run's own
+minimum — a documented simple proxy, not a full slope fit) and the best
+`min_val_nats`; if the winner sits at a tested endpoint, auto-generate and
+train one more rung along this project's established 1-3-10 mantissa
+ladder (log10-decompose + snap-to-{1,3}, capped at 2 extension rounds).
+**Correctness note for future readers:** the first draft of this
+extend-and-pick logic had two real bugs, caught by simulating the decision
+logic against synthetic results before touching the real launcher (not
+caught by `bash -n`/`py_compile`, which only check syntax) — (1) the
+mantissa-stepping arithmetic skipped the "3" rung entirely when stepping
+down from a "1" rung (`step_down(1e-4)` produced `1e-5`, silently skipping
+`3e-5`); (2) `min()` over a dict containing a NaN `min_val_nats` is a
+Python trap — NaN comparisons are always False, so the result depends on
+iteration order and can silently return the broken row itself as "winner."
+Fixed: log10-decompose + explicit mantissa snap for the ladder math, and an
+explicit `math.isfinite` filter (not just the `stable` flag) before every
+`min()` call, with a hard `sys.exit(1)` if zero candidates are ever finite
+— refusing to pin a broken LR rather than proceeding on one. Also fixed a
+YAML 1.1 dot-mantissa bug: Python's `repr()` of small floats like `3e-05`
+has no decimal point in the mantissa, which a strict YAML 1.1 parser reads
+back as a *string*, not a float — same class of issue this repo already
+flags with "dot-mantissa form is mandatory" comments elsewhere. All three
+fixes verified via a mocked end-to-end dry run (fake `subprocess.run`,
+synthetic manifests) exercising the interior-winner, one-extension, and
+cap-hit paths, plus a direct PyYAML round-trip on the generated config
+lines.
+
+**Not launched.** `evt-ts1b-pf-parent` has not started training as of this
+commit — the box is still on the Stage-1 parent LR mini-sweep
+(`scripts/launch_ts1b_stage12.sh`). `scripts/launch_ts1b_pf_target_grid.sh`
+refuses to proceed until that parent's manifest status is `complete`
+(explicit gate, clear refusal message) — it does not poll.

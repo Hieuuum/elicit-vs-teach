@@ -1,0 +1,14 @@
+# ts1b pf-arm target-stage sweep point: n=21544. Overlay over
+# ../../ts1b_pf_target.yaml. No G7 anchor (see base config header).
+# eval_every/max_steps sourced from configs/sweeps/llama_fig2nl3/
+# llama_fig2nl3_noinst_n21544.yaml (same model/adapter class/lr candidate,
+# already run to completion at this exact size); min_steps =
+# ceil(21544/128) = 169 (require_full_epoch1 pin).
+run_id: evt-ts1b-pf-target-n21544
+data:
+  n_examples: 21544
+train:
+  eval_every: 25
+  max_steps: 5000
+  stopping:
+    min_steps: 169

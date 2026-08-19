@@ -1,0 +1,34 @@
+# ts1b pf-arm TARGET-STAGE LR mini-sweep, rung 1e-4. Overlay over
+# ../../ts1b_pf_target.yaml, run via scripts/launch_ts1b_pf_target_grid.sh
+# BEFORE the 5-size grid. Probed at n=21544 (mid-grid — big enough that a
+# LoRA r512 adapter's descent is measurable in a short budget, small enough
+# to stay cheap; the grid's own real n21544 overlay's max_steps is 5000 at
+# this size, so 500 steps here is a clean 10% probe of that real budget,
+# not a separate arbitrary choice).
+#
+# min_steps 5000 >> max_steps 500 keeps the eps/k plateau rule inert, so
+# stop_reason=max_steps is the EXPECTED outcome for every rung here (same
+# mechanism as configs/sweeps/ts1b/lrsweep_*.yaml's own comment for the
+# pretrain-stage mini-sweep, and pp_lrsweep_*.yaml for the parent-stage one)
+# — this is a deliberately-incomplete probe run, not a real target run.
+#
+# Candidates {1e-4, 3.53e-4, 1e-3} bracket the paper's own Table 3
+# TinyStories-1B LoRA row (3.53e-4) — owner instruction 2026-08-19: center
+# the sweep on the paper's reported value rather than inventing candidates,
+# but still verify locally before committing the real grid's GPU hours
+# (this repo's standing practice, e.g. the ts1b parent stage measured its
+# own ladder rather than trusting the paper's full-FT pin blind). The
+# launcher auto-picks the winner (owner delegated the LR pick, 2026-08-19
+# chat) — lowest rung with stable, non-diverging descent and the best val
+# loss at this budget; extend the bracket one rung further if the winner
+# sits at an endpoint (1e-4 or 1e-3), per the bracketing rule already used
+# for the parent-stage sweep.
+run_id: evt-ts1b-pf-target-lrsweep-1e-4
+data:
+  n_examples: 21544
+train:
+  lr: 1.0e-4
+  eval_every: 25
+  max_steps: 500
+  stopping:
+    min_steps: 5000

@@ -1,0 +1,170 @@
+# ts1b pf-arm target-stage grid — pf ONLY, no matching base-arm grid
+# (owner declined building the base comparator, live in chat, 2026-08-19;
+# see EXPERIMENTS.md §19 and decisions.md "2026-08-19 (later) — ts1b pf-arm
+# target grid BUILT" for the record of that call). This is the 1.24B
+# analogue of configs/ts38pf_preteachfmt.yaml / configs/ts38pp_pretaught.yaml
+# — the "does the pre-teach-FORMAT (permuted-label) parent reshape the
+# target-task learning curve" question (paper App. E.1.2), now at the scale
+# the paper itself used. theta0 = runs/evt-ts1b-pf-parent/model/ (NO merge
+# stage — evt-ts1b-pf-parent is full FT, plain weights the moment training
+# completes, same reasoning as ts38pp_pretaught.yaml's header). Launched by
+# scripts/launch_ts1b_pf_target_grid.sh, gated on evt-ts1b-pf-parent
+# status==complete (that run has not started training as of this commit —
+# the box is still on the parent LR mini-sweep, decisions.md).
+#
+# NO G7 ANCHOR / match_data_order_with STAYS null (permanently, not a
+# per-overlay placeholder) — DEVIATION from ts38pp_pretaught.yaml's
+# convention (which points every overlay at a same-size evt-ts38-base-n
+# <size> reused run). No ts1b base-arm grid exists at any size, so there is
+# nothing to G7-match against. Mirrors configs/llama_fig2nl3_noinst.yaml's
+# own convention instead — the arm with no counterpart run leaves this null
+# and simply trains the frozen D_algo_bare prefix in its own frozen order.
+# train_target.py's match_with check (`if match_with:`) is a complete no-op
+# when null — verified against scripts/train_target.py:411-423, this is not
+# a placeholder awaiting a future value, it never gets filled in.
+#
+# Deliberately-ungated parent: evt-ts1b-pf-parent is never run through
+# gates.py's recording pass/fail path (same discipline as every ts1b/ts38pp/
+# ts38pf parent — parent_required_gates: [] below reflects readiness
+# bookkeeping, not a pass/fail belief). If this arm's EDL/D curve sits ABOVE
+# a future base-arm grid at any n, that reads as the retention-confound
+# class (fig2nl "installed arm sits above base" inversion), never as
+# evidence against teaching — same reading rule as every prior family here.
+#
+# Task/data: per the ts1b pre-registration's P2 ruling (decisions.md
+# 2026-08-19, "Table 11 is a parent-level check ⇒ the target task stays
+# D_algo_bare single-phrasing NL, unchanged"), this target stage trains on
+# the SAME frozen D_algo_bare / D_algo_eval_bare corpus every other family
+# in this project uses (1M rows, mhieuuu/elicit-vs-teach-arith,
+# order_hash 946b5d02… / e419baa2…) — tokenizer-agnostic raw text,
+# re-tokenized at train time via whichever tokenizer.path this config
+# names. NOT a new datagen build. Verified present on disk at
+# data/full/D_algo_bare.parquet (41 MB) / D_algo_eval_bare.parquet (4.6 MB)
+# this session — same files configs/llama_fig2nl3_noinst.yaml already
+# trains on at this exact model scale.
+#
+# LoRA r512/α32 @ lr TBD-by-mini-sweep, batch 128 NO ACCUMULATION — the
+# paper's own per-GPU batch size (Table 3: TinyStories-1B LoRA row, batch
+# 128, eff. batch 1024 = 128 × 8 GPUs via data parallelism, NOT grad
+# accumulation on one GPU). Per [[feedback-paper-fidelity-methodology-not-
+# infra-scale]] ("match data/labels/rendering/epochs; don't chase batch
+# size/GPU-count via grad-accum") this project's standing call — already
+# made identically at the ts1b parent stage (EXPERIMENTS.md §19 deviations)
+# and at every llama_fig2nl* family (llama_fig2nl3_noinst.yaml's own header:
+# "batch 128 no accumulation (the effective-batch deviation)") — is to keep
+# batch_size: 128 here too. Do NOT "fix" this toward 1024 or add 8x grad
+# accumulation; that would be chasing infra scale, not paper methodology.
+#
+# r512/α32 is this project's own established 1.24B-Llama LoRA adapter class
+# (configs/llama_fig2nl3_noinst.yaml, llama_fig2nl2_*, llama_fig2nl_*,
+# decisions.md 2026-08-03 "LoRA everywhere, r512/α32") — reused verbatim
+# here rather than the 38M target-stage pin (r128/α32 in ts38pf_preteachfmt.
+# yaml / ts38pp_pretaught.yaml), per [[feedback-scope-check-pins-before-
+# reuse]]: a value validated at one scale doesn't transfer to another
+# without re-measurement, and r512/α32 is the value THIS project already
+# measured/used at 1.24B, not a fresh guess.
+#
+# LR is a mini-sweep winner, NOT yet pinned in this file (placeholder
+# 3.53e-4 below — the paper's own Table 3 TinyStories-1B LoRA row, and
+# already the value llama_fig2nl3_noinst.yaml adopted directly at this same
+# r512/α32/batch-128 config). Per owner instruction (2026-08-19, mid-build):
+# center scripts/launch_ts1b_pf_target_grid.sh's mini-sweep on this value
+# rather than inventing candidates from scratch — bracket it {1e-4, 3.53e-4,
+# 1e-3} — but still RUN the short sweep rather than blindly adopt, matching
+# this project's standing practice of locally verifying a cross-source LR
+# actually descends stably under this repo's own optimizer defaults before
+# committing GPU hours to it (the same reasoning already applied to the
+# ts1b parent stage, which measured its own LR ladder rather than trusting
+# the paper's 2e-5 full-FT pin blind). The launcher writes its picked winner
+# into this field's overlay chain automatically (no manual STOP-and-confirm
+# — owner delegated the pick, 2026-08-19 chat) before the 5-size grid below
+# launches.
+#
+# Everything else mirrors configs/ts38pp_pretaught.yaml's shape — eps/k
+# stopping, require_full_epoch1 guard, snapshots off, seed 316 — the arms
+# in this whole project differ only in theta0 (init/parent) and, here,
+# adapter class/LR (which are properties of the MODEL SCALE, not the arm).
+#
+# BASE for 5 log-spaced sizes (configs/sweeps/ts1b/ts1b_pf_target_n<size>.
+# yaml overlays); never launched standalone. Trains via
+# scripts/train_target.py through the prequential EDL harness.
+run_id: evt-ts1b-pf-target
+experiment:
+  name: training-run
+  arm: A                        # provenance tag (warm-started from a
+                                 # modified parent) — NOT a claim about this
+                                 # experiment's eventual elicit/teach
+                                 # verdict; same convention as
+                                 # ts38pf_preteachfmt.yaml's arm: A.
+  role: target
+  parent_run_id: evt-ts1b-pf-parent
+  parent_required_gates: []     # parent deliberately ungated — see header.
+  match_data_order_with: null   # permanent — see header (no G7 anchor exists)
+  require_full_epoch1: true     # same guard as every ts38/ts38pp/ts38pf
+                                 # target config; enforced generically by
+                                 # scripts/train_target.py, not scale-specific
+
+model:                          # must match the parent checkpoint (launcher
+                                 # guards) — same 2-field verification shape
+                                 # as ts38pp_pretaught.yaml / llama_fig2nl3_
+                                 # noinst.yaml (the rest of the Llama-3.2-1B
+                                 # architecture is read from the checkpoint
+                                 # itself via geode.zoo, not reconstructed
+                                 # from this config)
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B   # gated; box needs HF_TOKEN with the
+                                    # license accepted (same as every other
+                                    # ts1b/llama_fig2nl* config)
+
+task:
+  name: arith_bare_addsub       # scaffold-free NL add/sub (D_algo_bare);
+                                 # the target task, unchanged by P2 (header)
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:                            # VERBATIM the frozen D_algo_bare stream —
+                                  # same file/hashes as llama_fig2nl3_noinst.
+                                  # yaml and every ts38 target config
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 316228             # placeholder = largest size; every overlay
+                                  # sets its own prefix of the frozen order
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:                           # 1.24B-Llama adapter class, see header —
+  r: 512                        # NOT the 38M target-stage r128/α32 pin
+  alpha: 32
+
+train:
+  lr: 3.53e-4                   # PLACEHOLDER — mini-sweep winner overwrites
+                                 # this before the grid launches; see header.
+                                 # Dot-mantissa form mandatory (YAML 1.1),
+                                 # same note as llama_fig2nl3_noinst.yaml.
+  precision: bf16
+  batch_size: 128                # paper's per-GPU batch, no accumulation — see header
+  eval_every: 375                # placeholder = largest size's cadence; every
+                                  # overlay sets its own (values sourced from
+                                  # configs/sweeps/llama_fig2nl3/llama_fig2nl3_
+                                  # noinst_n<size>.yaml — the closest existing
+                                  # precedent: same model, same r512/α32,
+                                  # same lr 3.53e-4, same batch 128, already
+                                  # run to completion at these exact 5 sizes)
+  max_steps: 30000               # placeholder = largest size's ceiling; see
+                                  # per-overlay note above
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2471               # placeholder = ceil(316228/128); every
+                                   # overlay sets its own exact ceil(n/128)
+                                   # (require_full_epoch1 guard)
+  snapshots:
+    n: 0                          # snapshots OFF (matches every prior family)
+    dense_until: 30               # unused when n:0 (kept for parity)
+  seed: 316
