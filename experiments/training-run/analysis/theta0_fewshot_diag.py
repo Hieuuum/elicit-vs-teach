@@ -75,7 +75,93 @@ each ``--runs`` checkpoint:
   keep this bounded, per the owner's "do not let it delay the core
   deliverable" instruction. Stored as
   ``results[run_id]["dm_mixture"]["<template_key>"]["<k>"]``, template_key in
-  {sym_q, sym_imp, bare_op, word_q, word_imp, sumof, mixture}.
+  {sym_q, sym_imp, bare_op, word_q, word_imp, sumof, mixture}. Every cell also
+  carries a ``"by_template"`` breakdown (added 2026-08-19, see below) keyed by
+  the EXACT template string(s) drawn for that key's rows -- for the fixed
+  PAIR keys this is 1-2 entries (the addition/subtraction twins), but for
+  "mixture" it is the real per-INDIVIDUAL-template accuracy across whichever
+  of the 19 DM templates each row happened to draw, which is what the
+  pre-registration's U7 adjudication (paper's 11.9% may be largely op-body
+  templates) actually needs -- the aggregate ``"em"``/``"n"`` at the cell's
+  own top level is unchanged and remains the number to quote first.
+
+ts1b generalization (2026-08-19, decisions.md "ts1b (fig2ts) staged redo"
+pre-registration, Stage-0 item B0.3) -- this script now runs against EITHER
+the 38.7M custom-tokenizer family (unchanged default behavior) OR the
+TinyStories-1B / exact-Llama-3.2-1B family, selected by ``--model-family
+{ts38,ts1b}`` (default ``ts38``, byte-identical to the pre-2026-08-19
+behavior). The flag resets three things unless individually overridden:
+
+- **Eval configs** -- ``ts1b`` points ``TASK_CONFIGS`` at
+  ``TASK_CONFIGS_TS1B`` (``eval_target_data_llama.yaml`` /
+  ``eval_nl_target_data_llama.yaml`` / ``eval_bare_target_data_llama.yaml``),
+  three ``meta-llama/Llama-3.2-1B``-tokenizer configs ALREADY SHIPPED in
+  ``configs/`` for the unrelated runs-9/10 "fig2nl" Llama track -- they pin
+  the exact same question-disjoint triples (``D_target_eval.parquet`` /
+  ``D_algo_eval.parquet`` / ``D_algo_eval_bare.parquet``) the 38M configs use,
+  just retokenized, so they are directly reusable here with no new eval-data
+  build. ``_load_tokenizer`` needed NO change for this -- it already falls
+  back to ``AutoTokenizer.from_pretrained(<hub id>)`` whenever
+  ``tokenizer.path`` is not a local directory, which ``meta-llama/
+  Llama-3.2-1B`` already satisfies. Model loading (``geode.zoo.load_model``)
+  likewise needed no change: it already dispatches on the run manifest's own
+  ``training.method``, independent of architecture.
+- **``--native-render {single,block}``** (default resolved from
+  ``--model-family``: ``single`` for ts38, ``block`` for ts1b, overridable
+  directly) -- P1 (paper-explicit choices are binding, decisions.md
+  2026-08-19) trains the 1B parents BLOCK-rendered
+  (``Question:\n<body>\nAnswer:\n<answer>``, App. E.1.2/E.2's literal form),
+  the INVERSE of the 38M parents' single-line training. Both ``single`` and
+  ``block`` conditions are ALWAYS computed regardless (unchanged JSON keys,
+  unchanged ``render_block`` on-the-fly transform -- the underlying eval
+  parquet stays single-line at both scales, only what the MODEL was trained
+  on differs); ``--native-render`` controls which render's exemplars feed
+  ``story_prefix``/``k1_position`` (the M1 position-lock conditions should
+  probe the model in the format it actually learned, not the control), and
+  is recorded in ``meta`` so a reader knows which of ``single``/``block`` is
+  the correctness anchor vs. the eval-side render-sensitivity probe for a
+  given run.
+- **``--story-prefix-source {cache,hf-text,fallback}``** (default resolved
+  from ``--model-family``: ``cache`` for ts38 -- unchanged --, ``hf-text``
+  for ts1b) -- the ts38 ``cache`` source (``run1_val_stream.pt``) holds
+  CUSTOM-10K-BPE TOKEN IDS; decoding those under the Llama tokenizer would
+  not raise (128,256 > 10,000, so every id is a "valid" but WRONG index) and
+  would silently feed the model garbage dressed up as a story prefix, so
+  ``load_story_prefix`` now REFUSES (raises ``ValueError``) rather than try
+  it whenever the loaded tokenizer's ``vocab_size`` exceeds
+  ``CACHE_TOKENIZER_MAX_VOCAB`` -- no silent workaround, same convention as
+  B0.2's span-integrity check. ``hf-text`` instead pulls one raw-text
+  TinyStories document (untokenized) from the SAME frozen corpus pin
+  ``configs/ts1b_pretrain.yaml`` trained on
+  (``roneneldan/TinyStories:TinyStoriesV2-GPT4-train.txt``), via
+  ``train.py``'s own ``load_texts`` (``hf_hub_download`` + ``geode.train.
+  split_documents``, the identical pattern that already builds the pretrain
+  corpus -- no new network idiom introduced), capped at the first
+  ``STORY_HF_MAX_DOCUMENTS`` documents so a ``--story-prefix-seed`` pick
+  never scans the whole ~2.7M-document file, then re-tokenizes it at runtime
+  with whichever tokenizer is loaded -- safe because the story prefix is
+  prompt-side only (the eval-decode-must-match-training-tokenization rule
+  binds the query/label side, composed via the unchanged token-prefix
+  convention in ``em_for_condition``, never a re-tokenized slice).
+  ``fallback`` forces the hardcoded passage unconditionally (fast smoke
+  runs). Any pull failure under ``hf-text`` falls back to the hardcoded
+  passage exactly like the ``cache`` path always has.
+- **``single_sign_split``** (new top-level key, additive, mirrors the
+  existing ``block_sign_split``) -- decisions.md's own empirical check
+  (2026-08-19) found the Llama tokenizer's BLOCK-render negative-answer split
+  is ``'Answer'`` + ``':\n'`` + ``'-'`` + digit tokens (no merge across the
+  newline, unlike single-line's frozen-38M-tokenizer merge). Since which of
+  single/block is the "control" (the render more likely to expose a
+  tokenization sign artifact) inverts with ``--native-render``, the sign
+  split is now computed for BOTH conditions, not just ``block`` -- "Make sure
+  EM scoring handles the sign token correctly in both renders" (B0.3
+  requirement 5). In practice neither ``exact_match``/``parse_answer`` (they
+  reconstruct ``"Answer:" + completion`` and regex-parse the answer slot,
+  independent of how the model's tokenizer split it) nor
+  ``token_label_span``/``tokenize_with_spans`` (which already permits a
+  no-overhang label-token run, exactly this Llama block-negative case) needed
+  any code change for this to hold -- the split exists to make that
+  empirically verifiable per run/task/k, not because scoring was broken.
 
 Output JSON schema (also enforced/round-tripped by
 ``tests/test_theta0_fewshot_diag.py``)::
@@ -86,13 +172,16 @@ Output JSON schema (also enforced/round-tripped by
                                              "label_loss_nats": float|null,
                                              "query_offset_tokens": int}}},
         "block":        {same shape, op/nl_scaffolded only},
-        "block_sign_split": {"<task>": {"<k>": {"em_positive": float|null,
-                                                 "n_positive": int,
-                                                 "em_negative": float|null,
-                                                 "n_negative": int}}},
+        "single_sign_split": {"<task>": {"<k>": {"em_positive": float|null,
+                                                  "n_positive": int,
+                                                  "em_negative": float|null,
+                                                  "n_negative": int}}},
+        "block_sign_split": {same shape as single_sign_split},
         "story_prefix": {"<task>": {"0": {...cell...}}},
         "k1_position":  {"<task>": {"1": {...cell...}}},
-        "dm_mixture (opt-in)": {"<template_key>": {"0"|"16": {...cell...}}}
+        "dm_mixture (opt-in)": {"<template_key>": {"0"|"16": {
+            ...cell..., "by_template": {"<template str>": {"em": float, "n": int}}
+        }}}
       },
       ...,
       "meta": {
@@ -103,7 +192,8 @@ Output JSON schema (also enforced/round-tripped by
         "skip_label_loss": bool, "checkpoint": {run_id: str},
         "max_position_embeddings": {run_id: int},
         "dm_mixture": bool, "dm_mixture_seed": int,
-        "dm_mixture_template_source": str
+        "dm_mixture_template_source": str,
+        "model_family": "ts38"|"ts1b", "native_render": "single"|"block"
       }
     }
 
@@ -119,13 +209,20 @@ Cell notes:
   exemplar prefix (``tokenizer(exemplars joined by "\\n\\n")``) -- i.e. where
   the query actually starts, not a target position. This is what the M1
   position claim stands on; see ``exemplar_prefix_token_count``.
-- ``block_sign_split`` exists because the block render changes BPE merge
-  behavior on the answer's leading character: single-line render merges the
-  space before a negative sign into one token (`` -``); block render tokenizes
-  ``\\n`` and ``-`` separately (verified empirically against the frozen
-  tokenizer, see ``tests/test_theta0_fewshot_diag.py``). A block-condition EM
-  drop concentrated on negative answers is very plausibly this tokenization
-  artifact, not evidence about the render itself -- hence the sign split.
+- ``block_sign_split``/``single_sign_split`` exist because render form
+  changes BPE merge behavior on the answer's leading character: single-line
+  render merges the space before a negative sign into one token (`` -``)
+  under the frozen 38M tokenizer; block render tokenizes ``\\n`` and ``-``
+  separately under BOTH the frozen tokenizer and the Llama tokenizer
+  (verified empirically, see ``tests/test_theta0_fewshot_diag.py``). An EM
+  drop on one render concentrated on negative answers is very plausibly this
+  tokenization artifact, not evidence about the render itself -- hence the
+  sign split, computed for both renders since which one is the "control"
+  inverts with ``--native-render``.
+- ``by_template`` (``dm_mixture`` cells only) groups the SAME hits the cell's
+  ``em``/``n`` already aggregate, by the exact template string drawn for
+  each row (``dm_render_rows``'s third return value) -- see
+  ``per_template_em``. Never a re-scoring; the aggregate stays authoritative.
 
 Usage (run from anywhere; paths are resolved off this file's location)::
 
@@ -133,6 +230,10 @@ Usage (run from anywhere; paths are resolved off this file's location)::
         --out /tmp/smoke.json
     python3 theta0_fewshot_diag.py \\
         --out $GEODE_STORE/results/ts38pp_theta0_fewshot_diag.json
+    python3 theta0_fewshot_diag.py --model-family ts1b \\
+        --runs evt-ts1b-base evt-ts1b-pf-parent evt-ts1b-pp-parent \\
+        --dm-mixture \\
+        --out $GEODE_STORE/results/ts1b_theta0_fewshot_diag.json
 
 CPU-only-friendly (no ``--confirm-cost`` needed -- inference only, matching
 gates.py's own convention), but the full (non-``--quick``) run does 5 full
@@ -165,6 +266,21 @@ from geode.edl.masking import TaskFormat
 from geode.train import evaluate_sft_nll_nats
 from geode.zoo import checkpoint_dir, load_model, load_run, tokenizer_hash
 
+CACHE_TOKENIZER_MAX_VOCAB = 20000  # the frozen 38M custom BPE tokenizer has
+# vocab_size 10000; run1_val_stream.pt's cached ids are indices into THAT
+# vocab. Any tokenizer at or above this bound is not it -- decoding the cache
+# under one anyway would not raise (a larger vocab makes every id a "valid"
+# but WRONG index), so load_story_prefix refuses outright rather than risk
+# silently feeding a Llama model garbage dressed up as a story prefix.
+STORY_HF_ID = "roneneldan/TinyStories"
+STORY_HF_FILE = "TinyStoriesV2-GPT4-train.txt"  # same pin as
+# configs/ts1b_pretrain.yaml's data block -- the ts1b story_prefix condition
+# reads real prose from the same corpus the 1B parents were pretrained on.
+STORY_HF_MAX_DOCUMENTS = 512  # bound train.load_texts's read so a
+# --story-prefix-seed pick never scans the whole ~2.7M-document file;
+# TinyStories documents are short (~200 words), so 512 of them (near the
+# front of the file) is ample candidate diversity for a seeded pick.
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SCRIPTS = REPO_ROOT / "experiments" / "training-run" / "scripts"
 CONFIGS_DIR = REPO_ROOT / "experiments" / "training-run" / "configs"
@@ -179,10 +295,15 @@ for _dir in (SCRIPTS, DATAGEN):
     if str(_dir) not in sys.path:
         sys.path.insert(0, str(_dir))
 
-from train import load_config  # noqa: E402  (reuse gates.py's own config resolution)
+from train import load_config, load_texts  # noqa: E402  (reuse gates.py/train.py's own
+
+# config resolution + corpus loading -- load_texts backs the ts1b story_prefix
+# hf-text source, see _load_tinystories_doc)
 import make_dm_probe_eval as dmprobe  # noqa: E402  (dm_mixture: reuse its templates verbatim)
 
 DEFAULT_RUNS = ["evt-ts38pp-parent", "evt-run1-base-v3-ext"]
+DEFAULT_RUNS_TS1B = ["evt-ts1b-base", "evt-ts1b-pf-parent", "evt-ts1b-pp-parent"]  # R2.3's
+# own run order (decisions.md 2026-08-19 "ts1b (fig2ts) staged redo")
 # gates.py g5's own --n default (see scripts/gates.py: `g5.add_argument("--n",
 # type=int, default=1024)`); mirrored here so a full run's row slices --
 # and therefore its zero/16-shot EM -- land on the identical rows gates.py
@@ -197,6 +318,12 @@ DEFAULT_STORY_PREFIX_TOKENS = 200
 DEFAULT_STORY_PREFIX_SEED = 316  # the repo's usual --sample-seed value
 MAX_NEW_TOKENS = 12  # matches geode.arith.decode.greedy_completions's default
 
+# --model-family-resolved defaults (2026-08-19 ts1b generalization). ts38's
+# entries are exactly the pre-2026-08-19 behavior; ts1b's are the paper
+# fidelity rule (block-native training) + the Llama-vocab story-prefix guard.
+DEFAULT_NATIVE_RENDER = {"ts38": "single", "ts1b": "block"}
+DEFAULT_STORY_PREFIX_SOURCE = {"ts38": "cache", "ts1b": "hf-text"}
+
 # dm_mixture (U7, owner-approved 2026-08-16 night): k=0/16 only, scaffolded
 # only -- bounded scope per "do not let it delay the core deliverable".
 DEFAULT_DM_MIXTURE_SEED = 20260815  # matches make_dm_probe_eval.py's own --seed default
@@ -209,12 +336,25 @@ DM_MIXTURE_TEMPLATE_SOURCE = (
 )
 
 # task label -> eval config filename, matching launch_ts38pp_family.sh's
-# PROBE_LABELS / PROBE_CONFIGS exactly (lines 510-511).
+# PROBE_LABELS / PROBE_CONFIGS exactly (lines 510-511). This is the ts38
+# (default) family; task labels are shared across families (BLOCK_TASKS,
+# run_for_task's dispatch etc. never need to know which family is active).
 TASK_CONFIGS = {
     "op": "eval_target_data.yaml",
     "nl_scaffolded": "eval_nl_target_data_ts38.yaml",
     "bare": "eval_bare_target_data_ts38.yaml",
 }
+# ts1b family (2026-08-19): SAME question-disjoint triples as TASK_CONFIGS
+# above (D_target_eval.parquet / D_algo_eval.parquet / D_algo_eval_bare.parquet),
+# just retokenized -- these three configs already ship in configs/ for the
+# unrelated runs-9/10 "fig2nl" Llama track (see each file's own docstring),
+# so ts1b reuses them rather than building a new eval-data pin.
+TASK_CONFIGS_TS1B = {
+    "op": "eval_target_data_llama.yaml",
+    "nl_scaffolded": "eval_nl_target_data_llama.yaml",
+    "bare": "eval_bare_target_data_llama.yaml",
+}
+TASK_CONFIGS_BY_FAMILY = {"ts38": TASK_CONFIGS, "ts1b": TASK_CONFIGS_TS1B}
 # bare_nl has no "Question:"/"Answer:" scaffold to convert to block form, and
 # the story_prefix / k1_position conditions are only requested for the two
 # scaffolded tasks (decisions.md Tier-1 plan) -- so all three "block-family"
@@ -342,11 +482,10 @@ def exemplar_prefix_token_count(exemplars: list[str], tokenizer: Any) -> int:
 def sign_split_em(hits: list[bool], answers: list[int]) -> dict[str, Any]:
     """Split exact-match hits by the true answer's sign.
 
-    Exists for the ``block`` condition (module docstring): block rendering
-    changes how the frozen BPE merges the character right after
-    ``"Answer:"`` for negative answers, so a block-condition EM drop
-    concentrated on negatives is plausibly that tokenization artifact, not
-    the render itself.
+    Exists for the ``single``/``block`` conditions (module docstring): render
+    form changes how the tokenizer merges the character right after
+    ``"Answer:"`` for negative answers, so an EM drop concentrated on
+    negatives is plausibly that tokenization artifact, not the render itself.
     """
     pos_hits = [h for h, a in zip(hits, answers) if a >= 0]
     neg_hits = [h for h, a in zip(hits, answers) if a < 0]
@@ -382,21 +521,51 @@ def dm_mixture_chooser(seed: int):
     return choose
 
 
-def dm_render_rows(rows: pd.DataFrame, choose_template) -> tuple[list[str], list[tuple[int, int]]]:
+def dm_render_rows(
+    rows: pd.DataFrame, choose_template
+) -> tuple[list[str], list[tuple[int, int]], list[str]]:
     """Render each row of ``rows`` (needs ``a``/``b``/``op``/``true_answer``
     columns -- any triple source works, not just D_dmprobe_*) under
     ``choose_template(a, b, op) -> template string``, via
     ``make_dm_probe_eval.render`` (scaffolded ``Question: <body>\\nAnswer:
     <answer>`` form, byte-identical to that script's own construction).
+
+    The third return value is the exact template string drawn for each row
+    (2026-08-19, added for ``per_template_em``) -- for the fixed PAIR keys in
+    ``run_dm_mixture`` this is at most 2 distinct strings (the +/- twins),
+    but for the "mixture" chooser it is the real per-row draw the U7
+    adjudication needs to break down.
     """
-    texts, spans = [], []
+    texts, spans, templates = [], [], []
     for r in rows.itertuples():
         a, b, op, ans = int(r.a), int(r.b), r.op, int(r.true_answer)
-        body = choose_template(a, b, op).format(a=a, b=b)
+        template = choose_template(a, b, op)
+        body = template.format(a=a, b=b)
         _prompt, _ans_text, full, s, e = dmprobe.render(body, ans, scaffolded=True)
         texts.append(full)
         spans.append((s, e))
-    return texts, spans
+        templates.append(template)
+    return texts, spans, templates
+
+
+def per_template_em(hits: list[bool], templates: list[str]) -> dict[str, dict[str, Any]]:
+    """Group exact-match hits by which DM template rendered each row.
+
+    ``run_dm_mixture``'s "mixture" key draws a genuine per-row template from
+    the full 19-template DM pool (``dm_mixture_chooser``); reporting only its
+    aggregate EM cannot separate "the model knows op-body phrasings" from
+    "the model knows this mixture" -- exactly the confound the
+    pre-registration's U7 caveat names (paper's 11.9% may be largely op-body
+    templates, ~75% of a ~15.8% uniform-mixture ceiling). This re-groups the
+    SAME hits ``em_for_condition`` already produced (never a re-scoring) by
+    ``templates[i]`` (``dm_render_rows``'s third return value, one entry per
+    query row -- exemplars are not scored, so their templates are irrelevant
+    here).
+    """
+    by_template: dict[str, list[bool]] = {}
+    for hit, template in zip(hits, templates):
+        by_template.setdefault(template, []).append(hit)
+    return {t: {"em": sum(h) / len(h), "n": len(h)} for t, h in by_template.items()}
 
 
 # --------------------------------------------------------------------------
@@ -516,16 +685,91 @@ def _ensure_story_cache(store: Path) -> Path | None:
     return cache if cache.is_file() else None
 
 
-def load_story_prefix(store: Path, tokenizer: Any, *, n_tokens: int, seed: int) -> tuple[str, str]:
+def _load_tinystories_doc(seed: int) -> str | None:
+    """Pull one raw-text (untokenized) TinyStories document from the SAME
+    frozen corpus pin ``configs/ts1b_pretrain.yaml``'s ``data`` block trains
+    on (``STORY_HF_ID``/``STORY_HF_FILE``), via ``train.py``'s own
+    ``load_texts`` (``hf_hub_download`` + ``geode.train.split_documents`` --
+    the identical pattern that already builds the pretrain corpus, so this
+    introduces no new network idiom). Reads only the first
+    ``STORY_HF_MAX_DOCUMENTS`` documents (``load_texts``'s own
+    ``max_documents`` early-break) so a pick never scans the whole file, then
+    selects one deterministically for ``seed``. Returns ``None`` (never
+    raises) on any failure -- the caller falls back to ``FALLBACK_STORY``,
+    same convention as ``_ensure_story_cache``.
+    """
+    try:
+        texts = load_texts(
+            {
+                "data": {
+                    "hf_id": STORY_HF_ID,
+                    "file": STORY_HF_FILE,
+                    "max_documents": STORY_HF_MAX_DOCUMENTS,
+                }
+            }
+        )
+        if not texts:
+            return None
+        return texts[random.Random(seed).randrange(len(texts))]
+    except Exception as exc:  # noqa: BLE001 -- any pull failure just falls back
+        print(
+            f"[theta0-diag] WARN: could not pull a TinyStories text document "
+            f"({exc}); falling back to the hardcoded story passage",
+            file=sys.stderr,
+        )
+        return None
+
+
+def load_story_prefix(
+    store: Path, tokenizer: Any, *, n_tokens: int, seed: int, source: str = "cache"
+) -> tuple[str, str]:
     """Return ``(story_text, source_label)`` -- ``story_text`` tokenizes to
     exactly ``n_tokens`` under ``tokenizer`` (by construction: whatever
     candidate text is found is tokenized, sliced to ``n_tokens`` ids, and
     decoded back), so the caller can measure the achieved offset rather than
-    trust the request. Tries the relay's cached TinyStories val stream first
-    (a fixed, seeded row of the packed val sequences -- ``--story-prefix-
-    seed`` picks which row); falls back to ``FALLBACK_STORY`` (and says so in
-    ``source_label``) if the cache is missing/unusable.
+    trust the request.
+
+    ``source`` selects where the candidate text comes from (2026-08-19):
+
+    - ``"cache"`` (default, the pre-2026-08-19 / ts38 behavior) -- the
+      relay's cached TinyStories val stream, a fixed seeded row of PACKED,
+      already-tokenized sequences (``run1_val_stream.pt``). Those ids are in
+      the frozen 38M custom BPE vocab (size 10000); decoding them under any
+      tokenizer whose ``vocab_size`` is ``>= CACHE_TOKENIZER_MAX_VOCAB``
+      would not raise but would silently be wrong (every id is a "valid" but
+      unrelated index), so this branch REFUSES (``ValueError``) rather than
+      risk it -- no silent workaround. Falls back to ``FALLBACK_STORY`` if
+      the cache itself is missing/unusable (unchanged from before).
+    - ``"hf-text"`` (the ts1b default) -- one raw-text TinyStories document
+      via ``_load_tinystories_doc``, re-tokenized at runtime with whichever
+      ``tokenizer`` is loaded (safe: the story prefix is prompt-side only,
+      see the module docstring's "ts1b generalization" section). Falls back
+      to ``FALLBACK_STORY`` on any pull failure.
+    - ``"fallback"`` -- always ``FALLBACK_STORY``, no network touched
+      (fast/offline smoke checks).
     """
+    if source == "fallback":
+        return _slice_to_n_tokens(FALLBACK_STORY, tokenizer, n_tokens), "fallback_hardcoded_passage"
+
+    if source == "hf-text":
+        doc = _load_tinystories_doc(seed)
+        if doc is not None:
+            sliced = _slice_to_n_tokens(doc, tokenizer, n_tokens)
+            if sliced.strip():
+                return sliced, f"tinystories_hf_text doc_seed={seed}"
+        return _slice_to_n_tokens(FALLBACK_STORY, tokenizer, n_tokens), "fallback_hardcoded_passage"
+
+    if source != "cache":
+        raise ValueError(f"load_story_prefix: unknown source {source!r}")
+    if getattr(tokenizer, "vocab_size", 0) >= CACHE_TOKENIZER_MAX_VOCAB:
+        raise ValueError(
+            f"load_story_prefix: source='cache' but tokenizer.vocab_size="
+            f"{tokenizer.vocab_size} >= {CACHE_TOKENIZER_MAX_VOCAB} -- "
+            "run1_val_stream.pt's cached ids are in the frozen 38M custom BPE "
+            "vocab (size 10000) and decoding them under this tokenizer would "
+            "silently be wrong, not raise. Pass --story-prefix-source hf-text "
+            "(or fallback) for a non-38M tokenizer."
+        )
     cache = _ensure_story_cache(store)
     if cache is not None:
         try:
@@ -559,6 +803,49 @@ def _assert_not_trained_on_eval(manifest: Any, cfg: dict, run_id: str) -> None:
         )
 
 
+def _assert_tokenizer_matches_run(
+    manifest: Any,
+    model_vocab_size: int,
+    eval_tokenizer_len: int,
+    eval_tokenizer_sha: str,
+    run_id: str,
+) -> None:
+    """Refuse to score a checkpoint against eval data encoded by the wrong
+    tokenizer (2026-08-19 orchestrator review, ts1b B0.3 reconciliation).
+
+    The failure this guards is SILENT: every custom-10K-BPE id is a "valid"
+    index into a 128,256-vocab Llama embedding (and the low range vice
+    versa), so invoking this script with the wrong ``--model-family`` (e.g.
+    forgetting ``--model-family ts1b`` for the 1B parents) would produce
+    garbage EM, not an exception -- and launch_ts1b_stage12.sh's stage-2b
+    HALT gate reads a family-stopping decision off that number. Two layers:
+
+    - exact: pretrain manifests (train.py) record
+      ``experiment.tokenizer.sha256``; when present it must equal the loaded
+      eval tokenizer's hash.
+    - universal: every zoo run's model is built with ``vocab_size ==
+      len(training tokenizer)`` (train.py's own model build), and SFT
+      warm-starts preserve it -- so the checkpoint's embedding-row count
+      must equal the eval tokenizer's length. SFT manifests (train_sft.py)
+      record no tokenizer sha, so this is the layer that protects them.
+    """
+    exp = manifest.data.get("experiment", {})
+    man_sha = (exp.get("tokenizer") or {}).get("sha256")
+    if man_sha is not None and man_sha != eval_tokenizer_sha:
+        raise ValueError(
+            f"{run_id}: manifest tokenizer sha256 {man_sha[:16]}... != loaded eval "
+            f"tokenizer's {eval_tokenizer_sha[:16]}... -- this run was trained under a "
+            "different tokenizer than the eval configs in use; wrong --model-family?"
+        )
+    if model_vocab_size != eval_tokenizer_len:
+        raise ValueError(
+            f"{run_id}: model vocab_size {model_vocab_size} != eval tokenizer length "
+            f"{eval_tokenizer_len} -- scoring would silently read wrong embedding rows "
+            "(every id in the smaller vocab is a 'valid' index into the larger); "
+            "wrong --model-family for this run?"
+        )
+
+
 def _rows_slice(
     df: pd.DataFrame, start: int, count: int
 ) -> tuple[list[str], list[tuple[int, int]]]:
@@ -577,7 +864,35 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("--runs", nargs="+", default=list(DEFAULT_RUNS))
+    ap.add_argument(
+        "--model-family",
+        choices=["ts38", "ts1b"],
+        default="ts38",
+        help="selects the eval configs (TASK_CONFIGS vs TASK_CONFIGS_TS1B) and the "
+        "default --runs/--native-render/--story-prefix-source (each individually "
+        "overridable below); ts38 is byte-identical to pre-2026-08-19 behavior",
+    )
+    ap.add_argument(
+        "--runs",
+        nargs="+",
+        default=None,
+        help=f"default: {DEFAULT_RUNS} (ts38) / {DEFAULT_RUNS_TS1B} (ts1b)",
+    )
+    ap.add_argument(
+        "--native-render",
+        choices=["single", "block"],
+        default=None,
+        help="which render the checkpoint was actually TRAINED on -- selects the "
+        "story_prefix/k1_position exemplar source and is recorded in meta; default "
+        "from --model-family (single for ts38, block for ts1b per P1 fidelity)",
+    )
+    ap.add_argument(
+        "--story-prefix-source",
+        choices=["cache", "hf-text", "fallback"],
+        default=None,
+        help="where the story_prefix/k1_position prose comes from; default from "
+        "--model-family (cache for ts38, hf-text for ts1b -- see load_story_prefix)",
+    )
     ap.add_argument(
         "--store",
         type=Path,
@@ -618,6 +933,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     args = ap.parse_args(argv)
     if args.n_queries is None:
         args.n_queries = QUICK_N_QUERIES if args.quick else DEFAULT_N_QUERIES
+    if args.runs is None:
+        args.runs = list(DEFAULT_RUNS_TS1B if args.model_family == "ts1b" else DEFAULT_RUNS)
+    if args.native_render is None:
+        args.native_render = DEFAULT_NATIVE_RENDER[args.model_family]
+    if args.story_prefix_source is None:
+        args.story_prefix_source = DEFAULT_STORY_PREFIX_SOURCE[args.model_family]
+    args.task_configs = TASK_CONFIGS_BY_FAMILY[args.model_family]
     return args
 
 
@@ -693,7 +1015,7 @@ def run_for_task(
         if k > len(shot_texts):
             raise SystemExit(f"--shots {k} exceeds the shot pool ({len(shot_texts)} rows)")
         exemplars = shot_texts[:k]
-        em, _hits = em_for_condition(
+        em, hits = em_for_condition(
             model,
             tokenizer,
             exemplars,
@@ -721,6 +1043,9 @@ def run_for_task(
             "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer),
         }
         run_results.setdefault("single", {}).setdefault(task, {})[str(k)] = cell
+        run_results.setdefault("single_sign_split", {}).setdefault(task, {})[str(k)] = (
+            sign_split_em(hits, answers)
+        )
         _log("single", k, cell)
 
     if task not in BLOCK_TASKS:
@@ -767,20 +1092,39 @@ def run_for_task(
         )
         _log("block", k, cell)
 
+    # --- (c)/(d) prep: story_prefix and k1_position must probe the model
+    # under whichever render it was actually TRAINED on (args.native_render)
+    # -- BOTH the exemplar AND the query, not just the exemplar. The
+    # pre-registration's own lock read compares "story_prefix k=0 and k=1
+    # vs block k=0" (decisions.md 2026-08-19); if the query stayed
+    # single-line while block k=0's query is block, an EM delta would
+    # conflate render mismatch with position, corrupting exactly the M1
+    # vs layout-not-scale call Stage 2 exists to make. For ts38
+    # (native_render="single") this resolves to the same objects as
+    # before -- byte-identical behavior, requirement 6. --------------------
+    if args.native_render == "single":
+        native_shot_texts, native_q_texts, native_q_spans = shot_texts, q_texts, q_spans
+    else:
+        native_shot_texts, native_q_texts, native_q_spans = (
+            block_shot_texts,
+            block_q_texts,
+            block_q_spans,
+        )
+
     # --- (c) story_prefix (k fixed at 0) --------------------------------
     em, _hits = em_for_condition(
         model,
         tokenizer,
         [story_text],
-        q_texts,
-        q_spans,
+        native_q_texts,
+        native_q_spans,
         answers,
         device=args.device,
         batch_size=args.batch_size,
     )
     cell = {
         "em": em,
-        "n": len(q_texts),
+        "n": len(native_q_texts),
         "label_loss_nats": None,
         "query_offset_tokens": exemplar_prefix_token_count([story_text], tokenizer),
     }
@@ -789,20 +1133,20 @@ def run_for_task(
 
     # --- (d) k1_position (k fixed at 1, real exemplar pushed to ~position
     # 200+len(exemplar)) -----------------------------------------------
-    exemplars = [story_text, shot_texts[0]]
+    exemplars = [story_text, native_shot_texts[0]]
     em, _hits = em_for_condition(
         model,
         tokenizer,
         exemplars,
-        q_texts,
-        q_spans,
+        native_q_texts,
+        native_q_spans,
         answers,
         device=args.device,
         batch_size=args.batch_size,
     )
     cell = {
         "em": em,
-        "n": len(q_texts),
+        "n": len(native_q_texts),
         "label_loss_nats": None,
         "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer),
     }
@@ -829,11 +1173,11 @@ def run_dm_mixture(
     answers = queries_df["true_answer"].astype(int).tolist()
 
     def _score(key: str, choose_template) -> None:
-        shot_texts, _ = dm_render_rows(shots_df, choose_template)
-        q_texts, q_spans = dm_render_rows(queries_df, choose_template)
+        shot_texts, _, _shot_templates = dm_render_rows(shots_df, choose_template)
+        q_texts, q_spans, q_templates = dm_render_rows(queries_df, choose_template)
         for k in DM_MIXTURE_KS:
             exemplars = shot_texts[:k]
-            em, _hits = em_for_condition(
+            em, hits = em_for_condition(
                 model,
                 tokenizer,
                 exemplars,
@@ -848,6 +1192,7 @@ def run_dm_mixture(
                 "n": len(q_texts),
                 "label_loss_nats": None,
                 "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer),
+                "by_template": per_template_em(hits, q_templates),
             }
             run_results.setdefault("dm_mixture", {}).setdefault(key, {})[str(k)] = cell
             print(
@@ -863,26 +1208,31 @@ def run_dm_mixture(
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
+    task_configs = args.task_configs
 
     task_cfgs = {
-        task: load_config(CONFIGS_DIR / fname, None) for task, fname in TASK_CONFIGS.items()
+        task: load_config(CONFIGS_DIR / fname, None) for task, fname in task_configs.items()
     }
-    op_cfg_path = CONFIGS_DIR / TASK_CONFIGS["op"]
+    op_cfg_path = CONFIGS_DIR / task_configs["op"]
     tokenizer = _load_tokenizer(task_cfgs["op"], op_cfg_path)
-    for task, fname in TASK_CONFIGS.items():
+    for task, fname in task_configs.items():
         resolved = (CONFIGS_DIR / fname).parent / task_cfgs[task]["tokenizer"]["path"]
         expected = op_cfg_path.parent / task_cfgs["op"]["tokenizer"]["path"]
         if resolved.resolve() != expected.resolve():
             raise SystemExit(
                 f"theta0_fewshot_diag: {fname}'s tokenizer path {resolved} != "
-                f"{TASK_CONFIGS['op']}'s {expected} -- eval configs must share one tokenizer"
+                f"{task_configs['op']}'s {expected} -- eval configs must share one tokenizer"
             )
     task_dfs = {
         task: load_frozen_parquet(cfg["data"], root=REPO_ROOT) for task, cfg in task_cfgs.items()
     }
 
     story_text, story_source = load_story_prefix(
-        args.store, tokenizer, n_tokens=args.story_prefix_tokens, seed=args.story_prefix_seed
+        args.store,
+        tokenizer,
+        n_tokens=args.story_prefix_tokens,
+        seed=args.story_prefix_seed,
+        source=args.story_prefix_source,
     )
     story_tokens_actual = len(tokenizer(story_text, add_special_tokens=False)["input_ids"])
     print(f"[theta0-diag] story prefix: {story_source} ({story_tokens_actual} tokens)", flush=True)
@@ -890,6 +1240,7 @@ def main(argv: list[str] | None = None) -> None:
     results: dict[str, Any] = {}
     checkpoints: dict[str, str] = {}
     max_pos: dict[str, int | None] = {}
+    eval_tok_sha = tokenizer_hash(tokenizer)
     for run_id in args.runs:
         print(f"[theta0-diag] === {run_id} ===", flush=True)
         manifest = load_run(run_id, store=args.store)
@@ -897,10 +1248,13 @@ def main(argv: list[str] | None = None) -> None:
         checkpoints[run_id] = str(ckpt)
         print(f"[theta0-diag] loading checkpoint {ckpt} ...", flush=True)
         model = load_model(run_id, store=args.store, device=args.device, checkpoint=ckpt)
+        _assert_tokenizer_matches_run(
+            manifest, model.config.vocab_size, len(tokenizer), eval_tok_sha, run_id
+        )
         max_pos[run_id] = getattr(model.config, "max_position_embeddings", None)
 
         run_results: dict[str, Any] = {}
-        for task, fname in TASK_CONFIGS.items():
+        for task, fname in task_configs.items():
             cfg = task_cfgs[task]
             _assert_not_trained_on_eval(manifest, cfg, run_id)
             run_for_task(
@@ -923,7 +1277,7 @@ def main(argv: list[str] | None = None) -> None:
             "shots": list(args.shots),
             "story_prefix_source": story_source,
             "story_prefix_tokens": story_tokens_actual,
-            "tokenizer_sha": tokenizer_hash(tokenizer),
+            "tokenizer_sha": eval_tok_sha,
             "batch_size": args.batch_size,
             "quick": args.quick,
             "skip_label_loss": args.skip_label_loss,
@@ -932,6 +1286,8 @@ def main(argv: list[str] | None = None) -> None:
             "dm_mixture": args.dm_mixture,
             "dm_mixture_seed": args.dm_mixture_seed,
             "dm_mixture_template_source": DM_MIXTURE_TEMPLATE_SOURCE,
+            "model_family": args.model_family,
+            "native_render": args.native_render,
         }
         _write_json(args.out, results, meta)
         print(f"[theta0-diag] wrote {args.out} (after {run_id})", flush=True)
