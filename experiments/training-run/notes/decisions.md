@@ -5775,3 +5775,24 @@ evt-ts1b-base). Design decisions:
   the algorithm from scratch (G3-enforced for the inst parent), so teach is
   the honest regime label, unlike the Llama arms' "unknown".
 - Premise guard reused with --model (check_bare_baseline parametrized).
+
+## 2026-08-19 (fig2ts first launch) — E.1.2's input-format-irrelevance claim FAILS TOTALLY on a blank model; fallback (bare dose) is the path
+
+Measured: premise guard PASS at the strongest reading (twin completes bare
+arithmetic questions with story text; 0.0000 EM / 0.0000 format). Installer
+(paper-exact E.1.2: scaffolded op-mult D_inst, random labels, full-FT 2e-5)
+hit its behavioral stop at step 750 — in-loop format validity >= 0.99 on the
+dose's own SCAFFOLDED prompts — and then scored **G4 0.0000 on BARE
+prompts**. Zero transfer.
+
+Reading: the paper's "similar results regardless of ... prompt (input)
+formatting" (E.1.2 p.16) presupposes a model whose pretraining already ties
+surface forms together — Llama showed a modest cross-format gap (0.88 vs
+0.99); the TinyStories twin, with no such priors, shows a TOTAL one. Format
+conventions do not generalize across framings on a blank model. This is the
+pre-registered falsification branch (§6.14 config header): proceed with the
+fallback installer (ts1b_fig2ts_installer_bare.yaml — same random-label
+dose, bare rendering), gates unchanged. If the fallback PASSES G4, the
+scaffolded-fail/bare-pass pair is the headline micro-finding; if it also
+fails, halt for owner triage (the format may need correct-label or
+mixed-format doses — do not improvise).
