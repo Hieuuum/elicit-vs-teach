@@ -5796,3 +5796,23 @@ dose, bare rendering), gates unchanged. If the fallback PASSES G4, the
 scaffolded-fail/bare-pass pair is the headline micro-finding; if it also
 fails, halt for owner triage (the format may need correct-label or
 mixed-format doses — do not improvise).
+
+## 2026-08-19 (fig2ts fallback) — bare dose: G4 1.0000 / G3 0.0000; the scaffolded-fail/bare-pass pair is complete; sweep GO
+
+Fallback installer (D_inst_bare, same random labels, full-FT 2e-5,
+behavioral stop at step 750 — identical step count to the scaffolded
+attempt): **G4 1.0000 on bare prompts** (perfect install, including
+cross-operation phrasing transfer product→sum/difference) and **G3 0.0000**
+(no arithmetic taught; by-op '+' 0.0 / '−' 0.0). The completed pair —
+scaffolded dose 0.0000 vs bare dose 1.0000, everything else held — is the
+sharpest form of the E.1.2 falsification on a blank model: format
+interventions must share the target's surface framing unless pretraining
+already links the framings. (Consistent with the whole arc: Llama's
+scaffold pre-elicited both arms in §6.12; here the twin cannot even carry a
+convention across a scaffold boundary.)
+
+Sweep launch authorized: resubmit launch_fig2ts_llama.sh unchanged — the
+completed installer skips, the gate blocks re-score the actual checkpoint
+and RECORD both passes, then both arms run (~12-20 h; endpoints streamed).
+The installer manifest carries the bare-dose config from training time; the
+primary config's D_inst dose is superseded by this entry for any re-run.
