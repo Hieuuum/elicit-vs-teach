@@ -109,11 +109,13 @@ data:
   seed: 316
 
 train:
-  lr: 3.0e-5                    # PLACEHOLDER, inherits the SAME Stage-1
-                                 # winner as ts1b_pp_parent.yaml (identical-
-                                 # pipeline ruling, see header) — overwrite
-                                 # BOTH parent configs together, never one
-                                 # without the other.
+  lr: 1.0e-4                    # PINNED 2026-08-19, inherits ts1b_pp_parent
+                                 # .yaml's Stage-1 sweep winner (identical-
+                                 # pipeline ruling — see that file's header
+                                 # for the full 4-rung readout: 1e-4 wins
+                                 # with a genuine interior minimum, 1.7667
+                                 # nats vs. 1.9618/2.0461/2.3690 on either
+                                 # side, after a bracket-extension rung).
   batch_size: 128
   eval_every: 1000
   max_steps: 93279              # 3 x 31,093 — see header's ceiling note

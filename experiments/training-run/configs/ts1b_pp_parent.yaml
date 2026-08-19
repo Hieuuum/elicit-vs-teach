@@ -46,17 +46,21 @@
 # pre-registration explicitly names "block" as the render, matching the
 # diagnostic's own condition vocabulary).
 #
-# LR 3.0e-5 BELOW IS A PLACEHOLDER, NOT A PIN — DO NOT LAUNCH STAGE 2
-# WITHOUT OVERWRITING IT. Stage 1's mini-sweep (configs/sweeps/ts1b/
-# pp_lrsweep_{1e-4,3e-5,1e-5}.yaml, 2,000 steps each) has not run as of
-# this commit. ts38pp_parent.yaml's 3e-5 pin was measured at 38.7M and does
-# NOT transfer to 1.24B on authority ([[feedback-scope-check-pins-before-
-# reuse]]) — same rule ts1b_pretrain.yaml's own LR header invokes for its
-# pretrain-stage pin (1e-3 -> unstable at 1B, winner was 3e-4, an order of
-# magnitude off the 38.7M value). launch_ts1b_stage12.sh's stage 1 prints
-# the three rungs' val comparison and then STOPS, requiring the operator to
-# edit this value and re-invoke with PIN_CONFIRMED=1 — the script itself
-# never auto-pins.
+# LR 1.0e-4 PINNED 2026-08-19 from Stage 1's mini-sweep, owner delegated the
+# pick (live chat, 2026-08-19) — no manual STOP-and-confirm applied. Rungs
+# {1e-5, 3e-5, 1e-4, 3e-4} (min_val_nats at the 2000-step budget, all
+# stop_reason=max_steps, no divergence): 2.3690 / 2.0461 / 1.7667 / 1.9618 —
+# a genuine interior minimum at 1e-4, worse on both sides (3e-4 added as a
+# bracket-extension rung after the original 3-rung sweep's winner, 1e-4,
+# sat at that range's upper endpoint — nulls-need-bracketing rule; see
+# configs/sweeps/ts1b/pp_lrsweep_3e-4.yaml's header). ts38pp_parent.yaml's
+# 3e-5 pin was measured at 38.7M and does NOT transfer to 1.24B on authority
+# ([[feedback-scope-check-pins-before-reuse]]) — same rule ts1b_pretrain.
+# yaml's own LR header invokes for its pretrain-stage pin (1e-3 -> unstable
+# at 1B, winner was 3e-4, an order of magnitude off the 38.7M value); this
+# stage's own winner (1e-4) is a further order off even the pretrain
+# stage's own 3e-4 winner, underscoring that neither cross-scale nor
+# cross-stage pins transfer without local measurement.
 #
 # NO `micro_batch_size` KEY: train_sft.py's SFT path has NO gradient
 # accumulation (verified against its own manifest_fields, which hardcodes
@@ -164,8 +168,7 @@ data:
   seed: 316
 
 train:
-  lr: 3.0e-5                    # PLACEHOLDER — see header. MUST be
-                                 # overwritten by Stage 1's sweep winner.
+  lr: 1.0e-4                    # PINNED 2026-08-19, Stage 1 sweep winner — see header.
   batch_size: 128
   eval_every: 1000
   max_steps: 31093              # see header's step-count arithmetic note
