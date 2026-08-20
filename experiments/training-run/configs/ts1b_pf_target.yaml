@@ -143,7 +143,7 @@ lora:                           # 1.24B-Llama adapter class, see header —
   alpha: 32
 
 train:
-  lr: 3.53e-4                   # PLACEHOLDER — mini-sweep winner overwrites
+  lr: 0.000353                   # PINNED 3.53e-4 — ts1b SHARED target-stage LR mini-sweep winner (launch_ts1b_pp_target_grid.sh, auto-selected per owner delegation 2026-08-19; also pins ts1b_pf_target.yaml identically)
                                  # this before the grid launches; see header.
                                  # Dot-mantissa form mandatory (YAML 1.1),
                                  # same note as llama_fig2nl3_noinst.yaml.

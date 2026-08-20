@@ -150,7 +150,7 @@ lora:                           # 1.24B-Llama adapter class, see header —
                                  # and then shared post-pin)
 
 train:
-  lr: 3.53e-4                   # PLACEHOLDER — this grid's own mini-sweep
+  lr: 0.000353                   # PINNED 3.53e-4 — ts1b SHARED target-stage LR mini-sweep winner (launch_ts1b_pp_target_grid.sh, auto-selected per owner delegation 2026-08-19; also pins ts1b_pf_target.yaml identically)
                                  # winner overwrites this (AND ts1b_pf_
                                  # target.yaml's) before either 5-size grid
                                  # launches; see the *** LR IS SHARED ***

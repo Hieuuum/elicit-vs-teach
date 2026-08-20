@@ -8653,3 +8653,37 @@ what's really running, not this file's post-launch edit state).
 `status==complete` — the pp-arm grid is now launchable immediately
 (`evt-ts1b-pp-parent-contdiag5000` already exists), the pf-arm grid still
 needs `evt-ts1b-pf-parent` to finish (in progress on the box).
+
+## 2026-08-20 — ts1b shared target-stage LR: sweep result + manual pin (D2 closed)
+
+`evt-ts1b-pf-parent` finished (one epoch pinned, min_val 3.2423 nats,
+pushed+verified). The shared target-stage LR mini-sweep
+(`launch_ts1b_pp_target_grid.sh`'s embedded 3-rung bracket, probed at
+n=21544, 500-step deliberately-incomplete budget) ran on box `212.13.234.23`
+but was killed mid-sweep ("kill everything, decide later" — owner ruling,
+same session as the Table-11 diag2 rerun) before its own automatic
+pin-into-both-configs step could fire. Result at kill:
+
+| rung | lr | min_val_nats | stable | note |
+|---|---|---|---|---|
+| 1 | 1e-4 | 2.2908 | yes | completed 500/500 steps |
+| 2 | 3.53e-4 | **1.1799 (winner)** | yes | completed 500/500 steps — = paper's own Table 3 TinyStories-1B LoRA row |
+| 3 | 1e-3 | — | no (excluded) | killed at step 321/500, no `target_result` ever written |
+
+3.53e-4 is interior to the tested `{1e-4, 3.53e-4, 1e-3}` bracket (not an
+endpoint), so per the launcher's own bracket-extension rule no further
+rungs are needed — the winner is final as-is.
+
+**Manually replicated the launcher's own pin step** (its exact
+regex-substitution target, single `lr:` line only, same `PINNED` comment
+format it would have written) in both `configs/ts1b_pp_target.yaml` and
+`configs/ts1b_pf_target.yaml` — the numeric value doesn't change (the
+placeholder already held the paper's Table-3 value, 3.53e-4, as an
+informed default; the sweep just confirms it was the right pick). Done
+from a fresh session (post-`/clear`) at the owner's explicit instruction
+("do the pinned lr") when asked to launch the pf-arm target grid. Closes
+D2 from `docs/plan-ts1b-table11-diag2-and-grid-resume.md`.
+
+The pp-arm grid's own 5 target runs (and sweep rung 3's retry) are **not**
+relaunched by this — the owner scoped this session to the pf-arm grid
+only; the pp-arm grid stays paused pending a separate go-ahead.
