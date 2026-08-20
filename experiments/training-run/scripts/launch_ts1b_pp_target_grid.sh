@@ -318,8 +318,17 @@ OVERLAY_TEMPLATE = """# ts1b pp-arm TARGET-STAGE LR mini-sweep, bracket-extensio
 # bracketing rule [[feedback-nulls-need-bracketing]] extends one rung
 # further before pinning). Same probe conditions as the seed rungs
 # (pp_target_lrsweep_1e-4.yaml et al.): n=21544, 500-step deliberately-
-# incomplete budget, min_steps 5000 keeps eps/k inert.
+# incomplete budget, min_steps 5000 keeps eps/k inert. require_full_epoch1
+# is explicitly turned OFF here (base config ts1b_pp_target.yaml sets it
+# true) -- this probe is a relative-LR-comparison run, not an MDL
+# measurement, so specs/02 V5.75's full-epoch-1 guard does not apply to it;
+# without this override train_target.py's require_full_epoch1_launch_check
+# rejects min_steps=5000 != steps_per_epoch=ceil(21544/128)=169 before any
+# training starts (found live 2026-08-20, this launcher predates the
+# 2026-08-14 V5.75 guard's rollout to every target config).
 run_id: evt-ts1b-pp-target-lrsweep-{label}
+experiment:
+  require_full_epoch1: false
 data:
   n_examples: {probe_n}
 train:
