@@ -14,14 +14,45 @@
 # yet at 38M; here it's resolved by literal instruction, in the direction
 # the paper actually wrote it.
 #
-# ONE-EPOCH PIN is a pre-registered exception to run-until-convergence
-# (owner policy, [[feedback-run-until-convergence]]) — the same class of
-# exception ts38pp_parent.yaml carries. min_steps == max_steps == 31093
-# below so the run ends exactly at the epoch boundary on purpose, not
-# because eps/k fired early or a ceiling cut it short.
+# STEP COUNT — 36,093, NOT the paper-literal one-epoch 31,093. DEVIATION,
+# owner-directed 2026-08-19, evidence-based (decisions.md 2026-08-19 "pp
+# parent HALT near-miss" + the three-tier diagnostic that followed it).
+# The one-epoch-pinned run (31,093 steps, App. E.2 literal) landed op EM
+# (block, k=0) at 89.16% (n=1024) / 89.34% (n=8192 recheck) — a real,
+# tightly-bounded near-miss just under the pre-registered 0.90 HALT
+# threshold (95% CI ~[88.7%, 90.0%] at n=8192), not sampling noise (Tier
+# 1-2). A 5,000-step continued-training diagnostic from that checkpoint
+# (evt-ts1b-pp-parent-contdiag5000, fresh optimizer state, same pinned LR)
+# showed the curve was still descending, not plateaued: op EM jumped to
+# 96.12% (n=8192). That diagnostic checkpoint is NOT this file's official
+# artifact (optimizer-state reset partway through, data order restarted
+# from the epoch-1 permutation rather than continuing into a clean epoch
+# 2) — this config instead runs ONE continuous 36,093-step trajectory
+# (31,093 + the 5,000 that worked) from evt-ts1b-base directly, so the
+# canonical evt-ts1b-pp-parent artifact has a single, uninterrupted
+# optimizer history rather than two stitched runs.
 #
-# STEP-COUNT ARITHMETIC — NOTE vs. the pre-registration's prose. decisions.md
-# and EXPERIMENTS.md quote "31,250 steps" for this stage, which is the naive
+# 36,093 = 31,093 (one full epoch) + 5,000 more steps, continuing into a
+# second epoch under train_sft.py's own multi-epoch behavior
+# (geode.train.loop._batch_stream yields epoch after epoch indefinitely,
+# each epoch a fresh seeded permutation of the same 3,980,000 training
+# rows — specs/02 §6.1: "epochs repeat until a stop condition fires").
+# data_order_hash is unaffected by step count (train_sft.py records
+# cfg["data"]["order_hash"] verbatim, not derived from how many epochs
+# were actually consumed), so the launcher's hash-pin check still passes.
+# min_steps == max_steps == 36093 keeps this a pre-registered exception to
+# run-until-convergence, same class ts38pp_parent.yaml and the original
+# one-epoch pin both used — the run ends exactly at this new, deliberate
+# boundary, not because eps/k fired early or a ceiling cut it short.
+#
+# scripts/launch_ts1b_stage12.sh's post-train verification (`[[ $PP_STEP
+# == 31093 ]]`) was updated to 36093 in the same commit as this header —
+# both must move together or stage 2's own check fails a legitimately-
+# retrained parent.
+#
+# STEP-COUNT ARITHMETIC (unchanged from the original one-epoch derivation,
+# still the basis for the 31,093-per-epoch figure above). decisions.md and
+# EXPERIMENTS.md quote "31,250 steps" for one epoch, which is the naive
 # 4,000,000 / 128. That number is UNREACHABLE under this trainer:
 # geode.train.packing.split_indices refuses val_fraction <= 0 and clamps
 # n_val = max(1, round(val_fraction * n)) — so at least one row is always
@@ -30,11 +61,7 @@
 # steps_per_epoch = n_train // 128, floor/drop-last — train_sft.py's OWN
 # convention) is 31,093, BYTE-IDENTICAL to ts38pp_parent.yaml's own
 # derivation (same N=4,000,000, same val_fraction=0.005, same batch=128 —
-# the model size never enters this arithmetic). Pinning the prose's 31,250
-# here would silently run 157 steps into a second epoch (20,096 rows shown
-# twice), breaking the "single epoch on 4 million unique examples" claim
-# this pin exists to make. 31,093 is the correct value; flagged for the
-# owner to reconcile the prose, not re-derived differently here.
+# the model size never enters this arithmetic).
 #
 # NO GATES EVER RECORDED against this parent: same discipline as ts38pp —
 # G1/G8-equivalent evidence is scored --no-record only, alongside the θ0
@@ -171,17 +198,22 @@ train:
   lr: 1.0e-4                    # PINNED 2026-08-19, Stage 1 sweep winner — see header.
   batch_size: 128
   eval_every: 1000
-  max_steps: 31093              # see header's step-count arithmetic note
+  max_steps: 36093              # 31093 (one epoch) + 5000 -- see header's
+                                 # "STEP COUNT" note (evidence-based deviation)
   stopping:                    # loss branch of the V0.7 union (no `metric`)
                                 # — inert here since min_steps == max_steps,
                                 # kept for schema completeness (matches
                                 # ts38pp_parent.yaml's own comment).
     eps_nats: 0.002
     k: 5
-    min_steps: 31093
+    min_steps: 36093
   precision: bf16
   seed: 316
-  epochs_total_planned: 1      # the paper's literal "single epoch" (App. E.2)
+  epochs_total_planned: 2      # one full epoch (31093) + a partial second
+                                # (5000 steps) -- NOT the paper's literal
+                                # "single epoch" (App. E.2); see header's
+                                # "STEP COUNT" note for the deviation and
+                                # its evidence
 
 cost:
   assumed_epochs_for_estimate: 1  # quote the actual planned epoch count —

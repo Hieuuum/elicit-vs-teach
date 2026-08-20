@@ -92,7 +92,9 @@ TAG=ts1b
 echo "[ts1b] estimated cost (pre-registration, decisions.md 2026-08-19):"
 echo "[ts1b]   stage 0 base pull + mirror-push  ~\$0 GPU (network only)"
 echo "[ts1b]   stage 1 LR sweep (3 rungs x 2000 steps)             ~\$3-5"
-echo "[ts1b]   stage 2 pp parent (1 epoch, 31,093 steps pinned)    ~\$5-10"
+echo "[ts1b]   stage 2 pp parent (36,093 steps pinned -- 1 epoch +"
+echo "[ts1b]     5,000 more, evidence-based deviation from the paper's"
+echo "[ts1b]     literal one epoch, decisions.md 2026-08-19)       ~\$6-11"
 echo "[ts1b]     (0.3-0.6 s/step, one-per-row overhead-bound, short rows;"
 echo "[ts1b]     2.5-5.5h estimate, throughput anchor: base pretrain"
 echo "[ts1b]     measured 15.6K tok/s on the collaborator's box)"
@@ -431,22 +433,24 @@ milestone "pp_fields status=$PP_STATUS method=$PP_METHOD gates=$PP_GATES stop_re
 [[ $PP_GATES == none ]] || fail \
   "$PP_RID has recorded gates {$PP_GATES} -- this parent is deliberately ungated (scored
    --no-record only); inspect, do not proceed"
-# min_steps == max_steps == 31093 is the one pre-registered exception to
+# min_steps == max_steps == 36093 is the one pre-registered exception to
 # run-until-convergence, so a legitimate stop reads either 'converged' or
-# 'max_steps' -- but the step count itself is never negotiable.
+# 'max_steps' -- but the step count itself is never negotiable. 36093 (not
+# the original paper-literal 31093) is an owner-directed, evidence-based
+# deviation, 2026-08-19 -- see ts1b_pp_parent.yaml's header "STEP COUNT"
+# note for the HALT-near-miss diagnostic that justified it.
 [[ $PP_STOP == converged || $PP_STOP == max_steps ]] || fail \
   "$PP_RID stop_reason='$PP_STOP' (expected converged or max_steps) -- neither the pinned
-   one-epoch ceiling nor eps/k produced this; inspect before proceeding"
-[[ $PP_STEP == 31093 ]] || fail \
-  "$PP_RID final_step=$PP_STEP (expected 31093, the pinned one-epoch length -- see
-   ts1b_pp_parent.yaml's header for the derivation) -- do not hand a wrong-length parent
-   downstream"
+   step ceiling nor eps/k produced this; inspect before proceeding"
+[[ $PP_STEP == 36093 ]] || fail \
+  "$PP_RID final_step=$PP_STEP (expected 36093 -- see ts1b_pp_parent.yaml's header for the
+   derivation) -- do not hand a wrong-length parent downstream"
 [[ $PP_DATA_HASH == "$PP_ORDER_HASH" ]] || fail \
   "$PP_RID manifest data_order_hash=$PP_DATA_HASH != current pin $PP_ORDER_HASH -- this
    checkpoint was built from a different D_target_4M_block.parquet/config than the one this
    launch just verified. Remove $GEODE_STORE/runs/$PP_RID and rerun to rebuild against the
    current pin."
-milestone "pp_verified stop_reason=$PP_STOP final_step=31093 gates={} method=full_ft data_order_hash=OK"
+milestone "pp_verified stop_reason=$PP_STOP final_step=36093 gates={} method=full_ft data_order_hash=OK"
 
 [[ -f $PP_MODEL_DIR/model.safetensors ]] ||
   fail "$PP_MODEL_DIR/model.safetensors is missing -- a full-FT run's checkpoint dir should
