@@ -1,0 +1,121 @@
+# ts38fs Stage 0 — pre-teach-FORMAT parent, install size n=4642
+# (EXPERIMENTS.md §20 "ts38fs — format-install dose sweep"; decisions.md
+# 2026-08-20 "ts38fs pre-registration"). Size-variant of
+# ts38_preteachfmt_parent.yaml (the i=21544 parent, REUSED unchanged by this
+# family as evt-ts38pf-preteachfmt-parent) — same recipe, same base
+# checkpoint, same permuted-label operator-notation format task, at a
+# smaller install dose. One of three NEW parents this family builds
+# (i in {1000, 4642, 100000}); i=21544 is not rebuilt.
+#
+# Data: datagen/make_preteach_format.py --n 4642 derives
+# D_preteachfmt_n4642.parquet the same way it derives the unsuffixed
+# D_preteachfmt.parquet at n=21544 — the frozen D_algo's first 4,642 rows,
+# re-rendered fmt="operator", labels permuted
+# (geode.arith.permute_labels(true_answers, seed=20260717)).
+#
+# ORDER_HASH: data.order_hash below is the MEASURED order_hash of the
+# generated D_preteachfmt_n4642.parquet (decisions.md 2026-08-20 records the
+# same value; independently recomputed from the on-disk parquet via
+# geode.arith.order_hash when this config was written and confirmed to
+# match), same pinning discipline as ts38_preteachfmt_parent.yaml's own
+# 5b0b19a4c4… pin. Label collisions (permuted == true): 1/4642 (0.0215%) —
+# the permutation acting as a control, same role as the i=21544 parent's own
+# 3/21544 = 0.014% figure. launch_ts38fs_family.sh's stage-2 preflight still
+# hard-fails if this field ever starts with "PIN_AFTER_DATAGEN" (belt-and-
+# braces against a future edit reintroducing an unpinned sentinel — today's
+# value is real, not a placeholder).
+#
+# THE `lora:` BLOCK BELOW IS LOAD-BEARING, same mechanism as
+# ts38_preteachfmt_parent.yaml (train_sft.py's own_lora_block() gates
+# training.method on THIS file's own un-merged `lora:` key). Only r/alpha
+# are set (128/32, identical to common.yaml's values); target_modules/
+# dropout/scaling/init inherit from common.yaml via deep_merge.
+#
+# STEP ARITHMETIC (train_sft.py's own counting — floor/drop-last, NOT
+# train_target.py's ceil/no-drop-last): n_val = round(0.005*4642) = 23
+# (geode.train.packing.split_indices), n_train = 4619, steps_per_epoch =
+# 4619 // 128 = 36. `train.stopping.min_steps: 36` pins exactly one full
+# epoch — not a grace period (same rationale as the i=21544 parent's header:
+# on permuted labels there is no learnable input-output mapping, so val
+# loss can plateau from format acquisition alone before the model has even
+# seen the full set once).
+#
+# max_steps: 3340 is the SAME literal ceiling as the i=21544 rung
+# (ts38_preteachfmt_parent.yaml), reused rather than re-derived per size —
+# "ceilings never bind" ([[feedback-run-until-convergence]]), so its exact
+# value only has to be large enough, and 3340 is already proven never to
+# bind at the larger 21544 install. At this size it is ~92 epochs
+# (3340/36 = 92.78), an approximate, worst-case ceiling quoted for the cost
+# estimate — NOT a claim that training runs anywhere near it.
+#
+# eval_every: 25 — the i=21544 rung's own cadence, reused verbatim (36
+# steps/epoch here is close enough to that rung's 167 steps/epoch that the
+# same eval spacing still gives a usable k=5 eps-window: ~1.4 evals/epoch).
+#
+# model/tokenizer blocks are IDENTICAL to every other ts38(*) parent config
+# (same base checkpoint evt-run1-base-v3-ext, same frozen tokenizer).
+run_id: evt-ts38fs-parent-n4642
+experiment:
+  name: training-run
+  arm: A                       # ARM_REGIME["A"] == "elicit" (train_target.py);
+                                # unused by train_sft.py (hardcodes regime:
+                                # "unknown"), kept for consistency with the
+                                # other ts38(*) parent configs.
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext  # TinyStories 38.7M floor-1, min_val 1.0718
+  parent_required_gates: []    # run 1 carries no required gates (G0 removed
+                                # 2026-07-20, spec 02 §8) — the launcher's
+                                # status: complete check is the only bar.
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_op_preteachfmt    # same task as the i=21544 parent — metadata
+                                 # for the masking hash; free-form
+                                 # (geode.edl.masking.TaskFormat consults no
+                                 # registry)
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_preteachfmt_n4642.parquet   # 4,642 rows, operator-notation, permuted
+                                       # (wrong) labels, derived from D_algo
+                                       # (make_preteach_format.py --n 4642)
+  order_hash: 58db7aac8d5062efcbf98ebe47e834796dd35ee89f011afbbffd51dc78e989dd  # measured — see header
+  local_path: experiments/training-run/data/full/D_preteachfmt_n4642.parquet
+  val_fraction: 0.005            # 23 held-out (run-2 convention); questions
+                                  # are the D_algo prefix's own unique rows,
+                                  # so the split cannot leak
+  seed: 316
+
+lora:                           # LOAD-BEARING — see header. r/alpha only;
+  r: 128                        # target_modules/dropout/scaling inherit from
+  alpha: 32                     # common.yaml via deep_merge.
+
+train:
+  lr: 1.0e-3                   # every other LoRA r128/alpha32 stage in this
+                                # family already uses this value; format
+                                # acquisition is a low-capacity objective,
+                                # no LR sweep run for it.
+  batch_size: 128
+  eval_every: 25                # see header — the i=21544 rung's own cadence.
+  max_steps: 3340               # never-bind ceiling, reused from the i=21544
+                                 # rung — see header (~92 epochs here).
+  stopping:                    # loss branch (no `metric`) — plain val-loss
+                                # eps/k convergence.
+    eps_nats: 0.002
+    k: 5
+    min_steps: 36                # exactly one full epoch — see header.
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 92     # ceiling metadata, approximate (3340/36 =
+                                # 92.78) — worst case, not a plan; see header.
+
+cost:
+  assumed_epochs_for_estimate: 92  # quote the ceiling (worst case), not the
+                                    # expected stop — run-2 convention

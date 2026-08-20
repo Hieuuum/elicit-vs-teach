@@ -26,8 +26,17 @@ splits them (unlike ``make_bare_sets.py``'s single inline ``derive``), so
 ``derive`` is a pure in-memory function testable on a tiny fixture without
 touching the real frozen file.
 
+Output filename (ts38fs, the format-install dose sweep, EXPERIMENTS §6.16+):
+``--n 21544`` keeps writing the legacy ``D_preteachfmt.parquet`` — the file
+the frozen pin below was computed against, kept byte-for-byte reproducible.
+Every other ``--n`` (the ts38fs sizes: 1000, 4642, 100000, ...) writes its
+own ``D_preteachfmt_n{n}.parquet`` so sizes never collide with each other or
+with the original file. ``derive`` itself is unchanged and already
+size-generic; only the destination path depends on ``n``.
+
 Usage:
     python3 make_preteach_format.py --out ../data/full --n 21544
+    python3 make_preteach_format.py --out ../data/full --n 1000
 """
 
 from __future__ import annotations
@@ -98,6 +107,28 @@ def derive(src: pd.DataFrame, n: int, seed: int) -> tuple[list[dict], int]:
     return records, collisions
 
 
+def dst_filename(n: int) -> str:
+    """Output parquet filename for install size ``n``.
+
+    ``n == 21544`` keeps the legacy ``D_preteachfmt.parquet`` name — the
+    file the frozen pin (``SRC_PIN``-derived, order_hash
+    5b0b19a4c47375a4ada17cb1ee21292475b6ecaed22b2ef07aa560cf557b1bc1) was
+    computed against, so this size stays byte-for-byte backward-compatible.
+    Every other ``n`` (the ts38fs sweep sizes) gets its own
+    ``D_preteachfmt_n{n}.parquet`` file.
+    """
+    if n == 21544:
+        return f"{DST_STEM}.parquet"
+    return f"{DST_STEM}_n{n}.parquet"
+
+
+def pin_config_name(n: int) -> str:
+    """Name of the config whose data block pins this size's order_hash."""
+    if n == 21544:
+        return "ts38_preteachfmt_parent.yaml"
+    return f"ts38fs_parent_n{n}.yaml"
+
+
 def validate_spans(records: list[dict], tokenizer) -> None:
     """Span-check every row under ``tokenizer`` (V5.38 rule). Raises loudly
     on any violation."""
@@ -132,7 +163,7 @@ def main() -> int:
     tok = AutoTokenizer.from_pretrained(str(tok_path))
     validate_spans(records, tok)
 
-    dst_path = args.out / f"{DST_STEM}.parquet"
+    dst_path = args.out / dst_filename(args.n)
     pd.DataFrame(records).to_parquet(dst_path, index=False)
     dst_hash = order_hash(records)
     print(f"[evt] wrote {dst_path}  n={len(records):,}  order_hash={dst_hash}")
@@ -141,7 +172,7 @@ def main() -> int:
         f"[evt]   label collisions (permuted == true): {collision_count}/{len(records)} "
         f"({collision_count / len(records):.4%})"
     )
-    print(f"[evt] pin order_hash={dst_hash} in ts38_preteachfmt_parent.yaml's data block")
+    print(f"[evt] pin order_hash={dst_hash} in {pin_config_name(args.n)}'s data block")
     return 0
 
 

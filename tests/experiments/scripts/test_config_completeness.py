@@ -2002,3 +2002,208 @@ def test_ts1b_pp_lrsweep_overlay_builds_a_full_ft_manifest(rung: str) -> None:
     )
     assert manifest["training"]["method"] == "full_ft"
     assert manifest["run_id"] == f"evt-ts1b-pp-lrsweep-{rung}"
+
+
+# =============================================================================
+# ts38fs format-install DOSE SWEEP (EXPERIMENTS.md §20; decisions.md
+# 2026-08-20 "ts38fs pre-registration"; sibling of ts38pf above): a 3-axis
+# grid on top of ts38pf -- install size i in {1000, 4642, 21544, 100000},
+# target size n in {1000, 4642, 21544, 100000, 316228}, seed s in
+# {316, 1316, 2316}. The i=21544 install parent is REUSED from ts38pf
+# (evt-ts38pf-preteachfmt-parent, untouched, already covered above); this
+# section covers the THREE NEW parent configs (i in {1000, 4642, 100000})
+# and the new target base config. Unlike every ts38(*) family above, the 55
+# per-cell overlays are NOT committed files -- launch_ts38fs_family.sh
+# generates them at run time via generate_ts38fs_overlays.py (55
+# hand-authored files was judged impractical and error-prone at this grid
+# size; see that module's own docstring) -- so there is no
+# TS38FS_OVERLAY_PATHS list to register here. The overlay GENERATOR's own
+# count/exclusion/mapping/manifest-round-trip coverage lives entirely in
+# tests/experiments/scripts/test_generate_ts38fs_overlays.py instead (which
+# imports the generator module -- deliberately kept out of this shared
+# file, see the note after test_ts38fs_target_builds_a_manifest_with_correct_regime
+# below); this section covers only the 4 COMMITTED configs.
+# =============================================================================
+
+TS38FS_PARENT_SIZES = (1000, 4642, 100000)
+TS38FS_PARENT_FILES = [f"ts38fs_parent_n{n}.yaml" for n in TS38FS_PARENT_SIZES]
+TS38FS_TARGET_FILE = "ts38fs_target.yaml"
+TS38FS_FILES = [*TS38FS_PARENT_FILES, TS38FS_TARGET_FILE]
+
+_TS38FS_PARENT_RUN_ID_PATTERN = re.compile(r"^evt-ts38fs-parent-n(\d+)$")
+
+# n -> (n_val, n_train, steps_per_epoch==min_steps, eval_every, max_steps),
+# independently recomputed from val_fraction=0.005/batch=128 in
+# test_ts38fs_parent_min_steps_is_one_full_epoch below -- this dict is the
+# EXPECTED values the launch brief pins, not a second derivation.
+TS38FS_PARENT_STEP_ARITHMETIC: dict[int, tuple[int, int, int, int, int]] = {
+    1000: (5, 995, 7, 10, 3340),
+    4642: (23, 4619, 36, 25, 3340),
+    100000: (500, 99500, 777, 100, 15540),
+}
+
+
+def test_ts38fs_family_files_exist() -> None:
+    assert len(TS38FS_FILES) == 4
+    for rel in TS38FS_FILES:
+        assert (CONFIGS / rel).is_file(), rel
+
+
+@pytest.mark.parametrize("n", TS38FS_PARENT_SIZES)
+def test_ts38fs_parent_run_id_matches_pattern_and_out_of_other_families(n: int) -> None:
+    raw = yaml.safe_load((CONFIGS / f"ts38fs_parent_n{n}.yaml").read_text())
+    run_id = raw["run_id"]
+    assert run_id == f"evt-ts38fs-parent-n{n}"
+    assert _TS38FS_PARENT_RUN_ID_PATTERN.match(run_id)
+    # Must NOT match any existing family's discovery regex -- a collision
+    # here would silently mix a ts38fs parent into another family's curve
+    # (same rationale as test_ts38pf_run_ids_match_pattern_and_out_of_other_families).
+    assert not _TS38_FAMILY_REGEX.match(run_id)
+    assert not _TS38MW_RUN_ID_PATTERN.match(run_id)
+    assert not _TS38PF_RUN_ID_PATTERN.match(run_id)
+
+
+def test_ts38fs_target_run_id_placeholder_out_of_other_families() -> None:
+    raw = yaml.safe_load((CONFIGS / TS38FS_TARGET_FILE).read_text())
+    run_id = raw["run_id"]
+    assert run_id == "evt-ts38fs"
+    assert not _TS38_FAMILY_REGEX.match(run_id)
+    assert not _TS38MW_RUN_ID_PATTERN.match(run_id)
+    assert not _TS38PF_RUN_ID_PATTERN.match(run_id)
+
+
+@pytest.mark.parametrize("n", TS38FS_PARENT_SIZES)
+def test_ts38fs_parent_own_yaml_declares_lora(n: int) -> None:
+    # The un-merged file, not the deep-merged cfg -- this is what
+    # own_lora_block actually reads to opt in.
+    raw = yaml.safe_load((CONFIGS / f"ts38fs_parent_n{n}.yaml").read_text())
+    assert raw["lora"]["r"] == 128
+    assert raw["lora"]["alpha"] == 32
+
+
+@pytest.mark.parametrize("n", TS38FS_PARENT_SIZES)
+def test_ts38fs_parent_opts_into_lora_via_own_lora_block(n: int) -> None:
+    train_sft = load("train_sft")
+    path = CONFIGS / f"ts38fs_parent_n{n}.yaml"
+    lora_cfg = train_sft.own_lora_block(load_config(path, None), path, None)
+    assert lora_cfg is not None
+    assert (lora_cfg["r"], lora_cfg["alpha"]) == (128, 32)
+
+
+@pytest.mark.parametrize("n", TS38FS_PARENT_SIZES)
+def test_ts38fs_parent_min_steps_is_one_full_epoch(n: int) -> None:
+    """Pure-math property test (CLAUDE.md promotion rule: a silent mismatch
+    here would let eps/k declare "converged" on a permuted-label parent
+    before it has even seen the full install set once, wasting GPU budget
+    on a checkpoint the sweep should not have trained against -- same
+    property as test_ts38pf_preteachfmt_parent_min_steps_is_one_full_epoch,
+    recomputed independently for the three NEW ts38fs sizes rather than
+    trusting the config's own stated min_steps)."""
+    n_val_expected, n_train_expected, steps_expected, _, _ = TS38FS_PARENT_STEP_ARITHMETIC[n]
+    cfg = load_config(CONFIGS / f"ts38fs_parent_n{n}.yaml", None)
+    d, t = cfg["data"], cfg["train"]
+    n_val = max(1, min(round(d["val_fraction"] * n), n - 1))
+    n_train = n - n_val
+    steps_per_epoch = n_train // t["batch_size"]
+    assert (n_val, n_train, steps_per_epoch) == (n_val_expected, n_train_expected, steps_expected)
+    assert t["stopping"]["min_steps"] == steps_per_epoch
+
+
+@pytest.mark.parametrize("n", TS38FS_PARENT_SIZES)
+def test_ts38fs_parent_overlay_pinned_values(n: int) -> None:
+    _, _, min_steps, eval_every, max_steps = TS38FS_PARENT_STEP_ARITHMETIC[n]
+    cfg = load_config(CONFIGS / f"ts38fs_parent_n{n}.yaml", None)
+    t = cfg["train"]
+    assert t["eval_every"] == eval_every
+    assert t["max_steps"] == max_steps
+    assert t["stopping"]["min_steps"] == min_steps
+    # Earliest possible convergence stop must land inside the ceiling (same
+    # bar as test_ts38pf_preteachfmt_parent_max_steps_covers_min_steps), and
+    # the ceiling itself must be >=20 epochs ("ceilings never bind").
+    assert t["max_steps"] >= t["stopping"]["min_steps"] + t["stopping"]["k"] * t["eval_every"]
+    assert t["max_steps"] >= 20 * t["stopping"]["min_steps"]
+
+
+TS38FS_PARENT_ORDER_HASHES: dict[int, str] = {
+    1000: "56f095928de8568696274e00bc9225c8ec891052138d9d507b54152a9e9b3b4a",
+    4642: "58db7aac8d5062efcbf98ebe47e834796dd35ee89f011afbbffd51dc78e989dd",
+    100000: "873fc4d41e8bd6331cc42d6e19c1f31516b73c72ebaa507c9e9a47c697910b26",
+}
+
+
+@pytest.mark.parametrize("n", TS38FS_PARENT_SIZES)
+def test_ts38fs_parent_data_hash_pinned(n: int) -> None:
+    """Same template as test_ts38pf_preteachfmt_parent_data_hash_pinned: the
+    frozen D_preteachfmt_n<n>.parquet's order_hash, pinned into the config
+    (decisions.md 2026-08-20 "ts38fs pre-registration" records the same
+    three values, independently cross-checked against the on-disk parquet's
+    own geode.arith.order_hash when these configs were written)."""
+    cfg = load_config(CONFIGS / f"ts38fs_parent_n{n}.yaml", None)
+    assert cfg["data"]["file"] == f"D_preteachfmt_n{n}.parquet"
+    assert cfg["data"]["order_hash"] == TS38FS_PARENT_ORDER_HASHES[n]
+
+
+@pytest.mark.parametrize("n", TS38FS_PARENT_SIZES)
+def test_ts38fs_parent_builds_a_lora_manifest(n: int) -> None:
+    train_sft = load("train_sft")
+    path = CONFIGS / f"ts38fs_parent_n{n}.yaml"
+    cfg = load_config(path, None)
+    lora_cfg = train_sft.own_lora_block(cfg, path, None)
+    assert lora_cfg is not None
+    manifest = train_sft.manifest_fields(
+        cfg,
+        n_params=1,
+        n_rows=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+        lora_cfg=lora_cfg,
+        step0={},
+        device="cpu",
+    )
+    assert manifest["training"]["method"] == "lora"
+    assert manifest["training"]["lora"]["rank"] == 128
+    assert manifest["training"]["lora"]["alpha"] == 32
+    assert manifest["run_id"] == f"evt-ts38fs-parent-n{n}"
+
+
+def test_ts38fs_target_merged_config_values() -> None:
+    cfg = load_config(CONFIGS / TS38FS_TARGET_FILE, None)
+    pf_cfg = load_config(CONFIGS / TS38PF_BASE_FILE, None)
+    assert cfg["experiment"]["parent_required_gates"] == []
+    assert cfg["experiment"]["match_data_order_with"] is None
+    assert cfg["experiment"]["require_full_epoch1"] is True
+    assert cfg["lora"]["r"] == 128
+    assert cfg["lora"]["alpha"] == 32
+    assert cfg["train"]["lr"] == 1.0e-3
+    assert cfg["train"]["snapshots"]["n"] == 0
+    # Target data is the SAME D_algo_bare/D_algo_eval_bare pins every ts38(*)
+    # family shares -- only theta0 (this family's own three new axes) differs.
+    assert cfg["data"]["order_hash"] == pf_cfg["data"]["order_hash"]
+    assert cfg["data"]["eval_order_hash"] == pf_cfg["data"]["eval_order_hash"]
+
+
+def test_ts38fs_target_builds_a_manifest_with_correct_regime() -> None:
+    train_target = load("train_target")
+    cfg = load_config(CONFIGS / TS38FS_TARGET_FILE, None)
+    manifest = train_target.manifest_fields(
+        cfg,
+        n_train=1,
+        n_trainable=1,
+        epochs_total=1,
+        schedule=[],
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+    )
+    assert manifest["regime"] == "elicit"
+
+
+# The 55 generated overlay cells' own coverage (run-id-vs-other-families,
+# manifest-build round trip) lives in
+# tests/experiments/scripts/test_generate_ts38fs_overlays.py, which imports
+# generate_ts38fs_overlays.py at module scope -- deliberately NOT here: this
+# file is shared by every family's tests, and a broken generator import
+# should fail one dedicated file, not this whole suite at collection time.

@@ -1556,6 +1556,82 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     calls for running the Table-11 few-shot diagnostic on all three models
     (base/pp/pf), not just the OCV/EDL grid side.
 
+20. **ts38fs — format-install DOSE sweep: how install SIZE reshapes the
+    ts38pf pre-teach-format curve, on the same 38.7M TinyStories base.
+    PRE-REGISTERED 2026-08-20; datagen extension landed, configs +
+    launcher + analysis wiring PENDING; NOT LAUNCHED (GPU spend needs
+    explicit owner go-ahead + cost confirmation).** §16's ts38pf tested
+    App. E.1.2's pre-teach-format intervention at a single install size
+    (i=21544) and found the pretaught-format arm reproduces the base
+    arm's hump shape, proportionally BIGGER (+72% vs base's own +15%,
+    §16). ts38fs turns install size itself into the manipulated
+    variable: install i ∈ {1000, 4642, 21544, 100000} (1 seed per parent,
+    seed 316) × target n ∈ {1000, 4642, 21544, 100000, 316228} (the
+    standard 5-point ts38 grid) × seed s ∈ {316, 1316, 2316} — 60 target
+    cells. Chain per cell is ts38pf's own: `evt-run1-base-v3-ext` →
+    format-install parent (LoRA r128/α32 @1e-3, operator render
+    `Question: 23 + 45\nAnswer: <permuted>`, labels permuted via
+    `geode.arith.permute_labels(seed=20260717)`, ε/k 0.002/5 val
+    convergence, `min_steps` pinned to exactly one epoch under
+    `train_sft.py`'s own step counting: n=1000→7, n=4642→36,
+    n=100000→777, matching §16's n=21544→167 derivation) → target stage
+    (LoRA r128/α32 @1e-3 on the unchanged frozen `D_algo_bare` corpus,
+    convergence, OCV floor per run). Reuse: i=21544's parent IS
+    `evt-ts38pf-preteachfmt-parent` (not retrained); the (i=21544, s=316)
+    row across all 5 target sizes IS the existing 5
+    `evt-ts38pf-preteachfmt-n{N}` runs (not retrained). Net new: 3
+    parents (`evt-ts38fs-parent-n{1000,4642,100000}`) + 55 target runs
+    (`evt-ts38fs-i{I}-n{N}-s{S}`). Held fixed on purpose (install size is
+    the only manipulated variable): single-line operator render (the
+    ts38-family convention, not ts1b's block render), same base
+    checkpoint, the same frozen `D_algo_bare`/`D_algo_eval_bare` target
+    corpus, both LR pins (1e-3 parent / 1e-3 target) reused in-scope from
+    already-validated recipes — no new sweep. Format-acquisition θ0
+    check (`gates.py g5 --no-record`, `loss_drop_frac` vs base) runs per
+    parent with a **deliberate semantic change vs the §16 launcher**:
+    `LEAKED` (permutation failed as a control) still HARD-FAILS
+    (datagen-bug class, unchanged); `NOT_LEARNED` (`loss_drop_frac <
+    0.10`) — which HALTed the family in §16 — instead **logs the verdict
+    and CONTINUES**, because at small installs failing to acquire format
+    IS the measurement this dose-response family exists to make (the
+    n=1000 install may never clear the bar even at convergence — that's
+    signal, not a defect, anchoring the dose-response floor). Verdict +
+    `loss_drop_frac` recorded per install size ⇒ a secondary
+    format-acquisition-vs-install-size curve alongside the primary
+    EDL/D-vs-n curves. No gates are ever recorded on any parent or target
+    (`parent_required_gates: []`, `experiment.gates: {}`, `--no-record`
+    probes only — same discipline as ts38pf/ts38pp, §16/§18); target
+    overlays carry no `match_data_order_with` (no G7 anchor), same
+    precedent as ts1b's pf-arm grid (§19). Caveats, all pre-declared:
+    the reused single-seed `evt-ts38-base-n<N>` reference is compared
+    against 3-seed ts38fs curves — a deliberate seed-count asymmetry,
+    matched base seeds NOT added (owner scoped this session to
+    base→pf→target only); a curve sitting ABOVE the base reference at
+    some n reads as retention-confound class, never as evidence against
+    teaching (same reading convention as §16/§18); the paused ts1b pf-arm
+    grid (§19) is untouched by this family; these r128 target runs
+    supersede nothing at ts1b (r512, 1.24B params). Run order:
+    density before seeds — complete the full seed-316 pass over every
+    (install × target-size) cell first, then seed-1316, then seed-2316.
+    Built this session: `datagen/make_preteach_format.py` extended
+    (uncommitted) to emit `D_preteachfmt_n{N}.parquet` for every
+    non-21544 size, `n=21544` still routed to the legacy, byte-identical
+    `D_preteachfmt.parquet` the §16 pin was computed against. NOT yet
+    built: `configs/ts38fs_parent_n{1000,4642,100000}.yaml`,
+    `configs/ts38fs_target.yaml`, `scripts/launch_ts38fs_family.sh`, and
+    the `ts38fs` entry in `analysis/edl_converged_val_floor.py`'s
+    `FAMILIES`/`ARM_MAPS` (none present as of this commit). Analysis
+    plan, once built: EDL/D vs n, one curve per install size, 3-seed mean
+    ± spread under the OCV floor convention, hump position/height vs
+    install size, plus the format-acquisition curve; figures at
+    `analysis/figures/`, scripts shipped. Cost: build is local-only, $0;
+    GPU estimate ≈$15–30 (ballpark ≈10× the ts38pf family's measured
+    volume, to be refined from measured per-run time at launch). BUILD
+    authorized 2026-08-20; GPU spend requires explicit owner OK at launch
+    time, `--confirm-cost` discipline, nothing launches implicitly. Full
+    pre-registration: decisions.md 2026-08-20 "ts38fs pre-registration
+    (format-install dose sweep)".
+
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1
 family + runs 2–4 incl. sweeps — the 38.7M scale keeps whole run

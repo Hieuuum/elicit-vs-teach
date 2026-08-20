@@ -206,6 +206,110 @@ def test_n_prefix_respected():
 
 
 # =============================================================================
+# ts38fs: output filename / pin-config-name rule (V-level, no I/O)
+#
+# n == 21544 must stay byte-for-byte backward compatible with the frozen
+# pin (5b0b19a4c47375a4ada17cb1ee21292475b6ecaed22b2ef07aa560cf557b1bc1); any
+# other n (the ts38fs sweep sizes 1000/4642/100000, plus off-by-one values to
+# prove the rule is an exact equality check, not a range) gets its own
+# suffixed file and its own not-yet-built parent config name.
+# =============================================================================
+
+
+@pytest.mark.parametrize(
+    "n,expected_dst,expected_cfg",
+    [
+        (21544, "D_preteachfmt.parquet", "ts38_preteachfmt_parent.yaml"),
+        (21543, "D_preteachfmt_n21543.parquet", "ts38fs_parent_n21543.yaml"),
+        (21545, "D_preteachfmt_n21545.parquet", "ts38fs_parent_n21545.yaml"),
+        (1000, "D_preteachfmt_n1000.parquet", "ts38fs_parent_n1000.yaml"),
+        (4642, "D_preteachfmt_n4642.parquet", "ts38fs_parent_n4642.yaml"),
+        (100000, "D_preteachfmt_n100000.parquet", "ts38fs_parent_n100000.yaml"),
+    ],
+)
+def test_dst_filename_and_pin_config_name(n, expected_dst, expected_cfg):
+    assert mpf.dst_filename(n) == expected_dst
+    assert mpf.pin_config_name(n) == expected_cfg
+
+
+# =============================================================================
+# ts38fs: main() wiring — the filename rule and the printed pin-config name
+# actually reach the write path and the console output, not just the helper
+# functions in isolation. Fixtures are tiny (main()'s slice length is
+# args.n, but derive() calls src.head(n), which just returns all available
+# rows when the fixture is shorter than n — so the n==21544 legacy-name
+# branch is exercised without a 21544-row fixture).
+# =============================================================================
+
+
+def test_main_writes_suffixed_file_and_prints_ts38fs_config_name(tmp_path, monkeypatch, capsys):
+    src = _source_df(30)
+    monkeypatch.setattr(mpf, "SRC_PIN", order_hash(src.to_dict("records")))
+    src.to_parquet(tmp_path / "D_algo.parquet", index=False)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["make_preteach_format.py", "--out", str(tmp_path), "--n", "10", "--seed", "3"],
+    )
+    assert mpf.main() == 0
+
+    assert (tmp_path / "D_preteachfmt_n10.parquet").exists()
+    assert not (tmp_path / "D_preteachfmt.parquet").exists()
+
+    out = capsys.readouterr().out
+    assert "D_preteachfmt_n10.parquet" in out
+    assert "ts38fs_parent_n10.yaml" in out
+    assert "ts38_preteachfmt_parent.yaml" not in out
+
+
+def test_main_n21544_keeps_legacy_filename_and_config_name(tmp_path, monkeypatch, capsys):
+    src = _source_df(5)  # shorter than n=21544 on purpose; see block docstring above
+    monkeypatch.setattr(mpf, "SRC_PIN", order_hash(src.to_dict("records")))
+    src.to_parquet(tmp_path / "D_algo.parquet", index=False)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["make_preteach_format.py", "--out", str(tmp_path), "--n", "21544", "--seed", "3"],
+    )
+    assert mpf.main() == 0
+
+    assert (tmp_path / "D_preteachfmt.parquet").exists()
+    assert not (tmp_path / "D_preteachfmt_n21544.parquet").exists()
+
+    out = capsys.readouterr().out
+    assert "ts38_preteachfmt_parent.yaml" in out
+    assert "ts38fs_parent_n21544.yaml" not in out
+
+
+# =============================================================================
+# label multiset preservation + collision counting hold at multiple n values
+# on the same fixture (property, not tied to one arbitrary size)
+# =============================================================================
+
+
+@pytest.mark.parametrize("n", [7, 23, 45, 70])
+def test_shown_answer_multiset_preserved_at_multiple_n(n):
+    src = _source_df(80)
+    records, _ = mpf.derive(src, n=n, seed=13)
+    src_slice = src.head(n)
+    assert sorted(r["shown_answer"] for r in records) == sorted(src_slice["true_answer"].tolist())
+
+
+@pytest.mark.parametrize("n", [7, 23, 45, 70])
+def test_collision_count_matches_hand_count_at_multiple_n(n):
+    src = _source_df(80)
+    records, collision_count = mpf.derive(src, n=n, seed=13)
+
+    true_answers = src.head(n)["true_answer"].tolist()
+    permuted = permute_labels(true_answers, seed=13)
+    expected = sum(1 for t, p in zip(true_answers, permuted) if t == p)
+    assert collision_count == expected
+    assert collision_count == sum(r["shown_answer"] == r["true_answer"] for r in records)
+
+
+# =============================================================================
 # determinism: same (source, n, seed) -> identical records/hash
 # =============================================================================
 
@@ -216,6 +320,41 @@ def test_deterministic():
     records2, collisions2 = mpf.derive(src, n=20, seed=9)
     assert order_hash(records1) == order_hash(records2)
     assert collisions1 == collisions2
+
+
+@pytest.mark.parametrize("n", [7, 23, 45, 70])
+def test_deterministic_across_multiple_n(n):
+    src = _source_df(80)
+    records1, collisions1 = mpf.derive(src, n=n, seed=17)
+    records2, collisions2 = mpf.derive(src, n=n, seed=17)
+    assert order_hash(records1) == order_hash(records2)
+    assert collisions1 == collisions2
+
+
+def test_prefix_fields_match_across_different_n_but_labels_may_differ():
+    # Same source, two different n's: the prompt-side (label-independent)
+    # fields of the shorter derivation must equal the prefix of the longer
+    # one's. shown_answer/answer_text/full_text/answer_char_end are NOT
+    # asserted equal -- permute_labels permutes each slice's OWN multiset
+    # (a 20-row slice vs a 60-row slice), not one shared global permutation,
+    # so the two derivations' labels legitimately differ past row 0.
+    src = _source_df(60)
+    short, _ = mpf.derive(src, n=20, seed=4)
+    long, _ = mpf.derive(src, n=60, seed=4)
+    prefix = long[:20]
+
+    for s, p in zip(short, prefix):
+        for key in ("idx", "a", "b", "op", "x_digits", "y_digits", "cell", "true_answer"):
+            assert s[key] == p[key]
+        assert s["prompt_text"] == p["prompt_text"]
+        assert s["answer_char_start"] == p["answer_char_start"]
+
+    # Explicitly confirm the "may differ" half of the claim actually holds
+    # for this fixture/seed rather than assuming it (a per-slice permutation
+    # need not differ from the longer slice's prefix, though it does here).
+    short_labels = [r["shown_answer"] for r in short]
+    prefix_labels = [r["shown_answer"] for r in prefix]
+    assert short_labels != prefix_labels
 
 
 # =============================================================================

@@ -8730,3 +8730,222 @@ gate-idempotent; `hf_checkpoint.py push` is idempotent via Xet dedup).
 the one real implementation into the shared lib rather than re-inlining
 it, and check for `command not found` in launcher logs specifically —
 `set -uo pipefail` without `set -e` lets it pass silently.
+
+## 2026-08-20 — ts38fs pre-registration (format-install dose sweep)
+
+**Motivation.** ts38pf (decisions.md 2026-08-15 "ts38pf pre-registration";
+EXPERIMENTS §16) tested App. E.1.2's pre-teach-FORMAT intervention at a
+single install size (i=21544) and found the pretaught-format arm
+reproduces the base arm's own hump shape, proportionally BIGGER (+72% vs
+base's own +15%, decisions.md 2026-08-16 "ts38pf OUTCOME"). That result
+answers a shape question at one point; it says nothing about how the
+curve depends on the SIZE of the format install. ts38fs turns install
+size into the manipulated variable: does a bigger (or smaller)
+format-only install move where the target-task EDL/D hump sits, and how
+much permuted-label operator data does the install need before format
+acquisition even happens (dose-response)? Owner-decided design,
+fully specified before any file was written; this entry transcribes it,
+it does not re-derive it.
+
+**Question.** At the 38.7M TinyStories scale, how does format-install
+SIZE reshape the target-task (`D_algo_bare`) EDL/D-vs-n curve relative to
+ts38pf's single i=21544 point — where does the hump move as install size
+varies, and what is the minimum install size at which the parent
+demonstrably acquires operator-notation format (loss_drop_frac ≥ 0.10,
+no leakage)?
+
+**Design — chain per cell.** `evt-run1-base-v3-ext` → format-install
+parent (LoRA r128/α32 @1e-3, operator render
+`Question: 23 + 45\nAnswer: <permuted>`, labels permuted via
+`geode.arith.permute_labels(seed=20260717)`, val-loss convergence ε
+0.002/k=5, `min_steps` pinned to exactly one epoch under `train_sft.py`'s
+own step counting, ceilings never bind) → target stage (LoRA r128/α32
+@1e-3 on the unchanged frozen `D_algo_bare`/`D_algo_eval_bare` corpus,
+convergence, OCV floor per run per
+[[feedback-edl-floor-is-converged-val-per-run]]). Same two-stage shape as
+ts38pf, generalized from one install size to four.
+
+**Grid.** Install i ∈ {1000, 4642, 21544, 100000}, 1 seed per parent
+(seed 316) — parents are not reseeded, only target runs are. Target n ∈
+{1000, 4642, 21544, 100000, 316228} (the standard 5-point ts38 grid) ×
+seed s ∈ {316, 1316, 2316}. Full grid = 4 installs × 5 sizes × 3 seeds =
+60 target cells.
+
+**Reuse.** i=21544's parent IS `evt-ts38pf-preteachfmt-parent`
+(identical recipe — same render, same permutation seed, same LoRA
+config) — not retrained. The (i=21544, s=316) row across all 5 target
+sizes IS the existing 5 `evt-ts38pf-preteachfmt-n{1000,4642,21544,100000,316228}`
+runs — not retrained. Net new work: **3 parents**
+(`evt-ts38fs-parent-n{1000,4642,100000}`) + **55 target runs**
+(`evt-ts38fs-i{I}-n{N}-s{S}`, all (i, n, s) combinations except the
+reused (21544, ·, 316) row).
+
+**Run inventory.**
+
+| install i | parent run_id | status |
+|---|---|---|
+| 1000 | `evt-ts38fs-parent-n1000` | NEW |
+| 4642 | `evt-ts38fs-parent-n4642` | NEW |
+| 21544 | `evt-ts38pf-preteachfmt-parent` | REUSED, never retrained |
+| 100000 | `evt-ts38fs-parent-n100000` | NEW |
+
+Target cells: `evt-ts38fs-i{I}-n{N}-s{S}` for every (I, N, S) in
+{1000,4642,21544,100000} × {1000,4642,21544,100000,316228} ×
+{316,1316,2316}, EXCEPT (I=21544, S=316) across all N — those 5 cells are
+the reused `evt-ts38pf-preteachfmt-n{N}` runs, referenced by their
+existing names, not renamed or re-run.
+
+**Parent step-count arithmetic (`train_sft.py`'s own convention:
+`val_fraction 0.005`, `n_val = round(0.005·n)`, `n_train = n − n_val`,
+`steps_per_epoch = floor(n_train/128)`, drop-last — same derivation
+ts38pf's `min_steps` fix used).** n=1000 → n_val=5, n_train=995,
+steps_per_epoch=**7** = `min_steps`. n=4642 → n_val=23, n_train=4619,
+steps_per_epoch=**36** = `min_steps`. n=100000 → n_val=500,
+n_train=99500, steps_per_epoch=**777** = `min_steps`. These three match
+the given `min_steps` values exactly. Ceilings: n=1000 and n=4642 both
+carry **3340** — this is ts38pf's OWN 20-epoch ceiling for i=21544
+(`167 × 20`), inherited/copied into these two smaller-install configs
+rather than freshly re-derived, so at n=1000 it is ≈477 epochs and at
+n=4642 ≈93 epochs, not literally "20 epochs" for either — a labeling
+note, not a HALT risk, since the ceiling still never binds (convergence
+fires first). n=100000 gets its own fresh 20-epoch ceiling,
+**15540** (`777 × 20`). `stop_reason=max_steps` on any parent stays a bug
+signal to investigate, per the standing run-until-convergence policy
+([[feedback-run-until-convergence]]), never accepted silently.
+
+**Format-acquisition θ0 check — deliberate semantic change vs the ts38pf
+launcher.** Runs once per parent (all 4 install sizes), same
+`gates.py g5 --no-record` mechanism against the frozen bare-target eval
+pin ts38mw/ts38pf/ts38pp all use, `loss_drop_frac = (base.loss −
+parent.loss) / base.loss`. `parent.em0 > 0.05` → `LEAKED` (the
+permutation failed as a control, i.e. a datagen bug) → **HALT,
+unchanged from ts38pf** — this branch stays a hard fail because a leaked
+permutation is a data-integrity defect, not a measurement. `loss_drop_frac
+< 0.10` → `NOT_LEARNED`: ts38pf HALTed on this branch (decisions.md
+2026-08-15 "ts38pf pre-registration" — running the 5-size sweep on an
+unconverted-format parent would look identical post hoc to "removing the
+format confound didn't reshape the curve," different claims); ts38fs
+**supersedes that HALT for this family only** — it logs the verdict and
+CONTINUES to the target sweep for that install size. Reasoning: at small
+installs, failing to acquire format IS the measurement this dose-response
+family exists to make (the 1000-row install may never clear the
+loss_drop_frac bar even at convergence — see caveat 1 below). Verdict
+(`LEAKED` / `NOT_LEARNED` / else `LEARNED`, the third branch unchanged
+from ts38pf) and `loss_drop_frac` are recorded per install size in the
+results sidecar, giving a secondary format-acquisition-vs-install-size
+curve alongside the primary EDL/D curve.
+
+**Held fixed on purpose (install size is the only manipulated
+variable).** Single-line operator render (the ts38-family convention —
+`Question: {a} {op} {b}\nAnswer: {ans}`, NOT ts1b's block render); same
+base checkpoint (`evt-run1-base-v3-ext`); same frozen target corpus,
+UNCHANGED across every cell (`D_algo_bare` order_hash `946b5d02…`,
+`D_algo_eval_bare` order_hash `e419baa2…` — only the parent varies, not
+the task, same convention as ts38pf's target arm); LR pins 1e-3 (parent)
+/ 1e-3 (target) — both already validated at exactly this
+scale+stage+method (ts38pf's/ts38's own recipes), reused in-scope, no new
+sweep for this family.
+
+**Datagen.** `datagen/make_preteach_format.py` extended this session
+(uncommitted, +31 lines as of this entry) to emit
+`D_preteachfmt_n{N}.parquet` for every non-21544 size — `dst_filename(n)`
+and `pin_config_name(n)` route `n=21544` to the legacy
+`D_preteachfmt.parquet` (byte-for-byte unchanged, the frozen pin ts38pf
+already uses stays untouched) and every other `n` to its own
+`D_preteachfmt_n{n}.parquet`; `derive()` itself is unchanged and already
+size-generic — same `D_algo`-prefix slice + per-slice seeded permutation
+(seed 20260717, the repo's one canonical datagen seed) as the 21544 file,
+only the destination filename depends on `n`. Measured pins (generated
++ hash-reported same session, 2026-08-20; the 21544 regression rerun
+reproduced the frozen `5b0b19a4c4…` exactly and the real file was
+untouched): n=1000 `order_hash`
+`56f095928de8568696274e00bc9225c8ec891052138d9d507b54152a9e9b3b4a`,
+collisions 2/1000 (0.2000%); n=4642
+`58db7aac8d5062efcbf98ebe47e834796dd35ee89f011afbbffd51dc78e989dd`,
+collisions 1/4642 (0.0215%); n=100000
+`873fc4d41e8bd6331cc42d6e19c1f31516b73c72ebaa507c9e9a47c697910b26`,
+collisions 10/100000 (0.0100%). Each is pinned into
+`configs/ts38fs_parent_n{N}.yaml`'s data block, same discipline as
+ts38pf's `5b0b19a4c4…` pin.
+
+**No gates, no G7 anchor.** `parent_required_gates: []` on every parent
+and every target config, `experiment.gates: {}` on the parents — same
+no-recorded-gates discipline as ts38pf/ts38pp (only the format-acquisition
+check above is scored, and only `--no-record`). Target overlays carry no
+`match_data_order_with` (no G7 anchor) — stated flatly per the design as
+given, same precedent as ts1b's pf-arm grid
+(`match_data_order_with` permanently null there too). No G8 retention
+gate either, same convention as every pre-teach-format/pre-teach-algorithm
+parent in this project: the paper defines no retention gate for these
+stages, so none is enforced here.
+
+**Deviations / caveats.**
+1. The n=1000 install may fail to clear the `loss_drop_frac ≥ 0.10`
+   format-acquisition bar even once its parent has converged. That is not
+   a defect — it anchors the dose-response floor and is itself the
+   measurement at the low end of the sweep.
+2. The existing base-arm grid (`evt-ts38-base-n{N}`, reused as the
+   comparison reference) is single-seed, while every ts38fs target curve
+   is 3-seed. This is a deliberate, acknowledged seed-count asymmetry —
+   matched base seeds were NOT added; the owner scoped this session to
+   base→pf→target only.
+3. The paused ts1b pf-arm grid (decisions.md 2026-08-19/2026-08-20
+   entries) is untouched by this family — different scale, different
+   track, no shared runs or configs.
+4. The new r128 LoRA target runs here supersede nothing at ts1b (which
+   runs r512 at 1.24B params) — different method scale for a different
+   model size, not a comparable or competing measurement.
+5. If a ts38fs pretaught-format curve sits ABOVE the reused base
+   reference at some n, that reads as the retention-confound class (same
+   reading convention as ts38pf/ts38pp/ts38mw), never as evidence against
+   teaching.
+
+**Run order.** Complete the full seed-316 pass over all (install ×
+target-size) cells first, then the seed-1316 pass, then seed-2316 —
+density (grid coverage across install/target size) before seed
+replication, the same density-first/seeds-last ordering this project has
+used for prior ts38 grid work.
+
+**Analysis plan.** EDL/D vs n, one curve per install size, 3-seed mean ±
+spread, scored under the OCV floor
+(`analysis/edl_converged_val_floor.py` convention, per
+[[feedback-edl-floor-is-converged-val-per-run]]); hump position and
+height reported as a function of install size; plus the
+format-acquisition curve (verdict + `loss_drop_frac` vs install size,
+from the θ0 check above). Figures land at repo `analysis/figures/`
+paths, scripts shipped alongside — no analysis code has been written yet
+as of this entry (`edl_converged_val_floor.py` has no `ts38fs` family
+entry in its `FAMILIES`/`ARM_MAPS` as of this session); that build is
+**OPEN**, tracked as part of finishing this family's Stage-0 work, not
+done here.
+
+**Build state, this session.** DONE: the datagen extension above
+(`make_preteach_format.py`, uncommitted). **NOT yet built** (planned
+filenames, per the design above, not yet present in the repo as of this
+entry): `configs/ts38fs_parent_n{1000,4642,100000}.yaml` (parent
+configs, cloned from `configs/ts38_preteachfmt_parent.yaml` with the
+per-size `min_steps`/`max_steps` above), `configs/ts38fs_target.yaml`
+(the target-stage recipe, parameterized over install parent and seed),
+`scripts/launch_ts38fs_family.sh` (the launcher — venv/PATH env guard
+per the ts38pp/ts1b fix, per-install parent build stage, format-check
+HALT/continue logic above, then the 3-seed × 5-size target sweep per
+install), and the `ts38fs` analysis-family wiring
+(`edl_converged_val_floor.py`, `dataset_size_sweep.py` if extended, a
+combined-arms plot). Exact test counts, launcher line count, and
+per-size `order_hash`/collision figures are **OPEN** — none of that
+exists to report yet.
+
+**Cost estimate.** Build is local-only, $0 (datagen + config + launcher
+work, no GPU). GPU estimate **≈$15–30**, a ballpark at ≈10× the ts38pf
+family's measured volume (ts38pf: 1 parent + 5 target runs; ts38fs: 4
+parents + 60 target cells, most of them small-n and fast) — to be
+refined from measured per-run wall-clock time at launch, same as every
+prior ts38 family's cost estimate.
+
+**Authorization state.** BUILD authorized 2026-08-20 (this entry
+documents the pre-registered design; the datagen extension has landed,
+the configs/launcher/analysis wiring above are the remaining Stage-0
+work). GPU spend is **NOT authorized** — it requires explicit owner OK
+at launch time, same `--confirm-cost` discipline as every other family in
+this project (budget rule, CLAUDE.md). Nothing in this family launches
+implicitly.
