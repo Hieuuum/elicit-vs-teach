@@ -1,0 +1,166 @@
+# ts1b pp-arm target-stage grid — the elicit-arm mirror of
+# configs/ts1b_pf_target.yaml (read that file's header first; everything
+# not called out below is identical reasoning, not restated). This is the
+# 1.24B analogue of configs/ts38pp_pretaught.yaml — "does the pre-teach-
+# ALGORITHM (correct-label, App. E.2) parent make the target task cheaper
+# to learn" — now measured at the scale the paper itself used. theta0 =
+# runs/evt-ts1b-pp-parent/model/ (NO merge stage — full FT, plain weights
+# the moment training completes).
+#
+# PARENT STEP COUNT DEVIATION — evt-ts1b-pp-parent trains 36,093 steps, NOT
+# the paper-literal one-epoch 31,093 (configs/ts1b_pp_parent.yaml's "STEP
+# COUNT" header note, commit e31a965 "FIX: ts1b pp parent step count 31093
+# -> 36093"). Owner-directed, evidence-based: the one-epoch checkpoint's
+# op EM (block, k=0) landed at 89.16%/89.34% (n=1024/8192), a real
+# near-miss under the pre-registered 0.90 HALT threshold that a 5,000-step
+# continuation resolved to 96.12% — decisions.md 2026-08-19 "pp parent
+# HALT near-miss" entry. This target grid warm-starts from whatever
+# checkpoint evt-ts1b-pp-parent actually is at launch time (36,093-step,
+# HALT-gate-passing, by construction of that retrain) — no additional
+# gating on step count here, `parent_required_gates: []` reflects the same
+# deliberately-ungated-parent discipline as every other family, not a
+# belief this specific parent already cleared some other bar.
+#
+# NO G7 ANCHOR / match_data_order_with STAYS null (permanently) — same
+# reasoning as ts1b_pf_target.yaml: no ts1b base-arm grid exists at this
+# scale (owner declined one, 2026-08-19), so there is nothing to G7-match
+# against. Mirrors configs/llama_fig2nl3_noinst.yaml's own convention.
+#
+# Deliberately-ungated parent: evt-ts1b-pp-parent is never run through
+# gates.py's recording pass/fail path — the θ0 latency probe
+# (ts1b_pp_halt_diag.json / the recheck JSONs) is evidence-only, scored
+# --no-record, same discipline as every ts1b/ts38pp/ts38pf/ts38mw parent.
+#
+# Task/data: VERBATIM the same D_algo_bare / D_algo_eval_bare corpus as
+# ts1b_pf_target.yaml — same file, same order hashes, same tokenizer-
+# agnostic raw text. Copied from that file's own data block, not
+# re-derived (single source of truth for these hashes lives there).
+#
+# LoRA r512/α32, batch 128 NO ACCUMULATION — see ts1b_pf_target.yaml's
+# header for the full paper-fidelity rationale (batch 128 is the paper's
+# per-GPU figure, not 1024 = 128 x 8 GPUs; do not add grad accumulation).
+#
+# *** LR IS SHARED WITH ts1b_pf_target.yaml — READ THIS BEFORE EDITING
+# EITHER FILE'S train.lr. *** This project's elicit-vs-teach design
+# requires the pp-arm and pf-arm target stages to be byte-identical except
+# for run_id/parent_run_id (the arms must differ ONLY in θ0 — same
+# convention as ts38pp_pretaught.yaml vs ts38mw_pretaught.yaml at 38M,
+# [[feedback-scope-check-pins-before-reuse]]). scripts/launch_ts1b_pp_
+# target_grid.sh runs the ONE target-stage LR mini-sweep for BOTH arms
+# (bracket {1e-4, 3.53e-4, 1e-3} centered on the paper's own Table 3
+# TinyStories-1B LoRA row, auto-picked per owner delegation 2026-08-19 —
+# same mechanism ts1b_pf_target.yaml's header already describes) and, on
+# picking a winner, writes that SAME lr value into BOTH this file's
+# train.lr field AND ts1b_pf_target.yaml's train.lr field (two separate
+# regex substitutions, one call each — see the launcher's own comments).
+# This grid runs the sweep because evt-ts1b-pp-parent finishes training
+# (and this grid becomes launchable) well before evt-ts1b-pf-parent even
+# starts (pf parent is gated behind pp's own HALT check in
+# scripts/launch_ts1b_stage12.sh). scripts/launch_ts1b_pf_target_grid.sh
+# NO LONGER runs its own independent sweep (retrofitted out, same commit
+# as this file) — it instead REFUSES to launch its 5-size grid if
+# ts1b_pf_target.yaml's train.lr is still the unpinned placeholder,
+# instructing the operator to run THIS grid's sweep first. Editing one
+# file's train.lr without the other silently breaks the "arms differ only
+# in θ0" premise this whole track exists to test — do not do that by hand;
+# re-run this launcher's sweep stage (it is idempotent — a rung that
+# already reached status=complete is skipped, not re-trained) if a change
+# is ever needed.
+#
+# Everything else mirrors configs/ts38pp_pretaught.yaml's shape — eps/k
+# stopping, require_full_epoch1 guard, snapshots off, seed 316.
+#
+# BASE for 5 log-spaced sizes (configs/sweeps/ts1b/ts1b_pp_target_n<size>.
+# yaml overlays); never launched standalone. Trains via
+# scripts/train_target.py through the prequential EDL harness.
+run_id: evt-ts1b-pp-target
+experiment:
+  name: training-run
+  arm: A                        # provenance tag (warm-started from a
+                                 # modified parent) — NOT a claim about this
+                                 # experiment's eventual elicit/teach
+                                 # verdict; same convention as
+                                 # ts1b_pf_target.yaml's / ts38pf_
+                                 # preteachfmt.yaml's arm: A.
+  role: target
+  parent_run_id: evt-ts1b-pp-parent
+  parent_required_gates: []     # parent deliberately ungated — see header.
+  match_data_order_with: null   # permanent — see header (no G7 anchor exists)
+  require_full_epoch1: true     # same guard as every ts38/ts38pp/ts38pf/
+                                 # ts1b target config; enforced generically
+                                 # by scripts/train_target.py
+
+model:                          # must match the parent checkpoint (launcher
+                                 # guards) — same 2-field verification shape
+                                 # as ts1b_pf_target.yaml / ts38pp_pretaught
+                                 # .yaml / llama_fig2nl3_noinst.yaml (the
+                                 # rest of the Llama-3.2-1B architecture is
+                                 # read from the checkpoint itself via
+                                 # geode.zoo, not reconstructed from this
+                                 # config)
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B   # gated; box needs HF_TOKEN with the
+                                    # license accepted (same as every other
+                                    # ts1b/llama_fig2nl* config)
+
+task:
+  name: arith_bare_addsub       # scaffold-free NL add/sub (D_algo_bare);
+                                 # the target task, unchanged by the
+                                 # pre-registration's P2 ruling — IDENTICAL
+                                 # task to ts1b_pf_target.yaml (arms differ
+                                 # only in θ0)
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:                            # VERBATIM the frozen D_algo_bare stream —
+                                  # copied from ts1b_pf_target.yaml's own
+                                  # data block, same file/hashes as every
+                                  # ts38 target config and llama_fig2nl3_
+                                  # noinst.yaml
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 316228             # placeholder = largest size; every overlay
+                                  # sets its own prefix of the frozen order
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:                           # 1.24B-Llama adapter class, see header —
+  r: 512                        # NOT the 38M target-stage r128/α32 pin;
+  alpha: 32                     # IDENTICAL to ts1b_pf_target.yaml (shared
+                                 # rank/alpha, only LR is separately swept
+                                 # and then shared post-pin)
+
+train:
+  lr: 3.53e-4                   # PLACEHOLDER — this grid's own mini-sweep
+                                 # winner overwrites this (AND ts1b_pf_
+                                 # target.yaml's) before either 5-size grid
+                                 # launches; see the *** LR IS SHARED ***
+                                 # header note above. Dot-mantissa form
+                                 # mandatory (YAML 1.1).
+  precision: bf16
+  batch_size: 128                # paper's per-GPU batch, no accumulation — see header
+  eval_every: 375                # placeholder = largest size's cadence; every
+                                  # overlay sets its own (values copied from
+                                  # ts1b_pf_target.yaml's own per-size
+                                  # overlays — same model/adapter/lr class,
+                                  # already run to completion at these exact
+                                  # sizes via the fig2nl3 precedent that
+                                  # file cites; not re-derived a second time)
+  max_steps: 30000               # placeholder = largest size's ceiling; see
+                                  # per-overlay note above
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2471               # placeholder = ceil(316228/128); every
+                                   # overlay sets its own exact ceil(n/128)
+                                   # (require_full_epoch1 guard)
+  snapshots:
+    n: 0                          # snapshots OFF (matches every prior family)
+    dense_until: 30               # unused when n:0 (kept for parity)
+  seed: 316

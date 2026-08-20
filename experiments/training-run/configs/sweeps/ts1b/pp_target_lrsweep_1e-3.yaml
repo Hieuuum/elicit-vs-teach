@@ -1,0 +1,18 @@
+# ts1b pp-arm TARGET-STAGE LR mini-sweep, rung 1e-3 (the 38M target-stage
+# pin, configs/ts38pf_preteachfmt.yaml / ts38pp_pretaught.yaml — included
+# as the upper bracket rung since it's the one other LR this project has
+# used for a LoRA target stage, even though it does not transfer by
+# authority alone at this scale, [[feedback-scope-check-pins-before-
+# reuse]]). THE SHARED SWEEP for both arms — see pp_target_lrsweep_1e-4
+# .yaml's header for the full bracket rationale. Probed at n=21544,
+# 500-step deliberately-incomplete budget, min_steps 5000 keeps eps/k
+# inert (stop_reason=max_steps expected).
+run_id: evt-ts1b-pp-target-lrsweep-1e-3
+data:
+  n_examples: 21544
+train:
+  lr: 1.0e-3
+  eval_every: 25
+  max_steps: 500
+  stopping:
+    min_steps: 5000

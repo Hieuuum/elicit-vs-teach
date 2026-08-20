@@ -1,0 +1,17 @@
+# ts1b pp-arm TARGET-STAGE LR mini-sweep, rung 3.53e-4 (the paper's own
+# Table 3 TinyStories-1B LoRA row, center of the bracket — already the
+# value llama_fig2nl3_noinst.yaml adopted directly at this same
+# r512/a32/batch-128 config). THE SHARED SWEEP for both arms — see
+# ts1b_pp_target.yaml's "*** LR IS SHARED ***" header note and
+# pp_target_lrsweep_1e-4.yaml's header for the full bracket rationale.
+# Probed at n=21544, 500-step deliberately-incomplete budget, min_steps
+# 5000 keeps eps/k inert (stop_reason=max_steps expected).
+run_id: evt-ts1b-pp-target-lrsweep-3.53e-4
+data:
+  n_examples: 21544
+train:
+  lr: 3.53e-4
+  eval_every: 25
+  max_steps: 500
+  stopping:
+    min_steps: 5000

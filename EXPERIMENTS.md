@@ -1472,39 +1472,78 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     retrain, twin parents, ts38grid densification, seeds) ON HOLD. Full
     pre-registration: decisions.md 2026-08-19 "ts1b (fig2ts) staged redo".
 
-    **pf-arm target-stage grid — BUILT 2026-08-19, NOT YET LAUNCHED.**
-    Stage 3+ money re-confirmed live by the owner in chat, 2026-08-19,
-    scoped to the pf (pre-teach-FORMAT, permuted-label) arm only — a
-    matching base-arm (no pre-teach) comparator grid was explicitly
-    declined the same conversation, so this reads the pf curve's own shape
-    only, not "above/below base," until a base grid exists at this scale.
-    Files: `configs/ts1b_pf_target.yaml` (base target config, LoRA
-    r512/α32 on `D_algo_bare`, warm-started from `evt-ts1b-pf-parent`, no
-    G7 anchor — `match_data_order_with` stays permanently null, mirroring
-    `configs/llama_fig2nl3_noinst.yaml`'s own no-counterpart convention
-    rather than ts38pp/ts38pf's base-reuse pattern); 5 size overlays
-    `configs/sweeps/ts1b/ts1b_pf_target_n{1000,4642,21544,100000,316228}
-    .yaml` (max_steps/eval_every sourced from `llama_fig2nl3_noinst`'s own
-    already-completed runs at this exact model/adapter/lr class, the best
-    available empirical precedent at 1.24B — not the 38M ts38pf numbers);
-    3 LR-mini-sweep seed overlays `configs/sweeps/ts1b/pf_target_lrsweep_
-    {1e-4,3.53e-4,1e-3}.yaml` (bracket centered on the paper's own Table 3
-    TinyStories-1B LoRA row, 3.53e-4 — owner instruction mid-build, not a
-    blind adopt); launcher `scripts/launch_ts1b_pf_target_grid.sh`.
+    **pp-parent step count DEVIATION — 36,093, not the paper-literal
+    one-epoch 31,093 (owner-directed, evidence-based, 2026-08-19; commit
+    `e31a965`).** The one-epoch-pinned `evt-ts1b-pp-parent` landed op EM
+    (block, k=0) at 89.16% (n=1024) — a near-miss under the pre-registered
+    0.90 HALT threshold. A 3-tier diagnostic (decisions.md 2026-08-19 "pp
+    parent HALT near-miss") ruled out sampling noise (n=8192 recheck:
+    89.34%, tight CI ~[88.7%, 90.0%]) and showed the curve was still
+    descending, not plateaued (5,000-step continuation:
+    `evt-ts1b-pp-parent-contdiag5000`, op EM → 96.12%). The official parent
+    was retrained as ONE continuous 36,093-step trajectory (31,093 + the
+    5,000 that worked) from `evt-ts1b-base` directly — not the stitched
+    diagnostic checkpoint, which has a fresh-optimizer-state discontinuity
+    at step 31,093 unsuitable for the canonical artifact everything else in
+    this track warm-starts from. `configs/ts1b_pp_parent.yaml`'s header and
+    `scripts/launch_ts1b_stage12.sh`'s post-train `final_step==36093`
+    assertion were updated together (the launcher's old hardcoded 31093
+    check would otherwise fail a legitimately-retrained parent on resume).
 
-    Gated on `evt-ts1b-pf-parent` status==complete — that run has not
-    started training as of this commit (box is still on the Stage-1 parent
-    LR sweep). The launcher's LR mini-sweep auto-picks its winner with no
-    manual stop (owner delegated the pick, same as the parent-stage
-    sweep): lowest rung with a finite, non-diverging val-loss trace, with
-    up to 2 auto-generated bracket-extension rounds if the winner lands at
-    a tested endpoint, and a hard failure (never a silent pick) if no rung
-    ever produces a stable trace. Batch size stays 128 (paper's per-GPU
-    figure, not the 1024 effective/8-GPU figure) per
+    **pp-arm AND pf-arm target-stage grids — BOTH BUILT 2026-08-19, NOT YET
+    LAUNCHED.** Stage 3+ money re-confirmed live by the owner in chat,
+    2026-08-19 — first for pf only, then extended to pp the same session
+    ("run the pp parent at 36k steps with 5 datapoints"). A matching
+    base-arm (no pre-teach) comparator grid was explicitly declined, so
+    both curves read on their own shape only, not "above/below base,"
+    until a base grid exists at this scale.
+
+    Files, pf-arm: `configs/ts1b_pf_target.yaml` (LoRA r512/α32 on
+    `D_algo_bare`, warm-started from `evt-ts1b-pf-parent`, no G7 anchor —
+    `match_data_order_with` stays permanently null); 5 size overlays
+    `configs/sweeps/ts1b/ts1b_pf_target_n{1000,4642,21544,100000,316228}
+    .yaml`; launcher `scripts/launch_ts1b_pf_target_grid.sh`. Files,
+    pp-arm (mirror, `evt-ts1b-pp-parent` in place of `evt-ts1b-pf-parent`
+    throughout): `configs/ts1b_pp_target.yaml`; 5 size overlays
+    `configs/sweeps/ts1b/ts1b_pp_target_n{1000,4642,21544,100000,316228}
+    .yaml`; launcher `scripts/launch_ts1b_pp_target_grid.sh`. Step
+    ceilings/eval cadence on both sides sourced from `llama_fig2nl3_noinst`
+    's own already-completed runs at this exact model/adapter/lr class, the
+    best available empirical precedent at 1.24B — not the 38M numbers.
+
+    **LR is SHARED between the two grids, not independently swept** — the
+    elicit-vs-teach design requires the arms to differ ONLY in θ0, so two
+    independently-auto-picked target-stage LRs would silently break the
+    comparison (same convention as `ts38pp_pretaught.yaml` vs
+    `ts38mw_pretaught.yaml` at 38M). `scripts/launch_ts1b_pp_target_grid.sh`
+    runs the ONE 3-rung mini-sweep (`configs/sweeps/ts1b/pp_target_lrsweep_
+    {1e-4,3.53e-4,1e-3}.yaml`, bracket centered on the paper's own Table 3
+    TinyStories-1B LoRA row) — it runs there because the pp parent finishes
+    (and its grid becomes launchable) well before the pf parent even
+    starts, not because the LR "belongs" to that arm. On picking a winner
+    (auto-selected, owner delegated the pick: lowest rung with a finite,
+    non-diverging val-loss trace, up to 2 auto-generated bracket-extension
+    rounds if the winner lands at a tested endpoint, hard failure if no
+    rung is stable), the launcher pins that same value into BOTH
+    `ts1b_pp_target.yaml`'s AND `ts1b_pf_target.yaml`'s `train.lr` field
+    directly. `scripts/launch_ts1b_pf_target_grid.sh`'s own independent
+    sweep was retrofitted OUT the same session — it now only verifies the
+    shared pin exists (fails loudly, telling the operator to run the
+    pp-arm grid first, if `ts1b_pf_target.yaml`'s `train.lr` is still the
+    unpinned placeholder). Its now-orphaned seed overlays
+    (`pf_target_lrsweep_{1e-4,3.53e-4,1e-3}.yaml`) are left in place for
+    the historical record only.
+
+    Batch size stays 128 on both sides (paper's per-GPU figure, not the
+    1024 effective/8-GPU figure) per
     [[feedback-paper-fidelity-methodology-not-infra-scale]]. Estimated
-    cost ≈$9–17 (mini-sweep + 5-size grid), inside no prior authorization
-    ceiling — this IS the Stage 3+ re-confirmation, scoped to pf only; a
-    base-arm grid or any other arm/size is a separate ask.
+    cost: pp-arm grid (incl. the shared sweep) ≈$9–17, pf-arm grid (sweep
+    excluded, already counted) ≈$8–15 — ≈$17–32 combined, inside no prior
+    authorization ceiling; this IS the Stage 3+ re-confirmation, now scoped
+    to both pp and pf. A base-arm grid or any other arm/size is a separate
+    ask. Both grids are gated on their respective parent's status==complete
+    and refuse to run otherwise; neither has launched as of this commit —
+    `evt-ts1b-pp-parent`'s 36,093-step retrain is still running on the box.
 
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1

@@ -25,27 +25,28 @@
 #   shape (rising/falling), not "above/below base", until a base grid
 #   exists.
 #
-# LR MINI-SWEEP FIRST (evt-ts1b-pf-target-lrsweep-<label>, 3+ short runs at
-# n=21544): no 1.24B target-stage LR pin exists yet — the 38M pin (1e-3)
-# does not transfer by authority [[feedback-scope-check-pins-before-reuse]].
-# Owner instruction (2026-08-19, mid-build): center the bracket on the
-# paper's own Table 3 TinyStories-1B LoRA row (3.53e-4) rather than
-# inventing candidates — {1e-4, 3.53e-4, 1e-3} — but still verify locally
-# rather than blindly adopt (this project's standing practice). Owner ALSO
-# delegated the pick itself (2026-08-19 chat, same delegation already given
-# for the parent-stage sweep) — this script auto-selects, no manual
-# STOP-and-confirm gate, unlike launch_ts1b_stage12.sh's stage 1. Selection
-# rule: lowest-LR rung with a finite, non-diverging val-loss trace and the
-# best min_val_nats at the probe budget; if the winner sits at either end
-# of the tested range, the script extends the bracket ONE more rung in that
-# direction (continuing this repo's established 1-3-10 mantissa ladder,
-# e.g. pp_lrsweep's 1e-4/3e-5/1e-5) and re-sweeps before pinning — capped at
-# 2 extension rounds as a runaway-cost backstop; if still unresolved at the
-# cap, the script proceeds with the best candidate found and prints a WARN
-# for the owner/orchestrator to review, rather than looping indefinitely.
-# The winner is written directly into configs/ts1b_pf_target.yaml's
-# train.lr field (regex substitution of the placeholder line, not a
-# rewrite — preserves the file's header comments).
+# *** NO LR MINI-SWEEP IN THIS SCRIPT — RETROFITTED OUT 2026-08-19. ***
+# This script used to run its own independent 3-rung LR mini-sweep here.
+# It no longer does: the elicit-vs-teach design requires the pp-arm and
+# pf-arm target stages to be byte-identical except for run_id/
+# parent_run_id (arms must differ ONLY in θ0 — same convention as
+# ts38pp_pretaught.yaml vs ts38mw_pretaught.yaml at 38M,
+# [[feedback-scope-check-pins-before-reuse]]); two independently-tuned
+# LRs would silently make the arms differ in more than θ0 and break the
+# comparison this whole track exists to make. The ONE shared target-stage
+# LR mini-sweep now lives in scripts/launch_ts1b_pp_target_grid.sh (it
+# runs there because evt-ts1b-pp-parent finishes training well before
+# evt-ts1b-pf-parent even starts — a scheduling choice, not a claim the LR
+# "belongs" to the pp arm). That script pins its winner into BOTH
+# configs/ts1b_pp_target.yaml's AND this file's paired configs/
+# ts1b_pf_target.yaml's train.lr field directly (two regex substitutions,
+# one call). This script now just VERIFIES that pin exists (fails loudly,
+# telling the operator to run the pp-arm grid first, if it's still the
+# unpinned placeholder) rather than deriving its own LR — see the
+# "SHARED LR VERIFICATION" gate below, right after the parent checks.
+# ts1b_pf_target.yaml's own now-orphaned sweep-overlay files
+# (pf_target_lrsweep_*.yaml) are left in place for the historical record
+# only; nothing in this script references them any more.
 #
 # BATCH SIZE 128, NOT the paper's effective 1024 — the paper's own
 # per-GPU batch size (Table 3: 128 x 8 GPUs via data parallelism, not
@@ -86,9 +87,9 @@ source lib/launch_common.sh
 TAG=ts1bpftgt
 
 echo "[ts1bpftgt] estimated cost (Stage 3+, owner re-confirmed 2026-08-19, pf-arm only):"
-echo "[ts1bpftgt]   LR mini-sweep: 3 rungs x 500 steps, LoRA r512 on 1.24B     ~\$1-2"
-echo "[ts1bpftgt]     (up to 2 extra bracket-extension rungs if a sweep winner"
-echo "[ts1bpftgt]     lands at an endpoint -- +\$0.3-0.7 each, capped)"
+echo "[ts1bpftgt]   LR mini-sweep: NONE here -- shared with the pp-arm grid, run"
+echo "[ts1bpftgt]     ONCE by launch_ts1b_pp_target_grid.sh (~\$1-2 there, not"
+echo "[ts1bpftgt]     duplicated here). This script only verifies the pin exists."
 echo "[ts1bpftgt]   5-size target grid: max_steps ceilings 1000/1000/5000/10000/"
 echo "[ts1bpftgt]     30000 (sourced from configs/sweeps/llama_fig2nl3's own"
 echo "[ts1bpftgt]     already-run ceilings at this exact model/adapter/lr class)"
@@ -98,7 +99,9 @@ echo "[ts1bpftgt]     close to the parent's full-FT rate; total steps across all
 echo "[ts1bpftgt]     5 sizes (47000) is ~1.5x one pf-parent epoch (31093) --"
 echo "[ts1bpftgt]     est \$8-15, extrapolated from launch_ts1b_stage12.sh's own"
 echo "[ts1bpftgt]     \$5-10-per-31093-full-FT-steps figure."
-echo "[ts1bpftgt]   TOTAL est \$9-17. Box spec: same A100/L40S-class already in use."
+echo "[ts1bpftgt]   TOTAL est \$8-15 for THIS script (the shared ~\$1-2 sweep is a"
+echo "[ts1bpftgt]     one-time cost already counted under the pp-arm grid). Box spec:"
+echo "[ts1bpftgt]     same A100/L40S-class already in use."
 echo "[ts1bpftgt]   NOT authorized: a base-arm comparator grid (owner declined,"
 echo "[ts1bpftgt]     2026-08-19) or any arm/size beyond what's listed here."
 
@@ -221,214 +224,32 @@ for f in D_algo_bare.parquet D_algo_eval_bare.parquet; do
 done
 milestone "data_present D_algo_bare + D_algo_eval_bare at pinned local paths"
 
-# ---- LR mini-sweep, auto-pick, auto-extend the bracket if needed ---------
-python3 - "$TARGET_CONFIG" "$OVERLAY_DIR" "$PARENT_MODEL_DIR" <<'PY' || fail "LR mini-sweep"
-import json
-import os
-import subprocess
+# ---- SHARED LR VERIFICATION -- no sweep here, just check the pp-arm
+# grid's sweep already pinned this file's train.lr (see the header's ***
+# NO LR MINI-SWEEP *** note). Refuses loudly rather than guessing or
+# silently training on the unpinned placeholder. ----------------------------
+python3 - "$TARGET_CONFIG" <<'PY' || fail "shared-LR verification"
+import re
 import sys
 from pathlib import Path
 
-target_config, overlay_dir, parent_model_dir = sys.argv[1:4]
-store = Path(os.environ["GEODE_STORE"])
+target_config = sys.argv[1]
 TAG = "ts1bpftgt"
-
-import math
-
-# Canonical 1-3-10 mantissa ladder this project already uses everywhere for
-# LR sweeps (e.g. pp_lrsweep 1e-4/3e-5/1e-5): ..., 1e-4, 3e-5, 1e-5, 3e-6, ...
-# Decompose lr = mantissa * 10**exp with mantissa in [1, 10) via log10, snap
-# the mantissa to the nearest of {1, 3} (geometric midpoint sqrt(3)), then
-# step one position along that fixed ladder. Building the label directly
-# from the integer (mantissa, exp) pair -- rather than formatting the float
-# with %g -- avoids Python's 2-digit-exponent default ("1e-05") disagreeing
-# with this repo's file-naming convention ("1e-5").
-def _decompose(lr: float) -> tuple[float, int]:
-    e = math.floor(math.log10(lr) + 1e-9)
-    return lr / (10 ** e), e
-
-def _snap(m: float) -> int:
-    return 1 if m < 3 ** 0.5 else 3
-
-def step_down(lr: float) -> tuple[float, str]:
-    m, e = _decompose(lr)
-    m = _snap(m)
-    new_m, new_e = (3, e - 1) if m == 1 else (1, e)
-    label = f"{new_m}e{new_e}"
-    return float(label), label  # str->float parse, not m*10.0**e (avoids fp noise like 3.0000000000000004e-05)
-
-def step_up(lr: float) -> tuple[float, str]:
-    m, e = _decompose(lr)
-    m = _snap(m)
-    new_m, new_e = (1, e + 1) if m == 3 else (3, e)
-    label = f"{new_m}e{new_e}"
-    return float(label), label
-
-def _yaml_float(x: float) -> str:
-    # YAML 1.1 (this repo's stated target, per every "dot-mantissa form is
-    # mandatory" comment elsewhere) only recognizes scientific notation as a
-    # float when the mantissa has a decimal point -- Python's repr() drops
-    # it for small magnitudes (repr(3e-05) == "3e-05", no dot), which a
-    # strict YAML 1.1 parser reads back as a STRING, silently breaking the
-    # pin. Insert ".0" before a bare-mantissa "e" if present; plain decimal
-    # reprs (e.g. "0.0001") are already unambiguous and pass through as-is.
-    s = repr(x)
-    if "e" in s and "." not in s.split("e")[0]:
-        mantissa, exp = s.split("e")
-        s = f"{mantissa}.0e{exp}"
-    return s
-
-PROBE_N = 21544
-OVERLAY_TEMPLATE = """# ts1b pf-arm TARGET-STAGE LR mini-sweep, bracket-extension rung {label}.
-# Auto-generated by launch_ts1b_pf_target_grid.sh's mini-sweep loop (the
-# {label} winner from the previous round sat at an endpoint of the tested
-# range, so the bracketing rule [[feedback-nulls-need-bracketing]] extends
-# one rung further before pinning). Same probe conditions as the seed
-# rungs (pf_target_lrsweep_1e-4.yaml et al.): n=21544, 500-step
-# deliberately-incomplete budget, min_steps 5000 keeps eps/k inert.
-run_id: evt-ts1b-pf-target-lrsweep-{label}
-data:
-  n_examples: {probe_n}
-train:
-  lr: {lr}
-  eval_every: 25
-  max_steps: 500
-  stopping:
-    min_steps: 5000
-"""
-
-def overlay_path(label: str) -> Path:
-    return Path(overlay_dir) / f"pf_target_lrsweep_{label}.yaml"
-
-def ensure_overlay(label: str, lr: float) -> Path:
-    p = overlay_path(label)
-    if not p.is_file():
-        p.write_text(OVERLAY_TEMPLATE.format(label=label, lr=_yaml_float(lr), probe_n=PROBE_N))
-        print(f"[{TAG}] MILESTONE lrsweep_overlay_generated label={label} lr={lr} path={p}")
-    return p
-
-def run_rung(label: str, lr: float) -> None:
-    rid = f"evt-ts1b-pf-target-lrsweep-{label}"
-    manifest_p = store / "runs" / rid / "manifest.json"
-    if manifest_p.is_file() and json.loads(manifest_p.read_text()).get("status") == "complete":
-        print(f"[{TAG}] MILESTONE train_skip run={rid} status=complete")
-        return
-    overlay = ensure_overlay(label, lr)
-    print(f"[{TAG}] MILESTONE train_start run={rid}")
-    r = subprocess.run(
-        [
-            "python3", "train_target.py",
-            "--config", target_config,
-            "--override", str(overlay),
-            "--init-from", parent_model_dir,
-            "--confirm-cost",
-        ]
-    )
-    if r.returncode != 0:
-        print(f"[{TAG}] FAILED: {rid} training (exit {r.returncode})")
-        sys.exit(1)
-    if not manifest_p.is_file() or json.loads(manifest_p.read_text()).get("status") != "complete":
-        print(f"[{TAG}] FAILED: {rid} did not reach status=complete")
-        sys.exit(1)
-    print(f"[{TAG}] MILESTONE train_complete run={rid}")
-
-def read_result(label: str) -> dict:
-    rid = f"evt-ts1b-pf-target-lrsweep-{label}"
-    manifest = json.loads((store / "runs" / rid / "manifest.json").read_text())
-    tr = manifest.get("experiment", {}).get("target_result", {}) or {}
-    eval_log_p = store / "runs" / rid / "eval_log.jsonl"
-    rows = []
-    if eval_log_p.is_file():
-        for line in eval_log_p.read_text().splitlines():
-            if line.strip():
-                rows.append(json.loads(line))
-    min_val = tr.get("min_val_nats")
-    last_val = rows[-1]["val_loss_nats"] if rows else None
-    # "stable" = finite min AND the run hasn't blown up since its best point
-    # (last eval no more than 1.5x the min) -- a simple, documented proxy
-    # for non-diverging descent, not a full slope fit (CLAUDE.md simplicity
-    # rule: minimum logic that answers the actual question here).
-    stable = (
-        min_val is not None
-        and last_val is not None
-        and math.isfinite(min_val)
-        and last_val <= 1.5 * min_val
-    )
-    return {"min_val_nats": min_val, "last_val_nats": last_val, "stable": stable}
-
-def stable_candidates(results: dict) -> dict:
-    # isfinite guard is load-bearing, not redundant with `stable`: min()
-    # over a dict containing a NaN value is a Python trap (NaN comparisons
-    # are always False, so min()'s result silently depends on iteration
-    # order and can return the NaN row itself) -- excluding non-finite rows
-    # here, not just via the `stable` flag upstream, is what actually
-    # prevents a broken LR from ever reaching the pin below.
-    return {
-        k: v for k, v in results.items()
-        if v["stable"] and v["min_val_nats"] is not None and math.isfinite(v["min_val_nats"])
-    }
-
-candidates = [("1e-4", 1.0e-4), ("3.53e-4", 3.53e-4), ("1e-3", 1.0e-3)]
-results = {}
-for label, lr in candidates:
-    run_rung(label, lr)
-    results[label] = {"lr": lr, **read_result(label)}
-
-winner_label = winner_lr = None
-for round_i in range(2):  # cap: at most 2 bracket-extension rounds
-    stable = stable_candidates(results)
-    if not stable:
-        print(f"[{TAG}] FAILED: no LR rung produced a stable (finite, non-diverging) val-loss "
-              f"trace -- {results}. Refusing to pin a broken LR into the 5-size grid; inspect "
-              f"the mini-sweep runs' eval_log.jsonl before retrying.")
-        sys.exit(1)
-    winner_label = min(stable, key=lambda k: stable[k]["min_val_nats"])
-    winner_lr = results[winner_label]["lr"]
-    lrs_sorted = sorted(results.values(), key=lambda v: v["lr"])
-    is_low_end = winner_lr == lrs_sorted[0]["lr"]
-    is_high_end = winner_lr == lrs_sorted[-1]["lr"]
-    if not (is_low_end or is_high_end):
-        print(f"[{TAG}] MILESTONE lrsweep_winner label={winner_label} lr={winner_lr} "
-              f"min_val_nats={results[winner_label]['min_val_nats']} (interior of tested "
-              f"range {[v['lr'] for v in lrs_sorted]}, no extension needed)")
-        break
-    ext_lr, ext_label = step_down(winner_lr) if is_low_end else step_up(winner_lr)
-    if ext_label in results:
-        print(f"[{TAG}] WARN: bracket extension rung {ext_label} was already tested; "
-              f"stopping the extension loop with winner {winner_label} to avoid a cycle.")
-        break
-    print(f"[{TAG}] MILESTONE lrsweep_extend winner={winner_label} at range endpoint "
-          f"({'low' if is_low_end else 'high'}) -> testing {ext_label} "
-          f"(round {round_i + 1}/2)")
-    run_rung(ext_label, ext_lr)
-    results[ext_label] = {"lr": ext_lr, **read_result(ext_label)}
-else:
-    stable = stable_candidates(results)
-    if not stable:
-        print(f"[{TAG}] FAILED: no LR rung produced a stable trace after the extension cap -- "
-              f"{results}. Refusing to pin a broken LR.")
-        sys.exit(1)
-    winner_label = min(stable, key=lambda k: stable[k]["min_val_nats"])
-    winner_lr = results[winner_label]["lr"]
-    print(f"[{TAG}] WARN: bracket extension cap (2 rounds) reached, winner still at a range "
-          f"endpoint. Proceeding with {winner_label} (lr={winner_lr}) as the best available "
-          f"pick -- FLAGGED for owner/orchestrator review before trusting the 5-size grid's "
-          f"absolute EDL/D scale (the shape/comparison read is unaffected either way).")
-
-print(f"[{TAG}] MILESTONE lrsweep_all_results {json.dumps({k: {kk: vv for kk, vv in v.items()} for k, v in results.items()})}")
-
-# ---- pin the winner into the base target config (regex substitution of
-# the placeholder `  lr: 3.53e-4` line only -- preserves every comment) ----
-cfg_path = Path(target_config)
-text = cfg_path.read_text()
-import re
-new_line = f"  lr: {_yaml_float(winner_lr)}                   # PINNED {winner_label} — ts1b pf-arm target-stage LR mini-sweep winner (launch_ts1b_pf_target_grid.sh, auto-selected per owner delegation 2026-08-19)"
-new_text, n_subs = re.subn(r"(?m)^  lr: [0-9.eE+-]+.*$", new_line, text, count=1)
-if n_subs != 1:
-    print(f"[{TAG}] FAILED: expected exactly one 'train.lr' line in {cfg_path}, substituted {n_subs}")
+text = Path(target_config).read_text()
+m = re.search(r"(?m)^  lr: ([0-9.eE+-]+).*$", text)
+if m is None:
+    print(f"[{TAG}] FAILED: no 'train.lr' line found in {target_config} at all -- config is malformed.")
     sys.exit(1)
-cfg_path.write_text(new_text)
-print(f"[{TAG}] MILESTONE lr_pinned winner={winner_label} lr={winner_lr} config={cfg_path}")
+line = m.group(0)
+if "PLACEHOLDER" in line:
+    print(f"[{TAG}] FAILED: {target_config}'s train.lr is still the unpinned placeholder:")
+    print(f"[{TAG}]   {line.strip()}")
+    print(f"[{TAG}] Run scripts/launch_ts1b_pp_target_grid.sh first -- it runs the ONE shared")
+    print(f"[{TAG}] target-stage LR mini-sweep for both arms and pins the winner into BOTH")
+    print(f"[{TAG}] configs/ts1b_pp_target.yaml AND this file. This script does not run its own")
+    print(f"[{TAG}] sweep (retrofitted out 2026-08-19) -- see this file's header.")
+    sys.exit(1)
+print(f"[{TAG}] MILESTONE shared_lr_verified lr={m.group(1)} config={target_config}")
 PY
 milestone "lrsweep_complete"
 

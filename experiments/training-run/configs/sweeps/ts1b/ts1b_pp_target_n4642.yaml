@@ -1,0 +1,15 @@
+# ts1b pp-arm target-stage sweep point: n=4642. Overlay over
+# ../../ts1b_pp_target.yaml. No G7 anchor (see base config header).
+# eval_every/max_steps copied from ts1b_pf_target_n4642.yaml (byte-
+# identical target-stage recipe across arms; that file sources
+# configs/sweeps/llama_fig2nl3/llama_fig2nl3_noinst_n4642.yaml, already run
+# to completion at this exact size); min_steps = ceil(4642/128) = 37
+# (require_full_epoch1 pin).
+run_id: evt-ts1b-pp-target-n4642
+data:
+  n_examples: 4642
+train:
+  eval_every: 5
+  max_steps: 1000
+  stopping:
+    min_steps: 37

@@ -8468,3 +8468,114 @@ commit — the box is still on the Stage-1 parent LR mini-sweep
 (`scripts/launch_ts1b_stage12.sh`). `scripts/launch_ts1b_pf_target_grid.sh`
 refuses to proceed until that parent's manifest status is `complete`
 (explicit gate, clear refusal message) — it does not poll.
+
+## 2026-08-19 (even later) — pp parent HALT near-miss, 3-tier diagnostic, 36,093-step retrain, and byte-parity pp/pf target grids
+
+**The near-miss.** `evt-ts1b-pp-parent`, trained per the paper-literal
+one-epoch pin (31,093 steps, App. E.2), landed op EM (block render, k=0)
+at **89.16%** (913/1024) against the pre-registered `< 0.90 ⇒ HALT`
+criterion (decisions.md 2026-08-19 pre-registration entry). The launcher
+did exactly what it was built to do: stopped cleanly, did not launch the
+pf parent, exited 1. Not a weak install by any normal reading — from ~0%
+baseline to 89% exact-match on a task the model couldn't do at all before
+training — just short of the line.
+
+**3-tier diagnostic (owner-requested, "minimal experiments to reduce
+uncertainty... or just go ahead").**
+
+1. **Free — statistics on the existing measurement.** n=1024, 89.16%
+   observed ⇒ 95% CI ≈ [87.2%, 90.9%]. The 90% threshold sat *inside* the
+   noise band — inconclusive on its own.
+2. **Near-free, no new training — larger sample, same checkpoint.** The op
+   eval pool (`D_target_eval.parquet`) has 100,000 rows; the halt diag only
+   drew 1,024. Re-ran `analysis/theta0_fewshot_diag.py` at n=8192 (pure
+   inference, ~5 min on the A100) → **89.34%**, tightened 95% CI ≈ [88.7%,
+   90.0%]. Confirmed the near-miss was real, not a lucky/unlucky draw — the
+   true rate really does sit right around 89.3%, at the very edge of (not
+   comfortably inside) the CI.
+3. **Cheap, ~10 min, <$0.2 — continued-training diagnostic.** Warm-started
+   `evt-ts1b-pp-parent-contdiag5000` from the pp-parent checkpoint (fresh
+   optimizer state, same pinned LR 1e-4), trained 5,000 more steps
+   (`configs/sweeps/ts1b/pp_parent_contdiag_5000.yaml`, `min_steps`
+   inherited at 31093 keeps eps/k inert). Val loss dropped further
+   (0.0816 → 0.0521 nats). Re-measured op EM at n=8192 on this checkpoint:
+   **96.12%** — 6.8 points clear of the threshold. Pushed to
+   `mhieuuu/geode-store`, verified on the receiver.
+
+**Conclusion:** the near-miss was a **budget artifact, not a capability
+ceiling** — the val-loss curve (`analysis/figures/ts1b_pp_parent_val_loss.
+png`) was still dropping steeply at the one-epoch cutoff, and a modest
+extension resolved it decisively.
+
+**Owner decision: "run the pp parent at 36k steps with 5 datapoints."**
+Consulted advisor before executing (retrain-vs-promote-the-diagnostic-
+checkpoint was a live fork) — advisor's read, confirmed correct: the user
+said "run," mapping to a fresh run, not "promote the existing checkpoint."
+More decisively, `evt-ts1b-pp-parent-contdiag5000` is NOT a clean 36,093-
+step trajectory — it has a fresh-optimizer-state discontinuity at step
+31,093 (Adam moments reset) and its data order restarts from the epoch-1
+permutation rather than continuing into a genuine epoch 2. Promoting it
+would bake that confound into the canonical artifact every downstream
+comparison (pf HALT check, both target grids, θ0 diag) hangs off, to save
+~$1.10. Not worth it. **Retrained `evt-ts1b-pp-parent` as ONE continuous
+36,093-step run (31,093 + the 5,000 that worked) from `evt-ts1b-base`
+directly** — `configs/ts1b_pp_parent.yaml`'s header rewritten (commit
+`e31a965`) to document the deviation and its evidence; `train.max_steps`/
+`stopping.min_steps` 31093 → 36093; `epochs_total_planned` 1 → 2 (one full
+epoch + a partial second, per `geode.train.loop._batch_stream`'s documented
+indefinite-epoch-cycling behavior — `data_order_hash` is recorded verbatim
+from the config pin, not derived from epochs consumed, so the launcher's
+hash check is unaffected by going past one epoch).
+
+**Landmine caught before launch (advisor flag, verified by grep before
+starting the 3h run):** `scripts/launch_ts1b_stage12.sh` hardcoded
+`[[ $PP_STEP == 31093 ]] || fail ...` in its stage-2 post-train
+verification — would have failed a legitimately-retrained 36,093-step
+parent on any launcher resume. Updated in the same commit as the config
+change; both must move together.
+
+**Execution:** cleared the stale `evt-ts1b-pp-parent` run dir and both
+cached diag JSONs (`ts1b_pp_halt_diag.json`, `ts1b_theta0_fewshot_diag.
+json` — stage 2b/4's skip-if-present guards would otherwise re-serve the
+old 89.16% result against the new checkpoint) on the box, then launched
+`train_sft.py --config ts1b_pp_parent.yaml --init-from
+$GEODE_STORE/runs/evt-ts1b-base/model --confirm-cost` directly (bypassing
+the launcher's own stage 2, which would have skipped a run it still
+believed was `status=complete`). Running as of this entry; ~3h estimated.
+
+**pp-arm and pf-arm target-stage grids — both built this session.** The
+pf-arm grid (5 sizes, LoRA r512/α32 on `D_algo_bare`, own independent LR
+mini-sweep) was built earlier the same day (see the "pf-arm target grid
+BUILT" entry above). "5 datapoints" in the owner's retrain instruction
+meant: build the equivalent pp-arm grid too. Built as an exact structural
+mirror — `configs/ts1b_pp_target.yaml` + 5 size overlays +
+`scripts/launch_ts1b_pp_target_grid.sh` — with one deliberate difference
+flagged by advisor before it became a bug: **the target-stage LR must be
+SHARED, not independently swept**, because the elicit-vs-teach design
+requires the pp and pf target stages to be byte-identical except for
+`run_id`/`parent_run_id` (arms differ ONLY in θ0 — same convention as
+`ts38pp_pretaught.yaml` vs `ts38mw_pretaught.yaml` at 38M). Two
+independently-auto-picked LRs would have silently made the arms differ in
+more than θ0, corrupting the very comparison this track exists to make.
+
+Resolution: `launch_ts1b_pp_target_grid.sh` runs the ONE 3-rung mini-sweep
+(bracket {1e-4, 3.53e-4, 1e-3} centered on the paper's Table 3
+TinyStories-1B LoRA row, auto-picked, same bracketing/extension rule as
+every other sweep in this project) — it runs there purely because the pp
+parent finishes training first (pf parent is still gated behind pp's own
+HALT check). On picking a winner it pins that value into BOTH
+`ts1b_pp_target.yaml`'s and `ts1b_pf_target.yaml`'s `train.lr` directly
+(two regex substitutions in one Python block). `launch_ts1b_pf_target_
+grid.sh`'s own independent sweep (built earlier the same day) was
+retrofitted OUT: it now only verifies `ts1b_pf_target.yaml`'s `train.lr`
+is no longer the placeholder before proceeding, failing loudly with an
+instruction to run the pp-arm grid first if it still is. Its now-orphaned
+seed overlays (`pf_target_lrsweep_{1e-4,3.53e-4,1e-3}.yaml`) are left on
+disk for the historical record only — nothing references them any more.
+
+**Not launched.** Both grids are gated on their parent's `status==
+complete` and refuse to proceed otherwise (verified by direct read of
+each launcher's gate block). `evt-ts1b-pp-parent`'s 36,093-step retrain is
+still running as of this entry — neither grid can run until that lands,
+and the pf-arm grid additionally needs `evt-ts1b-pf-parent` (Stage 3 in
+`launch_ts1b_stage12.sh`, not yet started) to complete.
