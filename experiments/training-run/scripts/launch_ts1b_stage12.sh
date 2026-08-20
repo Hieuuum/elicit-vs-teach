@@ -11,22 +11,39 @@
 #      mirror-push insurance copy to an mhieuuu-owned repo
 #   1  LR mini-sweep (3 rungs, 2000 steps each) -- STOPS for pin
 #      confirmation; the script never auto-pins a hyperparameter
-#   2  evt-ts1b-pp-parent full run (App. E.2 literal: full FT, one epoch)
-#   2b HALT gate: pp op EM (block render, k=0) >= 0.90 -- the ONE thing
-#      that can stop pf from spending any GPU time (pre-registration's own
-#      criterion; read off the theta0 diagnostic's "block" condition, NOT
-#      gates.py g1, per the pre-registration's explicit "(block, k=0)"
-#      phrasing)
+#   2  DEAD as of 2026-08-19 (see OVERRIDE note below) -- was: evt-ts1b-
+#      pp-parent full run (App. E.2 literal: full FT, one epoch), later
+#      revised to 36,093 steps, then owner-abandoned mid-retrain
+#   2b HALT gate -- LOOSENED 2026-08-19 (see OVERRIDE note): pp op EM
+#      (block render, k=0) >= 0.90 no longer blocks stage 3; logged only
 #   3  evt-ts1b-pf-parent full run (App. E.1.2: permuted labels, trained
-#      UNTIL CONVERGENCE, 3-epoch ceiling) -- only runs if 2b passes
+#      UNTIL CONVERGENCE, 3-epoch ceiling) -- was gated on 2b passing,
+#      NO LONGER gated (owner override 2026-08-19)
 #   4  theta0 few-shot diagnostic on base/pf/pp (Table-11 replication read
 #      + M1 position-lock read, per the pre-registration's decision table)
 #   5  push everything to the relay, VERIFY THE RECEIVER
 #      ([[feedback-verify-the-receiver-not-the-sender]])
 #
-# Stage 3+ (target-stage grids) is NOT built here — the pre-registration
-# authorizes Stages 0-2 only (~$25); grid spend needs owner re-confirmation
-# after this script's Stage-2 deliverables land.
+# *** OVERRIDE, 2026-08-19 (later, same day as the PRE-REGISTRATION above)
+# *** -- read before touching stage 2 or 2b. The clean 36,093-step pp
+# retrain (stage 2, as revised by commit e31a965) was owner-abandoned
+# mid-run: "no need to retrain why would we do that when we alr have a
+# good enough model?" PP_RID below now points at
+# evt-ts1b-pp-parent-contdiag5000 (a diagnostic run, NOT trained by this
+# script -- see decisions.md 2026-08-19 for its full two-stage history and
+# its 96.12% op-EM verification), which makes stage 2's train_or_skip call
+# a no-op (status already complete) and threads that checkpoint through
+# every downstream stage. Stage 2b's HALT check is retained for its
+# logging value but no longer blocks stage 3 -- same owner instruction
+# ("don't care about the gates"). See PP_RID's own definition below for
+# the full explanation; not restated at every call site.
+#
+# Stage 3+ (target-stage grids) is NOT built IN THIS FILE -- it lives in
+# the separate scripts/launch_ts1b_pp_target_grid.sh and
+# launch_ts1b_pf_target_grid.sh, both BUILT and, per the same 2026-08-19
+# override, gate-loosened (informational convergence checks, no HALT).
+# Grid spend was re-confirmed live by the owner the same day -- see those
+# scripts' own headers and decisions.md.
 #
 # SCOPE NOTE — the two parallel builds this launcher depends on LANDED and
 # were RECONCILED 2026-08-19 (orchestrator review):
@@ -92,12 +109,10 @@ TAG=ts1b
 echo "[ts1b] estimated cost (pre-registration, decisions.md 2026-08-19):"
 echo "[ts1b]   stage 0 base pull + mirror-push  ~\$0 GPU (network only)"
 echo "[ts1b]   stage 1 LR sweep (3 rungs x 2000 steps)             ~\$3-5"
-echo "[ts1b]   stage 2 pp parent (36,093 steps pinned -- 1 epoch +"
-echo "[ts1b]     5,000 more, evidence-based deviation from the paper's"
-echo "[ts1b]     literal one epoch, decisions.md 2026-08-19)       ~\$6-11"
-echo "[ts1b]     (0.3-0.6 s/step, one-per-row overhead-bound, short rows;"
-echo "[ts1b]     2.5-5.5h estimate, throughput anchor: base pretrain"
-echo "[ts1b]     measured 15.6K tok/s on the collaborator's box)"
+echo "[ts1b]   stage 2 pp parent -- \$0, SKIPPED as of 2026-08-19 (owner"
+echo "[ts1b]     abandoned the clean retrain; PP_RID now points at the"
+echo "[ts1b]     already-trained evt-ts1b-pp-parent-contdiag5000 -- see"
+echo "[ts1b]     this file's OVERRIDE note near the top)"
 echo "[ts1b]   stage 3 pf parent (until convergence, ceiling 93,279"
 echo "[ts1b]     steps = 3 epochs)                                 ~\$5-8"
 echo "[ts1b]   stage 4 theta0 diag (base/pf/pp, n=1024, 5 conditions"
@@ -129,7 +144,25 @@ RELAY_REPO=${RELAY_REPO:-mhieuuu/geode-store}
 
 BASE_RID=evt-ts1b-base
 BASE_MODEL=$GEODE_STORE/runs/$BASE_RID/model
-PP_RID=evt-ts1b-pp-parent
+PP_RID=evt-ts1b-pp-parent-contdiag5000  # NOT evt-ts1b-pp-parent -- owner
+                                         # abandoned the clean 36093-step retrain
+                                         # mid-run 2026-08-19 ("no need to retrain
+                                         # why would we do that when we alr have a
+                                         # good enough model?"); the diagnostic
+                                         # checkpoint (96.12% op EM, already
+                                         # trained/pushed/verified) is the actual
+                                         # pp-arm parent from here on -- see
+                                         # decisions.md 2026-08-19 for the full
+                                         # history. Repointing PP_RID here means
+                                         # stage 2's train_or_skip call below sees
+                                         # status=complete and SKIPS training
+                                         # entirely (this checkpoint already
+                                         # exists) -- that call is DEAD CODE as of
+                                         # this change, kept only so a future
+                                         # from-scratch invocation doesn't error on
+                                         # a missing command; every downstream
+                                         # stage (2b/3/4/5) threads through
+                                         # correctly with no other change needed.
 PP_MODEL_DIR=$GEODE_STORE/runs/$PP_RID/model   # full FT -> no _merged stage
 PF_RID=evt-ts1b-pf-parent
 PF_MODEL_DIR=$GEODE_STORE/runs/$PF_RID/model
@@ -433,24 +466,23 @@ milestone "pp_fields status=$PP_STATUS method=$PP_METHOD gates=$PP_GATES stop_re
 [[ $PP_GATES == none ]] || fail \
   "$PP_RID has recorded gates {$PP_GATES} -- this parent is deliberately ungated (scored
    --no-record only); inspect, do not proceed"
-# min_steps == max_steps == 36093 is the one pre-registered exception to
-# run-until-convergence, so a legitimate stop reads either 'converged' or
-# 'max_steps' -- but the step count itself is never negotiable. 36093 (not
-# the original paper-literal 31093) is an owner-directed, evidence-based
-# deviation, 2026-08-19 -- see ts1b_pp_parent.yaml's header "STEP COUNT"
-# note for the HALT-near-miss diagnostic that justified it.
 [[ $PP_STOP == converged || $PP_STOP == max_steps ]] || fail \
   "$PP_RID stop_reason='$PP_STOP' (expected converged or max_steps) -- neither the pinned
    step ceiling nor eps/k produced this; inspect before proceeding"
-[[ $PP_STEP == 36093 ]] || fail \
-  "$PP_RID final_step=$PP_STEP (expected 36093 -- see ts1b_pp_parent.yaml's header for the
-   derivation) -- do not hand a wrong-length parent downstream"
+# NO step-count gate -- owner instruction 2026-08-19 ("don't care about the
+# gates"). $PP_RID is now evt-ts1b-pp-parent-contdiag5000, whose OWN
+# manifest reports final_step=5000 (its own launch's step count, not the
+# 31,093-step evt-ts1b-pp-parent run it warm-started from) -- not a
+# meaningful number to assert against. The actual evidence for this
+# checkpoint is the 96.12% op-EM recheck (decisions.md 2026-08-19), not
+# its step count. Logged as information only.
+milestone "pp_step_count_info final_step=$PP_STEP (informational only, no gate -- see header)"
 [[ $PP_DATA_HASH == "$PP_ORDER_HASH" ]] || fail \
   "$PP_RID manifest data_order_hash=$PP_DATA_HASH != current pin $PP_ORDER_HASH -- this
    checkpoint was built from a different D_target_4M_block.parquet/config than the one this
    launch just verified. Remove $GEODE_STORE/runs/$PP_RID and rerun to rebuild against the
    current pin."
-milestone "pp_verified stop_reason=$PP_STOP final_step=36093 gates={} method=full_ft data_order_hash=OK"
+milestone "pp_verified stop_reason=$PP_STOP final_step=$PP_STEP gates={} method=full_ft data_order_hash=OK"
 
 [[ -f $PP_MODEL_DIR/model.safetensors ]] ||
   fail "$PP_MODEL_DIR/model.safetensors is missing -- a full-FT run's checkpoint dir should
@@ -496,12 +528,18 @@ PY
 ) || fail "could not read pp op/block/k=0 EM from $HALT_DIAG_JSON (see stderr above)"
 milestone "halt_check pp_op_block_em0=$PP_BLOCK_OP_EM0"
 
+# NOT A HARD GATE -- owner override 2026-08-19 ("don't care about the
+# gates"), same day this threshold's original near-miss (89.16%/89.34%)
+# triggered a 3-tier diagnostic (decisions.md 2026-08-19 "pp parent HALT
+# near-miss"). Logged for the record, never blocks pf from launching.
 if ! python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) >= 0.90 else 1)" "$PP_BLOCK_OP_EM0"; then
-  echo "[ts1b] HALT: pp op EM (block, k=0) $PP_BLOCK_OP_EM0 < 0.90 -- install failed; pf NOT launched"
-  notify "ts1b HALT: pp op EM (block,k=0) $PP_BLOCK_OP_EM0 < 0.90 -- pf not launched"
-  exit 1
+  echo "[ts1b] HALT WOULD HAVE FIRED HERE (pp op EM block,k=0 $PP_BLOCK_OP_EM0 < 0.90) but"
+  echo "[ts1b] proceeding to pf anyway per owner instruction 2026-08-19 (dont care about"
+  echo "[ts1b] the gates) -- see decisions.md 2026-08-19 for the full override record."
+  milestone "halt_check_would_fail pp_op_block_em0=$PP_BLOCK_OP_EM0 -> proceeding anyway (no gate)"
+else
+  milestone "halt_check_pass pp_op_block_em0=$PP_BLOCK_OP_EM0 -> PASS (>= 0.90); proceeding to pf"
 fi
-milestone "halt_check_pass pp_op_block_em0=$PP_BLOCK_OP_EM0 -> PASS (>= 0.90); proceeding to pf"
 
 # ---- stage 3: evt-ts1b-pf-parent -- full FT, permuted labels, until
 # convergence (gated on stage 2b passing) -----------------------------------

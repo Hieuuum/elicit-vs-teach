@@ -8579,3 +8579,77 @@ each launcher's gate block). `evt-ts1b-pp-parent`'s 36,093-step retrain is
 still running as of this entry — neither grid can run until that lands,
 and the pf-arm grid additionally needs `evt-ts1b-pf-parent` (Stage 3 in
 `launch_ts1b_stage12.sh`, not yet started) to complete.
+
+## 2026-08-19 (later still) — owner override: skip the clean pp retrain, drop all gates, launch pf, run full Table-11 + OCV grids on 3 models
+
+**Owner override, live chat, 2026-08-19.** The clean 36,093-step pp-parent
+retrain (previous entry) was killed mid-run: "no need to retrain why would
+we do that when we alr have a good enough model?" `evt-ts1b-pp-parent-
+contdiag5000` (96.12% op EM, already trained/pushed/verified) is adopted
+as the pp-arm parent AS-IS — no promotion/rename, kept under its own
+honest name (real two-stage history: 31,093 steps then a fresh-optimizer
+5,000-step continuation). Directive, reiterated and confirmed before
+execution: launch the pf parent now (independent of pp, already
+in progress on the box via direct `train_sft.py` invocation as of this
+entry), drop every scientific pass/fail gate in the pipeline, and run
+"Table 11" (the few-shot diagnostic, paper's replication target) and the
+"OCV experiment" (the 5-size target-stage grid, EDL via the converged-
+validation-floor method) for all three models (base, pp, pf) — 5 data
+points each for the grid side.
+
+**Code changes made in response (this fork, no SSH/training/commit):**
+
+- **Repointed the pp arm at `evt-ts1b-pp-parent-contdiag5000` everywhere**
+  it was hardcoded as `evt-ts1b-pp-parent`: `configs/ts1b_pp_target.yaml`
+  (`parent_run_id` + header), `scripts/launch_ts1b_pp_target_grid.sh`
+  (`PARENT_RID` + gate messages), `scripts/launch_ts1b_stage12.sh`
+  (`PP_RID` itself — repointing this one variable makes stage 2's
+  `train_or_skip` see `status=complete` and skip the now-dead retrain
+  call, threading the diagnostic checkpoint through stages 2b/4/5 with no
+  further changes). `PARENT_DATA_HASH`/`PP_ORDER_HASH` checks were left
+  as-is in both files — `evt-ts1b-pp-parent-contdiag5000` trained via an
+  overlay on `ts1b_pp_parent.yaml` that never touches the `data:` block,
+  so the hash pin is still correct for it.
+- **Dropped the `final_step==36093`/`==5000` step-count assertions** in
+  both `launch_ts1b_stage12.sh` and `launch_ts1b_pp_target_grid.sh` —
+  `evt-ts1b-pp-parent-contdiag5000`'s own manifest reports `final_step=
+  5000` (its own launch, not the 31,093 it warm-started from), which was
+  never a meaningful number to gate on. Replaced with an informational
+  milestone line; the actual evidence for this checkpoint is the 96.12%
+  op-EM recheck, not a step count.
+- **Loosened the pp HALT gate** (`launch_ts1b_stage12.sh` stage 2b,
+  `pp_op_block_em0 < 0.90 -> exit 1`) into a milestone that logs "HALT
+  WOULD HAVE FIRED HERE... proceeding anyway" and continues to stage 3
+  regardless. (Caught and fixed a real bug introduced while making this
+  edit: an unescaped-quote typo in one `echo` line broke `bash -n` —
+  verified clean after the fix.)
+- **Loosened `require_converged()` in both target-grid launchers**
+  (`launch_ts1b_pp_target_grid.sh`, `launch_ts1b_pf_target_grid.sh`) from
+  a hard `fail` on `stop_reason != converged` to a logged
+  `WARN_NOT_CONVERGED` milestone — a run that hits its step ceiling still
+  counts as one of the 5 data points, per the owner's own words: "count it
+  as a usable data point either way, just log which one happened."
+- **Left strict:** checkpoint-file-exists checks, `data_order_hash`
+  pin-matches, `training.method==full_ft`, `gates=={}` (deliberately-
+  ungated-parent discipline) — these are correctness/integrity checks
+  (wrong file, wrong data, wrong method), not scientific pass/fail bars,
+  and stay hard fails per the owner's own distinction (loosen the
+  threshold gates, not the "is this even the right artifact" checks).
+- Header/prose updated in `launch_ts1b_stage12.sh` (new "OVERRIDE" note
+  near the top, stage list annotated, stale cost-estimate lines fixed) and
+  both target-grid configs/launchers to record all of the above in place,
+  not just here.
+
+**Noted, not touched (out of scope for this fork):** `configs/
+ts1b_pf_parent.yaml` was edited in parallel by the orchestrator to a
+one-epoch pin (header says `min_steps == max_steps == 31,093`) but the
+`train:` block still shows `max_steps: 93279` (the old 3-epoch-ceiling
+value) — header and body currently disagree. Flagged for the
+orchestrator, not corrected here (not part of this fork's directive, and
+the live pf run's own actual config at launch time is the authority on
+what's really running, not this file's post-launch edit state).
+
+**Still not launched:** both target grids remain gated on their parent's
+`status==complete` — the pp-arm grid is now launchable immediately
+(`evt-ts1b-pp-parent-contdiag5000` already exists), the pf-arm grid still
+needs `evt-ts1b-pf-parent` to finish (in progress on the box).

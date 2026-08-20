@@ -1472,23 +1472,27 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     retrain, twin parents, ts38grid densification, seeds) ON HOLD. Full
     pre-registration: decisions.md 2026-08-19 "ts1b (fig2ts) staged redo".
 
-    **pp-parent step count DEVIATION — 36,093, not the paper-literal
-    one-epoch 31,093 (owner-directed, evidence-based, 2026-08-19; commit
-    `e31a965`).** The one-epoch-pinned `evt-ts1b-pp-parent` landed op EM
+    **pp-parent HALT near-miss → owner override, NOT a clean retrain
+    (2026-08-19).** The one-epoch-pinned `evt-ts1b-pp-parent` landed op EM
     (block, k=0) at 89.16% (n=1024) — a near-miss under the pre-registered
     0.90 HALT threshold. A 3-tier diagnostic (decisions.md 2026-08-19 "pp
     parent HALT near-miss") ruled out sampling noise (n=8192 recheck:
     89.34%, tight CI ~[88.7%, 90.0%]) and showed the curve was still
     descending, not plateaued (5,000-step continuation:
-    `evt-ts1b-pp-parent-contdiag5000`, op EM → 96.12%). The official parent
-    was retrained as ONE continuous 36,093-step trajectory (31,093 + the
-    5,000 that worked) from `evt-ts1b-base` directly — not the stitched
-    diagnostic checkpoint, which has a fresh-optimizer-state discontinuity
-    at step 31,093 unsuitable for the canonical artifact everything else in
-    this track warm-starts from. `configs/ts1b_pp_parent.yaml`'s header and
-    `scripts/launch_ts1b_stage12.sh`'s post-train `final_step==36093`
-    assertion were updated together (the launcher's old hardcoded 31093
-    check would otherwise fail a legitimately-retrained parent on resume).
+    `evt-ts1b-pp-parent-contdiag5000`, op EM → 96.12%). A from-scratch
+    single-continuous 36,093-step retrain was started to get a tidier
+    artifact under the canonical `evt-ts1b-pp-parent` name (commit
+    `e31a965`) but the owner killed it mid-run: "no need to retrain why
+    would we do that when we alr have a good enough model?" **Resolution
+    (decisions.md 2026-08-19 "owner override"):** `evt-ts1b-pp-parent-
+    contdiag5000` is used AS-IS as the pp-arm parent everywhere downstream
+    — kept under its own honest name (real two-stage training history),
+    not renamed/promoted. Every place that hardcoded `evt-ts1b-pp-parent`
+    (`configs/ts1b_pp_target.yaml`, both target-grid launchers,
+    `scripts/launch_ts1b_stage12.sh`'s `PP_RID`) was repointed at the
+    diagnostic checkpoint instead, and the step-count assertions
+    (`final_step==36093`) were dropped rather than replaced with a new
+    number — same owner instruction, "don't care about the gates."
 
     **pp-arm AND pf-arm target-stage grids — BOTH BUILT 2026-08-19, NOT YET
     LAUNCHED.** Stage 3+ money re-confirmed live by the owner in chat,
@@ -1542,8 +1546,15 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     authorization ceiling; this IS the Stage 3+ re-confirmation, now scoped
     to both pp and pf. A base-arm grid or any other arm/size is a separate
     ask. Both grids are gated on their respective parent's status==complete
-    and refuse to run otherwise; neither has launched as of this commit —
-    `evt-ts1b-pp-parent`'s 36,093-step retrain is still running on the box.
+    and refuse to run otherwise. **No gates block anything as of the
+    2026-08-19 override** (decisions.md): the pp HALT check and both
+    grids' `require_converged()` are logged, not enforced — a run that
+    hits its step ceiling still counts as a data point. pp-arm grid is
+    launchable immediately (`evt-ts1b-pp-parent-contdiag5000` already
+    exists); pf-arm grid awaits `evt-ts1b-pf-parent`, training on the box
+    as of this commit (independent of pp, no gate between them). Plan also
+    calls for running the Table-11 few-shot diagnostic on all three models
+    (base/pp/pf), not just the OCV/EDL grid side.
 
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1

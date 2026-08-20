@@ -7,19 +7,30 @@
 # pp parent's algorithm install make the target task cheaper to learn
 # (paper's central elicitation question), now measured at 1.24B?
 #
-# GATED ON evt-ts1b-pp-parent STATUS==complete. As of this commit that run
-# is mid-retrain on the box: an evidence-based 36,093-step run (not the
-# original paper-literal 31,093 — see configs/ts1b_pp_parent.yaml's "STEP
-# COUNT" header and decisions.md 2026-08-19 "pp parent HALT near-miss").
-# This script refuses to do anything until that lands; re-run it once
-# evt-ts1b-pp-parent shows status=complete.
+# GATED ON evt-ts1b-pp-parent-contdiag5000 STATUS==complete (NOT
+# evt-ts1b-pp-parent — that clean 36,093-step retrain was OWNER-ABANDONED
+# mid-run 2026-08-19: "no need to retrain why would we do that when we
+# alr have a good enough model?" The diagnostic checkpoint
+# evt-ts1b-pp-parent-contdiag5000, already trained/pushed/verified at
+# 96.12% op EM, is the actual pp-arm parent used everywhere in this
+# script — see configs/ts1b_pp_target.yaml's header and decisions.md
+# 2026-08-19 "pp parent HALT near-miss" + the same-day override entry for
+# the full history). That checkpoint already exists, so this script is
+# launchable immediately, no further training required on the pp side.
+#
+# NO GATES — same owner instruction ("don't care about the gates",
+# 2026-08-19): the HALT-style op-EM bar that flagged the original
+# one-epoch parent is not enforced here at all (moot anyway — the parent
+# this script uses already measured 96.12%), and the five real target
+# runs' convergence check is informational-only, not a blocker — see
+# require_converged() below.
 #
 # THE FIVE RUNS   evt-ts1b-pp-target-n{1000,4642,21544,100000,316228} —
 #   LoRA r512/alpha32 on D_algo_bare (scaffold-free NL add/sub), warm-
-#   started from evt-ts1b-pp-parent/model (full FT, NO merge stage — see
-#   configs/ts1b_pp_target.yaml's header). NO base-arm comparator exists at
-#   this scale (owner declined it) — match_data_order_with stays null,
-#   permanently, in every config here.
+#   started from evt-ts1b-pp-parent-contdiag5000/model (full FT, NO merge
+#   stage — see configs/ts1b_pp_target.yaml's header). NO base-arm
+#   comparator exists at this scale (owner declined it) —
+#   match_data_order_with stays null, permanently, in every config here.
 #
 # *** THIS SCRIPT RUNS THE ONE SHARED TARGET-STAGE LR MINI-SWEEP FOR BOTH
 # ARMS. *** launch_ts1b_pf_target_grid.sh's own independent sweep was
@@ -30,9 +41,10 @@
 # comparison this whole track exists to make (same convention as
 # ts38pp_pretaught.yaml vs ts38mw_pretaught.yaml at 38M,
 # [[feedback-scope-check-pins-before-reuse]]). This script runs the sweep
-# because evt-ts1b-pp-parent finishes (and this grid becomes runnable)
-# well before evt-ts1b-pf-parent even starts training — it is a scheduling
-# choice, not a claim that the LR "belongs" to the pp arm. On picking a
+# because evt-ts1b-pp-parent-contdiag5000 already exists (this grid is
+# launchable immediately), well before evt-ts1b-pf-parent finishes its own
+# from-scratch training run — it is a scheduling choice, not a claim that
+# the LR "belongs" to the pp arm. On picking a
 # winner (bracket {1e-4, 3.53e-4, 1e-3} centered on the paper's own Table 3
 # TinyStories-1B LoRA row, auto-selected per owner delegation 2026-08-19,
 # same bracketing/extension rule as every other sweep in this project),
@@ -111,9 +123,18 @@ export REPO_ROOT
 export PYTHONPATH=$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}
 export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 
-PARENT_RID=evt-ts1b-pp-parent
+PARENT_RID=evt-ts1b-pp-parent-contdiag5000  # NOT evt-ts1b-pp-parent -- owner
+                                             # abandoned the clean 36093-step
+                                             # retrain mid-run 2026-08-19, use
+                                             # the diagnostic checkpoint as-is
+                                             # (see this script's header)
 PARENT_MODEL_DIR=$GEODE_STORE/runs/$PARENT_RID/model
-PARENT_DATA_HASH=a767dde500b62faa2531b3088ce4c69f42f988671615a9939bee2001b51a27c7
+PARENT_DATA_HASH=a767dde500b62faa2531b3088ce4c69f42f988671615a9939bee2001b51a27c7  # SAME hash: evt-ts1b-pp-parent-contdiag5000 trained on the same
+                                             # D_target_4M_block.parquet pin
+                                             # via configs/sweeps/ts1b/pp_parent_
+                                             # contdiag_5000.yaml, an overlay on
+                                             # ts1b_pp_parent.yaml that never
+                                             # touches the data: block
 RELAY_REPO=${RELAY_REPO:-mhieuuu/geode-store}
 SIZES=(1000 4642 21544 100000 316228)
 
@@ -143,14 +164,20 @@ train_or_skip() {
 }
 
 require_converged() {
+  # NOT a hard gate -- owner instruction 2026-08-19 ("don't care about the
+  # gates ... count it as a usable data point either way, just log which
+  # one happened"). Standing project policy elsewhere treats a target run's
+  # max_steps stop as a bug signal worth blocking on; here it is
+  # deliberately downgraded to a logged observation so a run that hits its
+  # ceiling still counts as one of the 5 data points, flagged for whoever
+  # reads the EDL curve later rather than blocking the family.
   local rid=$1 n=$2 stop
   stop=$(stop_reason_of "$rid" target_result)
-  milestone "convergence_check run=$rid n=$n stop_reason=$stop"
-  [[ $stop == converged ]] || fail \
-    "CONVERGENCE CHECK: $rid ended with stop_reason='$stop', not 'converged'. Standing
-   policy: a max_steps stop is a BUG SIGNAL for a REAL target run (not the deliberately-
-   truncated LR-sweep probes above). Inspect the overlay's max_steps and the loss trace
-   before continuing; do not let the remaining sizes inherit whatever this is."
+  if [[ $stop == converged ]]; then
+    milestone "convergence_check run=$rid n=$n stop_reason=$stop"
+  else
+    milestone "convergence_check run=$rid n=$n stop_reason=$stop WARN_NOT_CONVERGED (proceeding anyway -- owner instruction 2026-08-19, no gate)"
+  fi
 }
 
 record_g5() {
@@ -168,10 +195,11 @@ record_g5() {
 P_STATUS=$(status_of "$PARENT_RID")
 if [[ $P_STATUS != complete ]]; then
   echo "[ts1bpptgt] $PARENT_RID status='$P_STATUS' (expected complete)."
-  echo "[ts1bpptgt] This grid trains on the pp parent's finished checkpoint; there is"
-  echo "[ts1bpptgt] nothing to do until scripts/launch_ts1b_stage12.sh's stage 2 (retrain,"
-  echo "[ts1bpptgt] 36093 steps) lands it."
-  echo "[ts1bpptgt] Refusing to proceed. Re-invoke this script after the parent completes."
+  echo "[ts1bpptgt] This grid trains on evt-ts1b-pp-parent-contdiag5000's finished"
+  echo "[ts1bpptgt] checkpoint (the diagnostic run the owner adopted as the pp-arm parent,"
+  echo "[ts1bpptgt] 2026-08-19) -- if that run itself is missing/incomplete, something is"
+  echo "[ts1bpptgt] wrong with the relay pull, not with a training step still pending here."
+  echo "[ts1bpptgt] Refusing to proceed. Re-invoke this script once the parent shows complete."
   exit 1
 fi
 milestone "parent_gate_check status=$P_STATUS -> proceeding"
@@ -209,13 +237,16 @@ milestone "parent_fields status=$P_STATUS2 method=$P_METHOD gates=$P_GATES stop_
   "$PARENT_RID manifest data_order_hash=$P_DATA_HASH != pin $PARENT_DATA_HASH (configs/
    ts1b_pp_parent.yaml) — this checkpoint was built from a different D_target_4M_block.
    parquet/config than this launcher expects. Do not train the target grid on a stale parent."
-[[ $P_STEP == 36093 ]] || fail \
-  "$PARENT_RID final_step=$P_STEP (expected 36093, the evidence-based deviation pin -- see
-   configs/ts1b_pp_parent.yaml's 'STEP COUNT' header) -- do not hand a wrong-length parent
-   downstream. If this parent predates the retrain (e.g. final_step=31093, the original
-   HALT-failing one-epoch checkpoint), remove it and re-run scripts/launch_ts1b_stage12.sh."
+# NO step-count gate -- owner instruction 2026-08-19 ("don't care about the
+# gates"). evt-ts1b-pp-parent-contdiag5000's OWN manifest reports
+# final_step=5000 (its own launch's step count -- it has no way to know
+# about the 31,093-step evt-ts1b-pp-parent run it warm-started from), which
+# is not a meaningful number to assert against; the actual evidence for
+# this checkpoint's capability is the 96.12% op-EM recheck (decisions.md
+# 2026-08-19), not its step count. Logged as information only.
+milestone "parent_step_count_info final_step=$P_STEP (informational only, no gate -- see header)"
 [[ -f $PARENT_MODEL_DIR/model.safetensors ]] || fail "$PARENT_MODEL_DIR/model.safetensors missing"
-milestone "parent_verified full_ft, ungated, data_order_hash=OK, final_step=36093, checkpoint present"
+milestone "parent_verified full_ft, ungated, data_order_hash=OK, checkpoint present"
 
 # ---- data preflight: reused frozen corpus, no new datagen -----------------
 for f in D_algo_bare.parquet D_algo_eval_bare.parquet; do

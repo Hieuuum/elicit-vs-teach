@@ -35,8 +35,10 @@
 # LRs would silently make the arms differ in more than θ0 and break the
 # comparison this whole track exists to make. The ONE shared target-stage
 # LR mini-sweep now lives in scripts/launch_ts1b_pp_target_grid.sh (it
-# runs there because evt-ts1b-pp-parent finishes training well before
-# evt-ts1b-pf-parent even starts — a scheduling choice, not a claim the LR
+# runs there because evt-ts1b-pp-parent-contdiag5000 (the pp-arm parent,
+# owner override 2026-08-19 -- see that script's header) already exists,
+# no training needed, well before evt-ts1b-pf-parent finishes its own
+# from-scratch run -- a scheduling choice, not a claim the LR
 # "belongs" to the pp arm). That script pins its winner into BOTH
 # configs/ts1b_pp_target.yaml's AND this file's paired configs/
 # ts1b_pf_target.yaml's train.lr field directly (two regex substitutions,
@@ -146,14 +148,17 @@ train_or_skip() {
 }
 
 require_converged() {
+  # NOT a hard gate -- owner instruction 2026-08-19 ("don't care about the
+  # gates ... count it as a usable data point either way, just log which
+  # one happened"), same retrofit as launch_ts1b_pp_target_grid.sh's own
+  # require_converged(). A max_steps stop is logged, not blocked on.
   local rid=$1 n=$2 stop
   stop=$(stop_reason_of "$rid" target_result)
-  milestone "convergence_check run=$rid n=$n stop_reason=$stop"
-  [[ $stop == converged ]] || fail \
-    "CONVERGENCE CHECK: $rid ended with stop_reason='$stop', not 'converged'. Standing
-   policy: a max_steps stop is a BUG SIGNAL for a REAL target run (not the deliberately-
-   truncated LR-sweep probes above). Inspect the overlay's max_steps and the loss trace
-   before continuing; do not let the remaining sizes inherit whatever this is."
+  if [[ $stop == converged ]]; then
+    milestone "convergence_check run=$rid n=$n stop_reason=$stop"
+  else
+    milestone "convergence_check run=$rid n=$n stop_reason=$stop WARN_NOT_CONVERGED (proceeding anyway -- owner instruction 2026-08-19, no gate)"
+  fi
 }
 
 record_g5() {
