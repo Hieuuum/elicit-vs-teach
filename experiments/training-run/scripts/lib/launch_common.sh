@@ -71,3 +71,16 @@ r = json.loads(p.read_text()).get("experiment", {}).get(sys.argv[2], {}) or {}
 print(r.get("stop_reason", ""))
 PY
 }
+
+# Best-effort push, push-as-you-go: a failed upload warns rather than
+# aborting the family (the caller's own downstream checks are what can
+# actually fail a run). Callers may omit $2 to use $RELAY_REPO.
+push_run() {
+  local rid=$1 repo=${2:-$RELAY_REPO}
+  if python3 hf_checkpoint.py push --run-id "$rid" --repo-id "$repo"; then
+    milestone "push_complete run=$rid repo=$repo"
+  else
+    echo "[${TAG:-run}] WARN hf_checkpoint.py push failed for $rid -> $repo (best effort)"
+    milestone "push_warn run=$rid repo=$repo"
+  fi
+}

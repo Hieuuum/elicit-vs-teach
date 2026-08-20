@@ -8687,3 +8687,46 @@ D2 from `docs/plan-ts1b-table11-diag2-and-grid-resume.md`.
 The pp-arm grid's own 5 target runs (and sweep rung 3's retry) are **not**
 relaunched by this — the owner scoped this session to the pf-arm grid
 only; the pp-arm grid stays paused pending a separate go-ahead.
+
+## 2026-08-20 — real bug found + fixed: `push_run` undefined in both ts1b target-grid launchers
+
+Launched `launch_ts1b_pf_target_grid.sh --confirm-cost` on a fresh box
+(`185.130.165.20:25323`, owner-handed-over SSH) after the LR pin above.
+`evt-ts1b-pf-target-n1000` trained to convergence cleanly (min val 3.0348
+nats, step 325) and got its G5 gate recorded — but the log then showed
+`launch_ts1b_pf_target_grid.sh: line 270: push_run: command not found`,
+immediately followed by `MILESTONE size_complete` (the script has no
+`set -e` and the `push_run` call isn't `||`-guarded, so this failure was
+silent — training kept going straight into `n=4642` with nothing pushed).
+
+**Root cause:** `push_run` was only ever defined *locally* inside
+`launch_ts1b_stage12.sh` (its own inline function, used for the parent
+stages), never added to `scripts/lib/launch_common.sh` — the shared file
+both `launch_ts1b_pf_target_grid.sh` and `launch_ts1b_pp_target_grid.sh`
+`source` and call `push_run` from. This is a **pre-existing bug in both
+target-grid launchers**, not something introduced this session — the
+pp-arm grid never hit it only because it was killed during its LR sweep,
+before any of its 5 target runs (which call the same undefined function)
+ever completed. Caught because this session actually watched the log
+instead of trusting a milestone stream at face value
+([[feedback-owner-delegated-full-judgment]]'s "mentor" discipline).
+
+**Fix:** added `push_run` to `scripts/lib/launch_common.sh` (byte-identical
+implementation to `launch_ts1b_stage12.sh`'s copy — best-effort push,
+`milestone push_complete`/`push_warn`, never a hard fail). Did **not**
+touch `launch_ts1b_stage12.sh`'s own local copy — it's defined after that
+script's `source lib/launch_common.sh` line, so bash's last-definition-wins
+rule means it keeps using its own copy unchanged, zero behavior change
+there. `bash -n` clean on all four touched/dependent scripts.
+
+**Recovery:** killed the running job (tmux `pftgt`, `n=4642` had just
+started training, ~$0.03 sunk, negligible) before relaunching, so the
+fixed `push_run` is picked up for every size including a re-attempted push
+of `n=1000` (idempotent — `train_or_skip` correctly skips retraining it
+since its manifest already shows `status=complete`; `record_g5` is
+gate-idempotent; `hf_checkpoint.py push` is idempotent via Xet dedup).
+**If this bug class shows up again** (a launcher calls a helper that
+`lib/launch_common.sh` doesn't define), the fix shape is the same: move
+the one real implementation into the shared lib rather than re-inlining
+it, and check for `command not found` in launcher logs specifically —
+`set -uo pipefail` without `set -e` lets it pass silently.
