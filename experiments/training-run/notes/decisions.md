@@ -8949,3 +8949,131 @@ work). GPU spend is **NOT authorized** — it requires explicit owner OK
 at launch time, same `--confirm-cost` discipline as every other family in
 this project (budget rule, CLAUDE.md). Nothing in this family launches
 implicitly.
+
+## 2026-08-20 (later still) — ts38fs sweep killed mid-run, ts38fs-tiny extends the dose grid down to i=2/10
+
+**Trigger.** ts38fs launched 2026-08-20 ~18:53 UTC on box 192.80.148.226
+(owner-provided, this session's first launch under the new "owner creates
+the box, I get the SSH" workflow — a CUDA forward-compat ld.so.conf bug on
+that box was found and fixed first, see the project memory). 29/60 cells
+completed (all 4 format-acquisition theta0 checks came back
+verdict=LEARNED, loss_drop_frac 0.48-0.59, at every tested install size
+1000/4642/21544/100000 — this grid never found a NOT_LEARNED floor).
+Interim analysis (`analysis/ts38fs_dose_curve.py`, new standalone script —
+`edl_converged_val_floor.py`'s FAMILIES/collect()/plot() is hardwired to
+2-condition families, ts38fs is a 3-axis i×n×s grid) showed the four
+install doses' EDL/D-vs-n curves sitting nearly on top of each other at
+seed=316 (the only seed with broad coverage) — dose does not appear to
+reshape the curve shape, though only 1 of 3 seeds had real coverage at that
+point.
+
+**Owner decision (after 3 rounds of /clarify + one advisor() check).** Kill
+the running sweep — its still-training seed=1316/2316 cells at large
+installs are now deprioritized — and open a smaller, cheaper follow-up
+extending the install-dose axis DOWN to i=2 and i=10 (probing for the
+NOT_LEARNED floor this grid never found), single seed only (316 — the
+owner's own read of the interim data: "seed doesn't seem to affect the runs
+that much"), same 5-size target grid (n=1000/4642/21544/100000/316228) as
+ts38fs. Killed cleanly: GPU confirmed idle after `tmux kill-session`. One
+run left incomplete on the box:
+`evt-ts38fs-i21544-n21544-s1316` (status != complete) — if the original
+55-cell ts38fs sweep is ever resumed, this run id needs manual cleanup
+first (`train_or_skip` hard-fails rather than silently overwriting).
+
+**Two structural blockers found and resolved before any config was written**
+(both from a research pass + one advisor() check, not discovered by
+launching and failing):
+
+1. **i=1 is unfixable, not just risky.** `geode.arith.permute_labels` is a
+   plain shuffle; shuffling a 1-element list is always the identity, so the
+   "permuted (wrong) label" control is mathematically guaranteed to equal
+   the TRUE answer 100% of the time at i=1, for any seed — not bad luck, a
+   property of shuffling one element. Owner picked i=2 instead of i=1, and
+   a NEW guaranteed-derangement primitive over a plain random shuffle:
+   `geode.arith.cyclic_shift_labels` (V5.78, `geode/arith/labels.py`) —
+   rotates the slice by one position, raises `ValueError` rather than
+   silently shipping a leaky label if duplicate VALUES in the slice make
+   the rotation itself collide (checked against the real data: zero
+   collisions at both n=2 and n=10 against the frozen D_algo prefix). No
+   `seed` parameter — a single rotation has nothing to seed.
+   `make_preteach_format.py` gets a `--cyclic-shift` flag wired to
+   `derive()`'s new `cyclic=` param. Real hashes (frozen D_algo pin
+   unchanged, `48d4feff…`):
+   - n=2:  `D_preteachfmt_n2.parquet`  order_hash
+     `200df56dfe208cf1c45614659e819c61cf2faf55fcf246c45e6745bee2693d29`
+   - n=10: `D_preteachfmt_n10.parquet` order_hash
+     `3cc4d3cbb2672440e17772d316897945b5405f8a6c69f7c85beb041fdb9226e8`
+
+2. **val-loss convergence is infeasible at i=2/10 under the ts38fs parent
+   recipe.** `val_fraction: 0.005` and `batch_size: 128` (ts38fs's own
+   parent convention) give `round(0.005*10)=0` held-out rows and
+   `floor(10/128)=0` steps/epoch at i=10 — worse at i=2. Owner picked the
+   repo's own existing precedent instead of inventing a new mechanism: the
+   retired phase-2 dose family's `stopping_metric="train_loss"` mode
+   (`geode/train/sft.py`, V5.65/V5.66, still live and correctly wired
+   through `train_sft.py` today — confirmed by reading the current script,
+   not assumed from the retired configs) — full-batch (`batch_size ==
+   n_train`), no val split, eps/k plateau on the training loss itself.
+
+**Calibration (owner explicitly asked for this, mirroring the phase-2
+family's own rigor — an uncalibrated eps risks the same
+endpoint-referenced-comparability failure named 2026-07-25: "i=2 absorbs
+less format than i=10" would partly measure the stopping rule instead of
+the dose).** Two pilot runs at `eps_nats=0.0` (never fires; records the
+whole trajectory), new configs
+`configs/sweeps/dose_cal/ts38fs_tiny_cal_n{2,10}.yaml`:
+`evt-ts38fs-tiny-cal-i2` converged (plateau-detected, not max_steps) at
+step 189, L0=5.017 → 0.000126 nats; `evt-ts38fs-tiny-cal-i10` at step 502,
+L0=5.621 → 0.000064 nats. `analysis/dose_stop_calibration.py --runs
+evt-ts38fs-tiny-cal-i2=2 evt-ts38fs-tiny-cal-i10=10` (unmodified, already
+generic) replayed the same 5-candidate grid the phase-2 family used:
+
+```
+      eps   k | dose 2  step  loss    %descent | dose 10 step  loss    %descent
+     0.02   5 |         27  0.0046     99.91% |         44  0.0072     99.87%
+    0.002   5 |         31  0.0032     99.94% |         56  0.0022     99.96%
+    0.002  10 |         42  0.0013     99.97% |         61  0.0016     99.97%
+   0.0002   5 |         53  0.0007     99.99% |         76  0.0009     99.98%
+    2e-05   5 |         83  0.0003     99.99% |        117  0.0004     99.99%
+```
+
+Every row is far tighter (max 0.04pp gap) than the phase-2 family's own
+table (5.38pp at its coarsest candidate) — this task converges cleanly at
+both doses. NOT picking the finest row on that basis alone: the raw
+per-step tail (`train_log.jsonl`, both runs) shows real bf16 jitter below
+~1e-4 nats (non-monotonic, e.g. i2 step167 0.00013606 → step168 0.00013678,
+an increase) — the finest candidate (2e-05) fires at a loss (0.0003-0.0004)
+only ~3-10x above that jitter scale. **Pinned: `eps_nats=0.0002, k=5`**
+(fires at loss ≈7-9e-4, ~10-15x clear of the observed noise floor, still
+99.98-99.99% descent, 0.01pp cross-dose gap) — same numeric value the
+phase-2 family independently landed on, but justified here by noise-floor
+margin, not by their replication-tightness argument (different reasoning,
+same number). `max_steps: 1000` for both real parents (≈13x the slower
+dose's pinned stop at 76 steps, comfortably clear, cheap either way at this
+scale — "ceilings never bind" per [[feedback-run-until-convergence]]).
+Precision stays `bf16` (matches every other ts38fs(-tiny) stage; the
+phase-2 family's fp32 choice was for CPU/GPU cross-comparability, which
+doesn't apply here — the noise floor is accounted for by the eps margin
+above, not by changing precision).
+
+**Not yet built as of this entry:** the real
+`ts38fs_tiny_parent_n{2,10}.yaml` configs (pins above ready to drop in), a
+lean launcher (deliberately NOT a clone of `launch_ts38fs_family.sh` —
+drop the pf-parent-reuse stage, the 55-overlay-count assertion, and the
+3-seed loop; keep the guards that matter: relay verify, order_hash sentinel
+refusal, parent `stop_reason==converged`, merge + receiver check, LEAKED
+hard-fail / NOT_LEARNED-continues, first-cell pin check, push-as-you-go,
+end-of-run receiver verify), and 10 target overlays (2 installs × 5 sizes,
+`ts38fs_target.yaml` reused unchanged). Cost: 2 tiny parents (minutes,
+already spent above) + 10 target runs ≈ 2× the ts38fs launcher's own
+44.3-min-per-install-column figure ≈ 1.5h, well under $1.50.
+
+**Caveat for the eventual combined figure (do not let this get lost at
+plotting time):** the tiny points extend the SAME dose axis as ts38fs, but
+the install RECIPE is not matched across it — val-loss eps/k stopping +
+random shuffle at i≥1000, train-loss full-batch stopping + forced
+derangement at i=2/10. Keep the distinct `evt-ts38fs-tiny-` run-id prefix
+(also keeps `edl_converged_val_floor.py`'s regexes, none of which target
+this family, from ever silently matching these ids), and mark the tiny
+points visually distinct with an explicit recipe-mismatch note wherever
+they land on the same axes as the ts38fs points.

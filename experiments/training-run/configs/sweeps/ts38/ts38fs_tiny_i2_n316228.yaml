@@ -1,0 +1,16 @@
+# ts38fs-tiny target-stage sweep point: install i=2, target n=316228, seed
+# s=316 (the family's single seed -- decisions.md 2026-08-20 "ts38fs sweep
+# killed mid-run, ts38fs-tiny extends the dose grid down to i=2/10").
+# Overlay over ../../ts38fs_target.yaml. eval_every/max_steps/min_steps
+# identical to ts38fs's own n=316228 schedule (same target-stage recipe, only
+# theta0/install size differ) -- STEP_SCHEDULE in generate_ts38fs_overlays.py.
+run_id: evt-ts38fs-tiny-i2-n316228-s316
+experiment:
+  parent_run_id: evt-ts38fs-tiny-parent-n2
+data:
+  n_examples: 316228
+train:
+  eval_every: 375
+  max_steps: 50000
+  stopping:
+    min_steps: 2471
