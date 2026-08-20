@@ -483,7 +483,18 @@ def test_run_for_task_k1_position_exemplar_follows_native_render(real_tok, monke
     cfg = {"task": {"name": "arith_op_addsub", "format_version": "v1"}}
     captured: list[list[str]] = []
 
-    def fake_em(model_, tokenizer_, exemplars, q_texts, q_spans, answers, *, device, batch_size):
+    def fake_em(
+        model_,
+        tokenizer_,
+        exemplars,
+        q_texts,
+        q_spans,
+        answers,
+        *,
+        device,
+        batch_size,
+        separator="blank",
+    ):
         captured.append(list(exemplars))
         return 0.0, [False] * len(q_texts)
 
@@ -502,6 +513,7 @@ def test_run_for_task_k1_position_exemplar_follows_native_render(real_tok, monke
             device="cpu",
             batch_size=4,
             native_render=native_render,
+            shot_separator="blank",
         )
         run_results: dict = {}
         diag.run_for_task(
@@ -531,7 +543,18 @@ def test_run_for_task_single_sign_split_is_populated(real_tok, monkeypatch):
     df = _big_rows_df(n_rows)
     cfg = {"task": {"name": "arith_op_addsub", "format_version": "v1"}}
 
-    def fake_em(model_, tokenizer_, exemplars, q_texts, q_spans, answers, *, device, batch_size):
+    def fake_em(
+        model_,
+        tokenizer_,
+        exemplars,
+        q_texts,
+        q_spans,
+        answers,
+        *,
+        device,
+        batch_size,
+        separator="blank",
+    ):
         return 0.0, [False] * len(q_texts)
 
     monkeypatch.setattr(diag, "em_for_condition", fake_em)
@@ -542,6 +565,7 @@ def test_run_for_task_single_sign_split_is_populated(real_tok, monkeypatch):
         device="cpu",
         batch_size=4,
         native_render="single",
+        shot_separator="blank",
     )
     run_results: dict = {}
     diag.run_for_task(
@@ -555,9 +579,27 @@ def test_run_for_task_single_sign_split_is_populated(real_tok, monkeypatch):
 def test_run_dm_mixture_mixture_cell_carries_per_template_breakdown(real_tok, monkeypatch):
     n_rows = diag.EVAL_STOP_ROWS + diag.G5_N_SHOTS + 4
     df = _big_triples_df(n_rows)
-    args = argparse.Namespace(n_queries=4, dm_mixture_seed=123, device="cpu", batch_size=4)
+    args = argparse.Namespace(
+        n_queries=4,
+        dm_mixture_seed=123,
+        device="cpu",
+        batch_size=4,
+        shot_separator="blank",
+        dm_mixture_renders=["single"],
+    )
 
-    def fake_em(model_, tokenizer_, exemplars, q_texts, q_spans, answers, *, device, batch_size):
+    def fake_em(
+        model_,
+        tokenizer_,
+        exemplars,
+        q_texts,
+        q_spans,
+        answers,
+        *,
+        device,
+        batch_size,
+        separator="blank",
+    ):
         hits = [True, False, True, False]
         return sum(hits) / len(hits), hits
 
@@ -1023,3 +1065,334 @@ def test_tokenizer_guard_tolerates_null_tokenizer_block():
     diag._assert_tokenizer_matches_run(man, 64, 64, "abc", "r")
     with pytest.raises(ValueError, match="vocab_size"):
         diag._assert_tokenizer_matches_run(man, 64, 65, "abc", "r")
+
+
+# --- shot separator + dm-mixture renders (2026-08-20, Table-11 follow-up) -----
+
+
+def test_eos_join_prompt_ids_empty_exemplars_is_identity(real_tok):
+    q = [[1, 2, 3], [4]]
+    out, offset = diag.eos_join_prompt_ids([], q, real_tok)
+    assert out == q
+    assert offset == 0
+
+
+def test_eos_join_prompt_ids_structure(real_tok):
+    exemplars = ["Question: 1 + 1\nAnswer: 2", "Question: 2 + 2\nAnswer: 4"]
+    queries = [[7, 8], [9]]
+    out, offset = diag.eos_join_prompt_ids(exemplars, queries, real_tok)
+    eos = real_tok.eos_token_id
+    expected_prefix: list[int] = []
+    for ex in exemplars:
+        expected_prefix += real_tok(ex, add_special_tokens=False)["input_ids"] + [eos]
+    assert out == [expected_prefix + [7, 8], expected_prefix + [9]]
+    assert offset == len(expected_prefix)
+    # exactly one EOS terminates each exemplar (the training-row shape)
+    assert expected_prefix.count(eos) == len(exemplars)
+
+
+class _NoEosTokenizer:
+    eos_token_id = None
+
+
+def test_eos_join_prompt_ids_requires_eos_token():
+    with pytest.raises(ValueError, match="eos_token_id"):
+        diag.eos_join_prompt_ids(["x"], [[1]], _NoEosTokenizer())
+
+
+def test_exemplar_prefix_token_count_eos_mode_matches_join(real_tok):
+    exemplars = ["Question: 1 + 1\nAnswer: 2", "Question: 3 + 4\nAnswer: 7"]
+    _, offset = diag.eos_join_prompt_ids(exemplars, [[0]], real_tok)
+    assert diag.exemplar_prefix_token_count(exemplars, real_tok, separator="eos") == offset
+
+
+def test_exemplar_prefix_token_count_eos_mode_requires_eos_token():
+    with pytest.raises(ValueError, match="eos_token_id"):
+        diag.exemplar_prefix_token_count(["x"], _NoEosTokenizer(), separator="eos")
+
+
+def test_exemplar_prefix_token_count_rejects_unknown_separator(real_tok):
+    with pytest.raises(ValueError, match="separator"):
+        diag.exemplar_prefix_token_count(["x"], real_tok, separator="comma")
+
+
+def test_exemplar_prefix_token_count_default_is_blank(real_tok):
+    exemplars = ["Question: 1 + 1\nAnswer: 2"]
+    assert diag.exemplar_prefix_token_count(exemplars, real_tok) == (
+        diag.exemplar_prefix_token_count(exemplars, real_tok, separator="blank")
+    )
+
+
+def test_em_for_condition_rejects_unknown_separator(real_tok):
+    df = _rows_df([(1, 1, "+")])
+    with pytest.raises(ValueError, match="separator"):
+        diag.em_for_condition(
+            None,
+            real_tok,
+            [],
+            df["full_text"].tolist(),
+            list(zip(df["answer_char_start"], df["answer_char_end"])),
+            df["true_answer"].tolist(),
+            device="cpu",
+            batch_size=4,
+            separator="comma",
+        )
+
+
+def test_em_for_condition_k0_identical_across_separators(tiny_llama, real_tok):
+    # k=0 has no separator to insert; both modes must produce byte-identical
+    # scoring so the eos-mode k=0 cells stay anchors against the blank run.
+    model = tiny_llama(seed=1, vocab_size=real_tok.vocab_size)
+    df = _rows_df([(1, 1, "+"), (2, 3, "+"), (9, 4, "-")])
+    q_texts = df["full_text"].tolist()
+    q_spans = list(zip(df["answer_char_start"], df["answer_char_end"]))
+    answers = df["true_answer"].tolist()
+    em_blank, hits_blank = diag.em_for_condition(
+        model, real_tok, [], q_texts, q_spans, answers, device="cpu", batch_size=8
+    )
+    em_eos, hits_eos = diag.em_for_condition(
+        model,
+        real_tok,
+        [],
+        q_texts,
+        q_spans,
+        answers,
+        device="cpu",
+        batch_size=8,
+        separator="eos",
+    )
+    assert em_blank == em_eos
+    assert hits_blank == hits_eos
+
+
+class _StubModel:
+    class config:  # noqa: D106 -- minimal stand-in, no max_position_embeddings
+        pass
+
+
+def test_em_for_condition_eos_prompt_is_exemplars_plus_k0_prompt(real_tok, monkeypatch):
+    # Under eos the query's own token ids must be IDENTICAL to its k=0
+    # tokenization, with the exemplar+EOS prefix prepended -- that identity is
+    # what makes an eos-mode EM delta purely contextual (module docstring).
+    captured: dict[str, list[list[int]]] = {}
+
+    def fake_acc(model_, tok_, prompt_ids, answers, *, device, batch_size):
+        captured["prompt_ids"] = [list(p) for p in prompt_ids]
+        return 0.0, [""] * len(prompt_ids)
+
+    monkeypatch.setattr(diag, "exact_match_accuracy", fake_acc)
+    df = _rows_df([(2, 3, "+")])
+    q_texts = df["full_text"].tolist()
+    q_spans = list(zip(df["answer_char_start"], df["answer_char_end"]))
+    answers = df["true_answer"].tolist()
+    common = dict(device="cpu", batch_size=4, separator="eos")
+    diag.em_for_condition(_StubModel(), real_tok, [], q_texts, q_spans, answers, **common)
+    k0_prompt = captured["prompt_ids"][0]
+    exemplar = "Question: 1 + 1\nAnswer: 2"
+    diag.em_for_condition(_StubModel(), real_tok, [exemplar], q_texts, q_spans, answers, **common)
+    k1_prompt = captured["prompt_ids"][0]
+    eos = real_tok.eos_token_id
+    ex_ids = real_tok(exemplar, add_special_tokens=False)["input_ids"]
+    assert k1_prompt == ex_ids + [eos] + k0_prompt
+
+
+def test_em_for_condition_eos_overflow_guard_still_fires(tiny_llama, real_tok):
+    # the max_position_embeddings refusal must hold on the eos path too
+    model = tiny_llama(seed=1, vocab_size=real_tok.vocab_size)
+    long_exemplar = "Question: " + " + ".join(str(i) for i in range(80)) + "\nAnswer: 0"
+    df = _rows_df([(1, 1, "+")])
+    with pytest.raises(ValueError, match="max_position_embeddings"):
+        diag.em_for_condition(
+            model,
+            real_tok,
+            [long_exemplar],
+            df["full_text"].tolist(),
+            list(zip(df["answer_char_start"], df["answer_char_end"])),
+            df["true_answer"].tolist(),
+            device="cpu",
+            batch_size=8,
+            separator="eos",
+        )
+
+
+def test_run_for_task_threads_separator_to_every_call(real_tok, monkeypatch):
+    n_rows = diag.EVAL_STOP_ROWS + diag.G5_N_SHOTS + 1
+    df = _big_rows_df(n_rows)
+    cfg = {"task": {"name": "arith_op_addsub", "format_version": "v1"}}
+    seps: list[str] = []
+
+    def fake_em(
+        model_,
+        tokenizer_,
+        exemplars,
+        q_texts,
+        q_spans,
+        answers,
+        *,
+        device,
+        batch_size,
+        separator="MISSING",
+    ):
+        seps.append(separator)
+        return 0.0, [False] * len(q_texts)
+
+    monkeypatch.setattr(diag, "em_for_condition", fake_em)
+    args = argparse.Namespace(
+        n_queries=1,
+        shots=[0, 1],
+        skip_label_loss=True,
+        device="cpu",
+        batch_size=4,
+        native_render="single",
+        shot_separator="eos",
+    )
+    run_results: dict = {}
+    diag.run_for_task(
+        None, real_tok, df, cfg, "op", args=args, story_text="story", run_results=run_results
+    )
+    # single k=0/1, block k=0/1, story_prefix, k1_position -- six calls, all eos
+    assert len(seps) == 6
+    assert all(s == "eos" for s in seps)
+
+
+def test_dm_render_rows_bare_matches_dmprobe_render():
+    df = _big_triples_df(diag.EVAL_STOP_ROWS + diag.G5_N_SHOTS + 2)
+    rows = df.iloc[:2]
+    template = "What is {a} plus {b}?"
+    texts, spans, templates = diag.dm_render_rows(rows, lambda a, b, op: template, scaffolded=False)
+    for r, text, (s, e) in zip(rows.itertuples(), texts, spans):
+        body = template.format(a=int(r.a), b=int(r.b))
+        assert text == f"{body}\n{r.true_answer}"
+        assert text[s:e] == str(int(r.true_answer))
+        assert not text.startswith("Question")
+    assert templates == [template, template]
+
+
+def test_dm_render_rows_default_still_scaffolded():
+    df = _big_triples_df(diag.EVAL_STOP_ROWS + diag.G5_N_SHOTS + 1)
+    rows = df.iloc[:1]
+    texts, _, _ = diag.dm_render_rows(rows, lambda a, b, op: "What is {a} plus {b}?")
+    assert texts[0].startswith("Question: ")
+    assert "\nAnswer: " in texts[0]
+
+
+def test_run_dm_mixture_renders_bare_and_block_keys(real_tok, monkeypatch):
+    n_rows = diag.EVAL_STOP_ROWS + diag.G5_N_SHOTS + 4
+    df = _big_triples_df(n_rows)
+    args = argparse.Namespace(
+        n_queries=4,
+        dm_mixture_seed=123,
+        device="cpu",
+        batch_size=4,
+        shot_separator="blank",
+        dm_mixture_renders=["bare", "block"],
+    )
+    captured: list[list[str]] = []
+
+    def fake_em(
+        model_,
+        tokenizer_,
+        exemplars,
+        q_texts,
+        q_spans,
+        answers,
+        *,
+        device,
+        batch_size,
+        separator="blank",
+    ):
+        captured.append(list(q_texts))
+        return 0.0, [False] * len(q_texts)
+
+    monkeypatch.setattr(diag, "em_for_condition", fake_em)
+    run_results: dict = {}
+    diag.run_dm_mixture(None, real_tok, df, run_results, args=args)
+    assert "dm_mixture_bare" in run_results
+    assert "dm_mixture_block" in run_results
+    assert "dm_mixture" not in run_results  # 'single' was not requested
+    # both render families produce the full key set
+    expected_keys = set(diag.dmprobe.PAIRS) | {"mixture"}
+    assert set(run_results["dm_mixture_bare"]) == expected_keys
+    assert set(run_results["dm_mixture_block"]) == expected_keys
+    # every scored query is either block-scaffolded or bare -- never the
+    # single-line "Question: " scaffold
+    all_q = [t for qs in captured for t in qs]
+    assert any(t.startswith("Question:\n") for t in all_q)
+    assert any(not t.startswith("Question") for t in all_q)
+    assert not any(t.startswith("Question: ") for t in all_q)
+
+
+def test_run_dm_mixture_default_single_render_key_unchanged(real_tok, monkeypatch):
+    n_rows = diag.EVAL_STOP_ROWS + diag.G5_N_SHOTS + 4
+    df = _big_triples_df(n_rows)
+    args = argparse.Namespace(
+        n_queries=4,
+        dm_mixture_seed=123,
+        device="cpu",
+        batch_size=4,
+        shot_separator="blank",
+        dm_mixture_renders=["single"],
+    )
+
+    def fake_em(
+        model_,
+        tokenizer_,
+        exemplars,
+        q_texts,
+        q_spans,
+        answers,
+        *,
+        device,
+        batch_size,
+        separator="blank",
+    ):
+        return 0.0, [False] * len(q_texts)
+
+    monkeypatch.setattr(diag, "em_for_condition", fake_em)
+    run_results: dict = {}
+    diag.run_dm_mixture(None, real_tok, df, run_results, args=args)
+    assert set(run_results) == {"dm_mixture"}
+
+
+def test_parse_args_new_flag_defaults_are_byte_compatible():
+    args = diag.parse_args(["--out", "/tmp/out.json"])
+    assert args.shot_separator == "blank"
+    assert args.dm_mixture_renders == ["single"]
+    assert args.dm_mixture_only is False
+
+
+def test_parse_args_dm_mixture_only_implies_dm_mixture():
+    args = diag.parse_args(["--out", "/tmp/out.json", "--dm-mixture-only"])
+    assert args.dm_mixture is True
+    assert args.dm_mixture_only is True
+
+
+def test_parse_args_shot_separator_and_renders_roundtrip():
+    args = diag.parse_args(
+        [
+            "--out",
+            "/tmp/out.json",
+            "--shot-separator",
+            "eos",
+            "--dm-mixture-renders",
+            "bare",
+            "block",
+        ]
+    )
+    assert args.shot_separator == "eos"
+    assert args.dm_mixture_renders == ["bare", "block"]
+
+
+def test_print_markdown_table_includes_dm_render_conditions(capsys):
+    results = {
+        "r": {
+            "dm_mixture_bare": {"mixture": {"0": {"em": 0.5, "n": 4}}},
+            "dm_mixture_block": {"bare_op": {"16": {"em": 0.25, "n": 4}}},
+        }
+    }
+    diag.print_markdown_table(results, [0])
+    out = capsys.readouterr().out
+    assert "dm_mixture_bare" in out
+    assert "dm_mixture_block" in out
+    assert "0.5000" in out
+    assert "0.2500" in out

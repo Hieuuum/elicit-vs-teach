@@ -146,6 +146,41 @@ behavior). The flag resets three things unless individually overridden:
   ``fallback`` forces the hardcoded passage unconditionally (fast smoke
   runs). Any pull failure under ``hf-text`` falls back to the hardcoded
   passage exactly like the ``cache`` path always has.
+- **``--shot-separator {blank,eos}``** (default ``blank``, byte-identical to
+  all prior behavior) -- 2026-08-20, Table-11 follow-up. ``blank`` is the
+  original composition: exemplars text-joined by a blank line
+  (``few_shot_prompt``) and the whole composed string tokenized at once.
+  ``eos`` composes at the TOKEN level instead: each exemplar is tokenized
+  alone and terminated with ``tokenizer.eos_token_id`` -- exactly how a
+  training row looks (``tokenize_with_spans(..., append_eos=True)``) and how
+  the pretrain stream separates documents -- and the query's own prompt ids
+  (identical to its k=0 tokenization) are appended after. Purpose: the ts1b
+  Table-11 diag showed the pp install collapses under ANY in-context
+  exemplar (block op 0.96 -> 0.011 at k=1) while every training-time
+  example boundary the model has ever seen was an EOS; if EOS-separated
+  shots recover few-shot EM, the paper's Table-11 k=16 behavior is
+  reachable with the existing parent and the gap is an eval-composition
+  convention, not a training deficiency. k=0 cells take the ``blank`` path
+  regardless (no separator exists at k=0), so they remain byte-identical
+  anchors across the two modes. Applies to ``single``/``block`` k>0,
+  ``story_prefix`` (story + EOS + query), ``k1_position``
+  (story + EOS + exemplar + EOS + query), and ``dm_mixture`` shots.
+- **``--dm-mixture-renders {single,block,bare} ...``** (default ``single``,
+  byte-identical to the pre-2026-08-20 dm_mixture behavior) -- which
+  render(s) the DM-template probe is scored under. ``single`` is the
+  original scaffolded form (``Question: <body>\nAnswer: <answer>``, key
+  ``dm_mixture``); ``block`` converts that via ``render_block`` (key
+  ``dm_mixture_block``, the ts1b parents' install-native scaffold);
+  ``bare`` uses ``make_dm_probe_eval.render(scaffolded=False)`` --
+  ``<body>\n<answer>``, no scaffold at all (key ``dm_mixture_bare``). The
+  bare mixture is the closest available proxy for the paper's own Table-11
+  eval (base Llama rows at 0% zero-shot imply their harness presented the
+  raw DM question with no ``Answer:`` handle -- fig2nl2 measured ~31% EM
+  for real Llama base under our scaffold, incompatible with the paper's 0%).
+- **``--dm-mixture-only``** -- skip the single/block/story_prefix/
+  k1_position conditions entirely and run just the dm_mixture probe
+  (implies ``--dm-mixture``); exists so the DM run doesn't re-pay the ~34
+  accuracy passes the main conditions cost.
 - **``single_sign_split``** (new top-level key, additive, mirrors the
   existing ``block_sign_split``) -- decisions.md's own empirical check
   (2026-08-19) found the Llama tokenizer's BLOCK-render negative-answer split
@@ -328,6 +363,11 @@ DEFAULT_STORY_PREFIX_SOURCE = {"ts38": "cache", "ts1b": "hf-text"}
 # only -- bounded scope per "do not let it delay the core deliverable".
 DEFAULT_DM_MIXTURE_SEED = 20260815  # matches make_dm_probe_eval.py's own --seed default
 DM_MIXTURE_KS = (0, 16)
+DM_RENDER_KEYS = {  # --dm-mixture-renders value -> results condition key
+    "single": "dm_mixture",  # pre-2026-08-20 behavior, unchanged key
+    "block": "dm_mixture_block",
+    "bare": "dm_mixture_bare",
+}
 DM_MIXTURE_TEMPLATE_SOURCE = (
     "experiments/training-run/datagen/make_dm_probe_eval.py: PAIRS (sym_q, "
     "sym_imp, bare_op, word_q, word_imp, sumof) + DM_ADD/DM_SUB/DM_SUB_NONNEG "
@@ -467,14 +507,58 @@ def compose_few_shot(
     return texts, spans
 
 
-def exemplar_prefix_token_count(exemplars: list[str], tokenizer: Any) -> int:
+def eos_join_prompt_ids(
+    exemplars: list[str], q_prompt_ids: list[list[int]], tokenizer: Any
+) -> tuple[list[list[int]], int]:
+    """Token-level EOS-separated few-shot composition (``--shot-separator
+    eos``, module docstring): each exemplar is tokenized alone
+    (``add_special_tokens=False``, same convention as ``tokenize_with_spans``)
+    and terminated with exactly one ``tokenizer.eos_token_id`` -- the same
+    shape as a training row under ``append_eos=True`` and as a document
+    boundary in the packed pretrain stream -- then each query's own prompt
+    ids (its k=0 tokenization) are appended after the shared prefix.
+
+    Returns ``(per-query composed prompt ids, prefix token count)``. Empty
+    ``exemplars`` is the identity (queries unchanged, offset 0). Raises
+    ``ValueError`` if the tokenizer has no ``eos_token_id`` -- silently
+    omitting the separator would score the ``blank`` condition under an
+    ``eos`` label.
+    """
+    if not exemplars:
+        return [list(p) for p in q_prompt_ids], 0
+    eos_id = tokenizer.eos_token_id
+    if eos_id is None:
+        raise ValueError("eos_join_prompt_ids: tokenizer has no eos_token_id")
+    prefix: list[int] = []
+    for ex in exemplars:
+        prefix += tokenizer(ex, add_special_tokens=False)["input_ids"] + [eos_id]
+    return [prefix + list(p) for p in q_prompt_ids], len(prefix)
+
+
+def exemplar_prefix_token_count(
+    exemplars: list[str], tokenizer: Any, separator: str = "blank"
+) -> int:
     """Measured token length of the composed exemplar prefix -- i.e. how many
     tokens precede the query's own prompt in a composed few-shot text. This
     is what the M1 position claim is measured against; report this, never
     the requested ``--story-prefix-tokens``, which is only a slicing target.
+
+    ``separator`` must match the composition mode the cell was scored under
+    (``"blank"``: text-joined with blank lines then tokenized whole;
+    ``"eos"``: per-exemplar tokenization + one EOS each, mirroring
+    ``eos_join_prompt_ids`` exactly).
     """
     if not exemplars:
         return 0
+    if separator == "eos":
+        eos_id = tokenizer.eos_token_id
+        if eos_id is None:
+            raise ValueError("exemplar_prefix_token_count: tokenizer has no eos_token_id")
+        return sum(
+            len(tokenizer(ex, add_special_tokens=False)["input_ids"]) + 1 for ex in exemplars
+        )
+    if separator != "blank":
+        raise ValueError(f"exemplar_prefix_token_count: unknown separator {separator!r}")
     prefix = "\n\n".join(exemplars) + "\n\n"
     return len(tokenizer(prefix, add_special_tokens=False)["input_ids"])
 
@@ -522,13 +606,16 @@ def dm_mixture_chooser(seed: int):
 
 
 def dm_render_rows(
-    rows: pd.DataFrame, choose_template
+    rows: pd.DataFrame, choose_template, *, scaffolded: bool = True
 ) -> tuple[list[str], list[tuple[int, int]], list[str]]:
     """Render each row of ``rows`` (needs ``a``/``b``/``op``/``true_answer``
     columns -- any triple source works, not just D_dmprobe_*) under
     ``choose_template(a, b, op) -> template string``, via
-    ``make_dm_probe_eval.render`` (scaffolded ``Question: <body>\\nAnswer:
-    <answer>`` form, byte-identical to that script's own construction).
+    ``make_dm_probe_eval.render`` (default ``scaffolded=True``: the
+    ``Question: <body>\\nAnswer: <answer>`` form, byte-identical to that
+    script's own construction; ``scaffolded=False``: that script's bare
+    form, ``<body>\\n<answer>`` -- no scaffold, the ``--dm-mixture-renders
+    bare`` path).
 
     The third return value is the exact template string drawn for each row
     (2026-08-19, added for ``per_template_em``) -- for the fixed PAIR keys in
@@ -541,7 +628,7 @@ def dm_render_rows(
         a, b, op, ans = int(r.a), int(r.b), r.op, int(r.true_answer)
         template = choose_template(a, b, op)
         body = template.format(a=a, b=b)
-        _prompt, _ans_text, full, s, e = dmprobe.render(body, ans, scaffolded=True)
+        _prompt, _ans_text, full, s, e = dmprobe.render(body, ans, scaffolded=scaffolded)
         texts.append(full)
         spans.append((s, e))
         templates.append(template)
@@ -583,20 +670,37 @@ def em_for_condition(
     *,
     device: str,
     batch_size: int,
+    separator: str = "blank",
 ) -> tuple[float, list[bool]]:
     """Zero/k-shot exact match for one condition -- byte-identical procedure
     to gates.py's ``run_g5.accuracy_with`` (same token-prefix-of-a-
     training-style-tokenization trick), generalized to accept any
     pre-rendered exemplars/queries. Returns ``(accuracy, per-query hits)``.
 
+    ``separator`` selects how exemplars are composed with the query (module
+    docstring, ``--shot-separator``): ``"blank"`` is the original text-level
+    blank-line join; ``"eos"`` tokenizes each exemplar alone + one EOS each
+    (``eos_join_prompt_ids``) and appends the query's own k=0 prompt ids --
+    so under ``eos`` the query's token ids are IDENTICAL to its zero-shot
+    tokenization and any EM delta vs k=0 is purely contextual. With no
+    exemplars the two modes are the same composition; the ``blank`` path is
+    taken so k=0 cells stay byte-identical anchors across modes.
+
     Refuses (raises ``ValueError``, never silently truncates) if the composed
     prompt plus the greedy decode budget would exceed the model's own
     ``max_position_embeddings`` -- an overflow here would silently produce
     garbage completions that read exactly like an M1 position collapse.
     """
-    texts, spans = compose_few_shot(exemplars, q_texts, q_spans)
-    examples = tokenize_with_spans(texts, spans, tokenizer)
-    prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
+    if separator not in ("blank", "eos"):
+        raise ValueError(f"em_for_condition: unknown separator {separator!r}")
+    if separator == "eos" and exemplars:
+        q_examples = tokenize_with_spans(q_texts, q_spans, tokenizer)
+        q_prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in q_examples]
+        prompt_ids, _offset = eos_join_prompt_ids(exemplars, q_prompt_ids, tokenizer)
+    else:
+        texts, spans = compose_few_shot(exemplars, q_texts, q_spans)
+        examples = tokenize_with_spans(texts, spans, tokenizer)
+        prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
     limit = getattr(model.config, "max_position_embeddings", None)
     if limit is not None and prompt_ids:
         longest = max(len(p) for p in prompt_ids)
@@ -929,8 +1033,32 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "eval's own triples (k in {0, 16} only) -- see module docstring",
     )
     ap.add_argument("--dm-mixture-seed", type=int, default=DEFAULT_DM_MIXTURE_SEED)
+    ap.add_argument(
+        "--dm-mixture-renders",
+        nargs="+",
+        choices=sorted(DM_RENDER_KEYS),
+        default=["single"],
+        help="render(s) the DM-template probe is scored under (module docstring); "
+        "default 'single' is byte-identical to the pre-2026-08-20 behavior",
+    )
+    ap.add_argument(
+        "--dm-mixture-only",
+        action="store_true",
+        help="skip the single/block/story_prefix/k1_position conditions and run "
+        "just the dm_mixture probe (implies --dm-mixture)",
+    )
+    ap.add_argument(
+        "--shot-separator",
+        choices=["blank", "eos"],
+        default="blank",
+        help="how exemplars are composed with the query (module docstring): "
+        "'blank' = original blank-line text join; 'eos' = per-exemplar "
+        "tokenization + one EOS each, the training-row/document-boundary shape",
+    )
     ap.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
+    if args.dm_mixture_only:
+        args.dm_mixture = True
     if args.n_queries is None:
         args.n_queries = QUICK_N_QUERIES if args.quick else DEFAULT_N_QUERIES
     if args.runs is None:
@@ -959,7 +1087,15 @@ def _write_json(path: Path, results: dict[str, Any], meta: dict[str, Any]) -> No
     path.write_text(json.dumps(payload, indent=2) + "\n")
 
 
-CONDITIONS = ("single", "block", "story_prefix", "k1_position", "dm_mixture")
+CONDITIONS = (
+    "single",
+    "block",
+    "story_prefix",
+    "k1_position",
+    "dm_mixture",
+    "dm_mixture_block",
+    "dm_mixture_bare",
+)
 
 
 def print_markdown_table(results: dict[str, Any], shots: list[int]) -> None:
@@ -1000,6 +1136,7 @@ def run_for_task(
     answers = df.iloc[q_start : q_start + args.n_queries]["true_answer"].astype(int).tolist()
     task_name = cfg["task"]["name"]
     format_version = cfg["task"]["format_version"]
+    sep = args.shot_separator
 
     def _log(condition: str, k: int | str, cell: dict) -> None:
         extra = ""
@@ -1024,6 +1161,7 @@ def run_for_task(
             answers,
             device=args.device,
             batch_size=args.batch_size,
+            separator=sep,
         )
         label_loss = None
         if k == 0 and not args.skip_label_loss:
@@ -1040,7 +1178,7 @@ def run_for_task(
             "em": em,
             "n": len(q_texts),
             "label_loss_nats": label_loss,
-            "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer),
+            "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer, separator=sep),
         }
         run_results.setdefault("single", {}).setdefault(task, {})[str(k)] = cell
         run_results.setdefault("single_sign_split", {}).setdefault(task, {})[str(k)] = (
@@ -1067,6 +1205,7 @@ def run_for_task(
             answers,
             device=args.device,
             batch_size=args.batch_size,
+            separator=sep,
         )
         label_loss = None
         if k == 0 and not args.skip_label_loss:
@@ -1084,7 +1223,7 @@ def run_for_task(
             "em": em,
             "n": len(block_q_texts),
             "label_loss_nats": label_loss,
-            "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer),
+            "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer, separator=sep),
         }
         run_results.setdefault("block", {}).setdefault(task, {})[str(k)] = cell
         run_results.setdefault("block_sign_split", {}).setdefault(task, {})[str(k)] = sign_split_em(
@@ -1121,12 +1260,13 @@ def run_for_task(
         answers,
         device=args.device,
         batch_size=args.batch_size,
+        separator=sep,
     )
     cell = {
         "em": em,
         "n": len(native_q_texts),
         "label_loss_nats": None,
-        "query_offset_tokens": exemplar_prefix_token_count([story_text], tokenizer),
+        "query_offset_tokens": exemplar_prefix_token_count([story_text], tokenizer, separator=sep),
     }
     run_results.setdefault("story_prefix", {}).setdefault(task, {})["0"] = cell
     _log("story_prefix", 0, cell)
@@ -1143,12 +1283,13 @@ def run_for_task(
         answers,
         device=args.device,
         batch_size=args.batch_size,
+        separator=sep,
     )
     cell = {
         "em": em,
         "n": len(native_q_texts),
         "label_loss_nats": None,
-        "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer),
+        "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer, separator=sep),
     }
     run_results.setdefault("k1_position", {}).setdefault(task, {})["1"] = cell
     _log("k1_position", 1, cell)
@@ -1166,15 +1307,32 @@ def run_dm_mixture(
     on the OP eval's own triples (``df`` = ``task_dfs["op"]``, the same
     shots/query row slice ``run_for_task`` used for the ``op`` task), for
     each of the six fixed template PAIRS plus a genuine per-row mixture draw.
+
+    2026-08-20: scored once per render in ``args.dm_mixture_renders``
+    (``single`` -> key ``dm_mixture``, unchanged; ``block`` ->
+    ``dm_mixture_block``; ``bare`` -> ``dm_mixture_bare`` -- module
+    docstring). Shots and queries always share one render.
     """
     q_start = EVAL_STOP_ROWS + G5_N_SHOTS
     shots_df = df.iloc[EVAL_STOP_ROWS:q_start]
     queries_df = df.iloc[q_start : q_start + args.n_queries]
     answers = queries_df["true_answer"].astype(int).tolist()
+    sep = args.shot_separator
 
-    def _score(key: str, choose_template) -> None:
-        shot_texts, _, _shot_templates = dm_render_rows(shots_df, choose_template)
-        q_texts, q_spans, q_templates = dm_render_rows(queries_df, choose_template)
+    def _score(key: str, choose_template, render: str) -> None:
+        scaffolded = render != "bare"
+        shot_texts, shot_spans, _shot_templates = dm_render_rows(
+            shots_df, choose_template, scaffolded=scaffolded
+        )
+        q_texts, q_spans, q_templates = dm_render_rows(
+            queries_df, choose_template, scaffolded=scaffolded
+        )
+        if render == "block":
+            shot_texts = [render_block(t, s)[0] for t, s in zip(shot_texts, shot_spans)]
+            rendered = [render_block(t, s) for t, s in zip(q_texts, q_spans)]
+            q_texts = [t for t, _ in rendered]
+            q_spans = [s for _, s in rendered]
+        cond_key = DM_RENDER_KEYS[render]
         for k in DM_MIXTURE_KS:
             exemplars = shot_texts[:k]
             em, hits = em_for_condition(
@@ -1186,24 +1344,27 @@ def run_dm_mixture(
                 answers,
                 device=args.device,
                 batch_size=args.batch_size,
+                separator=sep,
             )
             cell = {
                 "em": em,
                 "n": len(q_texts),
                 "label_loss_nats": None,
-                "query_offset_tokens": exemplar_prefix_token_count(exemplars, tokenizer),
+                "query_offset_tokens": exemplar_prefix_token_count(
+                    exemplars, tokenizer, separator=sep
+                ),
                 "by_template": per_template_em(hits, q_templates),
             }
-            run_results.setdefault("dm_mixture", {}).setdefault(key, {})[str(k)] = cell
+            run_results.setdefault(cond_key, {}).setdefault(key, {})[str(k)] = cell
             print(
-                f"[theta0-diag] dm_mixture {key} k={k}: em={em:.4f} n={len(q_texts)}",
+                f"[theta0-diag] {cond_key} {key} k={k}: em={em:.4f} n={len(q_texts)}",
                 flush=True,
             )
 
-    for key, (t_add, t_sub) in dmprobe.PAIRS.items():
-        _score(key, lambda a, b, op, _ta=t_add, _ts=t_sub: _ta if op == "+" else _ts)
-
-    _score("mixture", dm_mixture_chooser(args.dm_mixture_seed))
+    for render in args.dm_mixture_renders:
+        for key, (t_add, t_sub) in dmprobe.PAIRS.items():
+            _score(key, lambda a, b, op, _ta=t_add, _ts=t_sub: _ta if op == "+" else _ts, render)
+        _score("mixture", dm_mixture_chooser(args.dm_mixture_seed), render)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -1257,6 +1418,8 @@ def main(argv: list[str] | None = None) -> None:
         for task, fname in task_configs.items():
             cfg = task_cfgs[task]
             _assert_not_trained_on_eval(manifest, cfg, run_id)
+            if args.dm_mixture_only:
+                continue  # guards above still ran for every task
             run_for_task(
                 model,
                 tokenizer,
@@ -1285,6 +1448,9 @@ def main(argv: list[str] | None = None) -> None:
             "max_position_embeddings": dict(max_pos),
             "dm_mixture": args.dm_mixture,
             "dm_mixture_seed": args.dm_mixture_seed,
+            "dm_mixture_renders": list(args.dm_mixture_renders),
+            "dm_mixture_only": args.dm_mixture_only,
+            "shot_separator": args.shot_separator,
             "dm_mixture_template_source": DM_MIXTURE_TEMPLATE_SOURCE,
             "model_family": args.model_family,
             "native_render": args.native_render,
