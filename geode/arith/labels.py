@@ -44,6 +44,44 @@ def permute_labels(true_answers: Sequence[int], seed: int) -> list[int]:
     return out
 
 
+def cyclic_shift_labels(true_answers: Sequence[int]) -> list[int]:
+    """Rotate the answers by one position — a GUARANTEED-wrong label at every
+    position, for install sizes too small for ``permute_labels``'s random
+    shuffle to promise that (spec 02 §6, V5.78; ts38fs-tiny, EXPERIMENTS
+    §6.20+).
+
+    A shuffle of 1 element is always the identity (nothing to swap with), and
+    even at n=2 a random shuffle has a 50% chance of leaving both positions
+    unchanged — neither gives the "individually wrong" guarantee the format
+    installers rely on at large n only up to chance collisions. Rotating by
+    one index guarantees no position keeps its own ORIGINAL INDEX, which is
+    sufficient only when every value is distinct; with repeated values in
+    ``true_answers`` the rotation can still leave a position showing its own
+    VALUE (two positions sharing a true answer), so this raises rather than
+    silently shipping a leaky label — the caller must pick a different slice
+    for that install size.
+
+    No ``seed`` parameter (deliberate difference from ``permute_labels``): a
+    single rotation has no randomness to seed, so a config citing this
+    function's output has no seed to pin against.
+    """
+    n = len(true_answers)
+    if n < 2:
+        raise ValueError(
+            f"cyclic_shift_labels: need at least 2 answers to guarantee a wrong label "
+            f"at every position, got {n}"
+        )
+    out = list(true_answers[1:]) + [true_answers[0]]
+    collisions = [i for i, (o, t) in enumerate(zip(out, true_answers)) if o == t]
+    if collisions:
+        raise ValueError(
+            f"cyclic_shift_labels: rotation left position(s) {collisions} showing their own "
+            "true answer (duplicate values among the input) — cannot guarantee a wrong label "
+            "at every position for this input; pick a different slice"
+        )
+    return out
+
+
 def random_label(true_answer: int, seed: int, index: int) -> int:
     """A wrong label matching the true answer's digit count and sign.
 

@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from collections import Counter
 
+import pytest
+
 from geode.arith.formats import digits, true_answer
-from geode.arith.labels import permute_labels, random_label
+from geode.arith.labels import cyclic_shift_labels, permute_labels, random_label
 
 
 def test_v5_6_label_matches_true_answer_digit_count_and_sign():
@@ -72,3 +74,45 @@ def test_v5_64_mapping_destroyed_on_distinct_answers():
     out = permute_labels(answers, seed=5)
     assert sorted(out) == sorted(answers)
     assert sum(a == o for a, o in zip(answers, out)) < 25
+
+
+def test_v5_78_cyclic_shift_zero_fixed_points_on_distinct_values():
+    for n in (2, 3, 10, 100):
+        answers = list(range(n))  # all distinct -> rotation can never collide
+        out = cyclic_shift_labels(answers)
+        assert all(o != a for o, a in zip(out, answers))
+
+
+def test_v5_78_cyclic_shift_preserves_multiset():
+    # Duplicates included (1/2/3 each appear twice), chosen so the rotation
+    # itself doesn't collide -- collision behavior has its own test below.
+    answers = [1, 2, 3, 1, 2, 3]
+    out = cyclic_shift_labels(answers)
+    assert sorted(out) == sorted(answers)
+
+
+def test_v5_78_cyclic_shift_is_a_rotation_by_one():
+    answers = [10, 20, 30, 40]
+    assert cyclic_shift_labels(answers) == [20, 30, 40, 10]
+
+
+def test_v5_78_cyclic_shift_refuses_n_below_2():
+    with pytest.raises(ValueError):
+        cyclic_shift_labels([])
+    with pytest.raises(ValueError):
+        cyclic_shift_labels([42])
+
+
+def test_v5_78_cyclic_shift_raises_on_duplicate_value_collision():
+    # n=2 with both positions sharing a value: rotation necessarily leaves
+    # each position showing its own value (multiset is {5, 5}). Must raise,
+    # not silently ship a leaky label.
+    with pytest.raises(ValueError):
+        cyclic_shift_labels([5, 5])
+
+
+def test_v5_78_cyclic_shift_not_seeded():
+    # No seed parameter at all -- same input always gives the same output,
+    # there is nothing to vary across calls.
+    answers = [1, 2, 3, 4, 5]
+    assert cyclic_shift_labels(answers) == cyclic_shift_labels(answers)

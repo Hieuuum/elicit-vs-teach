@@ -20,7 +20,7 @@ import sys
 import pandas as pd
 import pytest
 
-from geode.arith import order_hash, permute_labels, render
+from geode.arith import cyclic_shift_labels, order_hash, permute_labels, render
 from geode.arith.formats import digits
 from tests._scriptloader import repo_root
 
@@ -125,6 +125,81 @@ def test_different_seed_changes_the_permutation():
 
 
 # =============================================================================
+# ts38fs-tiny: cyclic=True wiring — shown_answer is cyclic_shift_labels'
+# output, not permute_labels', label_mode/collision-count/seed-independence
+# all switch accordingly (V5.78)
+# =============================================================================
+
+
+def test_cyclic_shown_answer_matches_cyclic_shift_labels_output_exactly():
+    src = _source_df(10)
+    records, _ = mpf.derive(src, n=10, seed=7, cyclic=True)
+
+    expected = cyclic_shift_labels(src["true_answer"].tolist())
+    assert [r["shown_answer"] for r in records] == expected
+
+
+def test_cyclic_label_mode_field_set():
+    src = _source_df(10)
+    records, _ = mpf.derive(src, n=10, seed=2, cyclic=True)
+    assert all(r["label_mode"] == "cyclic_shift" for r in records)
+
+
+def test_cyclic_collision_count_always_zero_on_success():
+    src = _source_df(10)
+    records, collision_count = mpf.derive(src, n=10, seed=2, cyclic=True)
+    assert collision_count == 0
+    assert all(r["shown_answer"] != r["true_answer"] for r in records)
+
+
+def test_cyclic_seed_has_no_effect():
+    src = _source_df(10)
+    records1, _ = mpf.derive(src, n=10, seed=1, cyclic=True)
+    records2, _ = mpf.derive(src, n=10, seed=999, cyclic=True)
+    assert [r["shown_answer"] for r in records1] == [r["shown_answer"] for r in records2]
+
+
+def test_cyclic_raises_when_rotation_cannot_avoid_a_collision():
+    # Two rows sharing the identical true answer at positions that rotation
+    # cannot separate (n=2, both true answers equal) — derive() must
+    # propagate cyclic_shift_labels' refusal rather than swallowing it.
+    rows = []
+    for idx in range(2):
+        full, (cs, ce) = render(1, 1, "+", 2, "bare_nl")
+        rows.append(
+            {
+                "idx": idx,
+                "dataset": "D_algo",
+                "a": 1,
+                "b": 1,
+                "op": "+",
+                "x_digits": 1,
+                "y_digits": 1,
+                "cell": "1x1",
+                "format": "nl",
+                "label_mode": "correct",
+                "true_answer": 2,
+                "shown_answer": 2,
+                "prompt_text": full[:cs],
+                "answer_text": full[cs:ce],
+                "full_text": full,
+                "answer_char_start": cs,
+                "answer_char_end": ce,
+            }
+        )
+    src = pd.DataFrame(rows)
+    with pytest.raises(ValueError):
+        mpf.derive(src, n=2, seed=1, cyclic=True)
+
+
+def test_cyclic_permute_labels_still_default_when_cyclic_not_passed():
+    src = _source_df(20)
+    records_default, _ = mpf.derive(src, n=20, seed=7)
+    records_explicit_false, _ = mpf.derive(src, n=20, seed=7, cyclic=False)
+    assert records_default == records_explicit_false
+
+
+# =============================================================================
 # collision count: matches a hand-counted value on a constructed case
 # =============================================================================
 
@@ -225,6 +300,8 @@ def test_n_prefix_respected():
         (1000, "D_preteachfmt_n1000.parquet", "ts38fs_parent_n1000.yaml"),
         (4642, "D_preteachfmt_n4642.parquet", "ts38fs_parent_n4642.yaml"),
         (100000, "D_preteachfmt_n100000.parquet", "ts38fs_parent_n100000.yaml"),
+        (2, "D_preteachfmt_n2.parquet", "ts38fs_tiny_parent_n2.yaml"),
+        (10, "D_preteachfmt_n10.parquet", "ts38fs_tiny_parent_n10.yaml"),
     ],
 )
 def test_dst_filename_and_pin_config_name(n, expected_dst, expected_cfg):
@@ -243,6 +320,8 @@ def test_dst_filename_and_pin_config_name(n, expected_dst, expected_cfg):
 
 
 def test_main_writes_suffixed_file_and_prints_ts38fs_config_name(tmp_path, monkeypatch, capsys):
+    # n=11: an arbitrary non-special size (not 21544, not one of ts38fs-tiny's
+    # 2/10 sizes) — picked to avoid colliding with either special case.
     src = _source_df(30)
     monkeypatch.setattr(mpf, "SRC_PIN", order_hash(src.to_dict("records")))
     src.to_parquet(tmp_path / "D_algo.parquet", index=False)
@@ -250,17 +329,38 @@ def test_main_writes_suffixed_file_and_prints_ts38fs_config_name(tmp_path, monke
     monkeypatch.setattr(
         sys,
         "argv",
-        ["make_preteach_format.py", "--out", str(tmp_path), "--n", "10", "--seed", "3"],
+        ["make_preteach_format.py", "--out", str(tmp_path), "--n", "11", "--seed", "3"],
     )
     assert mpf.main() == 0
 
-    assert (tmp_path / "D_preteachfmt_n10.parquet").exists()
+    assert (tmp_path / "D_preteachfmt_n11.parquet").exists()
     assert not (tmp_path / "D_preteachfmt.parquet").exists()
 
     out = capsys.readouterr().out
-    assert "D_preteachfmt_n10.parquet" in out
-    assert "ts38fs_parent_n10.yaml" in out
+    assert "D_preteachfmt_n11.parquet" in out
+    assert "ts38fs_parent_n11.yaml" in out
     assert "ts38_preteachfmt_parent.yaml" not in out
+
+
+def test_main_cyclic_shift_flag_reaches_derive_and_output(tmp_path, monkeypatch, capsys):
+    src = _source_df(30)
+    monkeypatch.setattr(mpf, "SRC_PIN", order_hash(src.to_dict("records")))
+    src.to_parquet(tmp_path / "D_algo.parquet", index=False)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["make_preteach_format.py", "--out", str(tmp_path), "--n", "10", "--cyclic-shift"],
+    )
+    assert mpf.main() == 0
+
+    written = pd.read_parquet(tmp_path / "D_preteachfmt_n10.parquet")
+    assert (written["label_mode"] == "cyclic_shift").all()
+    assert (written["shown_answer"] != written["true_answer"]).all()
+
+    out = capsys.readouterr().out
+    assert "cyclic_shift == true" in out
+    assert "ts38fs_tiny_parent_n10.yaml" in out
 
 
 def test_main_n21544_keeps_legacy_filename_and_config_name(tmp_path, monkeypatch, capsys):

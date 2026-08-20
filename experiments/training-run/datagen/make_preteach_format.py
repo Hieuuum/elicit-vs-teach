@@ -46,7 +46,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from geode.arith import order_hash, permute_labels, render
+from geode.arith import cyclic_shift_labels, order_hash, permute_labels, render
 
 # Same pin make_bare_sets.py verifies D_algo against before deriving from it.
 SRC_STEM = "D_algo"
@@ -70,23 +70,33 @@ def verify_source_hash(src: pd.DataFrame) -> None:
         )
 
 
-def derive(src: pd.DataFrame, n: int, seed: int) -> tuple[list[dict], int]:
+def derive(src: pd.DataFrame, n: int, seed: int, cyclic: bool = False) -> tuple[list[dict], int]:
     """Re-render the first ``n`` rows of ``src`` in operator notation with
-    permuted labels. Return (records, collision_count) — the count, not a
+    wrong labels. Return (records, collision_count) — the count, not a
     rate, so callers never reconstruct it via a lossy rate*n round-trip.
 
     ``src`` is assumed to carry ``D_algo``'s columns (idx, a, b, op,
     x_digits, y_digits, cell, true_answer, shown_answer, ...); every field
     except ``dataset``/``format``/``label_mode``/``shown_answer``/the
     rendered text+span fields is copied through unchanged.
+
+    ``cyclic=True`` (ts38fs-tiny, install sizes too small for a random
+    shuffle to promise a wrong label — V5.78) uses ``cyclic_shift_labels``
+    instead of ``permute_labels``; ``seed`` is then unused (that function
+    takes none) but still accepted so every caller passes the same
+    signature. ``collision_count`` is always 0 in this mode when it returns
+    at all — ``cyclic_shift_labels`` raises rather than shipping any row
+    where the shown label equals the true one.
     """
     slice_records = src.head(n).to_dict("records")
     true_answers = [int(rec["true_answer"]) for rec in slice_records]
-    permuted = permute_labels(true_answers, seed=seed)
-    collisions = sum(1 for t, p in zip(true_answers, permuted) if t == p)
+    shown_labels = (
+        cyclic_shift_labels(true_answers) if cyclic else permute_labels(true_answers, seed=seed)
+    )
+    collisions = sum(1 for t, p in zip(true_answers, shown_labels) if t == p)
 
     records = []
-    for rec, shown in zip(slice_records, permuted):
+    for rec, shown in zip(slice_records, shown_labels):
         full, (cs, ce) = render(
             int(rec["a"]), int(rec["b"]), str(rec["op"]), int(shown), "operator"
         )
@@ -95,7 +105,7 @@ def derive(src: pd.DataFrame, n: int, seed: int) -> tuple[list[dict], int]:
                 **rec,
                 "dataset": DST_STEM,
                 "format": "operator",
-                "label_mode": "permuted",
+                "label_mode": "cyclic_shift" if cyclic else "permuted",
                 "shown_answer": shown,
                 "prompt_text": full[:cs],
                 "answer_text": full[cs:ce],
@@ -122,10 +132,15 @@ def dst_filename(n: int) -> str:
     return f"{DST_STEM}_n{n}.parquet"
 
 
+TINY_SIZES = (2, 10)  # ts38fs-tiny (EXPERIMENTS §6.20+): cyclic-shift install sizes
+
+
 def pin_config_name(n: int) -> str:
     """Name of the config whose data block pins this size's order_hash."""
     if n == 21544:
         return "ts38_preteachfmt_parent.yaml"
+    if n in TINY_SIZES:
+        return f"ts38fs_tiny_parent_n{n}.yaml"
     return f"ts38fs_parent_n{n}.yaml"
 
 
@@ -149,13 +164,20 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True, help="dir holding the frozen parquets")
     ap.add_argument("--n", type=int, required=True, help="prefix length of D_algo to derive from")
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED, help="permute_labels seed")
+    ap.add_argument(
+        "--cyclic-shift",
+        action="store_true",
+        help="use cyclic_shift_labels (V5.78) instead of permute_labels — for install sizes "
+        "too small for a random shuffle to guarantee a wrong label (ts38fs-tiny); --seed is "
+        "unused in this mode",
+    )
     args = ap.parse_args()
 
     src_path = args.out / f"{SRC_STEM}.parquet"
     src = pd.read_parquet(src_path)
     verify_source_hash(src)
 
-    records, collision_count = derive(src, args.n, args.seed)
+    records, collision_count = derive(src, args.n, args.seed, cyclic=args.cyclic_shift)
 
     from transformers import AutoTokenizer
 
@@ -168,8 +190,9 @@ def main() -> int:
     dst_hash = order_hash(records)
     print(f"[evt] wrote {dst_path}  n={len(records):,}  order_hash={dst_hash}")
     print(f"[evt]   row 0: {records[0]['full_text']!r}")
+    mode = "cyclic_shift" if args.cyclic_shift else "permuted"
     print(
-        f"[evt]   label collisions (permuted == true): {collision_count}/{len(records)} "
+        f"[evt]   label collisions ({mode} == true): {collision_count}/{len(records)} "
         f"({collision_count / len(records):.4%})"
     )
     print(f"[evt] pin order_hash={dst_hash} in {pin_config_name(args.n)}'s data block")

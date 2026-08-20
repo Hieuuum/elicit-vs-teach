@@ -273,6 +273,15 @@ zero/16-shot prompt builder for G5.
   included), deterministically in `seed`; different seeds give different
   permutations; on all-distinct inputs the fixed-point count stays at
   chance level (the mapping is destroyed).
+- V5.78 cyclic-shift label mode (ts38fs-tiny, 2026-08-20): `cyclic_shift_labels`
+  rotates the input by one position and refuses (`ValueError`) inputs shorter
+  than 2 — a random shuffle (V5.64) cannot guarantee a wrong label at n=1
+  (nothing to swap with) and is only ~50% likely to change anything at n=2.
+  Output multiset equals the input multiset exactly; every position's shown
+  value differs from that position's own true value UNLESS duplicate values
+  in the input make the rotation itself collide, in which case it raises
+  rather than silently returning a leaky label. Not seeded — a single
+  rotation has no randomness to pin.
 - V5.67 translation bridge (phase 3, 2026-07-27): every sampled positive
   addition pair emits exactly one NL→operator and one operator→NL row under
   the shared `Question:/Answer:` scaffold; the answer span covers the rewritten
