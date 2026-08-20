@@ -1,0 +1,70 @@
+# ts38fs-tiny stopping-rule CALIBRATION pilot, install size i=2.
+# NOT a canonical run: eps_nats=0.0 never trips the strict-improvement rule
+# on a monotone full-batch descent (same mechanism as
+# configs/sweeps/dose_cal/p2_dose_cal_n1.yaml), so max_steps bounds the run
+# and train_log.jsonl records the whole trajectory. analysis/
+# dose_stop_calibration.py then replays real (eps,k) candidates over this
+# recorded curve (paired with the n=10 pilot) to pick a rule that fires at a
+# matched %descent at both ends of the ts38fs-tiny dose grid — same
+# discipline as the retired phase-2 dose family, applied fresh here (task
+# and doses both differ, so the old pin does not transfer).
+#
+#   python3 train_sft.py --config ../configs/sweeps/dose_cal/ts38fs_tiny_cal_n2.yaml \
+#       --init-from ../../../geode-store/runs/evt-run1-base-v3-ext/model \
+#       --confirm-cost
+run_id: evt-ts38fs-tiny-cal-i2
+experiment:
+  name: training-run
+  arm: A
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext
+  parent_required_gates: []
+
+model:
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_op_preteachfmt
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_preteachfmt_n2.parquet    # 2 rows, operator-notation, cyclic-shift
+                                     # (guaranteed-wrong) labels (V5.78) --
+                                     # make_preteach_format.py --n 2 --cyclic-shift
+  order_hash: 200df56dfe208cf1c45614659e819c61cf2faf55fcf246c45e6745bee2693d29
+  local_path: experiments/training-run/data/full/D_preteachfmt_n2.parquet
+  # No val_fraction: stopping.metric=train_loss carves no val split (V5.65/
+  # V5.66) -- both rows train, matching the pilot's own dose exactly.
+
+lora:
+  r: 128
+  alpha: 32
+
+train:
+  lr: 1.0e-3                   # same pin as every other ts38fs(-tiny) format
+                                # install stage
+  batch_size: 2                # == n_train (V5.65 hard requirement)
+  eval_every: 1                # per-step: the step's own loss IS the metric
+  max_steps: 6000               # pilot ceiling only -- generous, cheap at
+                                 # this dose (full batch of 2 rows/step)
+  stopping:
+    metric: train_loss
+    eps_nats: 0.0               # CALIBRATION SENTINEL -- never fires; see
+                                 # header. NOT the value the real parent uses.
+    k: 5
+    min_steps: 0
+  precision: bf16               # matches every other ts38fs install parent
+                                 # (all train on this GPU box); re-examine if
+                                 # the recorded curve's plateau deltas sit at
+                                 # the bf16 noise floor (~1e-3 nats) -- see
+                                 # decisions.md calibration entry
+  seed: 316
+  epochs_total_planned: 6000    # batch == n_train, so 1 step = 1 epoch
+
+cost:
+  assumed_epochs_for_estimate: 1  # <=10 examples: ~$0

@@ -1,0 +1,53 @@
+# ts38fs-tiny stopping-rule CALIBRATION pilot, install size i=10. See
+# ts38fs_tiny_cal_n2.yaml for the full design note; this file differs only
+# in run_id, data.file/order_hash and the matching batch size.
+#
+#   python3 train_sft.py --config ../configs/sweeps/dose_cal/ts38fs_tiny_cal_n10.yaml \
+#       --init-from ../../../geode-store/runs/evt-run1-base-v3-ext/model \
+#       --confirm-cost
+run_id: evt-ts38fs-tiny-cal-i10
+experiment:
+  name: training-run
+  arm: A
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext
+  parent_required_gates: []
+
+model:
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_op_preteachfmt
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_preteachfmt_n10.parquet   # 10 rows, cyclic-shift labels (V5.78) --
+                                     # make_preteach_format.py --n 10 --cyclic-shift
+  order_hash: 3cc4d3cbb2672440e17772d316897945b5405f8a6c69f7c85beb041fdb9226e8
+  local_path: experiments/training-run/data/full/D_preteachfmt_n10.parquet
+
+lora:
+  r: 128
+  alpha: 32
+
+train:
+  lr: 1.0e-3
+  batch_size: 10                # == n_train (V5.65 hard requirement)
+  eval_every: 1
+  max_steps: 6000
+  stopping:
+    metric: train_loss
+    eps_nats: 0.0                # CALIBRATION SENTINEL -- see n2 sibling header
+    k: 5
+    min_steps: 0
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 6000
+
+cost:
+  assumed_epochs_for_estimate: 1
