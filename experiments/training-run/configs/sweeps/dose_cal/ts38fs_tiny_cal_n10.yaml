@@ -30,6 +30,7 @@ data:
                                      # make_preteach_format.py --n 10 --cyclic-shift
   order_hash: 3cc4d3cbb2672440e17772d316897945b5405f8a6c69f7c85beb041fdb9226e8
   local_path: experiments/training-run/data/full/D_preteachfmt_n10.parquet
+  seed: 316                     # manifest provenance only -- see n2 sibling
 
 lora:
   r: 128

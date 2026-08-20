@@ -38,6 +38,10 @@ data:
                                      # make_preteach_format.py --n 2 --cyclic-shift
   order_hash: 200df56dfe208cf1c45614659e819c61cf2faf55fcf246c45e6745bee2693d29
   local_path: experiments/training-run/data/full/D_preteachfmt_n2.parquet
+  seed: 316                     # manifest provenance only -- train_sft.py's
+                                 # manifest_fields() reads data.seed
+                                 # unconditionally, regardless of stopping
+                                 # mode; unrelated to val_fraction/split
   # No val_fraction: stopping.metric=train_loss carves no val split (V5.65/
   # V5.66) -- both rows train, matching the pilot's own dose exactly.
 
