@@ -181,6 +181,110 @@ def test_push_with_weights_uploads_without_excluding_safetensors(
     assert ignore is not None and "*.safetensors" not in ignore
 
 
+def test_push_default_excludes_both_snapshot_dirs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Full-FT parents write mid-run checkpoints to sft_snapshots/
+    (geode/train/sft.py), a DIFFERENT dir from train_target.py's LoRA
+    snapshots/ — the default (no --with-snapshots) push must skip both, not
+    just the one train_target.py uses. Before this fix, a plain push of a
+    full-FT parent with train.snapshot_steps set (e.g. ts38pp_parent.yaml)
+    would ship sft_snapshots/ unasked, since "snapshots/*" never matched it."""
+    rid = "evt-smoke-run"
+    _flat_checkpoint(tmp_path, rid)
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    assert hfc.push(tmp_path, rid, "repo/id", public=False) == 0
+
+    ignore = fake.upload_calls[0]["ignore_patterns"]
+    assert ignore is not None
+    for snap_path in (
+        "snapshots/step_1000/model.safetensors",
+        "sft_snapshots/step_1000/model.safetensors",
+    ):
+        assert any(fnmatch.fnmatch(snap_path, p) for p in ignore), snap_path
+
+
+def test_push_with_snapshots_excludes_neither_snapshot_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rid = "evt-smoke-run"
+    _flat_checkpoint(tmp_path, rid)
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    assert hfc.push(tmp_path, rid, "repo/id", public=False, with_snapshots=True) == 0
+
+    ignore = fake.upload_calls[0]["ignore_patterns"]
+    # model_merged/* is always excluded regardless of --with-snapshots, so the
+    # ignore list is non-None; neither snapshot dir may appear in it.
+    for snap_path in (
+        "snapshots/step_1000/model.safetensors",
+        "sft_snapshots/step_1000/model.safetensors",
+    ):
+        assert not (ignore and any(fnmatch.fnmatch(snap_path, p) for p in ignore)), snap_path
+
+
+def test_push_metadata_only_still_excludes_all_safetensors_regardless_of_snapshots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--metadata-only's blanket "*.safetensors" already covers both snapshot
+    dirs (fnmatch's "*" crosses "/"); the new sft_snapshots/* pattern must not
+    change that — still zero weight bytes, snapshots included or not."""
+    rid = "evt-smoke-run"
+    run_dir = tmp_path / "runs" / rid
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text("{}")
+    fake = _FakeUploadApi()
+    monkeypatch.setattr(hfc, "HfApi", lambda: fake)
+
+    assert hfc.push(tmp_path, rid, "repo/id", public=False, metadata_only=True) == 0
+
+    ignore = fake.upload_calls[0]["ignore_patterns"]
+    assert ignore is not None
+    for snap_path in (
+        "snapshots/step_1000/model.safetensors",
+        "sft_snapshots/step_1000/model.safetensors",
+    ):
+        assert any(fnmatch.fnmatch(snap_path, p) for p in ignore), snap_path
+
+
+def test_pull_default_excludes_both_snapshot_dirs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mirrors the push-side check: pull's default ignore list must exclude
+    BOTH runs/<id>/snapshots/* and runs/<id>/sft_snapshots/*."""
+    rid = "evt-smoke-run"
+    captured: dict = {}
+
+    def fake_snapshot_download(**kwargs):
+        captured.update(kwargs)
+        raise SystemExit("stop before any network/verify step")
+
+    monkeypatch.setattr(hfc, "snapshot_download", fake_snapshot_download)
+    with pytest.raises(SystemExit):
+        hfc.pull(Path("/nonexistent-store"), rid, "repo/id")
+
+    ignore = captured["ignore_patterns"]
+    assert ignore is not None
+    assert f"runs/{rid}/snapshots/*" in ignore
+    assert f"runs/{rid}/sft_snapshots/*" in ignore
+
+
+def test_pull_with_snapshots_excludes_neither_snapshot_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    rid = "evt-smoke-run"
+    captured: dict = {}
+
+    def fake_snapshot_download(**kwargs):
+        captured.update(kwargs)
+        raise SystemExit("stop before any network/verify step")
+
+    monkeypatch.setattr(hfc, "snapshot_download", fake_snapshot_download)
+    with pytest.raises(SystemExit):
+        hfc.pull(Path("/nonexistent-store"), rid, "repo/id", with_snapshots=True)
+
+    assert captured["ignore_patterns"] is None
+
+
 def test_push_excludes_model_merged_from_every_push(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

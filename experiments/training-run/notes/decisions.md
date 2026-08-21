@@ -9399,3 +9399,195 @@ on the relay (`mhieuuu/geode-store`, `runs/<rid>/model/{model,adapter}
 re-push). Both figures regenerated locally (`ts38_all_arms_loglog.png`,
 `edl_converged_val_floor_ts38fs.png`, gitignored, laptop-only); CSV +
 script fix committed.
+
+## 2026-08-21 (night) — ts38mt pre-registration: ten mechanistic tests on an elicit vs. teach full-FT parent pair
+
+**Motivation.** Owner ask, verbatim gist this evening: apply ten
+mechanistic-interpretability tests to an elicit arm vs. a teach arm.
+"ts38pp for teach and 4m full ft for elicit" reads, in this repo's
+naming, as: elicit θ0 = `evt-ts38pp-parent` (the 4M-example full-FT op
+pre-teach parent, §6.18); teach θ0 = a NEW pre-teach-FORMAT parent
+(permuted labels, algorithm absent), which must be **full FT** so both
+parents share the training method — "a controlled experiment where the
+stage should roughly be similar." "For format parent use 21k example
+dose." "Do everything full ft then for the target task r128 lora." "Sure
+we can include base arm too." Snapshots/dumps go to a NEW public HF repo
+`mhieuuu/geode-internals` — "make it so that people can automatically
+read from both of my hf repos without my perm" (both repos public, read
+needs no token). "Do the training first then for the test do whatever is
+more convenient or is needed first." Probe inputs: bare-NL target
+prompts (task), op-notation (positive control, meaningful only on the pp
+parent), held-out TinyStories (generic). Owner will hand over a box
+later; nothing launched yet.
+
+**Interpretation caveat.** The owner's message literally says "ts38pp
+for teach" — in this repo's naming ts38pp IS the 4M op pre-teach parent,
+not a format-only one. Interpreted as format-parent = teach, op-parent =
+elicit, the paper's own pairing (App. E.1.2 format-isolation vs. App.
+E.2 the literal algorithm pre-teach recipe ts38pp already follows). One
+sentence, flagged as an interpretation, not confirmed verbatim by the
+owner.
+
+**Headline question.** Is the sum linearly decodable from the residual
+stream on bare-NL inputs at `evt-ts38pp-parent`'s θ0, even though its
+zero-shot NL EM there is ≈0 (decisions.md 2026-08-16 evening ts38pp
+OUTCOME)? Yes → a Jain-style suppressed capability sits behind ts38pp's
+monotone-↓ EDL curve (§6.18, decisions.md 2026-08-21 ts38dense Outcome
+item 2). No → that curve reflects transferred digit machinery, not a
+latent sum.
+
+**Design — parent (`evt-ts38mt-fmt-parent`, `configs/
+ts38mt_fmt_parent.yaml`).** Full FT via `train_sft.py --init-from` the
+base `model/`, on `D_preteachfmt.parquet` — ts38pf's exact 21,544-row
+op-notation, permuted-label data and `order_hash` (§6.16, decisions.md
+2026-08-15 night "ts38pf pre-registration"), reused not regenerated. LR
+**3e-5, pinned** = ts38pp parent's own full-FT LR, taken from §6.14's
+already-measured descending full-FT ladder — no fresh sweep for this
+exact config. This is the same precedent ts38pp itself used ("the ladder
+IS the sweep," owner-confirmed 2026-08-16), invoked here under
+[[feedback-lr-sweep-before-full-run]] because both parents are full FT
+on the same base and the ladder already covers this LR; ts38pf's LoRA
+format parent used a different pin (1e-3) and is not the precedent.
+`min_steps 167` / `max_steps 3340` / `eval_every 25`, ε/k 0.002/5, batch
+128, seed 316 — ts38pf's own derivation under `train_sft.py`'s step
+counting, re-derived here rather than only cited: `n_val =
+round(0.005·21544) = 108`, `n_train = 21436`, `steps_per_epoch = 21436 //
+128 = 167` (one epoch; `max_steps` 3340 is a 20-epoch ceiling and never
+binds). **HALT gate**, replicated verbatim from ts38pf's stage 5:
+`parent.em0 > 0.05` → LEAKED (permutation control failed) → HALT;
+`loss_drop_frac = (base.loss − parent.loss) / base.loss < 0.10` →
+NOT_LEARNED (the format lesson didn't transfer to the bare-NL rendering)
+→ HALT; else LEARNED → proceed to the target grid. Fallback if 3e-5
+HALTs: re-run the parent at 1e-4. No gate is ever recorded against this
+parent (`--no-record` only, same convention as `evt-ts38pp-parent` and
+`evt-ts38pf-preteachfmt-parent`). `snapshot_steps
+[1,2,4,8,16,32,64,128,167,256,512,1024,2048,3000]` — full model states,
+written via `train_sft.py`'s own `sft_snapshots/` dir (~155 MB each,
+only if that step is reached; fewer than 14 if the parent converges
+before step 2048).
+
+**Design — targets (3 arms × 10 sizes = 30 LoRA runs, `D_algo_bare`).**
+Verbatim `ts38_base.yaml` recipe — r128/α32 @1e-3, ε/k 0.002/5, batch
+128, seed 316, `require_full_epoch1`, every run must reach
+`stop_reason=converged` (`max_steps` is a bug signal,
+[[feedback-run-until-convergence]]) — differing only in θ0 and run id,
+at the full 10-point ts38dense grid {1000, 2154, 4642, 10000, 21544,
+46416, 100000, 146780, 215443, 316228}:
+
+| arm | run ids | θ0 | role |
+|---|---|---|---|
+| base | `evt-ts38mt-base-n<N>` | `evt-run1-base-v3-ext` | teach reference |
+| pp | `evt-ts38mt-pp-n<N>` | `evt-ts38pp-parent` (full FT) | elicit |
+| fmt | `evt-ts38mt-fmt-n<N>` | `evt-ts38mt-fmt-parent` (full FT, NEW) | teach |
+
+Every overlay `match_data_order_with: evt-ts38-base-n<N>` — the same
+frozen prefix every shipped ts38 family anchors to, so every arm at every
+size trains on the same packed data order at that size. For base and pp
+this makes `ts38mt-base`/`ts38mt-pp` **seed-identical re-runs** of
+already-shipped `evt-ts38-base-n<N>` (§6.14) / `evt-ts38pp-pretaught-n<N>`
+(§6.18, §6.21 for the 5 densification sizes), with adapter snapshots
+switched on — a free reproducibility check against the shipped EDL
+numbers, gated by the tolerance below, not a new measurement in its own
+right. `fmt` is the only genuinely new arm (no prior family shares its
+θ0). Adapter-only `snapshots: {n: 32, dense_until: 8}` (~48 MB each,
+schedule derived from each run's own `max_steps`, so converged small runs
+write fewer than 32). G5 zero-shot-EM recorded on all three arms (no
+pass/fail bar enforced, matching every prior ts38/ts38pp/ts38dense target
+run — descriptive evidence only). Per-step `grad_norm` and per-module
+gradient statistics are already logged by the harness for every LoRA
+run, so test 8 needs no new instrumentation.
+
+**Reproducibility-check tolerance (pre-registered, not left implicit).**
+Each of the 20 base/pp re-run cells' EDL/D at the OCV floor
+([[feedback-edl-floor-is-converged-val-per-run]]) must land within ≤5%
+relative of its already-shipped value — the same bar ts38dense used
+today to confirm its seed-1316 row agreed with seed-316 (decisions.md
+2026-08-21 "ts38dense pre-registration" Outcome item 3). This rests on
+one assumption, stated so a failure has a clear reading: adding a
+snapshot-write hook to an otherwise-identical config is pure I/O and
+does not perturb the training stream. A cell landing outside ≤5% is
+evidence AGAINST that assumption — a snapshot-hook side effect on the
+training run — not a reproducibility failure of the already-shipped
+§6.14/§6.18/§6.21 EDL numbers. The branch is pre-registered here so it
+cannot be re-drawn after seeing which way a mismatch, if any, points.
+
+**Readouts, tiered.** Owner: "do the training first then for the test do
+whatever is more convenient or is needed first" — tier order is build
+cost, not importance.
+
+*Tier 1 (owner's own signature table, quoted; build order as given).*
+
+| test | measures | elicit signature | teach signature |
+|---|---|---|---|
+| 1 | residual-stream linear probe for the sum, at θ0 and across snapshots | probe accuracy high at θ0 | low/near-chance at θ0 |
+| 6 | logit-lens depth of first answer digit | early emergence (shallow layer) | late emergence, or none |
+| 8 | grad-norm decay + ‖θ_t−θ0‖ from snapshots | one big early gradient step, then collapse | gradual, sustained descent |
+| 9 | ΔW relative norm / effective rank / overlap with W_base's top singular directions | effective rank ≈ 1, inside existing directions (LoRA scale is α/(2r) in this repo, `geode/train/lora.py`) | higher rank, new directions |
+| 10 | residual shift on task vs. generic text; direction consistency across examples | surgical, consistent shift | diffuse, inconsistent shift |
+
+**Test 1 discriminator (pre-registered, not optional).** The sum is a
+deterministic function of the operand tokens, so a linear probe with
+enough capacity can in principle *compute* it rather than *read* a
+computed representation — a failure mode this design must rule out, not
+just note. Run the probe at every layer, not one late layer, and record
+the layer-0 (post-embedding, pre-compute) accuracy as an explicit floor:
+a probe that already scores high at layer 0 is computing the sum from
+raw digit tokens, and that reading undercuts a "latent capability" claim
+regardless of how high accuracy goes at later layers. Judge task-probe
+accuracy at θ0 against that floor and against the op-notation positive
+control's ceiling, never in absolute terms — the same discipline the
+2026-08-16 evening correction imposed on ts38pp's own EDL scoring
+(decisions.md 2026-08-16 evening "CORRECTION").
+
+*Tier 2 (no owner signature pre-registered for either arm).* Test 4:
+cross-model activation patching θ_T → θ0. Test 7: J-lens.
+
+*Tier 3, gated on Tier 1 finding a latent sum to chase (no owner
+signature pre-registered).* Test 2: circuit Jaccard. Test 3: node-vs-edge
+ΔS. Test 5: DCM. All three need per-head hooks + attribution patching not
+otherwise justified if Tier 1 comes back negative.
+
+**Phase 0 (no new training — runs as soon as any box exists).** Tests
+1/6/9/10 on `evt-run1-base-v3-ext` → `evt-ts38pp-parent`, using its 3
+already-existing relay snapshots; both checkpoints already exist on
+`geode-store`. Test 9's ΔW here is a direct full-FT weight diff (no LoRA
+merge involved for this pair, since ts38pp's parent is full FT).
+
+**Cost, storage, HF repos.** Launcher's own printed estimate (per
+`--confirm-cost` discipline — nothing launches implicitly): ≈2.5–3 h on a
+4090 ≈ $1. `scripts/launch_ts38mt_family.sh` (`SIZES` override, never
+destroys the box): parent → HALT gate → grid base→pp→fmt per size →
+push each run to `mhieuuu/geode-store` (model + manifest, snapshots
+excluded) AND to `mhieuuu/geode-internals` with `--with-snapshots` →
+receiver-verify both repos. Storage breakdown: ≈46 GB worst case for the
+30 target runs (32 adapter snapshots × ~48 MB × 30 runs, fewer wherever
+a run converges before its schedule's ceiling) + ≤2.2 GB for the
+parent's full-state snapshots (≤14 × ~155 MB) ⇒ **≤~48 GB total on
+`geode-internals`**. `geode-internals` does not exist yet — created by
+this build, public, read requires no token (the owner's actual ask: both
+repos auto-readable without their permission), same no-secrets rule as
+`geode-store`. `hf_checkpoint.py`'s default ignore list is being
+extended to also cover `sft_snapshots/*` — `train_sft.py`'s own
+snapshot dir, distinct from the LoRA targets' `snapshots/`, which the
+ignore list already covers (`hf_checkpoint.py:129`/`:184`,
+`["snapshots/*"]` / `[f"runs/{run_id}/snapshots/*"]`, as of this
+writing). Without the `sft_snapshots/*` addition, the fmt parent's ~2 GB
+of full states would leak into the plain `geode-store` push (no
+`--with-snapshots` there) while the 30 targets' adapter snapshots are
+already correctly excluded — the asymmetry between the two trainers'
+snapshot directory names is exactly why the ignore-list change is
+needed, not a cosmetic rename.
+
+**Authorization state.** GPU spend authorized in principle — owner: "do
+the training first" — plus a promised box, not yet handed over.
+**Nothing launched; no box exists for this family yet.** Build (this
+entry, `configs/ts38mt_fmt_parent.yaml`, the 30 target overlays,
+`scripts/launch_ts38mt_family.sh`) is concurrent work by other sessions,
+referenced here by name, not asserted as landed. Box-prep caveat to
+carry forward: check the CUDA `ld.so.conf` compatibility bug on any new
+box from the owner's template FIRST — the same defect has hit both the
+ts38dense box and the ts38fs-tiny box (decisions.md 2026-08-21 "ts38dense
+pre-registration"; project-ts38fs-tiny-2026-08-20 memory).
+
+**Outcome: pending.** No GPU spend yet. Fill in after the parent's HALT
+gate resolves and the target grid + Phase-0 mechanistic readouts exist.

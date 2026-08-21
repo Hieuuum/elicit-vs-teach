@@ -1,0 +1,15 @@
+# ts38mt target-stage sweep point: n=21544, format-pretaught arm. Overlay
+# over ../../ts38mt_fmt.yaml. G7-matched against the shipped
+# evt-ts38-base-n21544 run (train_target.py:411). eval_every/max_steps/
+# min_steps copied verbatim from ts38_base_n21544.yaml (same recipe, only
+# theta0/snapshots differ).
+run_id: evt-ts38mt-fmt-n21544
+experiment:
+  match_data_order_with: evt-ts38-base-n21544
+data:
+  n_examples: 21544
+train:
+  eval_every: 25
+  max_steps: 5000
+  stopping:
+    min_steps: 169

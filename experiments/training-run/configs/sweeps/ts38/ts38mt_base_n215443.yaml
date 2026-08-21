@@ -1,0 +1,17 @@
+# ts38mt target-stage sweep point: n=215443, base arm. Overlay over
+# ../../ts38mt_base.yaml. G7-matched against the shipped
+# evt-ts38-base-n215443 run (arm-agnostic order_hash/n_examples check,
+# train_target.py:411) even though this run is itself a base arm — every
+# ts38mt arm anchors to the same shipped run. eval_every/max_steps/
+# min_steps copied verbatim from that run's own ts38_base_n215443.yaml
+# overlay.
+run_id: evt-ts38mt-base-n215443
+experiment:
+  match_data_order_with: evt-ts38-base-n215443
+data:
+  n_examples: 215443
+train:
+  eval_every: 250
+  max_steps: 34000
+  stopping:
+    min_steps: 1684

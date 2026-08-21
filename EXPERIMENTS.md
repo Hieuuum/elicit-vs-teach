@@ -1784,6 +1784,166 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `tests/experiments/scripts/test_config_completeness.py`. Full
     pre-registration: decisions.md 2026-08-21 "ts38dense pre-registration".
 
+22. **ts38mt — mechanistic tests on full-FT parents (elicit=ts38pp,
+    teach=full-FT format), 3 arms × 10 sizes with snapshots, on the same
+    38.7M TinyStories base. BUILT, NOT LAUNCHED — awaiting box (owner ask
+    2026-08-21 evening; box promised, not yet handed over).** Headline
+    question: is the sum linearly decodable from the residual stream on
+    bare-NL inputs at `evt-ts38pp-parent`'s θ0, even though its zero-shot
+    NL EM there is ≈0 (decisions.md 2026-08-16 evening ts38pp OUTCOME)?
+    Yes → a Jain-style suppressed capability sits behind ts38pp's
+    monotone-↓ EDL curve (§6.18); no → that curve reflects transferred
+    digit machinery, not a latent sum. Ten mechanistic-interpretability
+    tests, tiered by build cost, probe an elicit arm (θ0 =
+    `evt-ts38pp-parent`, the 4M-example full-FT op pre-teach parent,
+    §6.18) against a teach arm (θ0 = a NEW pre-teach-FORMAT parent —
+    permuted labels, algorithm absent, matched to ts38pp's method: full
+    FT, not LoRA, so the two parents differ only in data — "a controlled
+    experiment where the stage should roughly be similar," owner's
+    framing) plus a base arm.
+
+    **Interpretation caveat.** The owner's message literally reads
+    "ts38pp for teach and 4m full ft for elicit"; in this repo's naming
+    ts38pp IS the 4M op pre-teach parent. Read as format-parent = teach,
+    op-parent = elicit — the paper's own pairing (App. E.1.2 format vs.
+    App. E.2 algorithm) — not the literal string match.
+
+    **Parent (`evt-ts38mt-fmt-parent`, `configs/ts38mt_fmt_parent.yaml`).**
+    Full FT via `train_sft.py --init-from` the base `model/`, on
+    `D_preteachfmt.parquet` — ts38pf's exact 21,544-row op-notation,
+    permuted-label data and `order_hash` (§6.16), reused not
+    regenerated. LR **3e-5, pinned** = ts38pp parent's own full-FT LR
+    (§6.18's already-measured ladder) — no fresh sweep; same precedent
+    ts38pp used ("the ladder IS the sweep," owner-confirmed), applicable
+    here since both parents are full FT on the same base. `min_steps
+    167` / `max_steps 3340` / `eval_every 25` — ts38pf's own derivation
+    under `train_sft.py`'s step counting (`n_val = round(0.005·21544) =
+    108`, `n_train = 21436`, `21436 // 128 = 167` = one epoch; `max_steps`
+    is a 20-epoch ceiling, never binds). ε/k 0.002/5, batch 128, seed
+    316. **HALT gate**, replicated verbatim from ts38pf's stage 5
+    (§6.16): `parent.em0 > 0.05` → LEAKED (permutation control failed) →
+    HALT; `loss_drop_frac = (base.loss − parent.loss)/base.loss < 0.10`
+    → NOT_LEARNED (format lesson didn't transfer) → HALT; else LEARNED →
+    proceed. Fallback if 3e-5 HALTs: re-run at 1e-4. No gate ever
+    recorded (`--no-record` only, same convention as every ts38 parent).
+    `snapshot_steps [1,2,4,8,16,32,64,128,167,256,512,1024,2048,3000]` —
+    full model states via `train_sft.py`'s own `sft_snapshots/` dir
+    (~155 MB each, written only if that step is reached).
+
+    **Targets — 3 arms × 10 sizes = 30 LoRA runs, `D_algo_bare`.**
+    Verbatim `ts38_base.yaml` recipe (r128/α32 @1e-3, ε/k 0.002/5, batch
+    128, seed 316, `require_full_epoch1`, run to `stop_reason=converged`),
+    differing only in θ0 and run id, at the full 10-point ts38dense grid
+    {1000, 2154, 4642, 10000, 21544, 46416, 100000, 146780, 215443,
+    316228}:
+
+    | arm | run ids | θ0 | role |
+    |---|---|---|---|
+    | base | `evt-ts38mt-base-n<N>` | `evt-run1-base-v3-ext` | teach reference |
+    | pp | `evt-ts38mt-pp-n<N>` | `evt-ts38pp-parent` (full FT) | elicit |
+    | fmt | `evt-ts38mt-fmt-n<N>` | `evt-ts38mt-fmt-parent` (full FT, NEW) | teach |
+
+    Every overlay `match_data_order_with: evt-ts38-base-n<N>` — the same
+    frozen prefix every shipped ts38 family anchors to. For base and pp
+    this makes `ts38mt-base`/`ts38mt-pp` **seed-identical re-runs** of
+    already-shipped `evt-ts38-base-n<N>` / `evt-ts38pp-pretaught-n<N>`
+    (§6.18, §6.21), with adapter snapshots switched on — a free
+    reproducibility check, not a new measurement, gated by the tolerance
+    below. `fmt` is the only genuinely new arm. Adapter-only `snapshots:
+    {n: 32, dense_until: 8}` (~48 MB each, schedule scales off each run's
+    own `max_steps` so converged runs write fewer). G5 zero-shot-EM
+    recorded on all three arms (no pass/fail bar, matching every prior
+    ts38/ts38pp/ts38dense target run). Per-step `grad_norm` and
+    per-module gradstats are already logged by the harness — test 8
+    needs no new instrumentation.
+
+    **Reproducibility-check tolerance (pre-registered).** Each of the 20
+    base/pp re-run cells' EDL/D at the OCV floor must land within ≤5%
+    relative of its shipped value (the same bar ts38dense used to
+    confirm its seed-1316 row agreed with seed-316, decisions.md
+    2026-08-21), on the assumption that adding a snapshot-write hook is
+    pure I/O and does not perturb the training stream. A cell outside
+    that bar is evidence against that assumption — a snapshot-hook side
+    effect — not a reproducibility failure of the already-shipped
+    §6.18/§6.21 numbers.
+
+    **Readouts, tiered** (owner: "do whatever is more convenient or is
+    needed first" — order is build cost, not importance; the five Tier-1
+    signature pairs are the owner's own table, quoted):
+
+    | test | measures | tier | elicit signature | teach signature |
+    |---|---|---|---|---|
+    | 1 | residual-stream linear probe, sum, at θ0 + across snapshots | 1 | probe accuracy high at θ0 | low/near-chance at θ0 |
+    | 6 | logit-lens depth of first answer digit | 1 | early emergence (shallow layer) | late emergence, or none |
+    | 8 | grad-norm decay + ‖θ_t−θ0‖ from snapshots | 1 | one big early step, then collapse | gradual, sustained descent |
+    | 9 | ΔW relative norm / effective rank / top-singular overlap with W_base | 1 | effective rank ≈ 1, inside existing directions | higher rank, new directions |
+    | 10 | residual shift, task vs. generic text; direction consistency | 1 | surgical, consistent shift | diffuse, inconsistent shift |
+    | 4 | cross-model activation patching θ_T → θ0 | 2 | not pre-registered | not pre-registered |
+    | 7 | J-lens | 2 | not pre-registered | not pre-registered |
+    | 2 | circuit Jaccard | 3, gated on Tier 1 finding a latent sum | not pre-registered | not pre-registered |
+    | 3 | node-vs-edge ΔS | 3, gated | not pre-registered | not pre-registered |
+    | 5 | DCM | 3, gated | not pre-registered | not pre-registered |
+
+    Probe inputs, for tests 1/6/10: bare-NL target prompts (task),
+    op-notation (positive control, meaningful only on the pp parent — the
+    fmt/base parents were never taught the op mapping either), held-out
+    TinyStories (generic/negative control). **Test 1 discriminator
+    (pre-registered, not optional):** run the probe at every layer, not
+    one late layer, and report the layer-0 (post-embedding, pre-compute)
+    accuracy as a floor — a linear probe that already scores high at
+    layer 0 is computing the sum from raw digit tokens, not reading a
+    computed representation, and that would undercut a "latent
+    capability" reading regardless of downstream-layer accuracy. Judge
+    task-probe accuracy against that floor and the op-notation ceiling,
+    not in absolute terms — the same discipline the 2026-08-16 evening
+    correction imposed on ts38pp's own scoring (§6.18).
+
+    **Phase 0 (no new training, runs as soon as any box exists).** Tests
+    1/6/9/10 on `evt-run1-base-v3-ext` → `evt-ts38pp-parent` and its 3
+    existing relay snapshots — both checkpoints already exist; test 9's
+    ΔW is a direct full-FT weight diff, no LoRA merge needed for this
+    pair.
+
+    **Cost, storage, HF repos.** Launcher's own printed estimate: ≈2.5–3 h
+    on a 4090 ≈ $1 (`scripts/launch_ts38mt_family.sh`, `--confirm-cost`,
+    `SIZES` override, never destroys the box); parent → HALT gate → grid
+    base→pp→fmt per size → push to `mhieuuu/geode-store` (model +
+    manifest, snapshots excluded) AND to the NEW public
+    `mhieuuu/geode-internals` (`--with-snapshots`) → receiver-verify
+    both. Storage: ≈46 GB worst case for the 30 target runs (32 adapter
+    snapshots × ~48 MB × 30, fewer where a run converges early) + ≤2.2 GB
+    for the parent's full-state snapshots (≤14 × ~155 MB) ⇒ **≤~48 GB on
+    `geode-internals`**. `geode-internals` was created 2026-08-21 (public,
+    README describes the layout; no auth required to read — both HF repos
+    are readable with no token, per the owner's ask), same no-secrets
+    discipline as `geode-store`. `hf_checkpoint.py`'s default ignore list is being
+    extended to also cover `sft_snapshots/*` (the full-FT parent's own
+    snapshot dir, distinct from LoRA's `snapshots/`) — without that
+    change the parent's ~2 GB of full states would leak into the plain
+    `geode-store` push while the targets' adapter snapshots are already
+    correctly excluded there.
+
+    **Caveats.** GPU spend authorized in principle (owner: "do the
+    training first" + a promised box) but **not launched — no box yet**.
+    Check the CUDA `ld.so.conf` compat bug on any new box from the owner
+    template FIRST (same defect hit twice already, ts38dense/ts38fs-tiny
+    memory). No existing ts38-family launcher's asserted-count glob
+    collides with a `ts38mt_` prefix (checked:
+    `launch_ts38fs_family.sh:501`'s `ts38fs_i*_n*_s*.yaml`/55 and
+    `launch_ts38fs_tiny_family.sh`'s `ts38fs_tiny_i*_n*.yaml` are the
+    only such asserts in the ts38 tree). Exact overlay filenames are the
+    concurrent build's call — this entry fixes run ids, θ0 mapping, and
+    pinned values only.
+
+    **Files (concurrent build, named here for cross-reference).**
+    `configs/ts38mt_fmt_parent.yaml`; target bases `configs/ts38mt_base.yaml`
+    / `ts38mt_pp.yaml` / `ts38mt_fmt.yaml` (verbatim `ts38_base.yaml` /
+    `ts38pp_pretaught.yaml` + snapshots on); 30 overlays
+    `configs/sweeps/ts38/ts38mt_{base,pp,fmt}_n<N>.yaml`; `scripts/
+    launch_ts38mt_family.sh`; Phase-0 analysis `analysis/logit_lens.py`,
+    `analysis/weight_diff.py`, `analysis/resid_shift.py` (+ `mech_lib.py`). Full pre-registration: decisions.md
+    2026-08-21 (night) "ts38mt pre-registration".
+
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1
 family + runs 2–4 incl. sweeps — the 38.7M scale keeps whole run
