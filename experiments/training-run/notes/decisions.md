@@ -9171,3 +9171,143 @@ launcher's own log -- `push_run` pushes full weights immediately after
 each cell trains, so nothing was waiting on the final metadata-only pass.
 Figures and CSV regenerated (35/35 cells) at the same paths as the
 30-cell version above.
+
+## 2026-08-21 — ts38dense pre-registration (10-point densification of base / ts38pp / ts38fs-i1000)
+
+**Motivation.** Owner's verbatim framing this session: "I want to run
+ts38fs format install for i=1k and ts-38pp for more log-spaced data
+points … we can also do the datapoints in between and reuse existing
+ones." Three arms on the same 38.7M TinyStories base — base (§6.14),
+ts38pp (§6.18), and ts38fs's own i=1000 dose point (§6.20) — are each
+measured at only 5 log-spaced target sizes. Three separate open questions
+already rest on the coarse spacing of that same 5-point grid: does base's
+own EDL/D peak really sit at n≈21544 (§6.17), is ts38pp's Table-5
+monotone-↓ verdict robust to finer spacing around its one above-base point
+at n=4642 (decisions.md 2026-08-16 evening "CORRECTION"), and does ts38fs
+i=1000's hump really localize near n≈21544 (decisions.md 2026-08-20 "ts38fs
+pre-registration")? Doubling the grid density lets all three be read
+against a finer curve using only already-shipped and already-planned
+parents — no new datagen, no new installs.
+
+**Why 10 points, not §6.17's original 13-point design.** §6.17 ("ts38grid")
+paired this same densification question with a small-n bracket
+{128, 256, 512} probing whether the paper-style rising limb lies below
+n=1000. Put to the owner this session, the answer was explicit: "no need
+for below 1k." Densification survives; the bracket does not. The 5 new
+sizes are byte-identical to §6.17's own densification half — {2154, 10000,
+46416, 146780, 215443}, ⅓-decade spacing from 10³ to 10⁵ then ⅙-decade
+spacing up to 316228 — union the 5 already-shipped sizes
+{1000, 4642, 21544, 100000, 316228}, 10 points total, ascending. Final
+owner instruction: "go with 10 points, build it."
+
+**Why three arms, not the four §6.17 grid arms.** §6.17's design put base,
+ts38mw-pretaught, and ts38pf-pretaught-format on the densified grid. This
+session's owner request names only two elicit-style arms explicitly —
+ts38pp and ts38fs (i=1000) — plus base, which every ts38-family arm needs
+as its own comparison reference and G7 anchor at any new size. ts38mw and
+ts38pf are NOT extended: their grids stay at 5 points, untouched.
+
+**Design — grid and arms.** Per size (ascending), train base → pp → fs, in
+that order (load-bearing: pp's `match_data_order_with` needs that size's
+base manifest on disk before it can be validated; fs has no such
+dependency but keeps the same order for consistency with every other ts38
+family). 15 new target runs, 0 new parents.
+
+| arm | run ids (5 NEW sizes) | theta0 | overlay | G7 | reuse (5 shipped sizes) |
+|---|---|---|---|---|---|
+| base | `evt-ts38-base-n{2154,10000,46416,146780,215443}` | `evt-run1-base-v3-ext` | `ts38_base_n<N>.yaml` (already exists, §6.17) | IS the anchor | `evt-ts38-base-n{1000,4642,21544,100000,316228}` |
+| pp | `evt-ts38pp-pretaught-n{2154,10000,46416,146780,215443}` | `evt-ts38pp-parent` (full FT, no merge) | `ts38pp_pretaught_n<N>.yaml` (NEW) | paired to base | `evt-ts38pp-pretaught-n{1000,4642,21544,100000,316228}` |
+| fs (i=1000) | `evt-ts38fs-i1000-n{2154,10000,46416,146780,215443}-s316` | `evt-ts38fs-parent-n1000` (merged) | `ts38fs_dense_i1000_n<N>.yaml` (NEW) | none (never has been) | `evt-ts38fs-i1000-n{1000,4642,21544,100000,316228}-s316` |
+
+**Overlay-filename rationale.** The fs arm's new overlays are named
+`ts38fs_dense_i1000_n<N>.yaml`, NOT `ts38fs_i1000_n<N>_s316.yaml`, even
+though the latter would match the family's normal naming convention more
+closely. Reason: `launch_ts38fs_family.sh:501` globs
+`ts38fs_i*_n*_s*.yaml` and asserts the match count is exactly 55 (the
+family's own net-new target count) — a same-shaped filename for these 5
+NEW densification cells would silently inflate that count to 60 and trip
+the assertion. The `_dense_` infix keeps the two launchers' file sets
+disjoint by construction, not by a count that has to be remembered and
+updated.
+
+**Reuse.** 15 of the 30 arm×size cells (5 per arm, all at the 5 shipped
+sizes) are pure reads, not retrained — see the table above. Everything
+else is new. In particular, ts38fs's i=1000 dose point already carries TWO
+seeds (316, 1316) at the 5 shipped sizes; the 5 NEW densification sizes get
+seed 316 ONLY. This is a pre-declared asymmetry, not an oversight —
+seed-1316/2316 coverage at the new sizes is out of scope for this session,
+matching the same discipline ts38fs's own pre-registration used for the
+base-arm seed-count asymmetry (decisions.md 2026-08-20, caveat 2). The base
+arm's 5 new-size runs are themselves new measurements (not reuse) and
+become the G7 anchor for any future pp/pf/mw run at those sizes, exactly as
+every prior new ts38 base-arm size has.
+
+**Pins** (`eval_every`/`max_steps`/`min_steps`), identical across all three
+arms and identical to the `ts38_base_n<N>.yaml` overlays §6.17 already
+built for these 5 sizes (`min_steps = ceil(n/128)`, ceilings ≥20 epochs,
+never bind, per [[feedback-run-until-convergence]]):
+
+| n | eval_every | max_steps | min_steps |
+|---|---|---|---|
+| 2,154 | 5 | 1,000 | 17 |
+| 10,000 | 10 | 2,000 | 79 |
+| 46,416 | 55 | 11,000 | 363 |
+| 146,780 | 175 | 23,000 | 1,147 |
+| 215,443 | 250 | 34,000 | 1,684 |
+
+Recipe otherwise verbatim across every arm and every size: LoRA r128/α32
+@1e-3, ε/k 0.002/5, batch 128, seed 316, `require_full_epoch1`, run until
+convergence (`stop_reason=converged` required on every run, `max_steps` is
+a bug signal, never accepted silently), OCV floor primary
+([[feedback-edl-floor-is-converged-val-per-run]]).
+
+**G5 convention.** Mirrors each arm's own family, not a new family-wide
+rule: base and pp record G5 zero-shot-EM evidence at every new size (no
+pass/fail bar enforced, matching every prior ts38/ts38mw/ts38pp target
+run); fs cells do NOT record G5 — ts38fs proper (§6.20) never recorded it
+either, and this extension doesn't change that.
+
+**Cost estimate.** ≈43 min/arm on a 4090, interpolated from ts38pf's/§6.17's
+own measured per-run wall clock at the 5 shipped sizes (1.7 / 2.1 / 6.4 /
+10.5 / 23.6 min) ⇒ ≈2.5 h wall-clock for the 3 arms × 5 new sizes each, ≈$1
+at $0.35–0.45/h. Build is local-only, $0 (overlays + launcher, no GPU).
+
+**Frozen readouts** (no new bars; the densification half of §6.17's own
+shelved readout, minus the small-n bracket half — decided before any
+number from this family exists, no bar moves after seeing results):
+
+1. Each arm's argmax of EDL/D over its 10 points, under the OCV floor
+   (primary, [[feedback-edl-floor-is-converged-val-per-run]]) and the
+   paper/test floor. A "local hump" counts ONLY as a local maximum
+   strictly interior to the grid under BOTH floors — a peak at either
+   endpoint is a bracketing failure, not a hump (same criterion §6.17
+   pre-registered for its own 13-point grid).
+2. ts38pp's Table-5 shape classification (monotone ↓ = elicitation-shaped
+   per App. E.2, vs ↑↓ otherwise) re-scored over the 10-point grid — the
+   existing 5-point ↓ verdict (decisions.md 2026-08-16 evening
+   "CORRECTION": 2.616→1.732→1.416→0.553→0.212 nats /
+   3.774→2.499→2.043→0.797→0.306 bits per §6.18's OUTCOME table, monotone
+   non-increasing but ABOVE base at n=4642) is what this stress-tests; the
+   n=4642 above-base point is now bracketed by 2154 and 10000, which
+   should show whether that bump is a real local rise or an artifact of
+   the coarse original spacing.
+3. ts38fs i=1000's hump location at n≈21544 (decisions.md 2026-08-20
+   "ts38fs pre-registration"; §6.16's ts38pf entry, whose own i=21544 point
+   is the reused row here) localized by the new 10000/46416 points on
+   either side.
+4. The base arm's own ↑↓ peak (≈21544, first read under §6.17) localized
+   the same way, using its own 5 new points.
+
+Report as-is in every case; position-vs-base is descriptive only, never a
+pass/fail verdict on its own (per the 2026-08-16 evening correction — see
+§6.18's OUTCOME and the same-day CORRECTION entry above in this file).
+
+**Authorization state.** BUILD and GPU SPEND both authorized by the owner
+2026-08-21 in the same session — "go with 10 points, build it", then the
+owner provisioned the box themselves (`192.80.148.226:41806`, owner's own
+rental, same IP/template as the ts38fs-tiny box) and said "ssh in to start
+the run when you are done". `--confirm-cost` discipline still applies
+(the launcher prints its estimate and refuses without the flag); nothing
+launches implicitly. Box teardown stays the owner's call.
+
+**Outcome: (pending launch)**

@@ -25,6 +25,16 @@ REUSE the ts38pf family's own 5 runs (evt-ts38pf-preteachfmt-n<n>) rather
 than retraining under an evt-ts38fs- id — spliced in here by hand, exactly as
 launch_ts38fs_family.sh's own final milestone says to.
 
+ts38dense (EXPERIMENTS §6.21, decisions.md 2026-08-21 "ts38dense
+pre-registration") extends the i=1000 dose point ONLY, at seed 316 ONLY,
+with 5 densified target sizes n in {2154, 10000, 46416, 146780, 215443}
+(``evt-ts38fs-i1000-n<n>-s316``, trained from a differently-named overlay,
+``ts38fs_dense_i1000_n<n>.yaml``, chosen so the launcher's exactly-55
+``ts38fs_i*_n*_s*.yaml`` glob guard stays unaffected — see
+``scripts/launch_ts38dense_family.sh``). This is NOT a cartesian extension
+against every install or seed: those (i, n, s) combinations were never
+trained and would sit "pending" forever if enumerated here. 65 cells total.
+
 This script is SAFE TO RUN WHILE THE SWEEP IS STILL TRAINING: it only reads
 whatever cells exist locally and reports the rest as pending, rather than
 failing. Re-run any time to refresh the CSV/figure as more cells land.
@@ -59,16 +69,31 @@ LN2 = math.log(2.0)
 INSTALLS = (1000, 4642, 21544, 100000)
 SIZES = (1000, 4642, 21544, 100000, 316228)
 SEEDS = (316, 1316, 2316)
+
+# ts38dense (EXPERIMENTS §6.21, decisions.md 2026-08-21 "ts38dense
+# pre-registration"): 5 densified target sizes at the i=1000 dose point,
+# seed 316 ONLY (the i=1000/s=316 row already has a second seed, 1316, at
+# the 5 shipped SIZES; the 5 new sizes get seed 316 only — a pre-declared
+# asymmetry). Deliberately NOT crossed against every install or seed: those
+# (i, n, s) combinations were never run.
+DENSE_SIZES = (2154, 10000, 46416, 146780, 215443)
+DENSE_INSTALL = 1000
+DENSE_SEED = 316
+DENSE_CELLS: tuple[tuple[int, int, int], ...] = tuple(
+    (DENSE_INSTALL, n, DENSE_SEED) for n in DENSE_SIZES
+)
+
 # Total non-reused cells this launcher trains (55) + the 5 reused ts38pf
-# rows this script splices in by hand = the full 60-cell grid.
-TOTAL_CELLS = len(INSTALLS) * len(SIZES) * len(SEEDS)
+# rows this script splices in by hand + the 5 ts38dense cells (i=1000,
+# s=316 only) = the full 65-cell grid.
+TOTAL_CELLS = len(INSTALLS) * len(SIZES) * len(SEEDS) + len(DENSE_CELLS)
 
 TS38FS_RE = re.compile(r"^evt-ts38fs-i(\d+)-n(\d+)-s(\d+)$")
 TS38PF_REUSED_RE = re.compile(r"^evt-ts38pf-preteachfmt-n(\d+)$")
 
 
 def expected_cells() -> list[tuple[int, int, int]]:
-    return [(i, n, s) for s in SEEDS for i in INSTALLS for n in SIZES]
+    return [(i, n, s) for s in SEEDS for i in INSTALLS for n in SIZES] + list(DENSE_CELLS)
 
 
 def run_id_for(i: int, n: int, s: int) -> str:
@@ -160,7 +185,9 @@ def plot(df: pd.DataFrame, out: Path, n_complete: int) -> None:
             if series.empty:
                 continue
             color = DOSE_COLOR[i]
-            ax.plot(series["n"], series["edl_per_token_bits"], color=color, lw=1.8, alpha=0.9, zorder=2)
+            ax.plot(
+                series["n"], series["edl_per_token_bits"], color=color, lw=1.8, alpha=0.9, zorder=2
+            )
             ax.plot(
                 series["n"],
                 series["edl_per_token_bits"],
@@ -175,9 +202,7 @@ def plot(df: pd.DataFrame, out: Path, n_complete: int) -> None:
             )
         non_converged = sub[sub["stop_reason"] != "converged"]
         for _, r in non_converged.iterrows():
-            ax.scatter(
-                [r["n"]], [r["edl_per_token_bits"]], marker="x", s=90, color="red", zorder=4
-            )
+            ax.scatter([r["n"]], [r["edl_per_token_bits"]], marker="x", s=90, color="red", zorder=4)
         ax.axhline(0.0, color="#999999", lw=0.8, ls=":", zorder=1)
         ax.set_xscale("log")
         ax.set_xlabel("target examples $n$ (log scale)")
@@ -234,7 +259,9 @@ def main() -> None:
     print(f"[ts38fs] wrote {csv_path}  ({len(df)}/{TOTAL_CELLS} cells complete)")
 
     if pending:
-        print(f"[ts38fs] {len(pending)} cell(s) still pending (sweep in progress or not yet reached):")
+        print(
+            f"[ts38fs] {len(pending)} cell(s) still pending (sweep in progress or not yet reached):"
+        )
         by_seed: dict[int, list[str]] = {}
         for i, n, s in pending:
             by_seed.setdefault(s, []).append(f"i{i}-n{n}")

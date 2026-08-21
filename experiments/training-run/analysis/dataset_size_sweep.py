@@ -44,18 +44,24 @@ and every metric are identical, only the target task differs:
   / "pre-taught-mw (elicit)".
 - ``ts38pp`` — same ts38 design, NEW theta0 for the pre-taught arm: the
   paper-protocol pre-teach parent (a full-FT parent trained one epoch on 4M
-  unique op-notation examples, then LoRA targets). The base arm is REUSED,
-  not retrained — same ``evt-ts38-base-n<size>`` ids as ``ts38``/``ts38mw``
-  — while the pretaught arm gets its own ``evt-ts38pp-pretaught-n<size>``
-  ids over the same 5-point grid. Distinct ``_ts38pp`` stem. Condition
-  labels: "base (teach)" (shared with ``ts38``/``ts38mw``) / "pre-teach 4M
-  full-FT" — deliberately not asserting "(elicit)" (same reasoning as
-  ``ts38pf``'s label in ``edl_converged_val_floor.py``: whether this arm is
-  elicit-shaped is an open question, not something to assert in its label).
+  unique op-notation examples, then LoRA targets). The base arm is REUSED
+  at the 5 shipped sizes — same ``evt-ts38-base-n<size>`` ids as
+  ``ts38``/``ts38mw`` — and NEW at the 5 densification sizes (measured
+  fresh, not read by ``ts38``/``ts38mw``, which stay on the 5-point
+  ``TS38_SIZES`` grid); the pretaught arm gets its own
+  ``evt-ts38pp-pretaught-n<size>`` ids at every size. Both arms sweep
+  ``TS38PP_SIZES``, the 10-point densified grid (EXPERIMENTS §6.21
+  "ts38dense", decisions.md 2026-08-21). Distinct ``_ts38pp`` stem.
+  Condition labels: "base (teach)" (shared with ``ts38``/``ts38mw``) /
+  "pre-teach 4M full-FT" — deliberately not asserting "(elicit)" (same
+  reasoning as ``ts38pf``'s label in ``edl_converged_val_floor.py``:
+  whether this arm is elicit-shaped is an open question, not something to
+  assert in its label).
 
-38 target runs per family (19-size Fig-2 grid) except ``ts38``/``ts38mw``/
-``ts38pp``, which sweep 5 sizes (10 target runs each, EXPERIMENTS
-§6.14/§6.15 for the first two). In no case does the family's
+38 target runs per family (19-size Fig-2 grid) except ``ts38``/``ts38mw``,
+which sweep 5 sizes (10 target runs each, EXPERIMENTS §6.14/§6.15), and
+``ts38pp``, which sweeps the 10-point ``TS38PP_SIZES`` grid (20 target
+runs, EXPERIMENTS §6.21 "ts38dense"). In no case does the family's
 installer/parent run count as a sweep point.
 
 Reads each run's manifest via ``geode.zoo`` — ``experiment.target_result``
@@ -168,6 +174,25 @@ TS38_ARM: dict[str, tuple[str, str]] = {
     "inst": ("pretaught", "pre-taught (elicit)"),
 }
 
+# ts38pp's own grid (EXPERIMENTS §6.21 "ts38dense" — 10-point densification
+# of TS38_SIZES, decisions.md 2026-08-21 "ts38dense pre-registration").
+# ts38/ts38mw stay on the 5-point TS38_SIZES; only ts38pp densifies, so this
+# is a separate constant rather than widening TS38_SIZES itself. TS38_SIZES
+# (the 5 shipped sizes) union 5 NEW sizes — 1/3-decade spacing from 10**3 to
+# 10**5, then 1/6-decade spacing up to 316228 — ascending order.
+TS38PP_SIZES: tuple[int, ...] = (
+    1000,
+    2154,
+    4642,
+    10000,
+    21544,
+    46416,
+    100000,
+    146780,
+    215443,
+    316228,
+)
+
 # ts38mw (EXPERIMENTS §6.15) reuses ts38's base arm run-for-run (the SAME
 # evt-ts38-base-n<size> ids — that arm is not retrained) and pairs it with a
 # NEW pretaught arm under its own evt-ts38mw- prefix. Unlike every other
@@ -223,7 +248,8 @@ def default_run_ids(family: str = DEFAULT_FAMILY) -> list[str]:
     """One family's full sweep: both conditions at every size, ascending n.
 
     38 runs (19 sizes x 2 conditions) for every Llama family; 10 runs
-    (``TS38_SIZES`` x 2) for ``ts38``, ``ts38mw``, and ``ts38pp``.
+    (``TS38_SIZES`` x 2) for ``ts38`` and ``ts38mw``; 20 runs
+    (``TS38PP_SIZES`` x 2) for ``ts38pp`` (EXPERIMENTS §6.21 "ts38dense").
     """
     if family == "ts38mw":
         # base is the SAME evt-ts38-base-n<n> id the ts38 family reads (that
@@ -235,12 +261,14 @@ def default_run_ids(family: str = DEFAULT_FAMILY) -> list[str]:
             for cond in CONDITIONS
         ]
     if family == "ts38pp":
-        # base is the SAME evt-ts38-base-n<n> id the ts38 family reads (that
-        # arm is reused, not retrained); only the pretaught side gets its
-        # own evt-ts38pp- prefix.
+        # base is the SAME evt-ts38-base-n<n> id the ts38 family reads at
+        # the 5 shipped TS38_SIZES (reused, not retrained); at the 5 NEW
+        # densification sizes it is a NEW evt-ts38-base-n<n> measurement
+        # that ts38/ts38mw never read (they stay on TS38_SIZES). The
+        # pretaught side gets its own evt-ts38pp- prefix at every size.
         return [
             f"{TS38PP_PREFIX[cond]}-{TS38PP_ARM[cond][0]}-n{n}"
-            for n in TS38_SIZES
+            for n in TS38PP_SIZES
             for cond in CONDITIONS
         ]
     prefix = FAMILIES[family][0]

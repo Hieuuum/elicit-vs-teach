@@ -465,14 +465,50 @@ def test_ts38mw_stem_distinct_from_ts38() -> None:
 
 
 def test_ts38pp_default_run_ids_are_the_reused_base_plus_new_pp_pretaught() -> None:
-    """default_run_ids('ts38pp') interleaves the SAME evt-ts38-base ids the ts38
-    family points at with a NEW evt-ts38pp-pretaught arm, same order convention
-    (per size: base then pretaught) as the ts38 family."""
+    """default_run_ids('ts38pp') interleaves evt-ts38-base ids (reused at the 5
+    shipped sizes, new measurements at the 5 densification sizes) with a NEW
+    evt-ts38pp-pretaught arm, same order convention (per size: base then
+    pretaught) as the ts38 family — now over the 10-point TS38PP_SIZES grid
+    (EXPERIMENTS §6.21 "ts38dense")."""
     expected = [
-        id_ for n in dss.TS38_SIZES for id_ in (f"evt-ts38-base-n{n}", f"evt-ts38pp-pretaught-n{n}")
+        id_
+        for n in dss.TS38PP_SIZES
+        for id_ in (f"evt-ts38-base-n{n}", f"evt-ts38pp-pretaught-n{n}")
     ]
     assert dss.default_run_ids("ts38pp") == expected
-    assert len(expected) == 10
+    assert len(expected) == 20
+
+
+def test_ts38pp_sizes_is_ten_point_densified_grid() -> None:
+    """TS38PP_SIZES is TS38_SIZES (the 5 shipped sizes) union the 5 new
+    densification sizes, ascending, 10 points total. TS38_SIZES itself must
+    stay untouched — it is still the 5-point grid ts38/ts38mw read."""
+    assert len(dss.TS38PP_SIZES) == 10
+    assert list(dss.TS38PP_SIZES) == sorted(dss.TS38PP_SIZES)
+    new_sizes = {2154, 10000, 46416, 146780, 215443}
+    assert set(dss.TS38PP_SIZES) == set(dss.TS38_SIZES) | new_sizes
+    assert len(dss.TS38_SIZES) == 5
+
+
+def test_ts38_and_ts38mw_run_id_counts_unchanged_by_ts38pp_densification() -> None:
+    """Adding TS38PP_SIZES must not widen TS38_SIZES or change ts38/ts38mw's
+    own run-id lists — only ts38pp densifies."""
+    assert len(dss.default_run_ids("ts38")) == 10
+    assert len(dss.default_run_ids("ts38mw")) == 10
+    assert dss.default_run_ids("ts38") == [
+        f"evt-ts38-{dss.TS38_ARM[cond][0]}-n{n}" for n in dss.TS38_SIZES for cond in dss.CONDITIONS
+    ]
+
+
+def test_ts38pp_new_densification_base_ids_are_new_not_shared_with_ts38() -> None:
+    """The 5 NEW densification-size base ids ts38pp reads must NOT be among
+    the ids ts38/ts38mw read — they are new measurements, not reuse."""
+    new_sizes = {2154, 10000, 46416, 146780, 215443}
+    ts38pp_ids = set(dss.default_run_ids("ts38pp"))
+    ts38_ids = set(dss.default_run_ids("ts38"))
+    new_base_ids = {f"evt-ts38-base-n{n}" for n in new_sizes}
+    assert new_base_ids <= ts38pp_ids
+    assert not (new_base_ids & ts38_ids)
 
 
 def test_ts38pp_ids_share_only_the_base_arm_with_ts38() -> None:

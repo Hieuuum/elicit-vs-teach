@@ -1251,6 +1251,10 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     pre-registered; only the launch (which box, whose money) is left with the
     owner.
 
+    *Update 2026-08-21:* this item's 5 densification-size `ts38_base_n<N>.yaml`
+    overlays are now consumed by §21 ("ts38dense") — the small-n bracket
+    overlays ({128, 256, 512}) remain unused, that question stays open.
+
 18. **ts38pp — paper-protocol pre-teach: full FT, ONE epoch over 4,000,000
     UNIQUE op-notation examples (Donoway et al. App. E.2's literal recipe),
     → NL target family. BUILT + pre-registered 2026-08-16, EXECUTED
@@ -1631,6 +1635,144 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     time, `--confirm-cost` discipline, nothing launches implicitly. Full
     pre-registration: decisions.md 2026-08-20 "ts38fs pre-registration
     (format-install dose sweep)".
+
+21. **ts38dense — 10-point densification of the base / ts38pp /
+    ts38fs-i1000 dose-curve grids, on the same 38.7M TinyStories base.
+    BUILT 2026-08-21, NOT LAUNCHED (owner provides the box).** Densifies
+    the target-size grid of three already-measured arms from 5 to 10
+    log-spaced points, reusing every shipped cell rather than retraining
+    anything: shipped sizes {1000, 4642, 21544, 100000, 316228}
+    (`TS38_SIZES`) union 5 NEW sizes {2154, 10000, 46416, 146780, 215443} —
+    ⅓-decade spacing from 10³ to 10⁵, then ⅙-decade spacing up to 316228
+    (the same 5 sizes §6.17 "ts38grid" already provisioned base overlays
+    for, before that launch was abandoned). Owner explicitly dropped the
+    sub-1000 bracket {128, 256, 512} that §6.17 had paired with this same
+    densification question — "no need for below 1k" — leaving
+    densification as the only surviving half of that shelved design.
+    Owner's verbatim framing this session: "I want to run ts38fs format
+    install for i=1k and ts-38pp for more log-spaced data points … we can
+    also do the datapoints in between and reuse existing ones" → "no need
+    for below 1k" → "go with 10 points, build it".
+
+    | n (10-point grid) | shipped/new | base run id | ts38pp run id | ts38fs (i=1000) run id |
+    |---|---|---|---|---|
+    | 1,000 | shipped | `evt-ts38-base-n1000` | `evt-ts38pp-pretaught-n1000` | `evt-ts38fs-i1000-n1000-s316` |
+    | 2,154 | NEW | `evt-ts38-base-n2154` | `evt-ts38pp-pretaught-n2154` | `evt-ts38fs-i1000-n2154-s316` |
+    | 4,642 | shipped | `evt-ts38-base-n4642` | `evt-ts38pp-pretaught-n4642` | `evt-ts38fs-i1000-n4642-s316` |
+    | 10,000 | NEW | `evt-ts38-base-n10000` | `evt-ts38pp-pretaught-n10000` | `evt-ts38fs-i1000-n10000-s316` |
+    | 21,544 | shipped | `evt-ts38-base-n21544` | `evt-ts38pp-pretaught-n21544` | `evt-ts38fs-i1000-n21544-s316` |
+    | 46,416 | NEW | `evt-ts38-base-n46416` | `evt-ts38pp-pretaught-n46416` | `evt-ts38fs-i1000-n46416-s316` |
+    | 100,000 | shipped | `evt-ts38-base-n100000` | `evt-ts38pp-pretaught-n100000` | `evt-ts38fs-i1000-n100000-s316` |
+    | 146,780 | NEW | `evt-ts38-base-n146780` | `evt-ts38pp-pretaught-n146780` | `evt-ts38fs-i1000-n146780-s316` |
+    | 215,443 | NEW | `evt-ts38-base-n215443` | `evt-ts38pp-pretaught-n215443` | `evt-ts38fs-i1000-n215443-s316` |
+    | 316,228 | shipped | `evt-ts38-base-n316228` | `evt-ts38pp-pretaught-n316228` | `evt-ts38fs-i1000-n316228-s316` |
+
+    **Arms, theta0, and init paths.** `base`: theta0 `evt-run1-base-v3-ext`,
+    overlay `ts38_base_n<N>.yaml` (the 5 new-size overlays already exist
+    from §6.17; the 5 shipped are the original ts38 base overlays); this
+    arm's run at each new size is a NEW measurement (single seed, matching
+    the existing ts38 base-arm convention) and becomes the G7 anchor for
+    any future pp/pf/mw run at that size. `pp`: theta0 `evt-ts38pp-parent`
+    (full FT, no merge — the paper-protocol 4M-example pre-teach parent,
+    §6.18), overlay `ts38pp_pretaught_n<N>.yaml` (NEW for the 5
+    densification sizes), G7-paired to base (`match_data_order_with:
+    evt-ts38-base-n<N>`, same as every other ts38pp overlay). `fs` (i=1000
+    dose point only): theta0 `evt-ts38fs-parent-n1000` (merged — a LoRA
+    format-install parent, not full FT), overlay
+    `ts38fs_dense_i1000_n<N>.yaml` (NEW; this filename prefix, not
+    `ts38fs_i1000_n<N>_s316.yaml`, is deliberate — the launcher's
+    `ts38fs_i*_n*_s*.yaml` glob at `launch_ts38fs_family.sh:501` asserts
+    exactly 55 matches, and a 6th install-tagged file matching that glob
+    would break the assertion), no G7 pairing (`match_data_order_with`
+    stays null, matching every other ts38fs overlay — that family has never
+    anchored on base). 15 new target runs total (5 per arm), 0 new
+    parents — every parent (`evt-run1-base-v3-ext`, `evt-ts38pp-parent`,
+    `evt-ts38fs-parent-n1000`) already exists.
+
+    **Order is load-bearing.** Per size: base → pp → fs. pp's
+    `match_data_order_with` needs that size's base manifest to exist before
+    it can be validated, so base must land first at every new size; fs has
+    no G7 dependency but follows the same base→pp→fs sequence for
+    consistency with how every other ts38 family has ordered its arms.
+
+    **G5 convention** mirrors each arm's own family, not a new
+    family-wide rule: base and pp record G5 zero-shot-EM evidence (no
+    pass/fail bar enforced, matching every prior ts38/ts38mw/ts38pp target
+    run); fs cells do NOT record G5 — ts38fs proper (§6.20) never did, and
+    this extension doesn't change that.
+
+    **Reuse.** 15 of the 30 arm×size cells (5 per arm, all at the 5
+    shipped sizes) are pure reads of already-shipped runs, not retrained:
+    the base arm's `evt-ts38-base-n{1000,4642,21544,100000,316228}` (shared
+    across the whole ts38 family tree), the pp arm's
+    `evt-ts38pp-pretaught-n{1000,4642,21544,100000,316228}` (§6.18), and
+    the fs arm's `evt-ts38fs-i1000-n{1000,4642,21544,100000,316228}-s316`
+    (§6.20's own i=1000/s=316 row). ts38fs's i=1000 dose point already has
+    TWO seeds (316, 1316) at these 5 shipped sizes; the 5 new
+    densification sizes get seed 316 ONLY — a pre-declared asymmetry, not
+    an oversight (seed-1316/2316 coverage at the new sizes is out of scope
+    for this family).
+
+    **Pins** (`eval_every`/`max_steps`/`min_steps`, identical to the
+    existing §6.17 `ts38_base_n<N>.yaml` overlays for the 5 new sizes;
+    `min_steps = ceil(n/128)`, ceilings ≥20 epochs, never bind): 2154 →
+    5/1000/17; 10000 → 10/2000/79; 46416 → 55/11000/363; 146780 →
+    175/23000/1147; 215443 → 250/34000/1684. Recipe otherwise verbatim
+    across every arm and every size: LoRA r128/α32 @1e-3, ε/k 0.002/5,
+    batch 128, seed 316, `require_full_epoch1`, run until convergence
+    (`stop_reason=converged` required, `max_steps` is a bug signal), OCV
+    floor primary.
+
+    **Cost.** ≈43 min/arm on a 4090, interpolated from the measured 1.7 /
+    2.1 / 6.4 / 10.5 / 23.6 min at the 5 shipped sizes (§6.17's own
+    per-run timing table) ⇒ ≈2.5 h wall-clock for the 3 arms, ≈$1 at
+    $0.35–0.45/h.
+
+    **Frozen readouts** (no new bars; the densification half of §6.17's
+    shelved readout, minus the bracket). (i) Each arm's argmax of EDL/D
+    over its 10 points under the OCV floor (primary) and the paper/test
+    floor; a "local hump" counts only as a local max strictly interior to
+    the grid under BOTH floors. (ii) ts38pp's Table-5 shape classification
+    (§6.18: monotone ↓ vs ↑↓) re-scored over the 10-point grid — the
+    existing 5-point ↓ verdict (decisions.md 2026-08-16 evening
+    "CORRECTION") is what this stress-tests; the n=4642 above-base point
+    is now bracketed by 2154 and 10000. (iii) ts38fs i=1000's hump near
+    n≈21544 (decisions.md 2026-08-20 "ts38fs pre-registration"; §6.16's
+    ts38pf entry) localized by the new 10000/46416 points. (iv) the base
+    arm's own ↑↓ peak (≈21544, first measured under §6.17) localized the
+    same way. Report as-is; position-vs-base stays descriptive, never a
+    verdict (2026-08-16 correction, unchanged).
+
+    **Caveats.** No sub-1000 bracket — owner explicitly scoped this
+    session to densification only, dropping the {128, 256, 512} half of
+    §6.17's shelved design; whether the paper-style rising limb lies below
+    n=1000 stays open. The base arm's 5 new-size measurements are
+    single-seed (matching the existing base-arm convention, not a new
+    asymmetry). The ts38mw and ts38pf grids are untouched — still 5
+    points — this family densifies only base/ts38pp/ts38fs-i1000. Does
+    not touch ts38fs's other 3 dose points (i=4642/21544/100000) or its
+    seed-1316/2316 replication.
+
+    **Files.** 15 new overlays: 5
+    `configs/sweeps/ts38/ts38pp_pretaught_n<N>.yaml`, 5
+    `configs/sweeps/ts38/ts38fs_dense_i1000_n<N>.yaml` (the 5
+    `ts38_base_n<N>.yaml` overlays already existed from §6.17);
+    `scripts/launch_ts38dense_family.sh` (TAG `ts38dense`,
+    `--confirm-cost`, `SIZES` override, guards against relaunching any
+    already-shipped size); analysis wiring — `TS38PP_SIZES` added to
+    `analysis/dataset_size_sweep.py` (ts38/ts38mw stay on the 5-point
+    `TS38_SIZES`; only `ts38pp` densifies) and
+    `DENSE_CELLS`/`TOTAL_CELLS` (now 65) added to
+    `analysis/ts38fs_dose_curve.py`; `edl_converged_val_floor.py` needs no
+    change (`collect()` regex-discovers runs from the store, so the
+    widened ts38pp grid is picked up automatically), nor does
+    `plot_ts38_all_arms.py` (reads whatever `n` values are in each
+    family's committed CSV); new/updated tests in
+    `tests/experiments/analysis/test_dataset_size_sweep.py` and a new
+    `tests/experiments/analysis/test_ts38fs_dose_curve.py`, plus a
+    `ts38dense` section in
+    `tests/experiments/scripts/test_config_completeness.py`. Full
+    pre-registration: decisions.md 2026-08-21 "ts38dense pre-registration".
 
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1
