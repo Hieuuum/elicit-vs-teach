@@ -1,0 +1,71 @@
+# ts38fs-tiny stopping-rule CALIBRATION pilot, install size i=100. See
+# ts38fs_tiny_cal_n2.yaml for the full design note (calibration derivation,
+# why eps_nats=0.0 is a sentinel, why train_loss/batch==n_train); this file
+# differs only in run_id, data.file/order_hash, and batch_size == n_train.
+#
+# i=100 lands on the SAME side of the recipe boundary as i=2/10, not a new
+# regime: val_fraction=0.005 * n=100 rounds to 0 held-out rows, and even a
+# nonzero split would give batch_size(128) > n_train, i.e. 0 steps/epoch
+# under the ts38fs-proper recipe (ts38fs_parent_n1000.yaml's own header
+# shows n=1000 is the smallest size where that recipe still works: n_train
+# 995 // 128 = 7). So i=100 reuses train-loss full-batch stopping AND
+# cyclic_shift_labels (V5.78) rather than permute_labels -- introducing
+# permute_labels only at i=100 would create a third recipe (train-loss stop
+# + random shuffle) that exists nowhere else in the project; the dose curve
+# should vary install SIZE, not simultaneously vary the label-corruption
+# mechanism too. Checked before writing this config, not assumed:
+# `make_preteach_format.py --n 100 --cyclic-shift` raises if any duplicate
+# true_answer values in the 100-row slice make the single-position rotation
+# collide (real risk at this n, per cyclic_shift_labels's own docstring) --
+# it did not: 0/100 collisions against the real frozen D_algo prefix.
+#
+#   python3 train_sft.py --config ../configs/sweeps/dose_cal/ts38fs_tiny_cal_n100.yaml \
+#       --init-from ../../../geode-store/runs/evt-run1-base-v3-ext/model \
+#       --confirm-cost
+run_id: evt-ts38fs-tiny-cal-i100
+experiment:
+  name: training-run
+  arm: A
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext
+  parent_required_gates: []
+
+model:
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_op_preteachfmt
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_preteachfmt_n100.parquet  # 100 rows, cyclic-shift labels (V5.78) --
+                                     # make_preteach_format.py --n 100 --cyclic-shift
+  order_hash: e66dc109ff340a6d7c1cb94ecb72eb312a5f398725e24bbe0d2369de4386d9e8
+  local_path: experiments/training-run/data/full/D_preteachfmt_n100.parquet
+  seed: 316                     # manifest provenance only -- see n2 sibling
+
+lora:
+  r: 128
+  alpha: 32
+
+train:
+  lr: 1.0e-3
+  batch_size: 100                # == n_train (V5.65 hard requirement)
+  eval_every: 1
+  max_steps: 6000                # same generous ceiling as the n2/n10 pilots
+  stopping:
+    metric: train_loss
+    eps_nats: 0.0                # CALIBRATION SENTINEL -- see n2 sibling header
+    k: 5
+    min_steps: 0
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 6000
+
+cost:
+  assumed_epochs_for_estimate: 1

@@ -302,6 +302,7 @@ def test_n_prefix_respected():
         (100000, "D_preteachfmt_n100000.parquet", "ts38fs_parent_n100000.yaml"),
         (2, "D_preteachfmt_n2.parquet", "ts38fs_tiny_parent_n2.yaml"),
         (10, "D_preteachfmt_n10.parquet", "ts38fs_tiny_parent_n10.yaml"),
+        (100, "D_preteachfmt_n100.parquet", "ts38fs_tiny_parent_n100.yaml"),
     ],
 )
 def test_dst_filename_and_pin_config_name(n, expected_dst, expected_cfg):

@@ -132,7 +132,7 @@ def dst_filename(n: int) -> str:
     return f"{DST_STEM}_n{n}.parquet"
 
 
-TINY_SIZES = (2, 10)  # ts38fs-tiny (EXPERIMENTS §6.20+): cyclic-shift install sizes
+TINY_SIZES = (2, 10, 100)  # ts38fs-tiny (EXPERIMENTS §6.20+): cyclic-shift install sizes
 
 
 def pin_config_name(n: int) -> str:
