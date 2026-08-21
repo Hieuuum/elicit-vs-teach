@@ -9148,3 +9148,26 @@ data-driven instead of hardcoded to "i=2 and i=10"). `train_or_skip` means
 relaunching this script re-verifies but skips the 12 already-complete
 i=2/i=10 runs; only i=100's parent + 5 targets actually train this pass
 (~35-40 min of new compute on top of the 87 min already spent).
+
+**i=100 outcome.** Parent converged at step 130, exactly matching the
+calibration replay's prediction; format-acquisition verdict=LEARNED,
+loss_drop_frac=0.151 — between i=2 (0.212) and i=10 (0.135), confirming
+i=10 is a genuine local dip rather than i=2 being the outlier: the
+tiny-dose format-acquisition curve is non-monotonic across i=2->10->100,
+but all three sit far below the i>=1000 range (0.48-0.59) regardless. All
+5 target cells converged; full 35/35-cell grid, no crashes, no negative
+EDL. Re-running `ts38fs_tiny_dose_curve.py` refines the earlier "converges
+back onto the same curve by n=21544" read: i=100's own curve tracks
+slightly ABOVE the i>=1000 pack across the ENTIRE size range, not just at
+small n (e.g. n=316228: i=100 0.858 bits vs the i>=1000 cluster's
+0.716-0.817) -- a persistent small offset visible once a third tiny-dose
+point exists to confirm the pattern isn't just i=2/10 noise, though by
+n>=21544 the offset is within the i>=1000 family's own install-to-install
+spread and no longer a qualitatively distinct regime the way it is at
+n=1000/4642 (tiny doses 1.4-2.9x higher there). Weights for the parent and
+every target cell verified present on the relay (adapter.safetensors +
+model.safetensors, valid LFS sha256) mid-run, not just claimed by the
+launcher's own log -- `push_run` pushes full weights immediately after
+each cell trains, so nothing was waiting on the final metadata-only pass.
+Figures and CSV regenerated (35/35 cells) at the same paths as the
+30-cell version above.
