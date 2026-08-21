@@ -9310,4 +9310,69 @@ the run when you are done". `--confirm-cost` discipline still applies
 (the launcher prints its estimate and refuses without the flag); nothing
 launches implicitly. Box teardown stays the owner's call.
 
-**Outcome: (pending launch)**
+**Outcome (2026-08-21, launched 14:52 UTC, `TERMINAL_SUCCESS runs=15` at
+~17:25 UTC — 2h33m wall, on the ≈2.5 h estimate; commit `e2787b9`).** All
+15 new runs `stop_reason=converged`, receiver-verified on the relay by the
+launcher AND independently from the laptop (15 runs × manifest/eval_log/
+prequential/test_loss all present). Analysis:
+`edl_converged_val_floor.py --family ts38pp` (20/20 runs, 0 negative EDL),
+`dataset_size_sweep.py --family ts38pp` (20/20), `ts38fs_dose_curve.py`
+(37/65 cells = every cell that exists; the 28 "pending" are the killed
+sweep's never-run seed-1316/2316 cells, cosmetic), `plot_ts38_all_arms.py`.
+CSVs `edl_converged_val_floor_ts38pp.csv` / `edl_converged_val_floor_ts38fs.csv`
+regenerated and committed; figures laptop-only (gitignored). OCV floor
+primary; the test floor agrees with it to ≤0.02 bits at every one of the 30
+points below, so none of the shape calls depend on the floor.
+
+EDL/D in bits per label token, OCV floor, n = 1000 / 2154 / 4642 / 10000 /
+21544 / 46416 / 100000 / 146780 / 215443 / 316228 (NEW sizes in bold):
+
+| arm | curve | argmax | interior? | shape |
+|---|---|---|---|---|
+| base | 4.484 / **2.997** / 1.932 / **1.425** / 2.219 / **1.895** / 1.728 / **1.537** / **1.111** / 0.841 | n=1000 (endpoint) | no (global); YES for the local max at 21544 under both floors | D-R-D: falls to a trough at 10000, rises +56% to 21544, falls monotonically after |
+| ts38pp | 3.774 / **2.734** / 2.499 / **2.462** / 2.043 / **1.386** / 0.797 / **0.580** / **0.422** / 0.306 | n=1000 (endpoint) | n/a | **↓ monotone non-increasing at all 10 points, both floors** |
+| ts38fs i=1000 | 1.247 / **1.248** / 1.070 / **0.982** / 1.991 / **1.819** / 1.634 / **1.419** / **1.076** / 0.817 | **n=21544, INTERIOR** under both floors | YES | flat (1000→2154) → falls to a trough at 10000 → rises +103% to 21544 → falls monotonically after |
+
+Against the four frozen readouts:
+
+1. *Argmax / local hump.* ts38fs i=1000: global argmax at n=21544, strictly
+   interior, under both floors — a genuine local hump by the pre-registered
+   criterion, bracketed by 10000 (0.982) and 46416 (1.819). base: global
+   argmax sits at the n=1000 endpoint (so NOT a global interior hump), but
+   an interior local maximum at 21544 exists under both floors (1.425 →
+   2.219 → 1.895). ts38pp: argmax at the n=1000 endpoint, no interior max.
+2. *ts38pp Table-5 shape over 10 points.* **The 5-point ↓ verdict
+   (2026-08-16 evening CORRECTION) SURVIVES densification** — monotone
+   non-increasing at every one of the 10 points under both floors; the
+   only near-flat step is 4642→10000 (2.499→2.462). Descriptively (never a
+   verdict): ts38pp sits ABOVE base at n=4642 (1.29×) AND n=10000 (1.73×) —
+   the above-base stretch is a 2-point region, not the 1-point blip the
+   5-point grid showed — and that is because BASE dips to 1.425 at 10000
+   while ts38pp plateaus; ts38pp is below base at the other 8 sizes, down
+   to 0.36× at 316228.
+3. *ts38fs i=1000 hump localized.* Peak at 21544, rise confined to the
+   (10000, 21544] interval (+103% from the trough), decline from 21544 on
+   monotone through 46416/100000/146780/215443/316228. The seed-1316 row at
+   the 5 shipped sizes (1.234 / 1.098 / 2.012 / 1.555 / 0.780) agrees with
+   seed 316 to ≤5%, so the shape is not seed noise. NOTE vs App. E.1.2:
+   the "initial decreasing phase" the paper says pre-teaching format
+   removes is STILL present (1.248 at 2154 → 0.982 at 10000) — same
+   finding as ts38pf (§16), now at finer resolution.
+4. *Base peak localized.* The local hump at 21544 is bracketed by the new
+   10000 (1.425) and 46416 (1.895) points; at 5-point resolution it read
+   as a +15% rise over 4642, at 10-point resolution it is a +56% rise over
+   the 10000 trough — the coarse grid had been hiding a dip, not a plateau,
+   before the hump.
+
+Cross-arm observation (not pre-registered, descriptive): both arms WITHOUT
+the algorithm at θ0 (base, format-only install) jump between n=10000 and
+n=21544 (+56%, +103%); the arm WITH the algorithm installed (ts38pp) has no
+rise anywhere (2.462→2.043 across the same interval). That is the clearest
+localization so far of where the teaching-regime hump begins at this
+scale: between 10⁴ and 2×10⁴ examples, at the same place for base and for
+format-installed θ0. Whether the trough at 10000 (both arms) is a
+real feature or a single-seed fluctuation is the obvious next seed check.
+Overshoot ratios are large on two base runs (n=46416 1.88, n=215443 2.27 —
+converged val well above own min) but OCV and test floors still agree
+there, so no shape call depends on it. Box left running, NOT torn down —
+owner's call.

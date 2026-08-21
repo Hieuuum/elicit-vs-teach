@@ -1638,7 +1638,17 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
 
 21. **ts38dense — 10-point densification of the base / ts38pp /
     ts38fs-i1000 dose-curve grids, on the same 38.7M TinyStories base.
-    BUILT 2026-08-21, NOT LAUNCHED (owner provides the box).** Densifies
+    DONE 2026-08-21 — `TERMINAL_SUCCESS runs=15`, all converged,
+    pushed + receiver-verified; 2h33m on the owner's 4090. OUTCOME (OCV
+    floor, test floor agrees ≤0.02 bits): ts38pp stays monotone ↓ at all
+    10 points (the Table-5 elicitation-shaped verdict SURVIVES
+    densification); ts38fs-i1000 has a genuine INTERIOR hump at n=21544
+    (+103% over a trough at n=10000, seed-1316 agrees ≤5%); base's hump
+    at 21544 is also interior-local (+56% over its own n=10000 trough)
+    though its global argmax is the n=1000 endpoint. Both no-algorithm
+    arms jump between 10⁴ and 2×10⁴; the algorithm-installed arm never
+    rises. Full table + readout scoring: decisions.md 2026-08-21
+    "ts38dense pre-registration" → Outcome.** Densifies
     the target-size grid of three already-measured arms from 5 to 10
     log-spaced points, reusing every shipped cell rather than retraining
     anything: shipped sizes {1000, 4642, 21544, 100000, 316228}
