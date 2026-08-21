@@ -124,7 +124,15 @@ set -euo pipefail
 # activate-then-source silently reintroduced the exact bug this guard exists
 # to fix). Source /etc/environment FIRST for HF_TOKEN etc., THEN activate
 # the venv so its PATH prepend is the one that survives.
-[[ -f /etc/environment ]] && { set -a; . /etc/environment; set +a; }   # HF_TOKEN etc. written by box_onstart.sh
+# Parsed as literal NAME=VALUE, not bash-sourced: some images' /etc/environment
+# (e.g. NVIDIA_REQUIRE_CUDA=cuda>=13.0 brand=...) has unquoted >/</spaces that
+# a raw `.`-source misparses as redirections, crashing on a bare numeric token.
+if [[ -f /etc/environment ]]; then
+  while IFS='=' read -r _env_name _env_value; do
+    [[ "$_env_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    export "$_env_name=$_env_value"
+  done < /etc/environment
+fi
 [[ -f /workspace/venv/bin/activate ]] && . /workspace/venv/bin/activate
 python3 - <<'PY' || { echo "[ts38mt] FAILED: python3 lacks required modules (venv not active?)"; exit 1; }
 import huggingface_hub, torch, geode  # noqa: F401
