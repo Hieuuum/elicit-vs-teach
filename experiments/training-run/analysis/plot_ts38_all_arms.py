@@ -1,19 +1,26 @@
 """plot_ts38_all_arms.py — one log-log figure, all TinyStories 38.7M arms.
 
 Overlays base (teach), multiwrap pre-taught (ts38mw), pre-teach-format
-(ts38pf), and pre-teach 4M full-FT (ts38pp) on a single EDL/D-vs-n plot,
-x-axis log-scaled (ts38's own "pre-taught (elicit)" arm dropped 2026-08-17,
-owner request). Reads the committed per-family
-CSVs (edl_converged_val_floor_{ts38,ts38mw,ts38pf,ts38pp}.csv) rather than
+(ts38pf), pre-teach 4M full-FT (ts38pp), and format-install dose i=1000
+(ts38fs) on a single EDL/D-vs-n plot, x-axis log-scaled (ts38's own
+"pre-taught (elicit)" arm dropped 2026-08-17, owner request). Reads the
+committed per-family CSVs
+(edl_converged_val_floor_{ts38,ts38mw,ts38pf,ts38pp,ts38fs}.csv) rather than
 re-collecting from run dirs — the base (noinst) row is byte-identical across
-all of them (reused run, not retrained; verified 2026-08-16), so it is read
-once from ts38's own CSV. ts38pp's CSV is read only if present — that family
-was still building when the ts38pp arm was added here, so a missing CSV is
-a graceful skip (printed note), not an error; the other arms still plot.
+ts38/ts38mw/ts38pf/ts38pp (reused run, not retrained; verified 2026-08-16),
+so it is read once from ts38's own CSV, which ts38dense (2026-08-21) grew to
+the full 10-point grid via `edl_converged_val_floor.py --family ts38`
+(base's evt-ts38-base-n<N> ids match that family's regex at every size, new
+or shipped). ts38pp/ts38fs are read at 10 points each (ts38dense densified
+both); mw/pf stay at their original 5. ts38fs's CSV has no "condition"
+column (3-axis i/n/seed grid, not a 2-arm family — see its own docstring),
+so its ARMS entry filters on install_i==1000 & seed==316 instead. Any
+missing CSV is a graceful skip (printed note), not an error; the other arms
+still plot.
 
 Broken y-axis (owner request 2026-08-16): mw's EDL/D collapses to 0.10 and
 0.03 bits at n=100000/316228 (base at those sizes: 1.73/0.84) while every
-other point across all four arms sits in [0.6, 5.5] bits. A single log y-axis
+other point across all arms sits in [0.6, 5.5] bits. A single log y-axis
 gives those two outliers 1.5 of the plot's ~2.3 total decades, squeezing the
 cluster where the arms are actually comparable. Two stacked axes (4:1 height)
 put most of the figure on the [0.55, 6.5] band and compress mw's dive into a
@@ -21,8 +28,8 @@ thin bottom strip — present, not hidden, just not competing for space.
 
 OCV floor only (edl_per_token_bits) — the owner-default floor
 (feedback-edl-floor-is-converged-val-per-run.md). Does not include ts38grid's
-small-n bracket (n=128/256/512): that family was still provisioning when this
-was written.
+small-n bracket (n=128/256/512): that family was never launched (owner:
+"confirm results with me first", 2026-08-16).
 """
 
 from __future__ import annotations
@@ -38,14 +45,44 @@ import pandas as pd
 ANALYSIS = Path(__file__).resolve().parent
 FIGURES = ANALYSIS / "figures"
 
+
+def _condition(value):
+    """Select rows by the standard noinst/inst "condition" column."""
+    return lambda df: df[df["condition"] == value]
+
+
+def _ts38fs_i1000(df):
+    """ts38fs has no "condition" column (i/n/seed grid) — select the
+    i=1000, seed=316 dose row instead (the one ts38dense densified to 10
+    points; other install sizes/seeds are a different figure's concern)."""
+    return df[(df["install_i"] == 1000) & (df["seed"] == 316)]
+
+
 # Fixed categorical order (dataviz skill palette, slots 1-5; validated
-# colorblind-safe on the "adjacent" pairlist used for line charts).
+# colorblind-safe on the "adjacent" pairlist used for line charts). ts38fs
+# reuses tab:purple (#9467bd) rather than inventing a new hue.
 ARMS = [
-    # (csv stem, condition column value, color, legend label)
-    ("edl_converged_val_floor_ts38.csv", "noinst", "#2a78d6", "base (teach)"),
-    ("edl_converged_val_floor_ts38mw.csv", "inst", "#1baf7a", "multiwrap pre-taught (elicit)"),
-    ("edl_converged_val_floor_ts38pf.csv", "inst", "#eda100", "pre-teach-format"),
-    ("edl_converged_val_floor_ts38pp.csv", "inst", "#e87ba4", "pre-teach 4M full-FT (ts38pp)"),
+    # (csv stem, row-selector(df) -> filtered df, color, legend label)
+    ("edl_converged_val_floor_ts38.csv", _condition("noinst"), "#2a78d6", "base (teach)"),
+    (
+        "edl_converged_val_floor_ts38mw.csv",
+        _condition("inst"),
+        "#1baf7a",
+        "multiwrap pre-taught (elicit)",
+    ),
+    ("edl_converged_val_floor_ts38pf.csv", _condition("inst"), "#eda100", "pre-teach-format"),
+    (
+        "edl_converged_val_floor_ts38pp.csv",
+        _condition("inst"),
+        "#e87ba4",
+        "pre-teach 4M full-FT (ts38pp)",
+    ),
+    (
+        "edl_converged_val_floor_ts38fs.csv",
+        _ts38fs_i1000,
+        "#9467bd",
+        "format-install dose i=1000 (ts38fs)",
+    ),
 ]
 
 # Short annotation labels for RELIEF_COLORS arms, keyed by a substring of the
@@ -86,14 +123,14 @@ def main() -> None:
     )
 
     n_plotted = 0
-    for stem, condition, color, label in ARMS:
+    for stem, select, color, label in ARMS:
         csv_path = ANALYSIS / stem
         if not csv_path.is_file():
             print(f"[evt] {stem} not found — {label} arm skipped (not built yet)")
             continue
         n_plotted += 1
         df = pd.read_csv(csv_path)
-        series = df[df["condition"] == condition].sort_values("n")
+        series = select(df).sort_values("n")
         _plot_arm(ax_top, series, color)
         _plot_arm(ax_bot, series, color)
         # Legend proxy on whichever panel holds this arm's highest point.
@@ -152,7 +189,7 @@ def main() -> None:
         0.005,
         r"OCV floor: EDL$(n)$ = MDL$_{\rm epoch1}(n) - D(n)\cdot L^{\rm val}_{\rm conv}(n)$ "
         r"(each run's own $\theta_T$ val loss). No floor is shared between dataset sizes."
-        "\nExcludes ts38grid's small-n bracket (n=128/256/512) — not yet converged.",
+        "\nExcludes ts38grid's small-n bracket (n=128/256/512) — never launched.",
         ha="center",
         va="bottom",
         fontsize=8,

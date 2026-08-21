@@ -9376,3 +9376,26 @@ Overshoot ratios are large on two base runs (n=46416 1.88, n=215443 2.27 —
 converged val well above own min) but OCV and test floors still agree
 there, so no shape call depends on it. Box left running, NOT torn down —
 owner's call.
+
+**Follow-up fix (2026-08-21, same evening) — `edl_converged_val_floor_ts38.csv`
+was never regenerated.** The Outcome above only lists
+`edl_converged_val_floor.py --family ts38pp` / `ts38fs_dose_curve.py` /
+`plot_ts38_all_arms.py` as run — `--family ts38` (base's OWN family CSV,
+`edl_converged_val_floor_ts38.csv`) was not, so that file still had only the
+5 shipped-size base rows. `plot_ts38_all_arms.py` reads base from exactly
+that CSV (byte-identical-row rationale, see its docstring), so the combined
+all-arms figure was silently drawing base at 5 points while ts38pp/ts38fs
+were already at 10 — an inconsistent chart, not caught until asked to
+render it. Fixed by running `edl_converged_val_floor.py --family ts38`
+(base's `evt-ts38-base-n<N>` ids match that family's regex at every size,
+new or shipped; 5 rows added, the pre-existing 15 byte-identical, diff
+verified). `plot_ts38_all_arms.py` also gained a 5th arm, ts38fs i=1000
+(10 points, tab:purple `#9467bd`, selected by `install_i==1000 & seed==316`
+since ts38fs's CSV has no `condition` column) — it had never been in this
+comparison chart at all. Weights for all 15 ts38dense runs verified already
+on the relay (`mhieuuu/geode-store`, `runs/<rid>/model/{model,adapter}
+.safetensors` present for all 15 — push-as-you-go, hard rule (d) in
+`launch_ts38dense_family.sh`, done during the original run; nothing to
+re-push). Both figures regenerated locally (`ts38_all_arms_loglog.png`,
+`edl_converged_val_floor_ts38fs.png`, gitignored, laptop-only); CSV +
+script fix committed.
