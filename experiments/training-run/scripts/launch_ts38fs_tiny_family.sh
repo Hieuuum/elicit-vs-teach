@@ -7,23 +7,32 @@
 # single seed (owner's own read of the ts38fs interim data: seed doesn't
 # meaningfully change the curve).
 #
-# THE GRID: 10 (i, n) cells, seed fixed at 316 (no seed axis this time) —
-#   i (install size) in {2, 10}
+# THE GRID: 15 (i, n) cells, seed fixed at 316 (no seed axis this time) —
+#   i (install size) in {2, 10, 100}
 #   n (target size)   in {1000, 4642, 21544, 100000, 316228}
-# Both install sizes are NEW parents (no reuse — ts38fs's own reuse only
-# applied to its i=21544 column, out of scope here).
+# i=100 added 2026-08-21 (decisions.md same entry, "Outcome" + follow-on
+# paragraph) -- it lands on the SAME recipe side as i=2/10, not a new
+# regime: batch_size(128) > n_train(100) makes the ts38fs-proper val-loss
+# recipe infeasible here too (n=1000 is the smallest size where it still
+# works). All three install sizes are NEW parents (no reuse — ts38fs's own
+# reuse only applied to its i=21544 column, out of scope here).
 #
 # TWO STRUCTURAL DEVIATIONS FROM ts38fs, both forced by the tiny install
 # sizes (full derivation in decisions.md, same entry as above):
 #   (a) LABELS: geode.arith.cyclic_shift_labels (V5.78), not permute_labels —
-#       a random shuffle can't guarantee a wrong label this small.
+#       a random shuffle can't guarantee a wrong label this small (and
+#       introducing permute_labels only at i=100 would create a THIRD
+#       recipe that exists nowhere else in the project).
 #   (b) STOPPING: the install parents use stopping_metric="train_loss"
 #       (geode/train/sft.py V5.65/V5.66 — full-batch, no val split), not
 #       ts38fs's val-loss eps/k — val_fraction rounds to 0 held-out rows at
 #       these sizes. eps_nats=0.0002/k=5 CALIBRATED from real pilot curves
-#       (configs/sweeps/dose_cal/ts38fs_tiny_cal_n{2,10}.yaml +
-#       analysis/dose_stop_calibration.py), already pinned into both parent
-#       configs — this launcher does not recalibrate.
+#       (configs/sweeps/dose_cal/ts38fs_tiny_cal_n{2,10,100}.yaml +
+#       analysis/dose_stop_calibration.py — the i=100 pilot confirmed the
+#       same pin still fires at 99.96% descent, vs 99.99%/99.98% at i=2/10,
+#       a bf16-precision-floor property rather than an n-dependent one),
+#       already pinned into all three parent configs — this launcher does
+#       not recalibrate.
 #
 # LEAN ON PURPOSE — this is NOT launch_ts38fs_family.sh trimmed by removing
 # a few lines; several of that launcher's stages don't apply here at all and
@@ -50,8 +59,12 @@
 #       weights, never from_pretrained on the wrapped model/.
 #   (c) NEW SIZES ONLY: train_or_skip keys on the LOCAL store, so a run
 #       living only on the relay looks "missing" and would be retrained —
-#       both install sizes and all 10 target run ids are new to every prior
-#       family, so no existing shipped run can collide.
+#       all three install sizes and all 15 target run ids are new to every
+#       prior family, so no existing shipped run can collide. i=2/i=10's
+#       12 runs (2 parents + 10 targets) are already complete in this box's
+#       local store from the 2026-08-20 launch, so train_or_skip re-runs
+#       this rerun as a skip for those — only i=100's parent + 5 targets
+#       actually train.
 #   (d) PUSH AS YOU GO — every target run is pushed the moment it trains.
 #   (e) NEVER destroy the box — operator/owner call, not this launcher's.
 set -uo pipefail
@@ -59,17 +72,20 @@ cd "$(dirname "$0")"
 source lib/launch_common.sh
 TAG=ts38fs-tiny
 
-echo "[ts38fs-tiny] estimated cost: TWO new tiny LoRA format-only parents"
-echo "[ts38fs-tiny] (i=2/i=10; calibration pilots already measured ~27-76"
-echo "[ts38fs-tiny] steps to the pinned eps/k, ceiling 1000 never binds --"
-echo "[ts38fs-tiny] seconds each) PLUS 10 LoRA target runs on one RTX 4090,"
+echo "[ts38fs-tiny] estimated cost: THREE tiny LoRA format-only parents"
+echo "[ts38fs-tiny] (i=2/i=10 real parents converged at step 53/76; i=100's"
+echo "[ts38fs-tiny] own calibration replay predicts ~130 -- ceilings never"
+echo "[ts38fs-tiny] bind, seconds each) PLUS 15 LoRA target runs on one RTX 4090,"
 echo "[ts38fs-tiny] same per-n timing ts38fs itself measured (theta0 does"
 echo "[ts38fs-tiny] not change target-stage step cost): 1.7 / 2.1 / 6.4 /"
 echo "[ts38fs-tiny] 10.5 / 23.6 min at n = 1000 / 4642 / 21544 / 100000 /"
-echo "[ts38fs-tiny] 316228, x2 installs => ~2*(1.7+2.1+6.4+10.5+23.6) ="
-echo "[ts38fs-tiny] ~88.6 min target-run compute, plus G5 (~0.5 min x 10)"
-echo "[ts38fs-tiny] and setup/merges => roughly 1.5h wall, well under \$1.50"
-echo "[ts38fs-tiny] at \$0.35-0.45/h; disk a few hundred MB."
+echo "[ts38fs-tiny] 316228, x3 installs => ~3*(1.7+2.1+6.4+10.5+23.6) ="
+echo "[ts38fs-tiny] ~132.9 min target-run compute, plus G5 (~0.5 min x 15)"
+echo "[ts38fs-tiny] and setup/merges => roughly 2.3h wall, well under \$2.25"
+echo "[ts38fs-tiny] at \$0.35-0.45/h; disk a few hundred MB. i=2/i=10 cells"
+echo "[ts38fs-tiny] already trained (this session, ~87 min spent) skip via"
+echo "[ts38fs-tiny] train_or_skip -- only i=100's parent + 5 target runs"
+echo "[ts38fs-tiny] actually run this launch, ~35-40 min of NEW compute."
 echo "[ts38fs-tiny] Ceilings (max_steps) must never bind -- stop_reason=max_steps"
 echo "[ts38fs-tiny] is a bug signal, never a result."
 
@@ -87,7 +103,7 @@ BASE_RID=evt-run1-base-v3-ext
 BASE_MODEL=$GEODE_STORE/runs/$BASE_RID/model
 RELAY_REPO=${RELAY_REPO:-mhieuuu/geode-store}
 
-INSTALLS=(2 10)
+INSTALLS=(2 10 100)
 SIZES=(1000 4642 21544 100000 316228)
 SEED=316
 
@@ -333,14 +349,14 @@ for i in installs:
     print(f"[ts38fs-tiny] D_preteachfmt_n{i}: {len(df)} rows, order_hash verified ({parent_cfg['data']['file']})")
 sys.exit(0 if ok else 1)
 PY
-milestone "data_verified D_algo_bare/D_algo_eval_bare/D_preteachfmt_n{2,10} order hashes OK"
+milestone "data_verified D_algo_bare/D_algo_eval_bare/D_preteachfmt_n{2,10,100} order hashes OK"
 
 # ---- stage 3: overlay presence check — 10 committed files (hand-authored,
 # like every ts38(*) family except ts38fs itself; no generator here) -------
 OVERLAY_COUNT=$(find "$OVERLAY_DIR" -maxdepth 1 -name 'ts38fs_tiny_i*_n*.yaml' | wc -l | tr -d ' ')
-[[ $OVERLAY_COUNT -eq 10 ]] || fail \
+[[ $OVERLAY_COUNT -eq 15 ]] || fail \
   "found $OVERLAY_COUNT ts38fs_tiny_i*_n*.yaml overlay(s) under $OVERLAY_DIR, expected
-   exactly 10 (2 installs x 5 target sizes); inspect before training anything"
+   exactly 15 (3 installs x 5 target sizes); inspect before training anything"
 milestone "overlays_verified count=$OVERLAY_COUNT dir=$OVERLAY_DIR"
 
 # ---- stage 4: build the two tiny format-only parents + merge --------------
@@ -527,7 +543,7 @@ PY
     fi
   done
 done
-milestone "target_sweep_complete cells=10"
+milestone "target_sweep_complete cells=15"
 
 # ---- stage 7: receiver-verify every target run on the hub -----------------
 run_receiver_check() {
@@ -539,7 +555,7 @@ from huggingface_hub import HfApi
 repo = sys.argv[1]
 files = set(HfApi().list_repo_files(repo, repo_type="model"))
 ok = True
-for i in (2, 10):
+for i in (2, 10, 100):
     for n in (1000, 4642, 21544, 100000, 316228):
         rid = f"evt-ts38fs-tiny-i{i}-n{n}-s316"
         required = [
@@ -559,7 +575,7 @@ PY
 
 RECEIVER_OUT=$(run_receiver_check)
 RECEIVER_STATUS=$?
-echo "[ts38fs-tiny] receiver check (hub files for all 10 target runs):"
+echo "[ts38fs-tiny] receiver check (hub files for all 15 target runs):"
 echo "$RECEIVER_OUT"
 if [[ $RECEIVER_STATUS -ne 0 ]]; then
   milestone "receiver_retry (re-pushing the runs the hub is missing)"
@@ -572,7 +588,7 @@ if [[ $RECEIVER_STATUS -ne 0 ]]; then
   echo "$RECEIVER_OUT"
 fi
 [[ $RECEIVER_STATUS -eq 0 ]] || fail "push receiver check FAILED — see output above"
-milestone "targets_pushed cells=10 receiver=OK"
+milestone "targets_pushed cells=15 receiver=OK"
 
 for i in "${INSTALLS[@]}"; do
   python3 hf_checkpoint.py push --run-id "evt-ts38fs-tiny-parent-n${i}" --repo-id "$RELAY_REPO" --metadata-only ||
@@ -583,13 +599,15 @@ echo "[ts38fs-tiny] format-acquisition evidence at $FMT_JSON — not a run, not 
 
 # ---- stage 8: finish --------------------------------------------------------
 echo "[ts38fs-tiny] MILESTONE analysis_commands"
-echo "[ts38fs-tiny]   CPU-only, run here off \$GEODE_STORE. Same OCV-floor"
-echo "[ts38fs-tiny]   primitives as analysis/ts38fs_dose_curve.py -- that"
-echo "[ts38fs-tiny]   script's TS38FS_RE regex does NOT match evt-ts38fs-tiny-*"
+echo "[ts38fs-tiny]   CPU-only: python3 ../analysis/ts38fs_tiny_dose_curve.py"
+echo "[ts38fs-tiny]   -- add i=100 to that script's DOSES/TINY_DOSES/DOSE_COLOR"
+echo "[ts38fs-tiny]   if not already there. Same OCV-floor primitives as"
+echo "[ts38fs-tiny]   analysis/ts38fs_dose_curve.py -- that OTHER script's"
+echo "[ts38fs-tiny]   TS38FS_RE regex does NOT match evt-ts38fs-tiny-*"
 echo "[ts38fs-tiny]   ids on purpose (recipe mismatch vs ts38fs proper --"
 echo "[ts38fs-tiny]   see decisions.md's caveat). Extend it deliberately, not"
 echo "[ts38fs-tiny]   by loosening the regex to match both families silently."
 echo "[ts38fs-tiny]   The box is NOT torn down here; teardown is the operator's"
 echo "[ts38fs-tiny]   call once these artifacts are verified on the relay."
-notify "ts38fs-tiny family done: 2 parents + 10 target runs, format_acquisition=$(for i in "${INSTALLS[@]}"; do echo -n "i$i:${FMT_VERDICT_BY_INSTALL[$i]} "; done)"
-echo "[ts38fs-tiny] TERMINAL_SUCCESS runs=10"
+notify "ts38fs-tiny family done: 3 parents + 15 target runs, format_acquisition=$(for i in "${INSTALLS[@]}"; do echo -n "i$i:${FMT_VERDICT_BY_INSTALL[$i]} "; done)"
+echo "[ts38fs-tiny] TERMINAL_SUCCESS runs=15"

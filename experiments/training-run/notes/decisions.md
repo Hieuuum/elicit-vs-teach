@@ -9077,3 +9077,74 @@ derangement at i=2/10. Keep the distinct `evt-ts38fs-tiny-` run-id prefix
 this family, from ever silently matching these ids), and mark the tiny
 points visually distinct with an explicit recipe-mismatch note wherever
 they land on the same axes as the ts38fs points.
+
+**Outcome (2026-08-21, after launch + combined analysis).** All 10 target
+cells (i∈{2,10} × n∈{1000,4642,21544,100000,316228}, seed=316) plus both
+parents finished TERMINAL_SUCCESS at 00:30:28 UTC, 87 min wall clock,
+receiver-verified OK on the relay. Both format-acquisition theta0 checks
+came back verdict=LEARNED (i=2: loss_drop_frac 0.212; i=10: 0.135) — clear
+of the 0.10 bar but noticeably lower than the (killed) proper sweep's
+0.48-0.59 range at i≥1000, a real dose-response trend, but **this grid
+still did not find a NOT_LEARNED floor**: even i=10 (a single format
+example rotated onto itself) is enough to acquire the notation.
+
+New standalone script `analysis/ts38fs_tiny_dose_curve.py` (deliberately
+NOT an edit to `ts38fs_dose_curve.py`'s regex — see the caveat above)
+pulled all 30 complete cells (10 tiny + 15 ts38fs-proper direct + 5 reused
+from `evt-ts38pf-preteachfmt-n*`) at seed=316 into one combined EDL/D-vs-n
+figure, hollow/dashed-marker-coded for the tiny recipe boundary. Punchline:
+**the i=2/10 curves sit close to, not on top of, the i≥1000 pack** — at
+small n (1000, 4642) the tiny doses read 1.2-2.9x HIGHER EDL/D than every
+i≥1000 dose (e.g. n=1000: i=10 gives 3.56 bits vs 1.25-1.51 bits for
+i≥1000), converging back onto the same curve by n=21544 and staying merged
+through n=316228. So dose CAN separate the curves — but only well below
+the ts38fs-proper grid's own floor (i=1000), and only at the small-n end;
+it is not the NOT_LEARNED/LEARNED floor the original grid was built to
+find. Figures: `analysis/figures/edl_converged_val_floor_ts38fs_tiny.png`,
+`analysis/figures/ts38fs_tiny_format_acquisition.png`. CSV:
+`analysis/edl_converged_val_floor_ts38fs_tiny.csv`. No crashes, no
+non-converged cells, no negative EDL across all 30 rows. Box
+192.80.148.226:41907 left running, teardown is the owner's call.
+
+**Extension: i=100 added 2026-08-21 (owner request).** The combined figure
+above shows i=2/10 separating from the i≥1000 pack at small n but merging
+by n=21544 — i=100 fills the gap between the two grids to locate that
+transition, and gives a third format-acquisition point between the
+non-monotonic 0.212 (i=2) / 0.135 (i=10) pair and the 0.48-0.59 range at
+i≥1000. Checked before writing any config, not assumed: i=100 lands on the
+SAME recipe side as i=2/10 (batch_size(128) > n_train(100) makes the
+ts38fs-proper val-loss recipe infeasible here too — `ts38fs_parent_n1000.yaml`'s
+own header shows n=1000 is the smallest size where it still works, 995 //
+128 = 7 steps/epoch), so this reuses cyclic_shift_labels (V5.78) and
+train-loss full-batch stopping rather than inventing a third recipe
+(train-loss stop + random shuffle) that would exist nowhere else in the
+project. `make_preteach_format.py --n 100 --cyclic-shift` was run FIRST,
+before any config, specifically to check whether the single-position
+rotation collides against a duplicate-value pair somewhere in the 100-row
+slice (a real risk at this n per `cyclic_shift_labels`'s own docstring,
+unlike the already-verified-zero-collision n=2/n=10 slices) — it did not:
+0/100 collisions, order_hash `e66dc109ff340a6d7c1cb94ecb72eb312a5f398725e24bbe0d2369de4386d9e8`,
+reproduced identically on both the laptop and the box.
+
+Calibration pilot (`configs/sweeps/dose_cal/ts38fs_tiny_cal_n100.yaml`,
+eps_nats=0.0 sentinel) converged at step 996 (L0=5.2177 -> 0.000068,
+bf16 floor). `dose_stop_calibration.py` replayed the SAME eps_nats=0.0002/
+k=5 pin already used at i=2/10 jointly across all three pilot curves: fires
+at 99.96% descent at i=100 (step 130), vs 99.99%/99.98% at i=2/10 — max
+0.03pp cross-dose gap, as tight as the original 2-point calibration's own
+0.04pp. Confirms the pin is a bf16-precision-floor property, not an
+n-dependent one; no re-derivation needed. `ts38fs_tiny_parent_n100.yaml`
+bakes in the same eps/k with `max_steps: 2000` (~15x headroom over the
+predicted step 130, same order as the n2/n10 siblings' own margin).
+
+Built: the real parent config, 5 target overlays
+(`ts38fs_tiny_i100_n{1000,4642,21544,100000,316228}.yaml`, templated from
+the i=10 siblings' step schedule — target-stage timing does not depend on
+theta0), `launch_ts38fs_tiny_family.sh` extended (`INSTALLS=(2 10 100)`,
+overlay count 10->15, receiver-check tuple, all cell-count milestones),
+and `analysis/ts38fs_tiny_dose_curve.py` extended (DOSES/TINY_DOSES/
+DOSE_COLOR now include 100; the format-acquisition subtitle is now
+data-driven instead of hardcoded to "i=2 and i=10"). `train_or_skip` means
+relaunching this script re-verifies but skips the 12 already-complete
+i=2/i=10 runs; only i=100's parent + 5 targets actually train this pass
+(~35-40 min of new compute on top of the 87 min already spent).
