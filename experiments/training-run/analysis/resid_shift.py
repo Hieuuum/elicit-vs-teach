@@ -104,6 +104,50 @@ def _generic_vectors(
     return (h * m).sum(dim=1) / counts
 
 
+_GENERIC_CHUNK_SIZE = 128  # capture_residuals materializes every layer for the
+# WHOLE batch at once; TinyStories generic text runs far longer than the
+# arithmetic task prompts, so a single 2000-example batch OOMs a 24GB GPU
+# (observed: one process alone reached 20.6GB and still failed to allocate).
+# Pooling is per-example (mean over that example's own non-pad positions),
+# so chunking and concatenating the pooled vectors is exact -- not an
+# approximation -- as long as each chunk's own padding doesn't leak into
+# another example's attention (it can't: attention_mask is per-chunk).
+
+
+def _pooled_generic_vectors_both_models(
+    model_a: nn.Module,
+    model_b: nn.Module,
+    generic_texts: Sequence[str],
+    tokenizer,
+    names: Sequence[str],
+    device: str,
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    """Mean-pooled per-example generic-text vectors per layer, for BOTH
+    models, computed in ``_GENERIC_CHUNK_SIZE``-example chunks so
+    ``capture_residuals`` never has to hold the full generic set's
+    activations for every layer at once. Each chunk is tokenized ONCE and
+    that same ``(g_ids, g_mask)`` is fed to both models -- tokenizing
+    separately per model would let a non-deterministic tokenizer (or just
+    duplicated work) desync what the two models are actually compared on."""
+    chunks_a: dict[str, list[torch.Tensor]] = {name: [] for name in names}
+    chunks_b: dict[str, list[torch.Tensor]] = {name: [] for name in names}
+    texts = list(generic_texts)
+    for start in range(0, len(texts), _GENERIC_CHUNK_SIZE):
+        batch = texts[start : start + _GENERIC_CHUNK_SIZE]
+        enc = tokenizer(batch, add_special_tokens=False, padding=True, return_tensors="pt")
+        g_ids = enc["input_ids"].to(device)
+        g_mask = enc["attention_mask"].to(device).bool()
+        acts_a = capture_residuals(model_a, g_ids, g_mask)
+        acts_b = capture_residuals(model_b, g_ids, g_mask)
+        for name in names:
+            chunks_a[name].append(_generic_vectors(acts_a, name, g_mask))
+            chunks_b[name].append(_generic_vectors(acts_b, name, g_mask))
+        del acts_a, acts_b
+    pooled_a = {name: torch.cat(vecs, dim=0) for name, vecs in chunks_a.items()}
+    pooled_b = {name: torch.cat(vecs, dim=0) for name, vecs in chunks_b.items()}
+    return pooled_a, pooled_b
+
+
 def resid_shift_rows(
     model_a: nn.Module,
     model_b: nn.Module,
@@ -141,16 +185,12 @@ def resid_shift_rows(
             }
         )
 
-    enc = tokenizer(
-        list(generic_texts), add_special_tokens=False, padding=True, return_tensors="pt"
+    pooled_a_g, pooled_b_g = _pooled_generic_vectors_both_models(
+        model_a, model_b, generic_texts, tokenizer, names, str(device)
     )
-    g_ids = enc["input_ids"].to(device)
-    g_mask = enc["attention_mask"].to(device).bool()
-    acts_a_g = capture_residuals(model_a, g_ids, g_mask)
-    acts_b_g = capture_residuals(model_b, g_ids, g_mask)
     for layer, name in enumerate(names):
-        h0 = _generic_vectors(acts_a_g, name, g_mask)
-        ht = _generic_vectors(acts_b_g, name, g_mask)
+        h0 = pooled_a_g[name]
+        ht = pooled_b_g[name]
         rs, d = rel_shift_and_deltas(h0, ht)
         mean_cos, evr = shift_consistency(d)
         rows.append(

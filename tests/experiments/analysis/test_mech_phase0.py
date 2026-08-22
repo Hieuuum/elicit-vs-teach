@@ -490,3 +490,53 @@ class TestResidShift:
             assert math.isclose(row_l["top_pc_evr"], 1.0, abs_tol=1e-4)
             for layer in range(target_layer_idx + 1, 5):
                 assert df.loc[(s, layer), "rel_shift"] > 0.0
+
+    def test_generic_chunking_is_exact_not_approximate(self, tiny_llama, monkeypatch):
+        """``_pooled_generic_vectors_both_models`` chunks the generic set to
+        avoid materializing every layer's activations for the whole batch at
+        once (OOM'd a 24GB GPU at n=2000 TinyStories examples in production,
+        2026-08-22). Mean-pooling is per-example, so 1-example chunks must
+        give BYTE-IDENTICAL results to one big batch -- this pins that,
+        rather than trusting the refactor by inspection."""
+        model_a = tiny_llama(seed=11, n_layers=3, d_model=32, vocab_size=64, tie_word_embeddings=True)
+        model_b = copy.deepcopy(model_a)
+        with torch.no_grad():
+            model_b.model.layers[0].mlp.down_proj.weight.add_(0.05)
+
+        rng = random.Random(9)
+        exs = _examples(rng, n=4, vocab_size=64, seq_len=9, span=(5, 8))
+        generic = [f"text number {i}" for i in range(7)]  # > any small chunk size
+
+        class _DeterministicTokenizer:
+            """Text -> ids purely from the text's own content (no shared
+            mutable state), so tokenizing the same text twice -- once per
+            chunk size in this test -- always gives the same ids, unlike
+            the stateful-RNG tokenizer the other tests in this class use."""
+
+            def __call__(self, texts, add_special_tokens=False, padding=True, return_tensors="pt"):
+                lens = [4 + (hash(t) % 3) for t in texts]
+                maxlen = max(lens)
+                input_ids = torch.zeros(len(texts), maxlen, dtype=torch.long)
+                mask = torch.zeros(len(texts), maxlen, dtype=torch.long)
+                for i, (t, length) in enumerate(zip(texts, lens)):
+                    ids = [4 + (hash((t, j)) % 60) for j in range(length)]
+                    input_ids[i, :length] = torch.tensor(ids)
+                    mask[i, :length] = 1
+                return {"input_ids": input_ids, "attention_mask": mask}
+
+        tok = _DeterministicTokenizer()
+
+        monkeypatch.setattr(rs, "_GENERIC_CHUNK_SIZE", 1000)
+        rows_unchunked = rs.resid_shift_rows(model_a, model_b, exs, generic, tok)
+        monkeypatch.setattr(rs, "_GENERIC_CHUNK_SIZE", 2)
+        rows_chunked = rs.resid_shift_rows(model_a, model_b, exs, generic, tok)
+
+        df_u = pd.DataFrame(rows_unchunked).set_index(["set", "layer"])
+        df_c = pd.DataFrame(rows_chunked).set_index(["set", "layer"])
+        assert not df_u.empty
+        # fp32 forward passes aren't bit-identical across different batch
+        # shapes (attention/softmax summation order differs) -- tight
+        # enough to catch a real correctness bug, loose enough for that
+        # noise.
+        for col in ("rel_shift", "mean_cos_to_mean", "top_pc_evr"):
+            assert (df_u[col] - df_c[col]).abs().max() < 1e-5, col
