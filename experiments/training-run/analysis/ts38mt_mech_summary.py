@@ -75,8 +75,11 @@ _CP_KEYS: tuple[tuple[str, str, str], ...] = (
 )
 
 
-def run_id(arm: str, n: int) -> str:
-    return f"evt-ts38mt-{arm}-n{n}"
+RUN_PREFIX = "evt-ts38mt"
+
+
+def run_id(arm: str, n: int, prefix: str = RUN_PREFIX) -> str:
+    return f"{prefix}-{arm}-n{n}"
 
 
 def _nan_dict(keys: Sequence[str]) -> dict:
@@ -250,14 +253,16 @@ def summarize_grid(
     results_dir: Path,
     arms: Sequence[str] = ARMS,
     sizes: Sequence[int] = SIZES,
+    prefix: str = RUN_PREFIX,
 ) -> tuple[pd.DataFrame, list[str]]:
     """One row per (n, arm) in that order; ``missing`` lists every expected
-    table that was not found (its columns are NaN in the row)."""
+    table that was not found (its columns are NaN in the row). ``prefix``
+    selects the family (``evt-ts38mt`` grid, ``evt-ts38tr`` positive control)."""
     rows: list[dict] = []
     missing: list[str] = []
     for n in sizes:
         for arm in arms:
-            rid = run_id(arm, n)
+            rid = run_id(arm, n, prefix)
             row: dict = {"arm": arm, "n": n, "run_id": rid}
             specs = [
                 (results_dir / f"resid_probe_{rid}.csv", probe_run_summary),
@@ -357,7 +362,7 @@ def print_grid(df: pd.DataFrame, cols: Sequence[str] = HEADLINE_COLS) -> None:
         if col not in df or df[col].isna().all():
             continue
         pivot = df.pivot(index="arm", columns="n", values=col).reindex(
-            [a for a in ARMS if a in set(df["arm"])]
+            list(dict.fromkeys(df["arm"]))
         )
         print(f"[evt] {col}")
         print(
@@ -374,9 +379,19 @@ def main() -> None:
         help="grid tables (default $GEODE_STORE/results/ts38mt_mech)",
     )
     ap.add_argument("--sizes", default=None, help="comma-separated subset of the grid")
-    ap.add_argument("--arms", default=None, help="comma-separated subset of base,pp,fmt")
+    ap.add_argument("--arms", default=None, help="comma-separated arms (default base,pp,fmt)")
+    ap.add_argument(
+        "--run-prefix",
+        default=RUN_PREFIX,
+        help="run-id family prefix, e.g. evt-ts38tr with --arms k6,k7",
+    )
     ap.add_argument("--out", type=Path, default=None, help="grid summary table (csv/parquet)")
     ap.add_argument("--phase0-dir", type=Path, default=None, help="Phase-0 tables (optional)")
+    ap.add_argument(
+        "--phase0-models",
+        default=None,
+        help="comma-separated Phase-0 model names (default the ts38mt five)",
+    )
     ap.add_argument("--phase0-out", type=Path, default=None)
     args = ap.parse_args()
 
@@ -389,7 +404,7 @@ def main() -> None:
     sizes = [int(s) for s in args.sizes.split(",")] if args.sizes else list(SIZES)
     arms = args.arms.split(",") if args.arms else list(ARMS)
 
-    grid, missing = summarize_grid(results_dir, arms, sizes)
+    grid, missing = summarize_grid(results_dir, arms, sizes, args.run_prefix)
     print(f"[evt] grid: {len(grid)} cells, {len(missing)} missing tables")
     for name in missing:
         print(f"[evt]   missing: {name}")
@@ -399,7 +414,8 @@ def main() -> None:
         print(f"[evt] wrote {args.out} ({len(grid)} rows)")
 
     if args.phase0_dir is not None:
-        p0, p0_missing = summarize_phase0(args.phase0_dir)
+        p0_models = args.phase0_models.split(",") if args.phase0_models else list(PHASE0_MODELS)
+        p0, p0_missing = summarize_phase0(args.phase0_dir, p0_models)
         for name in p0_missing:
             print(f"[evt]   phase0 missing: {name}")
         print("[evt] phase0\n[evt] " + p0.to_string(index=False).replace("\n", "\n[evt] "))

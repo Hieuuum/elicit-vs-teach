@@ -10197,11 +10197,100 @@ these sizes**, under either floor. Consequence for earlier reads: pp's
 1.299 — and every small-n ts38 comparison should be re-read on raw MDL
 or against a SHARED floor before it is quoted again.
 
-*Still pending when this was written:* R-B1/R-B2 (Tier-1/2 on the six
-targets + Phase-0-style on both parents, `results/ts38tr_mech/`), the
-second probe-control pass including `k6_parent`/`k7_parent`, and the
-`ts38mt_mech_summary.py`-style fold (not generalised to ts38tr — fold by
-hand or extend it). Early logit-lens lines from the log: task emergence
-layer 7 for BOTH k6 and k7 parents (read the full CSVs before using).
+*(B) ts38tr — mech grid, R-B1 / R-B2 (2026-08-22 ~16:00 UTC; chain
+`ALL_DONE` 15:20 UTC, 49 tables in `results/ts38tr_mech/` + the
+144-row second probe-control pass, receiver-verified on
+`geode-internals`).* Fold: `ts38mt_mech_summary.py --run-prefix
+evt-ts38tr --arms k6,k7 --sizes 1000,2154,4642 --phase0-models
+k6_parent,k7_parent,source_thetaT` → `analysis/ts38tr_mech_summary.csv`
+(6 rows) + `ts38tr_phase0_summary.csv` (3 rows), both committed.
 
-**Outcome: interim above; R-B1/R-B2 pending.**
+**R-B1 — pipeline verified; the control is weaker than designed.** The
+per-layer task-set probe (1 000 test, chance 0.255) of `k7_parent` equals
+`source_thetaT`'s at layers 0–7 to three decimals (…, 0.538, **0.767**),
+`k6_parent`'s equals it at layers 0–6 (…, 0.538), and the n = 1 000
+targets' step-1 snapshots reproduce their parents (k7 0.767/0.874, k6
+0.740/0.810) — truncation, merge and `run:` loading are correct (a
+≤ 0.01 wobble at layers 1–4 vs the LoRA-wrapped θ_T is merge rounding).
+k7's layer-7 margin is +0.512 ≥ +0.45 as required. Two design
+assumptions were wrong, though: (i) k7's best layer is **8** (0.875),
+not 7 — the base's untrained last block *raises* linear readability of
+θ_T's layer-7 residual; (ii) k6's margin is +0.485 at layer 7 and
++0.551 at layer 8 (bar: ≤ +0.35 at every layer). The routing-controlled
+read (second probe-control pass, affected subset, chance 0.185) says why:
+in θ_T itself the sum is linearly readable only in the LAST block —
+layers 6 / 7 / 8 = 0.264 / **0.313** / 0.947 — so "decodable at layer 7"
+was mostly routing plus a weak sum trace; and the base's final block(s),
+applied to θ_T's mid-layer residual, more than double that trace:
+k7 layer 7 = 0.313 (= θ_T) → layer 8 = **0.634**; k6 layer 6 = 0.269 →
+7 = 0.291 → 8 = **0.471**; base θ0 layer 8 = 0.181. θ_T's blocks 0–5
+already carry the sum in a form that generic last blocks partly
+linearize. Consequence: k7 vs k6 is **"more latent vs less latent"
+(affected 0.63 vs 0.47, both ≫ base's 0.18), not "latent vs none"** —
+the contrast R-B2 scores is compressed relative to the design.
+Parent-level Phase-0 readouts for the record (`ts38tr_phase0_summary.csv`):
+task-probe margin k6 +0.551 / k7 +0.620 / θ_T +0.731; logit-lens task
+emergence layer 7 / 7 / 8, final-layer first-token top-1 0.386 / 0.356 /
+0.983 (both parents HIDDEN at em0 = 0 — the lens sees a weak first-digit
+signal that never survives greedy decoding of the full answer).
+
+**R-B2 — NOT met (0 of 5 criteria at ≥ 2 of 3 sizes).** k7 vs k6, ratios
+k7/k6 at n = 1 000 / 2 154 / 4 642 (ts38mt base and pp at the same sizes
+from `ts38mt_mech_summary.csv` as context):
+
+| readout (test) | k6 | k7 | k7/k6 | bar | met? | base (ts38mt) | pp (ts38mt) |
+|---|---|---|---|---|---|---|---|
+| `rel_fro` (9) | 0.036 / 0.042 / 0.046 | 0.031 / 0.033 / 0.033 | 0.86 / 0.79 / 0.72 | ≤ ½ | no (direction right) | 0.017 / 0.021 / 0.023 | 0.013 / 0.016 / 0.026 |
+| eff. rank, ΔW-weighted (9) | 11.07 / 9.31 / 8.29 | 11.14 / 10.47 / 10.09 | 1.01 / 1.12 / 1.22 | ≤ ½ | no (wrong direction) | 11.97 / 10.45 / 9.83 | 14.67 / 13.71 / 11.66 |
+| `first_layer_ge_half`, answer scope (4) | 6 / 6 / 6 | 6 / 7 / 7 | — | k7 = 8, k6 < 8 | no (k7 later at 2 of 3, never 8) | 2 / 2 / 2 | 3 / 3 / 4 |
+| `grad_early_mass_frac` (8) | 0.226 / 0.186 / 0.173 | **0.467 / 0.369 / 0.325** | **2.07 / 1.98 / 1.88** | ≥ 2× | no by the letter (1 of 3; the 2 154 miss is 0.02) | 0.218 / 0.205 / 0.189 | 0.214 / 0.159 / 0.093 |
+| max cos(shift, J_θ0) (7) | 0.283 / 0.309 / 0.321 | 0.304 / 0.308 / 0.310 | 1.07 / 1.00 / 0.97 | ≥ 1.5× | no | 0.245 / 0.251 / 0.295 | 0.276 / 0.300 / 0.294 |
+
+Companion numbers, descriptive: test 8's `grad_half_step_frac` k7
+0.126 / 0.228 / 0.289 vs k6 0.486 / 0.473 / 0.423 and `grad_peak_ratio`
+k7 50.3 / 18.7 / 12.7 vs k6 3.7 / 4.5 / 5.7 — the more-latent arm puts
+its gradient mass in the first steps, the less-latent arm spreads it
+(k7's steps to convergence 215 / 250 / 235 vs k6's 185 / 260 / 345);
+test 10 task/generic shift ratio at the peak layer (8 for all) k7
+5.3 / 5.6 / 5.9 vs k6 7.9 / 9.0 / 9.9 — the more-latent arm's update is
+LESS task-confined; Jacobian `pred_gain_ratio_max` k7 4.0–4.2 vs k6
+5.0–6.6; `first_layer_ge_half` on the all-token scope 4 / 5 / 5 for
+both. By the pre-registered rule the instruments have **not** been
+shown to see a readout-only unlock, so **the §6.22 mechanistic verdict
+"no latent sum at pp θ0" is downgraded from CLOSED to "not tested"** —
+the Tier-1/2 signature table is uncalibrated. Two qualifications, stated
+so the downgrade is not over-read either: (1) k7 and k6 are not
+"indistinguishable on all five" — gradient timing (test 8) separates
+them ≈ 2× at every size and `rel_fro` by 14–28 %; the bar (two readouts
+at ≥ 2×/½) was set for a latent-vs-none contrast and R-B1 shows this
+pair delivers only 0.63-vs-0.47, so "blind" is not cleanly established
+either — a cleaner negative control would truncate at K ≤ 4 (θ_T's
+layers 1–4 read 0.13–0.24 on the affected subset, base's 0.11–0.15). (2)
+On the one instrument the positive control does move, the ts38mt arms
+go the OTHER way: pp's `grad_early_mass_frac` is 0.98 / 0.78 / 0.49× of
+base's and its `grad_half_step_frac` LATER (0.55 / 0.66 / 0.60 vs
+0.47 / 0.52 / 0.51), i.e. the op-pretaught θ0 is less k7-like than the
+untrained base. The cross-patch instrument also plainly separates
+"front-end already trained" (ts38tr: answer-scope recovery reaches ½ at
+layers 6–7) from "not" (ts38mt: layers 2–4) — it just cannot rank k7 vs
+k6, whose difference is confined to one block.
+
+**Outcome (final, 2026-08-22).** (A) R-A1 FIRES: ts38mt's Test-1 margins
+at θ0 were operand routing; R-A3 passes; R-A2 NOT met — pp θ0 holds a
+≈ 2.5-SE trace of an NL sum (+0.075 over chance on the affected subset),
+below the +0.10 bar, so the gate stays closed on the routing-controlled
+read and Tier 3 stays skipped. (B) R-B1: pipeline verified, control
+weaker than designed (k6 latent too); R-B2 NOT met → §6.22's
+mechanistic CLOSED verdict is **downgraded to "not tested"**, with the
+qualifications above; R-B3 NOT met and, more important, OCV-floor EDL
+ranks both truncated parents *above* the untrained base while they hit
+0.79–0.89 zero-shot EM — **at n ≤ 4 642 EDL is insensitive to a latent
+representation under either floor**, and every small-n ts38 arm
+comparison (pp "worse than base" at 4 642–10 000, fmt's small-n "win")
+must be re-read on raw MDL or a shared floor before it is quoted. What
+survives of the ts38mt headline: the NL-sum question at pp θ0 now rests
+on (A) alone — a trace, not a decodable sum — and on no mechanistic-
+dynamics evidence. For (C) `ppfmt` (still the fair pair, not built):
+Test 1 must be the affected-subset accuracy, small-n scoring must be
+raw MDL + shared floor, and a dynamics signature should be quoted only
+if a K ≤ 4 vs K = 7 control first shows it firing.

@@ -1976,9 +1976,24 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     handoff runbook's §5b has the per-run command loop.
 
 23. **ts38mt follow-ups: (A) probe routing control + (B) ts38tr
-    truncated-adapter positive control — BUILT 2026-08-22, NOT LAUNCHED
-    (owner sends a box).** Two instrument checks on the §6.22 CLOSED
-    verdict. (A) Test 1's target (first answer token, classes `{-,1..9}`)
+    truncated-adapter positive control — DONE 2026-08-22 (owner's box
+    48397374, ≈ $0.6).** Result: (A) R-A1 FIRES — ts38mt's Test-1
+    margins at θ0 were operand routing; R-A2 not met (pp θ0 +0.075 on
+    the affected subset, a ≈ 2.5-SE trace, bar +0.10); R-A3 passes.
+    (B) R-B1 pipeline verified but k6 carries a latent sum too
+    (affected-subset 0.47 vs k7 0.63, base 0.18 — the base's last block
+    linearizes θ_T's mid-layer residual); R-B2 NOT met (0/5 criteria;
+    only gradient timing separates k7 from k6, ≈ 2×) → **§6.22's
+    mechanistic CLOSED verdict downgraded to "not tested"**; R-B3 NOT met
+    and OCV-floor EDL ranks both truncated parents above base while they
+    hit 0.79–0.89 zero-shot EM → **EDL is insensitive to a latent
+    representation at n ≤ 4 642 under either floor**; small-n ts38 reads
+    must be re-scored on raw MDL / a shared floor. Results:
+    `geode-internals` `results/{ts38tr_mech,ts38mt_probe_control}/`,
+    folds `analysis/ts38tr_{mech,phase0}_summary.csv` (via
+    `ts38mt_mech_summary.py --run-prefix evt-ts38tr`). Full Outcome:
+    decisions.md 2026-08-22 "ts38mt follow-ups". Original entry: two
+    instrument checks on the §6.22 CLOSED verdict. (A) Test 1's target (first answer token, classes `{-,1..9}`)
     is largely a function of the operands' top-position digits, and the
     layer-0 floor cannot see routing (layer 0 at the generating position
     is just `\n`); base θ0 already probes 0.44 after ONE block and θ_T's
