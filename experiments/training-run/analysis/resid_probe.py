@@ -121,8 +121,10 @@ def fit_linear_probe(
     xt = (x_train - mean) / std
     xs = (x_test - mean) / std
 
-    w = torch.zeros(xt.shape[1], n_classes, dtype=torch.float32, requires_grad=True)
-    b = torch.zeros(n_classes, dtype=torch.float32, requires_grad=True)
+    w = torch.zeros(
+        xt.shape[1], n_classes, dtype=torch.float32, device=xt.device, requires_grad=True
+    )
+    b = torch.zeros(n_classes, dtype=torch.float32, device=xt.device, requires_grad=True)
     opt = torch.optim.LBFGS([w, b], max_iter=MAX_ITER, line_search_fn="strong_wolfe")
 
     def closure() -> torch.Tensor:
