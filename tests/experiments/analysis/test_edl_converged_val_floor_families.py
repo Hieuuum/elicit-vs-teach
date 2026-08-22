@@ -94,6 +94,27 @@ _MATRIX = [
     ("ts38mw", "evt-ts38mw-pretaught-n215443", ("pretaught", "215443")),
     ("ts38pf", "evt-ts38pf-preteachfmt-n146780", ("preteachfmt", "146780")),
     ("ts38pf", "evt-ts38mw-pretaught-n128", None),
+    # ts38mt (EXPERIMENTS §6.22): THREE own arms, none reused from any other
+    # family (unlike ts38mw/ts38pf/ts38pp, which reuse ts38's base id
+    # run-for-run). Must reject the fmt full-FT parent itself (no -n<size>
+    # suffix) and every other family's own arm ids.
+    ("ts38mt", "evt-ts38mt-base-n1000", ("base", "1000")),
+    ("ts38mt", "evt-ts38mt-pp-n1000", ("pp", "1000")),
+    ("ts38mt", "evt-ts38mt-fmt-n1000", ("fmt", "1000")),
+    ("ts38mt", "evt-ts38mt-base-n316228", ("base", "316228")),
+    ("ts38mt", "evt-ts38mt-pp-n316228", ("pp", "316228")),
+    ("ts38mt", "evt-ts38mt-fmt-n316228", ("fmt", "316228")),
+    ("ts38mt", "evt-ts38mt-fmt-parent", None),
+    ("ts38mt", "evt-ts38-base-n1000", None),
+    ("ts38mt", "evt-ts38pp-pretaught-n1000", None),
+    ("ts38mt", "evt-ts38mw-pretaught-n1000", None),
+    ("ts38mt", "evt-ts38pf-preteachfmt-n1000", None),
+    ("ts38mt", "evt-ts38mt-base-n1000-extra", None),
+    ("ts38mt", "evt-ts38mt-pretaught-n1000", None),
+    # cross-family: no OTHER family's regex may pick up ts38mt's own arms.
+    ("ts38", "evt-ts38mt-base-n1000", None),
+    ("ts38pp", "evt-ts38mt-pp-n1000", None),
+    ("ts38pf", "evt-ts38mt-fmt-n1000", None),
     # nl2 (EXPERIMENTS §6.12, dose16 NL installer): captures noinst/inst
     # directly like op/nl (no ARM_MAPS translation entry, see FAMILIES'
     # nl2 comment) — must pick up its own ids and REJECT the neighboring
@@ -166,6 +187,14 @@ def test_all_family_stems_distinct() -> None:
         ecvf.FAMILIES["ts38mw"][1],
         ecvf.FAMILIES["ts38pf"][1],
     )
+    assert "ts38mt" in ecvf.FAMILIES
+    assert ecvf.FAMILIES["ts38mt"][1] == "edl_converged_val_floor_ts38mt"
+    assert ecvf.FAMILIES["ts38mt"][1] not in (
+        ecvf.FAMILIES["ts38"][1],
+        ecvf.FAMILIES["ts38mw"][1],
+        ecvf.FAMILIES["ts38pf"][1],
+        ecvf.FAMILIES["ts38pp"][1],
+    )
 
 
 def test_arm_label_mappings_are_honest_and_distinct() -> None:
@@ -209,6 +238,19 @@ def test_arm_label_mappings_are_honest_and_distinct() -> None:
         == ecvf.TS38PP_ARM["pretaught"][0]
         == "inst"
     )
+
+
+def test_ts38mt_arm_map_is_identity_not_noinst_inst() -> None:
+    """Unlike every other ARM_MAPS entry, ts38mt's 3 arms don't collapse to
+    a binary noinst/inst condition -- each raw capture maps to itself, and
+    STYLE_MAPS carries this family's own 3-color style instead of the
+    module-global 2-key STYLE."""
+    assert ecvf.TS38MT_ARM["base"] == ("base", "base (teach reference)")
+    assert ecvf.TS38MT_ARM["pp"] == ("pp", "pre-teach 4M full-FT (elicit)")
+    assert ecvf.TS38MT_ARM["fmt"] == ("fmt", "pre-teach-format full-FT (teach)")
+    assert set(ecvf.TS38MT_STYLE) == {"base", "pp", "fmt"}
+    assert "ts38mt" in ecvf.STYLE_MAPS
+    assert ecvf.STYLE_MAPS["ts38mt"] is ecvf.TS38MT_STYLE
 
 
 def test_collect_ts38mw_on_empty_store_returns_empty_dataframe_not_raise(tmp_path: Path) -> None:

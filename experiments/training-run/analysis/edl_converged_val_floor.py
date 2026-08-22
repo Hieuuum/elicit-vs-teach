@@ -169,6 +169,21 @@ FAMILIES = {
         "edl_converged_val_floor_ts38pp",
         "TinyStories 38.7M; base (teach) vs pre-teach 4M full-FT, D_algo_bare, r128 LoRA",
     ),
+    # ts38mt (EXPERIMENTS §6.22) is a THREE-arm family, unlike every entry
+    # above: its own base/pp arms are NEW seed-identical re-runs (own
+    # evt-ts38mt- ids, not reused ts38/ts38pp ids — adapter snapshots were
+    # switched on, decisions.md 2026-08-21 night "ts38mt pre-registration"),
+    # plus a genuinely new fmt (pre-teach-format full-FT) arm. The raw
+    # capture already IS the canonical condition (no noinst/inst
+    # translation — TS38MT_ARM below maps each arm to itself), so
+    # ``collect()``'s condition column holds "base"/"pp"/"fmt" literally for
+    # this family only.
+    "ts38mt": (
+        re.compile(r"^evt-ts38mt-(base|pp|fmt)-n(\d+)$"),
+        "edl_converged_val_floor_ts38mt",
+        "TinyStories 38.7M; base (teach) vs pre-teach 4M full-FT (pp, elicit) vs "
+        "pre-teach-format full-FT (fmt, teach), D_algo_bare, r128 LoRA",
+    ),
 }
 
 # Repo-wide convention, unchanged: base = tab:blue, format-installed = tab:orange.
@@ -207,6 +222,15 @@ TS38PP_ARM: dict[str, tuple[str, str]] = {
     "base": ("noinst", "base (teach)"),
     "pretaught": ("inst", "pre-teach 4M full-FT"),
 }
+TS38MT_ARM: dict[str, tuple[str, str]] = {
+    # raw regex capture -> (canonical condition, honest style label). Unlike
+    # every ARM_MAPS entry above, the condition here is NOT translated to
+    # noinst/inst -- three arms don't fit that binary, so each maps to
+    # itself and STYLE_MAPS (below) carries this family's own 3-color style.
+    "base": ("base", "base (teach reference)"),
+    "pp": ("pp", "pre-teach 4M full-FT (elicit)"),
+    "fmt": ("fmt", "pre-teach-format full-FT (teach)"),
+}
 # Per-family arm-map lookup used by collect()/main() below; every family not
 # listed here (op, nl) uses the regex capture as the condition directly.
 ARM_MAPS: dict[str, dict[str, tuple[str, str]]] = {
@@ -214,7 +238,17 @@ ARM_MAPS: dict[str, dict[str, tuple[str, str]]] = {
     "ts38mw": TS38MW_ARM,
     "ts38pf": TS38PF_ARM,
     "ts38pp": TS38PP_ARM,
+    "ts38mt": TS38MT_ARM,
 }
+# ts38mt's 3 conditions aren't STYLE's noinst/inst, so plot() needs its own
+# per-family style map; every other family keeps using the global STYLE
+# (STYLE_MAPS.get(family, STYLE) below preserves that byte-for-byte).
+TS38MT_STYLE: dict[str, tuple[str, str]] = {
+    "base": ("#1f77b4", "base (teach reference)"),
+    "pp": ("#e87ba4", "pre-teach 4M full-FT (elicit)"),
+    "fmt": ("#eda100", "pre-teach-format full-FT (teach)"),
+}
+STYLE_MAPS: dict[str, dict[str, tuple[str, str]]] = {"ts38mt": TS38MT_STYLE}
 
 
 def collect(family: str, store: Path) -> pd.DataFrame:
@@ -294,17 +328,22 @@ def plot(
     *,
     title: str | None = None,
     labels: dict[str, str] | None = None,
+    style: dict[str, tuple[str, str]] | None = None,
 ) -> None:
     """EDL/D vs. n under the converged-val floor, one curve per condition.
 
     ``title``/``labels`` override the default "...Llama-3.2-1B" title and
     STYLE's generic base/format-installed legend text — ts38 is neither
     Llama nor a format install (EXPERIMENTS §6.14). Both default to ``None``,
-    reproducing the op/nl behavior byte-for-byte.
+    reproducing the op/nl behavior byte-for-byte. ``style`` overrides which
+    condition/color pairs get drawn at all — every family but ts38mt still
+    passes ``None`` here and gets the module-global 2-key STYLE (noinst/inst)
+    unchanged; ts38mt's 3 conditions don't fit that binary (STYLE_MAPS).
     """
     label_of = (labels or {}).get
+    style = style or STYLE
     fig, ax = plt.subplots(figsize=(8.4, 5.6))
-    for condition, (color, default_label) in STYLE.items():
+    for condition, (color, default_label) in style.items():
         label = label_of(condition, default_label)
         series = df[df["condition"] == condition].sort_values("n")
         if series.empty:
@@ -359,7 +398,7 @@ def plot(
     if reach.nunique() > 1:
         short = reach.idxmin()
         note = (
-            f"\n{label_of(short, STYLE[short][1])} arm ends at n={int(reach.min()):,} — "
+            f"\n{label_of(short, style[short][1])} arm ends at n={int(reach.min()):,} — "
             "sweep stopped there, not a diverging curve."
         )
 
@@ -387,7 +426,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--family",
-        choices=("op", "nl", "nl2", "ts38", "ts38mw", "ts38pf", "ts38pp", "both"),
+        choices=("op", "nl", "nl2", "ts38", "ts38mw", "ts38pf", "ts38pp", "ts38mt", "both"),
         default="both",
     )
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)
@@ -412,15 +451,13 @@ def main() -> None:
                 f"TinyStories 38.7M; {family_tag}"
             )
             labels = {cond: label for cond, label in ARM_MAPS[family].values()}
-        plot(df, FIGURES / f"{stem}.png", family_tag, title=title, labels=labels)
+        style = STYLE_MAPS.get(family)
+        plot(df, FIGURES / f"{stem}.png", family_tag, title=title, labels=labels, style=style)
 
         negative = df[df["edl_per_token_nats"] < 0]
+        counts = ", ".join(f"{n} {cond}" for cond, n in df["condition"].value_counts().items())
         print(f"[evt] wrote {csv_path}  ({len(df)} runs)")
-        print(
-            f"[evt] {family}: {len(df)} runs "
-            f"({(df.condition == 'noinst').sum()} noinst / {(df.condition == 'inst').sum()} inst); "
-            f"negative EDL/D: {len(negative)}"
-        )
+        print(f"[evt] {family}: {len(df)} runs ({counts}); negative EDL/D: {len(negative)}")
         if not negative.empty:
             print(
                 "[evt] runs with NEGATIVE EDL/D under this floor (converged val above the epoch-1 mean):"
