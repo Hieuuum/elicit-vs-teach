@@ -1940,9 +1940,22 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     / `ts38mt_pp.yaml` / `ts38mt_fmt.yaml` (verbatim `ts38_base.yaml` /
     `ts38pp_pretaught.yaml` + snapshots on); 30 overlays
     `configs/sweeps/ts38/ts38mt_{base,pp,fmt}_n<N>.yaml`; `scripts/
-    launch_ts38mt_family.sh`; Phase-0 analysis `analysis/logit_lens.py`,
-    `analysis/weight_diff.py`, `analysis/resid_shift.py` (+ `mech_lib.py`). Full pre-registration: decisions.md
-    2026-08-21 (night) "ts38mt pre-registration".
+    launch_ts38mt_family.sh`; analysis drivers, one per test, all under
+    `analysis/` (built 2026-08-21, the last seven while the grid trained):
+    1 `resid_probe.py`, 2 `circuit_jaccard.py`, 3 `node_edge_delta.py`,
+    4 `cross_patch.py`, 5 `dcm.py`, 6 `logit_lens.py`, 7 `jacobian_lens.py`
+    (J-lens read as Jacobian lens — an interpretation, flagged), 8
+    `grad_dynamics.py`, 9 `weight_diff.py`, 10 `resid_shift.py`; shared
+    `mech_lib.py` (residual capture/loading) and `mech_nodes.py`
+    (head/MLP nodes, patching, node + EAP edge attribution). Property
+    tests: `tests/experiments/analysis/test_{mech_phase0,
+    mech_phase0_extra,mech_nodes,resid_probe,grad_dynamics,jacobian_lens,
+    cross_patch,circuit_jaccard,node_edge_delta,dcm}.py`. Full
+    pre-registration: decisions.md 2026-08-21 (night) "ts38mt
+    pre-registration"; the Tier-2/3 candidate readouts (not owner
+    signatures) are registered in decisions.md 2026-08-21 (late night)
+    "ts38mt mechanistic-test drivers", before any grid data existed. The
+    handoff runbook's §5b has the per-run command loop.
 
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1

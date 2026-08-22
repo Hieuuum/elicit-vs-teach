@@ -33,6 +33,10 @@ from geode.arith.spans import SftExample, tokenize_with_spans
 from geode.probe import residual_hook_names
 from geode.zoo import load_model
 
+# geode.zoo.model_io's own wrapped-checkpoint signature (``_WRAPPED_SUFFIXES``
+# there, private): a state dict carrying any of these is an ``apply_lora`` tree.
+_WRAPPED_SUFFIXES = (".base.weight", ".A.weight", ".B.weight")
+
 
 def load_any_model(spec: str, *, device: str, store: Path | None = None) -> nn.Module:
     """Load a model from ``run:<run_id>`` (``geode.zoo.load_model``, method-
@@ -44,9 +48,21 @@ def load_any_model(spec: str, *, device: str, store: Path | None = None) -> nn.M
     if spec.startswith("run:"):
         return load_model(spec.removeprefix("run:"), store=store, device=device)
     if spec.startswith("dir:"):
+        from safetensors import safe_open
         from transformers import AutoModelForCausalLM
 
-        model = AutoModelForCausalLM.from_pretrained(spec.removeprefix("dir:"))
+        path = Path(spec.removeprefix("dir:"))
+        weights = path / "model.safetensors"
+        if weights.is_file():
+            with safe_open(weights, framework="pt") as f:
+                wrapped = any(k.endswith(_WRAPPED_SUFFIXES) for k in f.keys())
+            if wrapped:
+                raise ValueError(
+                    f"{spec}: {weights} is a LoRA-wrapped checkpoint (base/A/B keys) — plain "
+                    "from_pretrained would silently random-init every projection. Load it as "
+                    "run:<run_id> instead (geode.zoo.load_model rebuilds the adapter tree)."
+                )
+        model = AutoModelForCausalLM.from_pretrained(path)
         return model.to(device).eval()
     raise ValueError(f"model spec must start with 'run:' or 'dir:', got {spec!r}")
 

@@ -149,15 +149,52 @@ done
 (`sft_snapshots` dir names are `step_%07d` — check with `ls`.) Each script
 prints a summary; read `--help` for flags. Upload the results dir to
 `mhieuuu/geode-internals` under `results/ts38mt_phase0/` (`HfApi().upload_folder`).
-Test 1 (linear probe) on the full-FT parent: `scripts/extract.py` +
-`analysis/probes.py` were written for LoRA target-run `snapshots/` dumps —
-check whether they accept a plain model dir before relying on them; if not,
-note it as a follow-up build rather than hacking it on the box.
+Test 1 (linear probe) now has its own driver, `analysis/resid_probe.py`
+(built 2026-08-21 late; does NOT need `extract.py` dumps — it forwards the
+prompts itself). Add to the loop above, for every `$M`:
+```bash
+  python3 resid_probe.py --model "$spec" --model-name "$name" --prompt-parquet ../data/full/D_algo_eval_bare.parquet --set-name task --prompt-parquet ../data/full/probe.parquet --set-name op --device cuda --limit 2000 --out $GEODE_STORE/results/ts38mt_phase0/resid_probe_${name}.csv
+  python3 jacobian_lens.py --model-a "dir:$S/evt-run1-base-v3-ext/model" --model-b "$spec" --prompt-parquet ../data/full/D_algo_eval_bare.parquet --set-name task --device cuda --limit 2000 --out $GEODE_STORE/results/ts38mt_phase0/jacobian_lens_${name}.csv   # skip for theta0
+```
 Report Phase-0 numbers (emergence layer per checkpoint, task vs op; ΔW
-rel_fro / effective rank / overlap_32 per layer; task/generic shift ratio)
-in the same decisions.md Outcome. The pre-registered test-1 discriminator
-and the headline question are in `EXPERIMENTS.md` §6.22 — quote against
-them, don't invent new bars.
+rel_fro / effective rank / overlap_32 per layer; task/generic shift ratio;
+probe layer-0 FLOOR vs best layer, task vs op) in the same decisions.md
+Outcome. The pre-registered test-1 discriminator and the headline question
+are in `EXPERIMENTS.md` §6.22 — quote against them, don't invent new bars.
+
+## 5b. The other mechanistic tests (after the grid; all ten drivers exist)
+All drivers live in `analysis/`, CPU-or-GPU, `--help` for flags; every one
+writes a table via `--out` and prints an `[evt]` summary. Candidate
+readouts for the Tier-2/3 tests are in each module docstring and in
+decisions.md "2026-08-21 (late night) — ts38mt mechanistic-test drivers"
+— they were registered BEFORE any grid data existed; quote against them.
+**LoRA target runs must be `run:<id>` specs** (`dir:` on a wrapped
+checkpoint now refuses loudly). Per size N and arm A ∈ {pp, fmt, base},
+with P = the arm's θ0 dir (`evt-ts38pp-parent/model`,
+`evt-ts38mt-fmt-parent/model`, `evt-run1-base-v3-ext/model`):
+```bash
+R=evt-ts38mt-${A}-n${N}; T=../data/full/D_algo_eval_bare.parquet; O=$GEODE_STORE/results/ts38mt_mech
+python3 grad_dynamics.py --run-id $R --out $O/grad_dynamics_$R.csv                                   # test 8 (logs + snapshots)
+python3 resid_probe.py --run-id $R --prompt-parquet $T --set-name task --device cuda --limit 2000 --out $O/resid_probe_$R.csv   # test 1 across snapshots
+python3 weight_diff.py --model-a dir:$S/$P --model-b run:$R --device cuda --out $O/weight_diff_$R.parquet                # test 9 (LoRA path)
+python3 resid_shift.py --model-a dir:$S/$P --model-b run:$R --task-parquet $T --generic-local /workspace/tinystories_val_2000.txt --device cuda --limit 2000 --out $O/resid_shift_$R.csv   # test 10
+python3 jacobian_lens.py --model-a dir:$S/$P --model-b run:$R --prompt-parquet $T --set-name task --device cuda --limit 2000 --out $O/jacobian_lens_$R.csv   # test 7 (+ bridge to 10)
+python3 cross_patch.py --model-a dir:$S/$P --model-b run:$R --prompt-parquet $T --device cuda --limit 1000 --out $O/cross_patch_$R.csv   # test 4
+python3 node_edge_delta.py --model-a dir:$S/$P --model-b run:$R --prompt-parquet $T --device cuda --limit 1024 --batch-size 1024 --out $O/node_edge_delta_$R.csv   # test 3
+python3 dcm.py --model-a dir:$S/$P --model-b run:$R --prompt-parquet $T --device cuda --limit 512 --lambdas 0.001,0.01,0.1 --steps 200 --out $O/dcm_$R.csv   # test 5
+```
+Test 2 takes several models at once (one call per N):
+```bash
+python3 circuit_jaccard.py --model base=dir:$S/evt-run1-base-v3-ext/model --model pp0=dir:$S/evt-ts38pp-parent/model --model ppT=run:evt-ts38mt-pp-n$N \
+  --model fmt0=dir:$S/evt-ts38mt-fmt-parent/model --model fmtT=run:evt-ts38mt-fmt-n$N --model baseT=run:evt-ts38mt-base-n$N \
+  --prompt-parquet $T --device cuda --limit 1024 --batch-size 1024 --out $O/circuit_jaccard_n$N.csv   # test 2
+```
+Mean-ablation reference is batch-local in `circuit_jaccard.py` — keep
+`--batch-size >= --limit` there (or pass `--ablation zero`);
+`node_edge_delta.py` buckets by token length and is batch-size-invariant.
+Tier 3 (tests 2/3/5) is pre-registered as GATED on Tier 1 finding a latent
+sum — run Tier 1 first, and say in the Outcome whether the gate opened.
+Upload `results/ts38mt_mech/` to `mhieuuu/geode-internals` like §5.
 
 ## 6. Report back to the owner (template)
 - Launch time, commit on box, box GPU; HALT-gate numbers (parent vs base

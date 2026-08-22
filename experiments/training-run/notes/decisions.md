@@ -9591,3 +9591,136 @@ pre-registration"; project-ts38fs-tiny-2026-08-20 memory).
 
 **Outcome: pending.** No GPU spend yet. Fill in after the parent's HALT
 gate resolves and the target grid + Phase-0 mechanistic readouts exist.
+
+## 2026-08-21 (late night) — ts38mt mechanistic-test drivers: all ten tests implemented, Tier-2/3 candidate readouts registered before any grid data
+
+**Context.** The ts38mt grid (previous entry) was mid-training on the
+owner's box when the owner asked for every one of the ten mechanistic
+tests to have an implementation and property tests. Tests 6/9/10 already
+existed (`logit_lens.py`, `weight_diff.py`, `resid_shift.py`); this entry
+records the other seven, built by seven parallel workers under one
+orchestrator on CPU-only tiny fixtures — **no GPU, no checkpoint, no grid
+number was looked at**. That matters for what follows: the candidate
+readouts below for the five tests the previous entry left "not
+pre-registered" are being written down while the grid's results do not
+yet exist, so they cannot have been shaped by them. They are still
+*candidates* (orchestrator's construction, not owner signatures) and are
+labelled as such in every module docstring.
+
+**Interpretation flagged, not verified with the owner.** "J-lens" (test
+7) has no definition on record anywhere in the repo; it is implemented as
+a **Jacobian lens** — `J_{i,ℓ} = ∂ log p(first answer token) / ∂ h_ℓ` at
+the generating position — because that is the only reading the letter
+supports and it slots naturally between the logit lens (what each layer
+already *says*) and the residual shift (where training *moved* the
+stream). If the owner meant something else, `jacobian_lens.py` is a
+self-contained 440-line file with no dependants.
+
+**Shared library, `analysis/mech_nodes.py`.** Nodes = attention heads
+(slice of the o_proj input; residual write through the matching o_proj
+column slice, LoRA-aware) and MLPs (module output), per block; `NodeId`
+ids `a{i}.h{h}` / `m{i}`; `capture_nodes`, `patch_nodes` (per-node,
+optionally per-position), `patch_residual` (mech_lib layer convention),
+`answer_logprob(+_and_node_grads)` (one backward, per-example
+independence tested), node attribution patching (`score(u) = (a^ablate −
+a^clean)·∂metric/∂a`, mean- or zero-ablation, first order) and EAP-style
+edge attribution (`score(u→v) = Δout_u · ∂metric/∂in_v`, the gradient at
+v's LN input taken on a CLONE so it is the direct-path gradient — this
+makes `Σ_v score(u→v) = score(u)` hold to round-off, tested exactly).
+Two defects were found and fixed the same night by the drivers built on
+it: the head-patch hook wrote in place after a callable had read the
+slice (autograd error for any value-dependent callable — the DCM mask mix
+— fixed by a functional rebuild + regression test), and
+`tests/_scriptloader.load` re-exec'd a module already imported as a
+sibling, producing two distinct `NodeId` classes depending on test
+collection order (made idempotent). `mech_lib.load_any_model` also gained
+a guard: a `dir:` spec on a LoRA-wrapped checkpoint now refuses and
+points at `run:` (plain `from_pretrained` silently random-inits every
+projection — the known incident).
+
+**The seven drivers, metric definitions, and candidate readouts.**
+
+- *Test 1, `resid_probe.py` (Tier 1, owner signature quoted in the
+  previous entry).* Multinomial logistic probe of the first answer token
+  from the residual at `p−1`, every layer, class space + seeded half/half
+  split frozen once per prompt set and reused across layers and
+  checkpoints; `--run-id` sweeps a run's snapshots (LoRA via
+  `zoo.load_model` + `edl.loop.load_snapshot`, full-FT via `sft_snapshots`
+  dirs). Reports the pre-registered **layer-0 floor** explicitly and
+  `probe_margin_over_floor = best − layer0`. Planted-signal test: a
+  per-class direction injected at block L recovers ≥0.95 at and after L,
+  near-majority before.
+- *Test 8, `grad_dynamics.py` (Tier 1, owner signature quoted).* From
+  `logs/gradstats.jsonl` (LoRA) or `train_log.jsonl`'s `grad_norm`
+  (full-FT — `train_sft.py` never writes gradstats, found during the
+  build) plus snapshots (`‖(α/2r)B@A‖` for LoRA; `‖θ_k − θ_ref‖` with
+  `--ref-dir` = the base model for full-FT parents, earliest-snapshot
+  stand-in otherwise). Six pure summary metrics, each pre-registered in
+  the docstring with its expected direction: `grad_early_mass_frac`
+  (elicit ≫ 0.1, teach ≈ 0.1), `grad_peak_ratio` (≫1 vs ≈1),
+  `grad_half_step_frac` (≈0 vs ≈0.5), `disp_frac_at_10pct` (near 1 vs
+  near 0), `disp_half_step_frac`, `loss_half_step_frac`.
+- *Test 7, `jacobian_lens.py` (Tier 2).* Per layer: `mean_jac_norm`,
+  `jac_norm_rel = ‖J‖·‖h‖`, direction consistency of `{J_i}` via
+  `resid_shift.shift_consistency` (same metric as test 10). With
+  `--model-b`: the bridge to test 10 — `mean_cos_shift_vs_jac0 =
+  mean_i cos(h_T − h_0, J^{θ0})` and `pred_gain_ratio` = first-order
+  predicted gain `d_i·J_i` over the actual log-prob gain. Candidate:
+  elicit → the update rides a direction θ0's readout was already
+  sensitive to (high cos, ratio ≈ 1 at some layer); teach → low cos, gain
+  not linearly explainable from θ0's Jacobian. Tested against an
+  independent autograd path, batching invariance, and a Taylor check
+  whose error shrinks with ε (11% → 0.03%).
+- *Test 4, `cross_patch.py` (Tier 2).* Residual patching at every
+  mech_lib layer, both scopes (`answer` position only / `all`) and both
+  directions (`T_into_0`, `0_into_T`); `recovery_frac = (patched −
+  clean_0)/(clean_T − clean_0)`, NaN on a ~0 denominator. Candidate:
+  elicit → one mid/late layer recovers most of the gain, mostly under
+  `answer` scope; teach → recovery only at the last layers or only under
+  `all`. Exact-value test: a single perturbed block k gives 0.0 for ℓ ≤ k
+  and 1.0 for ℓ ≥ k+1 under `all`.
+- *Test 2, `circuit_jaccard.py` (Tier 3, gated).* Circuit at budget k =
+  top-k nodes (and top-k edges) by mean |attribution|; for every model
+  pair: `jaccard_nodes/edges`, Spearman of full score vectors, asymmetric
+  `mass_overlap`; per model: top-k `concentration` and the ranked node
+  list. Candidate: elicit → pp0 vs ppT high overlap (training reused the
+  machinery); teach → fmt0 vs fmtT low; ppT vs fmtT tells whether the arms
+  converge. Operating rule (pinned by a test): the mean-ablation
+  reference is batch-local, so `--batch-size ≥ --limit` or `--ablation
+  zero`.
+- *Test 3, `node_edge_delta.py` (Tier 3, gated).* `ΔS` = change in
+  attribution score θ0 → θ_T at node vs edge granularity: L1 deltas
+  (normalised to [0, 2]), rank Spearmans, `node_sign_flip_frac`, and the
+  decomposition `rewiring_index(u) = 1 − |Δs_node(u)| / Σ_v |Δs_edge(u→v)|`
+  (0 = pure re-weighting, 1 = pure rewiring; uses the EAP identity, tested
+  through the driver's own grouping). Candidate: elicit-as-readout-unlock
+  → low node delta, high node rank correlation, change concentrated in a
+  few late nodes with high rewiring index; teach → high node delta, low
+  rank correlation, change spread over layers, low rewiring index. Mean
+  ablation is bucketed by token length here (batch-size-invariant).
+- *Test 5, `dcm.py` (Tier 3, gated).* Desiderata-based component masking
+  adapted cross-model: a sigmoid mask per node mixes θ_T's activation
+  into θ0's forward (`m·a_T + (1−m)·a_0`), loss = −answer log-prob +
+  λ·Σm, Adam on the mask logits only; binarise at 0.5 and re-evaluate the
+  discrete mask with a real forward → `n_selected`, `recovery_frac`,
+  per-layer counts; `--lambdas` sweep = the size/recovery curve. Stated
+  as a greedy single-relaxation first pass, not the paper's exact
+  objective. Candidate: elicit → a small mask reaches high recovery (sharp
+  bend); teach → recovery climbs only gradually with mask size.
+
+**Tests.** 559 property tests now cover the mechanistic tree
+(`tests/experiments/analysis/test_{mech_phase0,mech_phase0_extra,
+mech_nodes,resid_probe,grad_dynamics,jacobian_lens,cross_patch,
+circuit_jaccard,node_edge_delta,dcm}.py`), CPU-only, ~8 s; the 27 in
+`_extra` are a coverage audit of the pre-existing 6/9/10 drivers (padding
+leakage, teacher-forced positions, tie handling, exact overlap values,
+`main()` smoke tests) that found no bug. Whole suite: 1875 passed + the 6
+pre-existing ts1b `test_config_completeness.py` failures, unchanged.
+
+**Run order and the gate.** The previous entry's tiering stands: Tier 1
+(1/6/8/9/10) first, Tier 3 (2/3/5) only if Tier 1 finds a latent sum to
+chase; the runbook's §5b has the per-run command loop. Nothing here
+changes a config, a launcher, or the grid in flight.
+
+**Outcome: pending** (same as the previous entry — no grid number exists
+yet).
