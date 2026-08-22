@@ -190,22 +190,35 @@ def weight_diff_rows(model_a: nn.Module, model_b: nn.Module) -> list[dict]:
     return rows
 
 
-def print_summary(rows: list[dict]) -> None:
-    df = pd.DataFrame(rows)
+def summary_metrics(df: pd.DataFrame) -> dict:
+    """The headline test-9 numbers from one ``weight_diff`` table: ``rel_fro``
+    (the ``level="total"`` row) and the ΔW-mass-weighted (``fro_dw²``) means
+    of ``effective_rank`` and every ``overlap_<k>`` column present, over the
+    ``level="module"`` rows that have an effective rank. NaN (never 0) when
+    there is no ΔW mass or the column is absent/all-NaN. Shared by
+    ``print_summary`` and ``ts38mt_mech_summary.py``."""
     total = df[df["level"] == "total"].iloc[0]
     modules = df[df["level"] == "module"].dropna(subset=["effective_rank"])
     w = modules["fro_dw"] ** 2
-    mean_erank = float((modules["effective_rank"] * w).sum() / w.sum()) if w.sum() > 0 else math.nan
-    ov32_col = "overlap_32"
-    mean_ov32 = (
-        float((modules[ov32_col] * w).sum() / w.sum())
-        if ov32_col in modules and w.sum() > 0 and modules[ov32_col].notna().any()
-        else math.nan
-    )
+    w_sum = float(w.sum())
+
+    def weighted(col: str) -> float:
+        if col not in modules or w_sum <= 0 or not modules[col].notna().any():
+            return math.nan
+        return float((modules[col] * w).sum() / w_sum)
+
+    out = {"rel_fro": float(total["rel_fro"]), "effective_rank": weighted("effective_rank")}
+    for col in sorted(c for c in df.columns if re.fullmatch(r"overlap_\d+", c)):
+        out[col] = weighted(col)
+    return out
+
+
+def print_summary(rows: list[dict]) -> None:
+    m = summary_metrics(pd.DataFrame(rows))
     print(
-        f"[evt] total rel_fro={total['rel_fro']:.4f}, "
-        f"ΔW-mass-weighted mean effective_rank={mean_erank:.3f}, "
-        f"ΔW-mass-weighted mean overlap_32={mean_ov32:.4f}"
+        f"[evt] total rel_fro={m['rel_fro']:.4f}, "
+        f"ΔW-mass-weighted mean effective_rank={m['effective_rank']:.3f}, "
+        f"ΔW-mass-weighted mean overlap_32={m.get('overlap_32', math.nan):.4f}"
     )
 
 
