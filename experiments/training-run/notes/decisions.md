@@ -5816,3 +5816,38 @@ completed installer skips, the gate blocks re-score the actual checkpoint
 and RECORD both passes, then both arms run (~12-20 h; endpoints streamed).
 The installer manifest carries the bare-dose config from training time; the
 primary config's D_inst dose is superseded by this entry for any re-run.
+
+## 2026-08-22 — fig2ts sweep COMPLETE (38/38 converged): the TinyStories teaching signature reproduced; ALL FOUR Fig-2 curves done
+
+Sweep TERMINAL_SUCCESS, all 38 converged, both endpoint runs' snapshots
+streamed + verified to podhajskimarcin/<run_id>. Deliverables:
+results/dataset_size_sweep_ts.parquet + figures/dataset_size_sweep_ts.png
+(cluster); the four-curve figure is figures/fig2_full_replication.png.
+
+**Result (EDL/token nats, min-val floor):** both TS arms show
+DOWN-UP-DOWN — an initial format/statistics transient amortizing away
+(base 4.88 at n=1000 → 0.78 min at n≈15K), then the INCREASING-RETURNS
+teaching hump (rise to 2.02 at n≈215K, 2.6×), then diminishing returns
+(1.40 at 1M). Pre-teach format sits below base throughout (4.09 at
+n=1000; floor 2.99 vs 4.53) with a flatter, earlier/broader peak
+(~100-316K). vs paper: base peak ≈215K (theirs ~300K), pre-teach peak
+earlier (theirs ~150K) — same structure, same neighborhoods, single seed.
+
+**On the "↑↓ vs down-up-down" question (owner asked):** Table 5's ↑↓ is
+shorthand for the ALGORITHM-learning signature; the Fig-2 caption itself
+says pre-teaching format "reveals the increasing-returns phase without
+the initial format-learning transient" — i.e., the paper's own TS base
+curve carries the initial decreasing transient too. Our three segments =
+[transient amortization][teaching][saturation], as designed. Supporting:
+G5 EM ~0 through the dip, climbing only along the hump's back side
+(0 → 0.093 at 1M); TS curves sit ~an order of magnitude above the Llama
+curves at every n, exactly the capability-present vs -absent separation
+Fig 2 exists to show.
+
+**THE FULL FIGURE-2 REPLICATION IS COMPLETE**: Llama base ↓, Llama
+pre-elicit ↓ with the 3.7-5x small-n gap, TinyStories base with the
+teaching hump, TinyStories pre-teach format below it — all four curves,
+one A100, seed 316, every parent gate-verified, every endpoint's
+trajectory archived. Remaining stated deviations: batch 128 (vs 1024),
+1 seed (vs 3), D_algo (vs DeepMind Mathematics), LoRA/dose-size installer
+adaptations (each measured and recorded in this log).

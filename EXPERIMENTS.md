@@ -830,6 +830,23 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `dataset_size_sweep.py --family ts` → `_ts` stems. Completing this
     family completes all four Fig-2 curves.
 
+    **OUTCOME 2026-08-22 — COMPLETE, 38/38 converged: THE TEACHING
+    SIGNATURE APPEARS, and with it the full four-curve Figure 2.**
+    Installer resolved on the BARE dose (scaffolded E.1.2 dose: G4 0.0000
+    — total input-format-transfer failure on the blank twin, falsifying
+    E.1.2's format-irrelevance claim; bare dose: G4 1.0000 / G3 0.0000).
+    Sweep: both TS arms show [format-transient ↓][teaching hump ↑]
+    [saturation ↓] — base 4.88→0.78→peak 2.02 nats/token at n≈215K
+    (paper ~300K) →1.40 at 1M; pre-teach format below base throughout
+    with a flatter earlier peak. The Fig-2 caption's own description
+    (pre-teach "reveals the increasing-returns phase without the initial
+    format-learning transient") confirms the base curve's initial
+    transient is expected. TS curves sit ~an order of magnitude above
+    the Llama curves at every n. Four-curve figure:
+    `figures/fig2_full_replication.png`; endpoint snapshots for all four
+    curves archived at podhajskimarcin/<run_id>. Full record:
+    decisions.md 2026-08-22.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
