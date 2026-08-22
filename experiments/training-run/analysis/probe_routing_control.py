@@ -80,10 +80,32 @@ prompt set, exactly as in ``resid_probe.py``'s ``build_reference`` (reused
 directly, not reimplemented), so every model/layer/subset accuracy reported
 here answers the same probe question.
 
+**Cross-format transfer probe (``--transfer-set``, decisions.md 2026-08-22
+"probe trajectory").** Renders an *operator-notation twin* of the named
+set's rows — the SAME ``(a, b, op)`` problems in the ``Question: a + b\\n
+Answer: <true answer>`` format the ts38pp parent was pre-taught on
+(``geode.arith.formats.render(..., "operator")``) — and, per layer, fits the
+probe on the twin's TRAIN half and scores it on the original set's TEST
+half (``op_to_task``), plus the reverse (``task_to_op``) and the two
+within-format references on the same split (``op_to_op``, ``task_to_task``).
+A probe that transfers reads the SAME representation of the answer in both
+formats; one that does not may mean the format never reaches the
+arithmetic, or merely a different subspace — so transfer success is the
+strong read, failure is not. Scored on **positive-answer examples only**,
+classes = first digit ``1..9`` by answer TEXT: in the operator rendering a
+negative answer's first token is the merged ``Ġ-`` (the tokenizer fuses the
+space and the sign) and the generating position differs by sign, while a
+positive answer's digit tokens and generating position are the same in
+both formats. The affected/determined split is applied within that subset.
+
 Usage:
     python3 probe_routing_control.py --model pp0=run:evt-ts38pp-parent \\
         --prompt-parquet ../data/full/D_algo_eval_bare.parquet --set-name task \\
         --out probe_routing_control_ts38pp_theta0.csv
+
+    python3 probe_routing_control.py --run-id evt-ts38mt-pp-n46416 --model-name pp \\
+        --prompt-parquet ../data/full/D_algo_eval_bare.parquet --set-name task \\
+        --transfer-set task --limit 6000 --out probe_traj_pp.csv
 """
 
 from __future__ import annotations
@@ -101,13 +123,23 @@ from mech_lib import load_any_model, load_task_examples, write_table
 
 from resid_probe import (
     NO_CHECKPOINT_STEP,
+    SNAPSHOT_MARKER,
     ProbeReference,
     build_reference,
+    discover_snapshot_dir,
     extract_features,
     fit_linear_probe_predictions,
+    snapshot_steps_in_dir,
 )
 
+from geode.arith.formats import render, true_answer
+from geode.arith.spans import SftExample
+from geode.edl.loop import load_snapshot
+from geode.zoo import load_model
+
 REQUIRED_ROUTING_COLUMNS = ("a", "b", "op")
+TRANSFER_CLASSES = tuple("123456789")  # first digit of a POSITIVE answer
+TRANSFER_DIRECTIONS = ("op_to_task", "task_to_op", "op_to_op", "task_to_task")
 MAX_DIGIT_POSITIONS = 4  # LEFT-aligned digit positions token_features reads (0 = top digit)
 DIGIT_CATEGORIES = 11  # digits 0-9 plus "absent" (operand shorter than this position)
 ABSENT_DIGIT = 10
@@ -336,51 +368,262 @@ def routing_probe_rows_for_model(
     + ``fit_linear_probe_predictions``), then split test accuracy over the
     set's frozen affected/determined subsets."""
     rows: list[dict] = []
-    for set_name, rr in refs.items():
-        ref = rr.base
-        feats = extract_features(model, ref.examples)
-        y_test = ref.y[ref.test_idx]
-        test_affected = rr.affected_mask[ref.test_idx]
-        test_determined = ~test_affected
-        for layer, name in enumerate(feats):
+    for rr in refs.values():
+        feats = extract_features(model, rr.base.examples)
+        rows.extend(_routing_rows_from_feats(rr, feats, model_label, checkpoint_step, l2))
+    return rows
+
+
+def _routing_rows_from_feats(
+    rr: RoutingReference,
+    feats: dict[str, torch.Tensor],
+    model_label: str,
+    checkpoint_step: int,
+    l2: float,
+) -> list[dict]:
+    """``routing_probe_rows_for_model``'s per-set body, on already-extracted
+    features (so a caller can reuse one forward pass for the transfer rows)."""
+    ref = rr.base
+    y_test = ref.y[ref.test_idx]
+    test_affected = rr.affected_mask[ref.test_idx]
+    test_determined = ~test_affected
+    rows: list[dict] = []
+    for layer, name in enumerate(feats):
+        _, test_pred = fit_linear_probe_predictions(
+            feats[name][ref.train_idx],
+            ref.y[ref.train_idx],
+            feats[name][ref.test_idx],
+            y_test,
+            ref.n_classes,
+            l2,
+        )
+        probe_test_acc = float((test_pred == y_test).double().mean().item())
+        acc_determined = float(
+            (test_pred[test_determined] == y_test[test_determined]).double().mean().item()
+        )
+        acc_affected = float(
+            (test_pred[test_affected] == y_test[test_affected]).double().mean().item()
+        )
+        rows.append(
+            {
+                "model": model_label,
+                "checkpoint_step": checkpoint_step,
+                "set": ref.set_name,
+                "layer": layer,
+                "hook_name": name,
+                "probe_test_acc": probe_test_acc,
+                "acc_determined": acc_determined,
+                "acc_affected": acc_affected,
+                "n_test_determined": rr.n_test_determined,
+                "n_test_affected": rr.n_test_affected,
+                "majority_test_acc": ref.majority_test_acc,
+                "majority_affected_acc": rr.majority_affected_acc,
+                "determined_frac": rr.determined_frac,
+                "token_baseline_acc": rr.token_baseline_acc,
+                "token_baseline_acc_affected": rr.token_baseline_acc_affected,
+                "n_classes": ref.n_classes,
+                "n_train": int(ref.train_idx.shape[0]),
+                "n_test": int(ref.test_idx.shape[0]),
+            }
+        )
+    return rows
+
+
+# ---------------------------------------------------------------- transfer
+
+
+def op_twin_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """The operator-notation twin of ``df``'s rows: same ``a``/``b``/``op``
+    in the same order, rendered ``Question: <a> <op> <b>\\nAnswer: <true
+    answer>`` (``geode.arith.formats.render(..., "operator")`` — the exact
+    scaffold the ts38pp parent was pre-taught on), with ``full_text``,
+    ``answer_char_start``/``end`` and ``answer_text`` so
+    ``mech_lib.load_task_examples`` can tokenize it like any task parquet.
+    Labels are always the TRUE answer (a transfer probe on wrong labels would
+    measure nothing)."""
+    missing = [c for c in REQUIRED_ROUTING_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"op_twin_frame: prompt parquet is missing column(s) {missing}")
+    rows = []
+    for row in df.itertuples(index=False):
+        a, b, op = int(row.a), int(row.b), str(row.op)
+        answer = true_answer(a, b, op)
+        full, (start, end) = render(a, b, op, answer, "operator")
+        rows.append(
+            {
+                "a": a,
+                "b": b,
+                "op": op,
+                "full_text": full,
+                "answer_char_start": start,
+                "answer_char_end": end,
+                "answer_text": str(answer),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def positive_first_digit_classes(df: pd.DataFrame) -> torch.Tensor:
+    """Class index of each row's TRUE answer for the transfer probe: the
+    first digit ``1..9`` → ``0..8`` when the answer is positive, ``-1`` when
+    it is zero or negative (excluded — module docstring explains why)."""
+    missing = [c for c in REQUIRED_ROUTING_COLUMNS if c not in df.columns]
+    if missing:
+        raise ValueError(f"positive_first_digit_classes: missing column(s) {missing}")
+    out = []
+    for row in df.itertuples(index=False):
+        answer = true_answer(int(row.a), int(row.b), str(row.op))
+        out.append(TRANSFER_CLASSES.index(str(answer)[0]) if answer > 0 else -1)
+    return torch.tensor(out, dtype=torch.long)
+
+
+@dataclass
+class TransferReference:
+    """Everything fixed across models for the cross-format transfer probe on
+    one set: the set's own routing reference (split + affected mask), the
+    operator twin's tokenized examples (same rows, same order), the shared
+    first-digit classes (``-1`` = excluded), and the positive-answer TRAIN
+    / TEST index tensors carved out of the same seeded permutation."""
+
+    routing: RoutingReference
+    twin_examples: list[SftExample]
+    y_digit: torch.Tensor
+    train_idx: torch.Tensor  # positive-answer subset of routing.base.train_idx
+    test_idx: torch.Tensor  # positive-answer subset of routing.base.test_idx
+    majority_acc: float  # chance on the positive test subset
+    majority_affected_acc: float  # chance on its affected part
+    n_test_affected: int
+
+
+def build_transfer_reference(
+    df: pd.DataFrame, rr: RoutingReference, twin_examples: list[SftExample]
+) -> TransferReference:
+    """``df`` must be the same ``--limit``-truncated rows that built ``rr``
+    and ``twin_examples`` (same order). Refuses on a row-count mismatch or
+    when the positive test subset has no affected examples."""
+    ref = rr.base
+    if len(twin_examples) != len(ref.examples) or len(df) != len(ref.examples):
+        raise ValueError(
+            f"build_transfer_reference: {len(twin_examples)} twin examples / {len(df)} rows "
+            f"vs {len(ref.examples)} examples for set {ref.set_name!r} — same rows, same order"
+        )
+    y_digit = positive_first_digit_classes(df)
+    train_idx = ref.train_idx[y_digit[ref.train_idx] >= 0]
+    test_idx = ref.test_idx[y_digit[ref.test_idx] >= 0]
+    if train_idx.shape[0] == 0 or test_idx.shape[0] == 0:
+        raise ValueError(
+            f"build_transfer_reference: set {ref.set_name!r} has no positive-answer "
+            "examples in its train or test half — nothing to transfer"
+        )
+    test_affected = rr.affected_mask[test_idx]
+    n_test_affected = int(test_affected.sum().item())
+    if n_test_affected == 0:
+        raise ValueError(
+            f"build_transfer_reference: set {ref.set_name!r} has zero AFFECTED positive "
+            "test examples — no routing-vs-computed signal on the transfer subset"
+        )
+    y_test = y_digit[test_idx]
+    return TransferReference(
+        routing=rr,
+        twin_examples=list(twin_examples),
+        y_digit=y_digit,
+        train_idx=train_idx,
+        test_idx=test_idx,
+        majority_acc=majority_accuracy(y_test, len(TRANSFER_CLASSES)),
+        majority_affected_acc=majority_accuracy(y_test[test_affected], len(TRANSFER_CLASSES)),
+        n_test_affected=n_test_affected,
+    )
+
+
+def transfer_rows_from_feats(
+    tr: TransferReference,
+    feats_task: dict[str, torch.Tensor],
+    feats_op: dict[str, torch.Tensor],
+    model_label: str,
+    checkpoint_step: int,
+    l2: float = 1e-3,
+) -> list[dict]:
+    """One row per (direction, layer): fit on the source format's positive
+    TRAIN examples, score on the target format's positive TEST examples —
+    overall and on the affected part. Both feature dicts must come from the
+    SAME model (the transfer is across formats, not across models)."""
+    if list(feats_task) != list(feats_op):
+        raise ValueError("transfer_rows_from_feats: task/op feature layers differ")
+    rr = tr.routing
+    y_train = tr.y_digit[tr.train_idx]
+    y_test = tr.y_digit[tr.test_idx]
+    test_affected = rr.affected_mask[tr.test_idx]
+    src = {"op": feats_op, "task": feats_task}
+    rows: list[dict] = []
+    for direction in TRANSFER_DIRECTIONS:
+        src_name, dst_name = direction.split("_to_")
+        for layer, name in enumerate(feats_task):
             _, test_pred = fit_linear_probe_predictions(
-                feats[name][ref.train_idx],
-                ref.y[ref.train_idx],
-                feats[name][ref.test_idx],
+                src[src_name][name][tr.train_idx],
+                y_train,
+                src[dst_name][name][tr.test_idx],
                 y_test,
-                ref.n_classes,
+                len(TRANSFER_CLASSES),
                 l2,
-            )
-            probe_test_acc = float((test_pred == y_test).double().mean().item())
-            acc_determined = float(
-                (test_pred[test_determined] == y_test[test_determined]).double().mean().item()
-            )
-            acc_affected = float(
-                (test_pred[test_affected] == y_test[test_affected]).double().mean().item()
             )
             rows.append(
                 {
                     "model": model_label,
                     "checkpoint_step": checkpoint_step,
-                    "set": set_name,
+                    "set": rr.base.set_name,
+                    "direction": direction,
                     "layer": layer,
                     "hook_name": name,
-                    "probe_test_acc": probe_test_acc,
-                    "acc_determined": acc_determined,
-                    "acc_affected": acc_affected,
-                    "n_test_determined": rr.n_test_determined,
-                    "n_test_affected": rr.n_test_affected,
-                    "majority_test_acc": ref.majority_test_acc,
-                    "majority_affected_acc": rr.majority_affected_acc,
-                    "determined_frac": rr.determined_frac,
-                    "token_baseline_acc": rr.token_baseline_acc,
-                    "token_baseline_acc_affected": rr.token_baseline_acc_affected,
-                    "n_classes": ref.n_classes,
-                    "n_train": int(ref.train_idx.shape[0]),
-                    "n_test": int(ref.test_idx.shape[0]),
+                    "acc": float((test_pred == y_test).double().mean().item()),
+                    "acc_affected": float(
+                        (test_pred[test_affected] == y_test[test_affected]).double().mean().item()
+                    ),
+                    "majority_acc": tr.majority_acc,
+                    "majority_affected_acc": tr.majority_affected_acc,
+                    "n_train": int(tr.train_idx.shape[0]),
+                    "n_test": int(tr.test_idx.shape[0]),
+                    "n_test_affected": tr.n_test_affected,
+                    "n_classes": len(TRANSFER_CLASSES),
                 }
             )
     return rows
+
+
+def probe_model(
+    model: nn.Module,
+    refs: dict[str, RoutingReference],
+    transfer: dict[str, TransferReference],
+    model_label: str,
+    checkpoint_step: int,
+    l2: float = 1e-3,
+) -> tuple[list[dict], list[dict]]:
+    """Routing rows for every set plus transfer rows for every set in
+    ``transfer`` (keys ⊆ ``refs``), sharing one forward pass per set."""
+    routing_rows: list[dict] = []
+    transfer_rows: list[dict] = []
+    for set_name, rr in refs.items():
+        feats = extract_features(model, rr.base.examples)
+        routing_rows.extend(_routing_rows_from_feats(rr, feats, model_label, checkpoint_step, l2))
+        if set_name in transfer:
+            tr = transfer[set_name]
+            feats_op = extract_features(model, tr.twin_examples)
+            transfer_rows.extend(
+                transfer_rows_from_feats(tr, feats, feats_op, model_label, checkpoint_step, l2)
+            )
+    return routing_rows, transfer_rows
+
+
+def print_transfer_summary(rows: list[dict]) -> None:
+    df = pd.DataFrame(rows)
+    for (model_label, step, direction), sub in df.groupby(
+        ["model", "checkpoint_step", "direction"], sort=False
+    ):
+        best = sub.loc[sub["acc_affected"].idxmax()]
+        print(
+            f"[evt] {model_label} step={step:>6} {direction:<13}: best_affected=layer"
+            f"{int(best['layer'])}:{best['acc_affected']:.4f} (acc {best['acc']:.4f}) vs "
+            f"majority_affected_acc={best['majority_affected_acc']:.4f}"
+        )
 
 
 def print_summary(rows: list[dict]) -> None:
@@ -414,10 +657,30 @@ def main() -> None:
     ap.add_argument(
         "--model",
         action="append",
-        required=True,
+        default=None,
         dest="models",
         metavar="name=spec",
-        help="name=spec, repeatable, at least once (spec is run:<run_id> or dir:<path>)",
+        help="name=spec, repeatable (spec is run:<run_id> or dir:<path>); or use --run-id",
+    )
+    ap.add_argument("--run-id", default=None, help="sweep this run's snapshots instead of --model")
+    ap.add_argument(
+        "--model-name", default=None, help="'model' column label for --run-id (default: run id)"
+    )
+    ap.add_argument(
+        "--snapshot-steps",
+        default=None,
+        help="comma-separated steps to probe (default: every step_* dir found)",
+    )
+    ap.add_argument(
+        "--transfer-set",
+        default=None,
+        help="set name whose operator-notation twin drives the cross-format transfer probe",
+    )
+    ap.add_argument(
+        "--transfer-out",
+        type=Path,
+        default=None,
+        help="transfer rows table (default: <out stem>_transfer.csv)",
     )
     ap.add_argument(
         "--prompt-parquet", action="append", dest="prompt_parquets", type=Path, required=True
@@ -442,6 +705,12 @@ def main() -> None:
 
     if len(args.prompt_parquets) != len(args.set_names):
         ap.error("--prompt-parquet and --set-name must be given the same number of times")
+    if bool(args.models) == bool(args.run_id):
+        ap.error("exactly one of --model (repeatable) or --run-id is required")
+    if args.snapshot_steps and not args.run_id:
+        ap.error("--snapshot-steps requires --run-id")
+    if args.transfer_set is not None and args.transfer_set not in args.set_names:
+        ap.error(f"--transfer-set {args.transfer_set!r} is not one of --set-name {args.set_names}")
 
     torch.manual_seed(args.seed)
     from transformers import AutoTokenizer
@@ -449,6 +718,7 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
 
     refs: dict[str, RoutingReference] = {}
+    transfer: dict[str, TransferReference] = {}
     for path, set_name in zip(args.prompt_parquets, args.set_names):
         df = pd.read_parquet(path)
         examples = load_task_examples(df, tokenizer, limit=args.limit)
@@ -464,21 +734,65 @@ def main() -> None:
             f"n_test_affected={rr.n_test_affected}, "
             f"majority_affected_acc={rr.majority_affected_acc:.4f}"
         )
-
-    models: dict[str, nn.Module] = {}
-    for spec in args.models:
-        name, model_spec = _parse_model_arg(spec)
-        models[name] = load_any_model(model_spec, device=args.device, store=args.store)
+        if set_name == args.transfer_set:
+            twin = load_task_examples(op_twin_frame(df), tokenizer)
+            tr = build_transfer_reference(df, rr, twin)
+            transfer[set_name] = tr
+            print(
+                f"[evt] transfer twin of {set_name!r}: positive train/test "
+                f"{int(tr.train_idx.shape[0])}/{int(tr.test_idx.shape[0])}, "
+                f"n_test_affected={tr.n_test_affected}, majority_acc={tr.majority_acc:.4f}, "
+                f"majority_affected_acc={tr.majority_affected_acc:.4f}"
+            )
 
     rows: list[dict] = []
-    for model_label, model in models.items():
-        rows.extend(
-            routing_probe_rows_for_model(model, refs, model_label, NO_CHECKPOINT_STEP, l2=args.l2)
+    transfer_rows: list[dict] = []
+    if args.models:
+        for spec in args.models:
+            name, model_spec = _parse_model_arg(spec)
+            model = load_any_model(model_spec, device=args.device, store=args.store)
+            r, t = probe_model(model, refs, transfer, name, NO_CHECKPOINT_STEP, l2=args.l2)
+            rows.extend(r)
+            transfer_rows.extend(t)
+    else:
+        snap_dir, kind = discover_snapshot_dir(args.run_id, args.store)
+        available = snapshot_steps_in_dir(snap_dir, SNAPSHOT_MARKER[kind])
+        if args.snapshot_steps:
+            steps = sorted(int(s) for s in args.snapshot_steps.split(","))
+            missing = sorted(set(steps) - set(available))
+            if missing:
+                ap.error(
+                    f"--snapshot-steps {missing} not found (or missing their "
+                    f"{SNAPSHOT_MARKER[kind]!r} marker) under {snap_dir}; usable steps: {available}"
+                )
+        else:
+            steps = available
+        model_label = args.model_name or args.run_id
+        print(f"[evt] {args.run_id}: {kind} snapshots, {len(steps)} steps: {steps}")
+        lora_model = (
+            load_model(args.run_id, store=args.store, device=args.device)
+            if kind == "lora"
+            else None
         )
+        for step in steps:
+            if kind == "lora":
+                model = load_snapshot(lora_model, args.run_id, step, store=args.store)
+            else:
+                model = load_any_model(
+                    f"dir:{snap_dir / f'step_{step}'}", device=args.device, store=args.store
+                )
+            r, t = probe_model(model, refs, transfer, model_label, step, l2=args.l2)
+            rows.extend(r)
+            transfer_rows.extend(t)
 
     write_table(pd.DataFrame(rows), args.out)
     print(f"[evt] wrote {args.out} ({len(rows)} rows)")
     print_summary(rows)
+    if transfer:
+        transfer_out = args.transfer_out or args.out.with_name(f"{args.out.stem}_transfer.csv")
+        write_table(pd.DataFrame(transfer_rows), transfer_out)
+        print(f"[evt] wrote {transfer_out} ({len(transfer_rows)} rows)")
+        print_transfer_summary(transfer_rows)
 
 
 if __name__ == "__main__":

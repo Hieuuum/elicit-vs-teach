@@ -31,6 +31,7 @@ from __future__ import annotations
 import math
 import random
 import sys
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -575,3 +576,536 @@ class TestMainSmoke:
         monkeypatch.setattr(sys, "argv", argv)
         with pytest.raises(ValueError):
             prc.main()
+
+
+# ---------------------------------------------------------------------------
+# Cross-format transfer probe (decisions.md 2026-08-22 "probe trajectory").
+# ---------------------------------------------------------------------------
+
+
+class TestOpTwinFrame:
+    def test_exact_strings_known_rows(self):
+        df = pd.DataFrame({"a": [189, 560], "b": [937, 1188], "op": ["+", "-"]})
+        twin = prc.op_twin_frame(df)
+        row0, row1 = twin.iloc[0], twin.iloc[1]
+        assert row0["full_text"] == "Question: 189 + 937\nAnswer: 1126"
+        assert (row0["answer_char_start"], row0["answer_char_end"]) == (28, 32)
+        assert row0["answer_text"] == "1126"
+        assert row1["full_text"] == "Question: 560 - 1188\nAnswer: -628"
+        assert row1["answer_text"] == "-628"
+
+    def test_row_order_preserved(self):
+        rows = [(1, 2, "+"), (500, 480, "-"), (943, 5881, "+")]
+        df = pd.DataFrame(
+            {"a": [r[0] for r in rows], "b": [r[1] for r in rows], "op": [r[2] for r in rows]}
+        )
+        twin = prc.op_twin_frame(df)
+        assert twin["a"].tolist() == [r[0] for r in rows]
+        assert twin["b"].tolist() == [r[1] for r in rows]
+        assert twin["op"].tolist() == [r[2] for r in rows]
+
+    def test_columns(self):
+        df = pd.DataFrame({"a": [1], "b": [2], "op": ["+"]})
+        twin = prc.op_twin_frame(df)
+        assert set(twin.columns) == {
+            "a",
+            "b",
+            "op",
+            "full_text",
+            "answer_char_start",
+            "answer_char_end",
+            "answer_text",
+        }
+
+    def test_span_slices_to_answer_text_every_row(self):
+        rng = random.Random(17)
+        rows = [
+            (rng.randrange(0, 100000), rng.randrange(0, 100000), rng.choice(["+", "-"]))
+            for _ in range(25)
+        ]
+        df = pd.DataFrame(
+            {"a": [r[0] for r in rows], "b": [r[1] for r in rows], "op": [r[2] for r in rows]}
+        )
+        twin = prc.op_twin_frame(df)
+        for row in twin.itertuples(index=False):
+            assert row.full_text[row.answer_char_start : row.answer_char_end] == row.answer_text
+
+    def test_missing_column_raises(self):
+        with pytest.raises(ValueError):
+            prc.op_twin_frame(pd.DataFrame({"a": [1], "op": ["+"]}))
+        with pytest.raises(ValueError):
+            prc.op_twin_frame(pd.DataFrame({"a": [1], "b": [2]}))
+
+
+class TestPositiveFirstDigitClasses:
+    def test_hand_computed(self):
+        rows = [
+            (560, 1188, "-"),  # -628 -> -1
+            (55, 55, "-"),  # a==b, answer 0 -> -1
+            (189, 937, "+"),  # 1126 -> class 0
+            (0, 9, "+"),  # 9 -> class 8
+            (5898, 3, "-"),  # 5895 -> class 4
+        ]
+        df = pd.DataFrame(
+            {"a": [r[0] for r in rows], "b": [r[1] for r in rows], "op": [r[2] for r in rows]}
+        )
+        y = prc.positive_first_digit_classes(df)
+        assert y.tolist() == [-1, -1, 0, 8, 4]
+        assert y.dtype == torch.long
+
+    def test_length_matches_df(self):
+        rng = random.Random(9)
+        rows = [
+            (rng.randrange(0, 100000), rng.randrange(0, 100000), rng.choice(["+", "-"]))
+            for _ in range(13)
+        ]
+        df = pd.DataFrame(
+            {"a": [r[0] for r in rows], "b": [r[1] for r in rows], "op": [r[2] for r in rows]}
+        )
+        y = prc.positive_first_digit_classes(df)
+        assert y.shape[0] == len(df) == 13
+
+    def test_missing_column_raises(self):
+        with pytest.raises(ValueError):
+            prc.positive_first_digit_classes(pd.DataFrame({"a": [1], "op": ["+"]}))
+
+
+def _synthetic_examples(n: int, offset: int = 0) -> list[SftExample]:
+    """``n`` distinct-token SftExamples -- content is irrelevant to the
+    transfer reference / feats-based tests below, only the count matters."""
+    return [
+        SftExample(
+            input_ids=[4 + offset + (i % 10), 5 + offset + (i % 10), 6 + offset + (i % 10)],
+            label_span=(2, 3),
+        )
+        for i in range(n)
+    ]
+
+
+def _routing_reference_for_transfer(rows, exs_seed, split_seed):
+    """Builds ``(df, rr)`` via the real ``build_routing_reference`` path, the
+    way ``build_transfer_reference``'s docstring/callers do."""
+    df = pd.DataFrame(
+        {"a": [r[0] for r in rows], "b": [r[1] for r in rows], "op": [r[2] for r in rows]}
+    )
+    exs = _synthetic_examples(len(rows), offset=exs_seed)
+    ref = rp.build_reference(exs, "task", seed=split_seed)
+    rr = prc.build_routing_reference(df, ref, l2=1e-3)
+    return df, rr
+
+
+class TestBuildTransferReference:
+    def test_refuses_twin_length_mismatch(self):
+        rows = [(a, b, "-") for a, b in [(500, 480), (523, 480), (55, 55), (91, 19)]]
+        df, rr = _routing_reference_for_transfer(rows, exs_seed=0, split_seed=0)
+        short_twin = _synthetic_examples(len(rows) - 1, offset=100)
+        with pytest.raises(ValueError):
+            prc.build_transfer_reference(df, rr, short_twin)
+
+    def test_refuses_zero_affected_in_positive_test_subset(self):
+        # index0: determined, positive (train). index1: determined, positive
+        # (test). index2: affected, negative (train filler). index3:
+        # affected, negative (test) -- the only affected row in the test
+        # half is NOT positive, so the positive test subset has zero
+        # affected examples.
+        rows = [
+            (7465, 8497, "+"),  # determined, +15962
+            (5898, 3, "-"),  # determined, +5895
+            (120, 150, "-"),  # affected (ta==tb), -30
+            (311, 350, "-"),  # affected (ta==tb), -39
+        ]
+        assert [prc.top_position_determined(*r) for r in rows] == [True, True, False, False]
+        df, rr = _routing_reference_for_transfer(rows, exs_seed=0, split_seed=33)
+        assert rr.base.train_idx.tolist() == [0, 2] and rr.base.test_idx.tolist() == [1, 3]
+        assert rr.n_test_affected == 1  # build_routing_reference itself is happy
+        twin = _synthetic_examples(len(rows), offset=200)
+        with pytest.raises(ValueError):
+            prc.build_transfer_reference(df, rr, twin)
+
+    def test_refuses_no_positive_examples_at_all(self):
+        rows = [
+            (120, 150, "-"),  # affected, -30
+            (26, 279, "-"),  # determined, -253
+            (200, 300, "-"),  # determined, -100
+            (150, 180, "-"),  # affected, -30
+        ]
+        df, rr = _routing_reference_for_transfer(rows, exs_seed=0, split_seed=0)
+        assert rr.n_test_affected > 0  # build_routing_reference itself is happy
+        twin = _synthetic_examples(len(rows), offset=200)
+        with pytest.raises(ValueError):
+            prc.build_transfer_reference(df, rr, twin)
+
+    def test_happy_path_hand_computable(self):
+        rng = random.Random(42)
+        n = 30
+        rows = [
+            (rng.randrange(1000, 5000), rng.randrange(1000, 5000), rng.choice(["+", "-"]))
+            for _ in range(n)
+        ]
+        df, rr = _routing_reference_for_transfer(rows, exs_seed=0, split_seed=3)
+        twin = _synthetic_examples(n, offset=100)
+        tr = prc.build_transfer_reference(df, rr, twin)
+
+        y_digit = prc.positive_first_digit_classes(df)
+        expected_train = sorted(i for i in rr.base.train_idx.tolist() if y_digit[i] >= 0)
+        expected_test = sorted(i for i in rr.base.test_idx.tolist() if y_digit[i] >= 0)
+        assert sorted(tr.train_idx.tolist()) == expected_train
+        assert sorted(tr.test_idx.tolist()) == expected_test
+        assert set(tr.train_idx.tolist()) <= set(rr.base.train_idx.tolist())
+        assert set(tr.test_idx.tolist()) <= set(rr.base.test_idx.tolist())
+
+        y_test = y_digit[tr.test_idx]
+        expected_majority = prc.majority_accuracy(y_test, len(prc.TRANSFER_CLASSES))
+        assert math.isclose(tr.majority_acc, expected_majority, rel_tol=1e-12)
+
+        test_affected = rr.affected_mask[tr.test_idx]
+        expected_majority_affected = prc.majority_accuracy(
+            y_test[test_affected], len(prc.TRANSFER_CLASSES)
+        )
+        assert math.isclose(tr.majority_affected_acc, expected_majority_affected, rel_tol=1e-12)
+        assert tr.n_test_affected == int(test_affected.sum().item())
+
+
+class TestTransferRowsFromFeats:
+    """Synthetic-feature key-property test (no model, no forward pass): a
+    representation that is the SAME in both formats must transfer; one that
+    is format-specific must not.
+    """
+
+    N = 400
+    D = 32
+    LAYERS = ("l0", "l1")
+
+    def _tr(self):
+        rng = random.Random(21)
+        rows = [(rng.randrange(1000, 5000), rng.randrange(1000, 5000), "+") for _ in range(self.N)]
+        df, rr = _routing_reference_for_transfer(rows, exs_seed=0, split_seed=7)
+        twin = _synthetic_examples(self.N, offset=100)
+        return prc.build_transfer_reference(df, rr, twin)
+
+    def _feats_from_dirs(
+        self, dirs: torch.Tensor, y: torch.Tensor, gen: torch.Generator
+    ) -> torch.Tensor:
+        return dirs[y] + 0.5 * torch.randn(y.shape[0], dirs.shape[1], generator=gen)
+
+    def test_shared_representation_transfers(self):
+        tr = self._tr()
+        n_classes = len(prc.TRANSFER_CLASSES)
+        class_dirs = (
+            torch.randn(n_classes, self.D, generator=torch.Generator().manual_seed(123)) * 5.0
+        )
+        feats_task = {
+            layer: self._feats_from_dirs(
+                class_dirs, tr.y_digit, torch.Generator().manual_seed(10 + i)
+            )
+            for i, layer in enumerate(self.LAYERS)
+        }
+        feats_op = {
+            layer: self._feats_from_dirs(
+                class_dirs, tr.y_digit, torch.Generator().manual_seed(20 + i)
+            )
+            for i, layer in enumerate(self.LAYERS)
+        }
+        rows = prc.transfer_rows_from_feats(tr, feats_task, feats_op, "m", 0, l2=1e-3)
+        df_rows = pd.DataFrame(rows)
+        assert len(df_rows) == len(prc.TRANSFER_DIRECTIONS) * len(self.LAYERS)
+        assert set(df_rows.columns) == {
+            "model",
+            "checkpoint_step",
+            "set",
+            "direction",
+            "layer",
+            "hook_name",
+            "acc",
+            "acc_affected",
+            "majority_acc",
+            "majority_affected_acc",
+            "n_train",
+            "n_test",
+            "n_test_affected",
+            "n_classes",
+        }
+        for direction in ("op_to_task", "task_to_op"):
+            sub = df_rows[df_rows["direction"] == direction]
+            assert (sub["acc"] >= 0.9).all()
+            assert (sub["acc_affected"] >= 0.9).all()
+
+    def test_format_specific_representation_does_not_transfer(self):
+        tr = self._tr()
+        n_classes = len(prc.TRANSFER_CLASSES)
+        dirs_task = (
+            torch.randn(n_classes, self.D, generator=torch.Generator().manual_seed(200)) * 5.0
+        )
+        dirs_op = torch.randn(n_classes, self.D, generator=torch.Generator().manual_seed(300)) * 5.0
+        feats_task = {
+            layer: self._feats_from_dirs(
+                dirs_task, tr.y_digit, torch.Generator().manual_seed(21 + i)
+            )
+            for i, layer in enumerate(self.LAYERS)
+        }
+        feats_op = {
+            layer: self._feats_from_dirs(dirs_op, tr.y_digit, torch.Generator().manual_seed(23 + i))
+            for i, layer in enumerate(self.LAYERS)
+        }
+        rows = prc.transfer_rows_from_feats(tr, feats_task, feats_op, "m", 0, l2=1e-3)
+        df_rows = pd.DataFrame(rows)
+        for direction in ("op_to_op", "task_to_task"):
+            sub = df_rows[df_rows["direction"] == direction]
+            assert (sub["acc"] >= 0.9).all()
+        for direction in ("op_to_task", "task_to_op"):
+            sub = df_rows[df_rows["direction"] == direction]
+            majority_ceiling = sub["majority_affected_acc"].iloc[0] + 0.25
+            assert (sub["acc"] <= majority_ceiling).all()
+            assert (sub["acc_affected"] <= majority_ceiling).all()
+
+    def test_raises_on_layer_mismatch(self):
+        tr = self._tr()
+        feats_task = {"l0": torch.randn(self.N, self.D)}
+        feats_op = {"l1": torch.randn(self.N, self.D)}
+        with pytest.raises(ValueError):
+            prc.transfer_rows_from_feats(tr, feats_task, feats_op, "m", 0)
+
+
+class TestProbeModel:
+    def _rr(self):
+        rng = random.Random(50)
+        rows = [(rng.randrange(1000, 5000), rng.randrange(1000, 5000), "+") for _ in range(20)]
+        return _routing_reference_for_transfer(rows, exs_seed=0, split_seed=1)
+
+    def test_empty_transfer_matches_routing_only(self, tiny_llama):
+        model = tiny_llama(seed=40, n_layers=2, d_model=32, vocab_size=64, tie_word_embeddings=True)
+        _df, rr = self._rr()
+        torch.manual_seed(1)
+        routing_rows, transfer_rows = prc.probe_model(model, {"task": rr}, {}, "m", 0, l2=1e-3)
+        assert transfer_rows == []
+        torch.manual_seed(999)  # fit is deterministic -- RNG state must not matter
+        expected = prc.routing_probe_rows_for_model(model, {"task": rr}, "m", 0, l2=1e-3)
+        assert routing_rows == expected
+        assert len(routing_rows) > 0
+
+    def test_transfer_set_produces_rows(self, tiny_llama):
+        model = tiny_llama(seed=41, n_layers=2, d_model=32, vocab_size=64, tie_word_embeddings=True)
+        df, rr = self._rr()
+        twin = _synthetic_examples(len(df), offset=20)
+        tr = prc.build_transfer_reference(df, rr, twin)
+        routing_rows, transfer_rows = prc.probe_model(
+            model, {"task": rr}, {"task": tr}, "m", 0, l2=1e-3
+        )
+        assert routing_rows
+        assert transfer_rows
+        assert {r["direction"] for r in transfer_rows} == set(prc.TRANSFER_DIRECTIONS)
+        assert all(r["model"] == "m" and r["checkpoint_step"] == 0 for r in transfer_rows)
+
+
+def _fullft_snapshot_run(tiny_llama, store: Path, run_id: str, steps: tuple[int, ...]) -> None:
+    snap_dir = store / "runs" / run_id / "sft_snapshots"
+    for step in steps:
+        _save_tiny_model(tiny_llama, snap_dir, seed=100 + step, name=f"step_{step}")
+
+
+class TestMainRunIdSweep:
+    def test_full_ft_snapshot_sweep(self, tiny_llama, tiny_tokenizer, tmp_path, monkeypatch):
+        store = tmp_path / "store"
+        _fullft_snapshot_run(tiny_llama, store, "evt-fake-fullft", (1, 3))
+        tok_dir = _save_tokenizer(tiny_tokenizer, tmp_path)
+        parquet = _routing_parquet(tmp_path)
+        out = tmp_path / "out.csv"
+        argv = [
+            "probe_routing_control.py",
+            "--run-id",
+            "evt-fake-fullft",
+            "--model-name",
+            "m",
+            "--prompt-parquet",
+            str(parquet),
+            "--set-name",
+            "task",
+            "--tokenizer",
+            str(tok_dir),
+            "--store",
+            str(store),
+            "--out",
+            str(out),
+            "--device",
+            "cpu",
+        ]
+        monkeypatch.setattr(sys, "argv", argv)
+        prc.main()
+        df = pd.read_csv(out)
+        assert set(df["checkpoint_step"]) == {1, 3}
+        assert (df["model"] == "m").all()
+
+    def test_snapshot_steps_selects_subset(self, tiny_llama, tiny_tokenizer, tmp_path, monkeypatch):
+        store = tmp_path / "store"
+        _fullft_snapshot_run(tiny_llama, store, "evt-fake-fullft2", (1, 3))
+        tok_dir = _save_tokenizer(tiny_tokenizer, tmp_path)
+        parquet = _routing_parquet(tmp_path)
+        out = tmp_path / "out.csv"
+        argv = [
+            "probe_routing_control.py",
+            "--run-id",
+            "evt-fake-fullft2",
+            "--snapshot-steps",
+            "3",
+            "--prompt-parquet",
+            str(parquet),
+            "--set-name",
+            "task",
+            "--tokenizer",
+            str(tok_dir),
+            "--store",
+            str(store),
+            "--out",
+            str(out),
+            "--device",
+            "cpu",
+        ]
+        monkeypatch.setattr(sys, "argv", argv)
+        prc.main()
+        df = pd.read_csv(out)
+        assert set(df["checkpoint_step"]) == {3}
+
+    def test_missing_snapshot_step_raises_system_exit(
+        self, tiny_llama, tiny_tokenizer, tmp_path, monkeypatch
+    ):
+        store = tmp_path / "store"
+        _fullft_snapshot_run(tiny_llama, store, "evt-fake-fullft3", (1, 3))
+        tok_dir = _save_tokenizer(tiny_tokenizer, tmp_path)
+        parquet = _routing_parquet(tmp_path)
+        argv = [
+            "probe_routing_control.py",
+            "--run-id",
+            "evt-fake-fullft3",
+            "--snapshot-steps",
+            "5",
+            "--prompt-parquet",
+            str(parquet),
+            "--set-name",
+            "task",
+            "--tokenizer",
+            str(tok_dir),
+            "--store",
+            str(store),
+            "--device",
+            "cpu",
+        ]
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(SystemExit):
+            prc.main()
+
+
+class TestMainArgparseRefusals:
+    def _base_argv(self, extra: list[str]) -> list[str]:
+        return [
+            "probe_routing_control.py",
+            *extra,
+            "--prompt-parquet",
+            "nonexistent.parquet",
+            "--set-name",
+            "task",
+        ]
+
+    def test_both_model_and_run_id_raises(self, monkeypatch):
+        argv = self._base_argv(["--model", "m=dir:/x", "--run-id", "rid"])
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(SystemExit):
+            prc.main()
+
+    def test_neither_model_nor_run_id_raises(self, monkeypatch):
+        argv = self._base_argv([])
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(SystemExit):
+            prc.main()
+
+    def test_snapshot_steps_without_run_id_raises(self, monkeypatch):
+        argv = self._base_argv(["--model", "m=dir:/x", "--snapshot-steps", "1"])
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(SystemExit):
+            prc.main()
+
+    def test_transfer_set_not_in_set_names_raises(self, monkeypatch):
+        argv = self._base_argv(["--model", "m=dir:/x", "--transfer-set", "other"])
+        monkeypatch.setattr(sys, "argv", argv)
+        with pytest.raises(SystemExit):
+            prc.main()
+
+
+def _transfer_smoke_parquet(tmp_path: Path) -> Path:
+    """A bigger (20-row) routing parquet for the ``--transfer-set`` CLI
+    smoke: mostly positive additions (some with carries), a handful of
+    subtractions, real ``a``/``b``/``op`` so the operator-notation twin and
+    the routing split both carry genuine signal. ``full_text`` uses
+    tiny-vocab words (the tokenizer's [UNK] path aligns spans fine -- see
+    module docstring) matched with dummy answer_char span"""
+    rng = random.Random(2)
+    n = 20
+    rows = [
+        (rng.randrange(100, 9999), rng.randrange(100, 9999), rng.choice(["+", "+", "+", "-"]))
+        for _ in range(n)
+    ]
+    texts = [f"t1 t2 t{3 + (i % 25)}" for i in range(n)]
+    starts = [len(t) - len(t.split()[-1]) for t in texts]
+    ends = [len(t) for t in texts]
+    df = pd.DataFrame(
+        {
+            "full_text": texts,
+            "answer_char_start": starts,
+            "answer_char_end": ends,
+            "a": [r[0] for r in rows],
+            "b": [r[1] for r in rows],
+            "op": [r[2] for r in rows],
+        }
+    )
+    p = tmp_path / "task_transfer.parquet"
+    df.to_parquet(p)
+    return p
+
+
+class TestMainTransferSetSmoke:
+    def test_transfer_set_writes_transfer_csv(
+        self, tiny_llama, tiny_tokenizer, tmp_path, monkeypatch
+    ):
+        model_dir = _save_tiny_model(tiny_llama, tmp_path, 70, "model")
+        tok_dir = _save_tokenizer(tiny_tokenizer, tmp_path)
+        parquet = _transfer_smoke_parquet(tmp_path)
+        out = tmp_path / "out.csv"
+        argv = [
+            "probe_routing_control.py",
+            "--model",
+            f"m1=dir:{model_dir}",
+            "--prompt-parquet",
+            str(parquet),
+            "--set-name",
+            "task",
+            "--transfer-set",
+            "task",
+            "--tokenizer",
+            str(tok_dir),
+            "--out",
+            str(out),
+            "--device",
+            "cpu",
+        ]
+        monkeypatch.setattr(sys, "argv", argv)
+        prc.main()
+        transfer_out = out.with_name(f"{out.stem}_transfer.csv")
+        assert transfer_out.is_file()
+        df = pd.read_csv(transfer_out)
+        expected_cols = {
+            "model",
+            "checkpoint_step",
+            "set",
+            "direction",
+            "layer",
+            "hook_name",
+            "acc",
+            "acc_affected",
+            "majority_acc",
+            "majority_affected_acc",
+            "n_train",
+            "n_test",
+            "n_test_affected",
+            "n_classes",
+        }
+        assert expected_cols.issubset(df.columns)
+        assert set(df["direction"]) == set(prc.TRANSFER_DIRECTIONS)

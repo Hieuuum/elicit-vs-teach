@@ -10294,3 +10294,89 @@ dynamics evidence. For (C) `ppfmt` (still the fair pair, not built):
 Test 1 must be the affected-subset accuracy, small-n scoring must be
 raw MDL + shared floor, and a dynamics signature should be quoted only
 if a K ≤ 4 vs K = 7 control first shows it firing.
+
+## 2026-08-22 — probe trajectory at n = 46 416 (`ts38mt_probe_traj`): carry-subset + cross-format transfer probe over every snapshot, with a k7 control at the same size — BUILT, NOT LAUNCHED (owner runs it)
+
+**Why one size.** Owner (2026-08-22): pick ONE dataset size and put every
+arm's whole training trajectory side by side, instead of reading ten
+sizes at θ0/θ_T only. Size 46 416 = the ts38mt grid point where pp's
+EDL edge begins and base/fmt sit at the top of their hump. The three
+ts38mt targets at that size (`evt-ts38mt-{base,pp,fmt}-n46416`, 26–29
+adapter snapshots each, dense at steps 1–8 then log-spaced to 3 295) are
+already on `geode-internals`; the control arm is trained here.
+
+**What runs (`scripts/run_probe_traj.sh --confirm-cost`, env `N`
+`LIMIT` `SKIP_K7`).** (1) `evt-ts38tr-k7-n46416` — the k7 parent
+(`evt-ts38tr-k7-parent`, the converged base-316k model with its last
+block reset to untrained; carry-subset probe 0.63 at θ0) fine-tuned on
+the same 46 416 examples with the verbatim ts38mt_pp recipe
+(`configs/sweeps/ts38/ts38tr_k7_n46416.yaml`, pinned values = the shipped
+`ts38mt_pp_n46416.yaml`'s), snapshots on, G5, pushed both repos. (2)
+`analysis/probe_routing_control.py --run-id <run> --transfer-set task
+--limit 6000` on every snapshot of the four runs + the four θ0 parents
+(`--model`). (3) Tier-1/2 tables on the k7 target (grad_dynamics,
+weight_diff, resid_shift, jacobian_lens, cross_patch — the same commands
+`run_ts38tr_mech.sh` uses) so the dynamics half has a control row at
+this n. (4) Upload to `geode-internals` `results/ts38mt_probe_traj/`.
+Cost ≈ 1.5 h on a 4090 (≈ $0.6); `SKIP_K7=1` ≈ 40 min.
+
+**Instrument (two additions to `probe_routing_control.py`, tested).**
+*Snapshot sweep* (`--run-id`/`--snapshot-steps`, the `resid_probe.py`
+mechanism). *Cross-format transfer probe* (`--transfer-set`): render the
+same `(a, b, op)` rows in the operator format the pp parent was
+pre-taught on (`Question: 189 + 937\nAnswer: 1126`), fit the probe on the
+operator twin's TRAIN half and score it on the English TEST half
+(`op_to_task`), plus `task_to_op` and the two within-format references
+on the same split. Scored on positive-answer examples only, classes =
+first digit 1–9 from the answer text: the tokenizer fuses ` -` into one
+token `Ġ-` and puts the generating position at `:` for negative operator
+answers but at `Ġ` for positive ones, while positive answers share digit
+tokens and a single generating position in both formats (checked on the
+real tokenizer; also a standing caveat on every earlier `op`-set probe
+number — its negative-answer rows have a sign leak by position). At
+`--limit 6000`, seed 0: 678 affected English test examples (chance
+0.131 = majority; token-linear 0.108), transfer subset 2 260 train /
+2 225 test positive rows, 662 affected (majority 0.134).
+
+**Split of the work (owner + teammate).** Owner: tests 1 (this probe),
+6 (logit lens over snapshots, cheap add-on), 10, 4, 5 — "what is
+represented, where". Teammate: tests 8, 9, 7 (existing rows at n =
+46 416 in `ts38mt_mech_summary.csv` + the k7 row from stage 3) and the
+never-run Tier-3 pair 2 + 3 — "how the update happens / circuit".
+
+**Pre-registered reads (probe half).** Chance on the affected subset is
+`max(majority_affected_acc, token_baseline_acc_affected)` at this
+sample; SE on 678 affected examples ≈ 0.02.
+
+- **R-T0 (the pp trace, 3× the sample).** θ0 rows at 6 000. base and fmt
+  ≤ chance + 0.05 (else the split is broken — halt). pp ≥ chance + 0.10
+  AND ≥ base + 0.10 ⇒ R-A2's trace is real, the gate RE-OPENS; pp ≤
+  chance + 0.05 ⇒ the +0.075 at 2 000 was noise, closed on the probe side.
+- **R-T1 (calibration).** k7-n46416's best-layer `acc_affected` reaches
+  ≥ 0.80 by snapshot step ≤ 8 (from 0.63 at θ0). If not, the probe's
+  time resolution cannot separate "unlock" from "learn" and R-T2 is not
+  read.
+- **R-T2 (elicit vs teach).** `t50(arm)` = first snapshot step at which
+  best-layer `acc_affected` ≥ 0.50. pp reads **elicit** if `t50(pp)` ≤ ½
+  `t50(base)`; **teach** if within 0.8–1.25× of `t50(base)`; in between =
+  inconclusive, reported as the ratio. fmt must sit within 0.8–1.25× of
+  base — if fmt is also ≤ ½, the speed-up is a format effect and the pp
+  read is void (that is exactly what `ppfmt` would then be needed for).
+- **R-T3 (transfer).** At θ0, pp's `op_to_task` best-layer `acc_affected`
+  ≥ majority_affected + 0.10 ⇒ the English input reaches the same
+  representation the operator input uses — a latent sum readable from
+  English, the strong read. Over training: if pp's `op_to_task` rises
+  together with its `task_to_task` (within one snapshot), English
+  training lands in the operator subspace (reuse); if `task_to_task`
+  rises first and `op_to_task` lags by ≥ 3 snapshots or never clears
+  chance + 0.10, the English sum is built elsewhere (rebuild). Transfer
+  failure alone is NOT evidence against a latent sum (different subspace
+  ≠ no capability) — stated up front. base/fmt `op_to_task`: descriptive.
+- **Dynamics half (teammate), R-T4.** Same five readouts as R-B2 with
+  **k7 vs base** as the latent-vs-none contrast at this n (base θ0 is at
+  chance on the affected subset, k7 at 0.63 — cleaner than k7 vs k6).
+  ≥ 2 of 5 in the elicit direction ⇒ the instruments are calibrated at
+  n = 46 416 and pp vs base is then scored on exactly those readouts;
+  else they stay "not tested" and only the probe half is quoted.
+
+**Outcome: pending.**

@@ -3106,10 +3106,18 @@ TS38TR_PINNED = {
     1000: (5, 1000, 8),
     2154: (5, 1000, 17),
     4642: (5, 1000, 37),
+    46416: (55, 11000, 363),  # k7 only -- the n=46416 probe-trajectory control
 }
+# The n=46416 probe-trajectory study (decisions.md 2026-08-22 "probe
+# trajectory", EXPERIMENTS.md §6.24) adds ONE k7 overlay at ts38mt's 46416
+# grid point (pinned values = the shipped ts38mt_pp_n46416.yaml's); k6 is
+# not extended (R-B1 showed it is not a clean no-latent control).
+TS38TR_K7_EXTRA_SIZES = [46416]
 
-# (arm, n, eval_every, max_steps, min_steps) for every one of the 6 overlays.
-TS38TR_OVERLAYS = [(arm, n, *TS38TR_PINNED[n]) for arm in ("k6", "k7") for n in TS38TR_SIZES]
+# (arm, n, eval_every, max_steps, min_steps) for every one of the 7 overlays.
+TS38TR_OVERLAYS = [(arm, n, *TS38TR_PINNED[n]) for arm in ("k6", "k7") for n in TS38TR_SIZES] + [
+    ("k7", n, *TS38TR_PINNED[n]) for n in TS38TR_K7_EXTRA_SIZES
+]
 
 _TS38TR_PATH_TMPL = {
     "k6": "sweeps/ts38/ts38tr_k6_n{n}.yaml",
@@ -3130,9 +3138,7 @@ _TS38TR_PARENT_RUN_ID_FOR_ARM = {
 
 TS38TR_TARGET_BASE_FILES = ["ts38tr_k6.yaml", "ts38tr_k7.yaml"]
 TS38TR_TARGET_BASE_PARAMS = [("k6", "ts38tr_k6.yaml"), ("k7", "ts38tr_k7.yaml")]
-TS38TR_ALL_OVERLAY_FILES = [
-    _TS38TR_PATH_TMPL[arm].format(n=n) for arm in ("k6", "k7") for n in TS38TR_SIZES
-]
+TS38TR_ALL_OVERLAY_FILES = [_TS38TR_PATH_TMPL[arm].format(n=n) for arm, n, *_ in TS38TR_OVERLAYS]
 TS38TR_ALL_FILES = [*TS38TR_TARGET_BASE_FILES, *TS38TR_ALL_OVERLAY_FILES]
 
 # No `-parent` alternative here (unlike ts38mt's own pattern): ts38tr's
@@ -3164,7 +3170,7 @@ _TS38TR_K6_VS_K7_EXACT = {"run_id", "experiment.arm", "experiment.parent_run_id"
 
 
 def test_ts38tr_family_files_exist() -> None:
-    assert len(TS38TR_ALL_FILES) == 2 + 6
+    assert len(TS38TR_ALL_FILES) == 2 + 7
     for rel in TS38TR_ALL_FILES:
         assert (CONFIGS / rel).is_file(), rel
 
@@ -3230,7 +3236,7 @@ def test_ts38tr_target_base_builds_a_manifest_with_correct_regime(arm: str, path
 
 
 def test_ts38tr_overlay_family_files_exist() -> None:
-    assert len(TS38TR_ALL_OVERLAY_FILES) == 6
+    assert len(TS38TR_ALL_OVERLAY_FILES) == 7
     for rel in TS38TR_ALL_OVERLAY_FILES:
         assert (CONFIGS / rel).is_file(), rel
 

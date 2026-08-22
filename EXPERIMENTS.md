@@ -2020,6 +2020,31 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `tests/experiments/analysis/test_{probe_routing_control,
     truncate_lora_parent}.py`. Cost ≈ $0.6.
 
+24. **Probe trajectory at n = 46 416 (`ts38mt_probe_traj`) — BUILT
+    2026-08-22, NOT LAUNCHED (owner runs it on their box).** One dataset
+    size, every arm's whole training trajectory: the carry-subset probe
+    (§6.23's Test-1 fix) plus a NEW cross-format transfer probe (fit on
+    the operator-notation twin of the same problems, score on English;
+    positive answers only, classes = first digit) on every snapshot of
+    `evt-ts38mt-{base,pp,fmt}-n46416` and of a k7 control trained at the
+    same size (`evt-ts38tr-k7-n46416`, new overlay), plus the four θ0
+    parents at 3× the earlier sample (`--limit 6000`). Tier-1/2 tables
+    for the k7 target give the dynamics half (teammate: tests 8/9/7 +
+    Tier-3 2/3) a latent-vs-none control row (k7 vs base) at this n.
+    Reads R-T0–R-T4 pre-registered in decisions.md 2026-08-22 "probe
+    trajectory": R-T0 re-tests the pp trace; R-T1 calibrates (k7 ≥ 0.80
+    by step 8); R-T2 `t50(pp)` ≤ ½ `t50(base)` = elicit, 0.8–1.25× =
+    teach, fmt must track base; R-T3 transfer at θ0 ≥ chance + 0.10 =
+    latent sum readable from English (strong read; failure is not the
+    converse). Files: `analysis/probe_routing_control.py` (`--run-id`,
+    `--transfer-set`), `analysis/plot_probe_traj.py`,
+    `scripts/run_probe_traj.sh` (`--confirm-cost`; env `N`, `LIMIT`,
+    `SKIP_K7`), `configs/sweeps/ts38/ts38tr_k7_n46416.yaml`. Launch:
+    `tmux new-session -d -s probetraj 'bash run_probe_traj.sh
+    --confirm-cost > /workspace/probe_traj.log 2>&1'` from
+    `experiments/training-run/scripts` on a prepared box (venv, HF login,
+    data regenerated). Cost ≈ 1.5 h on a 4090 ≈ $0.6.
+
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1
 family + runs 2–4 incl. sweeps — the 38.7M scale keeps whole run
