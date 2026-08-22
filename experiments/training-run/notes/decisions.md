@@ -9934,3 +9934,170 @@ untested. The fold script `analysis/ts38mt_mech_summary.py` (one row per
 arm × n, plus the Phase-0 per-checkpoint table; 29 property tests) and
 the box-side `scripts/run_ts38mt_{phase0,grid_tier1,2,3}.sh` are
 committed.
+
+## 2026-08-22 — ts38mt follow-ups pre-registration: (A) probe routing control, (B) ts38tr truncated-adapter positive control, (C) op+format fair comparison (proposed)
+
+**Motivation (from the owner discussion of the ts38mt Outcome).** Two
+holes in the CLOSED verdict, both about the instruments rather than the
+science:
+
+1. *Test 1's floor does not control for operand routing.* The probe
+   target is the FIRST answer token — with digits tokenised one per
+   token and no leading zeros, the class set is `{-, 1..9}` (10 classes,
+   `-` the 25.5 % majority). That token is largely a function of the two
+   operands' top-position digits alone: a model that merely attends to
+   the operands and routes their digits to the generating position gives
+   a linear probe a large margin with no arithmetic. The pre-registered
+   layer-0 floor cannot catch this — at the generating position layer 0
+   sees only the `\n` token, so the floor is always ≈ majority. Evidence
+   already in hand that routing is what the +0.31 at base is: base θ0
+   probes 0.439 at layer 1 (after ONE block), 0.50–0.56 at layers 2–8;
+   and at θ_T of `evt-ts38mt-base-n316228` layers 1–6 are unchanged from
+   θ0 (0.46–0.59) while layers 7 / 8 jump to 0.768 / 0.980
+   (`results/ts38mt_mech/resid_probe_evt-ts38mt-base-n316228.csv`, steps
+   1 vs 8253). The arithmetic is done in the last two blocks; everything
+   before them looks exactly like θ0.
+2. *No positive control.* None of the ten tests was ever shown to fire
+   on a model KNOWN to hold a decodable-but-unread answer. "CLOSED"
+   therefore cannot distinguish "no latent sum at pp θ0" from "these
+   tests cannot see one".
+
+Owner's two questions, answered for the record: *more op pre-training?*
+No — dose is the wrong lever (probe margin crept +0.32 → +0.35 over the
+parent's 4M examples, op accuracy saturated at 96.8 %, lock = exact op
+body). *Train on the actual task?* As-is it removes the thing to elicit;
+the two legitimate versions are (B) below (train, then remove the
+readout) and a held-out-phrasing design (not built).
+
+**(A) Probe routing control — `analysis/probe_routing_control.py`, box
+script `scripts/run_probe_routing_control.sh`.** Same probe, same
+reference split, same models, plus a per-example split. *Top-position
+rule:* with `L = max(len a, len b)`, `ta, tb` the operands' digits at
+position `L` (0 for the shorter operand), the rule predicts `str(ta+tb)[0]`
+for `+`; for `-`: `str(ta−tb)[0]` if `ta > tb`, `-` if `ta < tb`, and
+*undetermined* if `ta == tb`. An example is **determined** when the rule's
+prediction equals the true first token, **affected** otherwise (carry
+into the top position, borrow, top-digit cancellation, sign tie). Reported
+per model × layer: `probe_test_acc`, `acc_determined`, `acc_affected`,
+`majority_affected_acc` (chance on the affected subset), `determined_frac`
+(the rule's own accuracy), and a model-free **token-linear baseline** —
+the same logistic probe fit on one-hot operand digits/lengths/op (what a
+linear readout gets from perfectly routed tokens, no arithmetic). Models:
+θ0 of base / `evt-ts38pp-parent` / `evt-ts38mt-fmt-parent`; θ_T of the
+three n = 316 228 targets; the two ts38tr parents from (B). Task set +
+op set, `--limit 2000`, seed 0, same as Phase-0.
+
+Pre-registered reads:
+
+*Model-free numbers measured on the laptop BEFORE any model is probed
+(first 2 000 rows of `D_algo_eval_bare`, seed-0 split, 1 000 test):
+`determined_frac` = **0.773** (the top-position rule alone gets 77 % of
+first tokens), `token_baseline_acc` = **0.481** vs majority 0.255,
+`majority_affected_acc` = 0.185, `token_baseline_acc_affected` = 0.128
+(227 affected test examples; a 20-seed synthetic sweep puts this null
+anywhere from −0.06 to +0.11 around the affected majority, so the
+affected chance level is `max(majority_affected_acc,
+token_baseline_acc_affected)`, not the majority alone). Context for the
+reads: base θ0's ts38mt layer-8 probe, 0.561, already sits between the
+linear-token null (0.481) and the rule ceiling (0.773).*
+
+- **R-A1 (routing).** If at base θ0 the best layer's `acc_affected` ≤
+  `max(majority_affected_acc, token_baseline_acc_affected)` + 0.05, the
+  ts38mt Test-1 margin is operand routing. The Outcome's "sum equally
+  decodable at base and pp θ0" is then re-read as "operands equally
+  routed", the `probe_margin_over_floor` column of
+  `ts38mt_mech_summary.csv` is not a latent-sum readout, and Test 1's
+  verdict metric becomes `acc_affected` minus that affected chance level
+  at θ0.
+- **R-A2 (a missed sum).** If at pp θ0 the best layer's `acc_affected`
+  exceeds both the affected chance level AND base θ0's `acc_affected` by
+  ≥ 0.10, a computed NL sum exists at pp's θ0 that Test 1 could not see
+  through the routing signal — the gate RE-OPENS and Tier 3 becomes
+  justified.
+- **R-A3 (instrument sanity).** At θ_T (n = 316 228) layer 8,
+  `acc_affected` ≥ 0.90 for every arm. If not, the split itself is broken
+  — halt and fix before reading A1/A2. The earliest layer at θ_T where
+  `acc_affected` clears chance by ≥ 0.10 is recorded as "where the
+  arithmetic happens" (expected 7–8 from the existing per-layer curve).
+
+**(B) ts38tr — truncated-adapter positive control.** Two synthetic
+parents from the converged `evt-ts38mt-base-n316228` LoRA (r128, base
+`evt-run1-base-v3-ext`): zero the adapter's `B` on blocks ≥ K, merge,
+save as a plain full-FT-style parent (`scripts/truncate_lora_parent.py`
+→ `evt-ts38tr-k<K>-parent`, manifest `training.method = full_ft`, no
+gates, extra `truncation` block). **K = 7** keeps blocks 0–6: its
+residual after block 6 IS θ_T's layer-7 residual, where the probe reads
+0.768 (margin +0.51 over majority) — a decodable answer with the base's
+last block as readout. **K = 6** keeps blocks 0–5: θ_T's layer-6
+residual probes 0.555, i.e. θ0-level — the matched construction WITHOUT
+a decodable answer. Chosen from the per-layer curve quoted above, before
+any ts38tr number exists. *Gate (per parent, `--no-record` G5 on
+`eval_bare_target_data_ts38.yaml`, → `results/ts38tr_family_theta0.json`):*
+`em0 ≤ 0.05` → HIDDEN, else LEAKED (the readout survived truncation; that
+parent trains no targets). Expected HIDDEN for both: cross-patch
+`T_into_0` answer-scope recovery at layers 6 / 7 is 0.73 / 0.65 of an
+11.9-nat gain → first-token log-prob ≈ −3 to −4 nats, EM over the full
+answer ≈ 0. *Targets:* `evt-ts38tr-k{6,7}-n{1000,2154,4642}`, the ts38mt
+recipe verbatim (`configs/ts38tr_k{6,7}.yaml` = `ts38mt_pp.yaml` with
+run id / parent swapped; overlays = the ts38mt_pp ones; same G7 anchors,
+snapshots on), pushed to both repos. *Analyses:* Phase-0 style on both
+parents vs base + the source θ_T (tests 1/6/7/9/10), Tier 1+2 on all six
+targets (`scripts/run_ts38tr_mech.sh` → `results/ts38tr_mech/`), EDL at
+the OCV floor (`edl_converged_val_floor.py --family ts38tr`).
+
+Pre-registered reads (k7 vs k6 is the comparison; base/pp at the same
+sizes are descriptive context):
+
+- **R-B1 (pipeline check, not a finding).** Test 1 at k7's first
+  snapshot: best layer 7, margin ≥ +0.45 — true by construction (it is
+  θ_T's own residual), so a miss means a loading/merge bug, not science.
+  k6's first snapshot: margin ≤ +0.35 at every layer.
+- **R-B2 (can the dynamics tests see a readout-only unlock?).** Compare
+  k7's three targets with k6's on: test 9 `rel_fro` and mass-weighted
+  effective rank; test 8 `grad_early_mass_frac` and `disp_frac_at_10pct`;
+  test 4 `first_layer_ge_half` (answer scope); test 7 max
+  `cos(shift, J_θ0)`; test 10 task/generic ratio. If k7 differs from k6
+  in the "elicit" direction on at least TWO of {rel_fro ≤ ½, rank ≤ ½,
+  `first_layer_ge_half` = 8 with k6 < 8, `grad_early_mass_frac` ≥ 2×,
+  cos ≥ 1.5×} at ≥ 2 of the 3 sizes, the instruments CAN see
+  readout-only unlocking and the ts38mt CLOSED verdict stands as "no
+  latent sum at pp θ0". If k7 and k6 are indistinguishable on all five,
+  the instruments are blind to exactly the mechanism the gate asked
+  about, and the ts38mt verdict is downgraded to "not tested".
+- **R-B3 (does a latent representation buy label-token bits?).**
+  EDL/label-token at the OCV floor: k7 < k6 at all three sizes, ratio
+  reported. If k7 is NOT below k6 at n ≤ 4 642, a decodable answer one
+  block from the readout buys no EDL — which would itself undercut EDL as
+  an elicitation readout at these sizes. k7 vs base and vs pp: reported,
+  no bar.
+
+*Caveat, stated up front:* k7 is a degenerate positive control — its
+latent comes from the same task's own trained weights. It calibrates the
+instruments; it says nothing new about op pre-teaching.
+
+**(C) Op+format parent — proposed, NOT built.** pp vs base confounds two
+things: the parent knows the algorithm (in op rendering) AND has never
+seen the answer format; fmt's 1.4–2.4× EDL edge at n ≤ 10 000 with no
+internals signature shows the format term dominates small n. The fair
+elicit-vs-teach pair is **op+format vs format** — continue-FT
+`evt-ts38pp-parent` on ts38pf's 21 544-row permuted-label format corpus
+(the `evt-ts38mt-fmt-parent` recipe, lr 3e-5) → `evt-ts38mt-ppfmt-parent`,
+HALT gate as ts38mt (em0 ≤ 0.05, loss drop ≥ 0.10 vs base), then the
+10-size grid. Under the Outcome's "less to rewrite" reading the
+prediction is ppfmt ≤ fmt everywhere with the gap opening at n ≥ 21 544
+and no small-n crossover; under a latent-sum reading ppfmt should beat
+fmt already at n ≤ 4 642. Cost ≈ ts38mt's fmt arm (parent ≈ 5 min, 10
+targets ≈ 1 h). Waits on (A)/(B): if the probe turns out to read routing,
+the Tier-1 signature table needs its Test-1 column redefined before
+another grid is scored against it.
+
+**Cost / state.** (A)+(B): no parent training; 6 LoRA targets at n ≤
+4 642 (≈ 15 min), mech on 2 parents + 6 targets ≈ 1 h serial, probe
+control ≈ 10 min — ≈ $0.6 on a $0.36/h 4090. Built this session
+(scripts, configs, tests); nothing launched — the owner sends a box.
+Run order on the box: `run_probe_routing_control.sh` (A, no ts38tr
+parents yet) → `run_ts38tr_family.sh` → `run_ts38tr_mech.sh` →
+`run_probe_routing_control.sh` again (now with both parents; delete its
+CSV first so it re-runs).
+
+**Outcome: pending.**

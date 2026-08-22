@@ -1975,6 +1975,36 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     "ts38mt mechanistic-test drivers", before any grid data existed. The
     handoff runbook's §5b has the per-run command loop.
 
+23. **ts38mt follow-ups: (A) probe routing control + (B) ts38tr
+    truncated-adapter positive control — BUILT 2026-08-22, NOT LAUNCHED
+    (owner sends a box).** Two instrument checks on the §6.22 CLOSED
+    verdict. (A) Test 1's target (first answer token, classes `{-,1..9}`)
+    is largely a function of the operands' top-position digits, and the
+    layer-0 floor cannot see routing (layer 0 at the generating position
+    is just `\n`); base θ0 already probes 0.44 after ONE block and θ_T's
+    layers 1–6 are unchanged from θ0 while 7/8 jump to 0.77/0.98.
+    `analysis/probe_routing_control.py` splits probe accuracy into
+    examples the top-position rule determines vs those a carry / borrow /
+    sign-tie changes ("affected"), plus a model-free token-linear
+    baseline; only affected-subset accuracy above its own chance is
+    evidence of a computed result. (B) Two synthetic parents from
+    `evt-ts38mt-base-n316228`'s LoRA: blocks < K keep the adapter, blocks
+    ≥ K are the base (`scripts/truncate_lora_parent.py`); K = 7 holds a
+    decodable answer (θ_T layer-7 probe 0.77) with no readout, K = 6 does
+    not (0.56) — a matched pair with/without a latent sum. Gate em0 ≤ 0.05
+    (HIDDEN); targets `evt-ts38tr-k{6,7}-n{1000,2154,4642}` on the ts38mt
+    recipe; Tier 1+2 tests + EDL on all six. Reads R-A1–A3 / R-B1–B3
+    pre-registered in decisions.md 2026-08-22 "ts38mt follow-ups";
+    headline: if k7 ≡ k6 on every dynamics test, the §6.22 verdict is
+    downgraded from CLOSED to "not tested". (C) op+format parent
+    (`ppfmt`) proposed there as the fair elicit-vs-teach pair, not built.
+    Files: `analysis/probe_routing_control.py`,
+    `scripts/truncate_lora_parent.py`, `configs/ts38tr_k{6,7}.yaml` + 6
+    overlays, `scripts/run_{probe_routing_control,ts38tr_family,
+    ts38tr_mech}.sh`, `edl_converged_val_floor.py` family `ts38tr`; tests
+    `tests/experiments/analysis/test_{probe_routing_control,
+    truncate_lora_parent}.py`. Cost ≈ $0.6.
+
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1
 family + runs 2–4 incl. sweeps — the 38.7M scale keeps whole run

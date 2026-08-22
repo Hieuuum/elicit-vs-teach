@@ -1,0 +1,95 @@
+# ts38tr ("truncated adapter") — layer-truncated-adapter POSITIVE CONTROL,
+# elicit-shaped arm. theta0 = evt-ts38tr-k7-parent (built by
+# scripts/truncate_lora_parent.py: evt-ts38mt-base-n316228's converged LoRA
+# adapter, merged into blocks 0..6 only — the LAST block it was trained on —
+# with blocks 7 untouched-base). A synthetic model with a decodable latent
+# answer AT its last trained block and no readout at the output, by
+# construction rather than by training dynamics: k7 keeps 7 of the model's 8
+# blocks, so the latent sum should still be decodable at the block it was
+# merged into (block 6), unlike k6 below (which keeps only 6, one block
+# short of where the adapter's effect concentrates). VERBATIM copy of
+# ts38mt_pp.yaml's recipe — same task/data/lora/train blocks byte-identical
+# — with only run_id/experiment.parent_run_id changed (arm stays A, matching
+# ts38mt_pp.yaml's own elicit-shaped arm: ARM_REGIME["A"] == "elicit",
+# train_target.py). See test_config_completeness.py's ts38tr section for the
+# exact allowed-diff set against ts38mt_pp.yaml.
+run_id: evt-ts38tr-k7
+experiment:
+  name: training-run
+  arm: A                       # ARM_REGIME["A"] == "elicit" — see ts38_base.yaml's note
+  role: target
+  parent_run_id: evt-ts38tr-k7-parent
+  parent_required_gates: []    # the truncated parent records no gates
+                                # (truncate_lora_parent.py never runs gates.py)
+  match_data_order_with: null  # placeholder; every overlay points this at
+                                # the SAME-SIZE evt-ts38-base-n<size> run
+                                # (G7 — that arm is the anchor, reused not
+                                # retrained)
+  require_full_epoch1: true    # ts38-mini guard 1 — see ts38_base.yaml's
+                                # header; identical here (arms differ only
+                                # in theta0)
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_bare_addsub       # scaffold-free NL add/sub (D_algo_bare); TaskFormat
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:                           # VERBATIM copy of ts38_base.yaml's data block (G7)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 316228            # placeholder = largest size; every overlay
+                                 # sets its own prefix of the frozen order
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:                          # r/alpha restated from common.yaml for the
+  r: 128                       # record — SAME rank both arms (per-arm
+  alpha: 32                    # sizing would change training algorithm A
+                                # and confound EDL(D; theta0, A))
+
+train:
+  lr: 1.0e-3                   # target-stage pin — SAME across every ts38mt
+                                # arm (arms differ only in theta0)
+  precision: bf16
+  batch_size: 128
+  eval_every: 375               # placeholder = largest size's cadence; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  max_steps: 30000              # placeholder = largest size's ceiling; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2471              # placeholder = ceil(316228/128); every
+                                  # overlay sets its own exact
+                                  # ceil(n/128) (require_full_epoch1 guard)
+  snapshots:                     # ON here (ts38mt design pin — every other
+                                  # ts38(*) target leaves this off) so a
+                                  # later mechanistic-analysis pass can walk
+                                  # each arm's training trajectory.
+    n: 32                        # geode.probe.snapshot_steps(max_steps, n=32,
+                                  # dense_until=8), computed from THIS run's
+                                  # own train.max_steps at launch time
+                                  # (scripts/train_target.py ~466-480): a
+                                  # dense unit-stride prefix steps 1..8, then
+                                  # a log-then-uniform tail out to max_steps.
+                                  # At LoRA r128 over common.yaml's 7
+                                  # target_modules, each reached mark writes
+                                  # only snapshots/step_<k>/adapter.safetensors
+                                  # (trainable A/B tensors only, ~46 MB —
+                                  # decisions.md 2026-08-14/15 measured this
+                                  # exact rank/hidden_size combination —
+                                  # never a full model copy).
+    dense_until: 8
+  seed: 316

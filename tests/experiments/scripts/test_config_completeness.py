@@ -3077,3 +3077,328 @@ def test_ts38mt_snapshot_schedule_shape(n: int) -> None:
     assert steps == sorted(set(steps))  # strictly increasing, no duplicates
     assert steps[:8] == list(range(1, 9))
     assert steps[-1] == max_steps
+
+
+# =============================================================================
+# ts38tr ("truncated adapter") -- layer-truncated-adapter POSITIVE CONTROL
+# (EXPERIMENTS.md, decisions.md "ts38tr" entry): two target arms, k6 and k7,
+# both VERBATIM copies of ts38mt_pp.yaml's recipe (same task/data/lora/train
+# blocks byte-identical, arms differ only in theta0 like every ts38(*)
+# family), whose theta0 is NOT another training run's checkpoint but a
+# scripts/truncate_lora_parent.py BUILD: evt-ts38mt-base-n316228's converged
+# LoRA adapter merged into blocks 0..K-1 only, blocks K.. left as untouched
+# base -- k7 keeps 7 of 8 blocks (merged through the last block the adapter
+# was trained on), k6 keeps 6 (one block short). Unlike every earlier
+# ts38(*) family, the parents (evt-ts38tr-k6-parent / evt-ts38tr-k7-parent)
+# have NO committed yaml -- they are minted by the build script directly, so
+# every test below that needs their run_id uses the python string constant,
+# never yaml.safe_load(...)["run_id"]. Only 3 of ts38mt's 10 sizes are
+# covered (the smallest bracket: 1000/2154/4642), not the full grid -- this
+# family is a positive-control probe, not a densified sweep.
+# =============================================================================
+
+TS38TR_SIZES = [1000, 2154, 4642]
+
+# n -> (eval_every, max_steps, min_steps=ceil(n/128)); identical numbers to
+# TS38MT_PINNED's entries for these same 3 sizes (cross-checked against the
+# committed ts38mt_pp_n<size>.yaml overlays directly, not copied blind).
+TS38TR_PINNED = {
+    1000: (5, 1000, 8),
+    2154: (5, 1000, 17),
+    4642: (5, 1000, 37),
+}
+
+# (arm, n, eval_every, max_steps, min_steps) for every one of the 6 overlays.
+TS38TR_OVERLAYS = [(arm, n, *TS38TR_PINNED[n]) for arm in ("k6", "k7") for n in TS38TR_SIZES]
+
+_TS38TR_PATH_TMPL = {
+    "k6": "sweeps/ts38/ts38tr_k6_n{n}.yaml",
+    "k7": "sweeps/ts38/ts38tr_k7_n{n}.yaml",
+}
+_TS38TR_BASE_FILE = {"k6": "ts38tr_k6.yaml", "k7": "ts38tr_k7.yaml"}
+_TS38TR_RUN_ID_TMPL = {"k6": "evt-ts38tr-k6-n{n}", "k7": "evt-ts38tr-k7-n{n}"}
+# train_target.py's ARM_REGIME (see the ARM-LETTER NOTE in ts38_base.yaml):
+# k7 mirrors ts38mt_pp.yaml's own arm (A, elicit); k6 is arm B (teach).
+_TS38TR_REGIME = {"k6": "teach", "k7": "elicit"}
+_TS38TR_ARM_LETTER = {"k6": "B", "k7": "A"}
+# Minted by scripts/truncate_lora_parent.py, no committed yaml -- python
+# string constants, deliberately never read via yaml.safe_load(...)["run_id"].
+_TS38TR_PARENT_RUN_ID_FOR_ARM = {
+    "k6": "evt-ts38tr-k6-parent",
+    "k7": "evt-ts38tr-k7-parent",
+}
+
+TS38TR_TARGET_BASE_FILES = ["ts38tr_k6.yaml", "ts38tr_k7.yaml"]
+TS38TR_TARGET_BASE_PARAMS = [("k6", "ts38tr_k6.yaml"), ("k7", "ts38tr_k7.yaml")]
+TS38TR_ALL_OVERLAY_FILES = [
+    _TS38TR_PATH_TMPL[arm].format(n=n) for arm in ("k6", "k7") for n in TS38TR_SIZES
+]
+TS38TR_ALL_FILES = [*TS38TR_TARGET_BASE_FILES, *TS38TR_ALL_OVERLAY_FILES]
+
+# No `-parent` alternative here (unlike ts38mt's own pattern): ts38tr's
+# parents are never committed yaml, so their ids must NOT match this family's
+# own run-id pattern (verified by test_ts38tr_run_id_pattern_rejects_known_
+# lookalikes below), same discipline as ts38mt rejecting its own fmt-parent id.
+_TS38TR_RUN_ID_PATTERN = re.compile(r"^evt-ts38tr-(k6|k7)(-n\d+)?$")
+# Every family whose run-id namespace a ts38tr id must NOT collide with --
+# includes ts38mt's pattern too, since ts38tr's parent is BUILT FROM one of
+# ts38mt's own runs (evt-ts38mt-base-n316228) and the two families' configs
+# live side by side in the same sweeps/ts38/ directory.
+_TS38TR_OTHER_FAMILY_PATTERNS = (
+    _TS38_FAMILY_REGEX,
+    _TS38MW_RUN_ID_PATTERN,
+    _TS38PF_RUN_ID_PATTERN,
+    _TS38PP_RUN_ID_PATTERN,
+    _TS38FS_PARENT_RUN_ID_PATTERN,
+    _TS38DENSE_FS_RUN_ID_PATTERN,
+    _TS38MT_RUN_ID_PATTERN,
+)
+
+# Exact (not subset) diffs against each arm's true closest sibling --
+# ts38mt_pp.yaml, VERBATIM copied per this family's own header, not
+# ts38_base.yaml (the ts38mt precedent's sibling). k7 is arm A same as
+# ts38mt_pp.yaml itself, so it carries NO arm diff; k6 is arm B, so it does.
+_TS38TR_K7_VS_TS38MT_PP_EXACT = {"run_id", "experiment.parent_run_id"}
+_TS38TR_K6_VS_TS38MT_PP_EXACT = {"run_id", "experiment.arm", "experiment.parent_run_id"}
+_TS38TR_K6_VS_K7_EXACT = {"run_id", "experiment.arm", "experiment.parent_run_id"}
+
+
+def test_ts38tr_family_files_exist() -> None:
+    assert len(TS38TR_ALL_FILES) == 2 + 6
+    for rel in TS38TR_ALL_FILES:
+        assert (CONFIGS / rel).is_file(), rel
+
+
+# ---- the two target bases (k6 / k7), diffed against ts38mt_pp.yaml --------
+
+
+def test_ts38tr_k7_vs_ts38mt_pp_exact_diff() -> None:
+    pp = yaml.safe_load((CONFIGS / "ts38mt_pp.yaml").read_text())
+    k7 = yaml.safe_load((CONFIGS / "ts38tr_k7.yaml").read_text())
+    assert _leaf_diffs(pp, k7) == _TS38TR_K7_VS_TS38MT_PP_EXACT
+
+
+def test_ts38tr_k6_vs_ts38mt_pp_exact_diff() -> None:
+    pp = yaml.safe_load((CONFIGS / "ts38mt_pp.yaml").read_text())
+    k6 = yaml.safe_load((CONFIGS / "ts38tr_k6.yaml").read_text())
+    assert _leaf_diffs(pp, k6) == _TS38TR_K6_VS_TS38MT_PP_EXACT
+
+
+def test_ts38tr_k6_vs_k7_exact_diff() -> None:
+    k6 = yaml.safe_load((CONFIGS / "ts38tr_k6.yaml").read_text())
+    k7 = yaml.safe_load((CONFIGS / "ts38tr_k7.yaml").read_text())
+    assert _leaf_diffs(k6, k7) == _TS38TR_K6_VS_K7_EXACT
+
+
+@pytest.mark.parametrize("path", TS38TR_TARGET_BASE_FILES)
+def test_ts38tr_snapshots_pinned(path: str) -> None:
+    cfg = load_config(CONFIGS / path, None)
+    assert cfg["train"]["snapshots"] == {"n": 32, "dense_until": 8}
+
+
+@pytest.mark.parametrize(("arm", "path"), TS38TR_TARGET_BASE_PARAMS)
+def test_ts38tr_target_base_theta0_and_arm(arm: str, path: str) -> None:
+    cfg = load_config(CONFIGS / path, None)
+    assert cfg["run_id"] == f"evt-ts38tr-{arm}"
+    assert cfg["experiment"]["parent_run_id"] == _TS38TR_PARENT_RUN_ID_FOR_ARM[arm]
+    assert cfg["experiment"]["arm"] == _TS38TR_ARM_LETTER[arm]
+    assert cfg["experiment"]["parent_required_gates"] == []
+    assert cfg["experiment"]["require_full_epoch1"] is True
+    assert cfg["experiment"]["match_data_order_with"] is None
+    assert _TS38TR_RUN_ID_PATTERN.match(cfg["run_id"])
+
+
+@pytest.mark.parametrize(("arm", "path"), TS38TR_TARGET_BASE_PARAMS)
+def test_ts38tr_target_base_builds_a_manifest_with_correct_regime(arm: str, path: str) -> None:
+    train_target = load("train_target")
+    cfg = load_config(CONFIGS / path, None)
+    manifest = train_target.manifest_fields(
+        cfg,
+        n_train=1,
+        n_trainable=1,
+        epochs_total=1,
+        schedule=[],
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+    )
+    assert manifest["regime"] == _TS38TR_REGIME[arm]
+
+
+# ---- the 6 overlays (2 arms x 3 sizes) -------------------------------------
+
+
+def test_ts38tr_overlay_family_files_exist() -> None:
+    assert len(TS38TR_ALL_OVERLAY_FILES) == 6
+    for rel in TS38TR_ALL_OVERLAY_FILES:
+        assert (CONFIGS / rel).is_file(), rel
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38TR_OVERLAYS)
+def test_ts38tr_overlay_pinned_values(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    path = _TS38TR_PATH_TMPL[arm].format(n=n)
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert raw["data"]["n_examples"] == n
+    assert raw["train"]["eval_every"] == eval_every
+    assert raw["train"]["max_steps"] == max_steps
+    assert raw["train"]["stopping"]["min_steps"] == min_steps
+    assert max_steps >= min_steps
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38TR_OVERLAYS)
+def test_ts38tr_overlay_sets_exactly_the_expected_keys(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    """Same shape as every existing ts38(*) overlay: run_id +
+    experiment.match_data_order_with + data.n_examples +
+    train.{eval_every,max_steps,stopping.min_steps} -- nothing else, on the
+    RAW (un-merged) file."""
+    path = _TS38TR_PATH_TMPL[arm].format(n=n)
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert set(raw) == {"run_id", "experiment", "data", "train"}
+    assert set(raw["experiment"]) == {"match_data_order_with"}
+    assert set(raw["data"]) == {"n_examples"}
+    assert set(raw["train"]) == {"eval_every", "max_steps", "stopping"}
+    assert set(raw["train"]["stopping"]) == {"min_steps"}
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38TR_OVERLAYS)
+def test_ts38tr_overlay_run_id_matches_filename_and_no_other_family(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    path = _TS38TR_PATH_TMPL[arm].format(n=n)
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert raw["run_id"] == _TS38TR_RUN_ID_TMPL[arm].format(n=n)
+    assert _TS38TR_RUN_ID_PATTERN.match(raw["run_id"])
+    for pattern in _TS38TR_OTHER_FAMILY_PATTERNS:
+        assert not pattern.match(raw["run_id"]), (arm, raw["run_id"])
+
+
+def test_ts38tr_run_id_pattern_rejects_known_lookalikes() -> None:
+    """Explicit negative examples for _TS38TR_RUN_ID_PATTERN -- other
+    families' ids and, critically, this family's OWN parent ids (which have
+    no committed yaml and must never be mistaken for a target base/overlay)."""
+    rejects = [
+        "evt-ts38-base-n1000",
+        "evt-ts38pp-pretaught-n1000",
+        "evt-ts38pf-preteachfmt-n1000",
+        "evt-ts38mw-pretaught-n1000",
+        "evt-ts38mt-pp-n1000",
+        "evt-ts38mt-base-n1000",
+        "evt-ts38mt-fmt-parent",
+        "evt-ts38tr-k6-parent",
+        "evt-ts38tr-k7-parent",
+        "evt-ts38tr-k8",
+        "evt-ts38tr-k6n1000",
+        "evt-ts38tr-k6-n",
+    ]
+    for rid in rejects:
+        assert not _TS38TR_RUN_ID_PATTERN.match(rid), rid
+
+
+def test_ts38tr_parent_ids_are_not_own_pattern_or_any_other_family() -> None:
+    """The build-script-minted parent ids exist only as python string
+    constants (no yaml) -- pin here that they don't collide with this
+    family's own overlay pattern or any earlier family's."""
+    for parent_id in _TS38TR_PARENT_RUN_ID_FOR_ARM.values():
+        assert not _TS38TR_RUN_ID_PATTERN.match(parent_id), parent_id
+        for pattern in _TS38TR_OTHER_FAMILY_PATTERNS:
+            assert not pattern.match(parent_id), (parent_id, pattern)
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38TR_OVERLAYS)
+def test_ts38tr_overlay_match_data_order_with_is_shipped_base_anchor(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    path = _TS38TR_PATH_TMPL[arm].format(n=n)
+    raw = yaml.safe_load((CONFIGS / path).read_text())
+    assert raw["experiment"]["match_data_order_with"] == f"evt-ts38-base-n{n}"
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38TR_OVERLAYS)
+def test_ts38tr_min_steps_equals_ceil_n_over_128(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    train_target = load("train_target")
+    steps_per_epoch = math.ceil(n / 128)
+    assert min_steps == steps_per_epoch
+    train_target.require_full_epoch1_launch_check(True, min_steps, steps_per_epoch)
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38TR_OVERLAYS)
+def test_ts38tr_overlay_ceiling_covers_earliest_possible_stop(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    path = _TS38TR_PATH_TMPL[arm].format(n=n)
+    cfg = load_config(CONFIGS / _TS38TR_BASE_FILE[arm], CONFIGS / path)
+    t = cfg["train"]
+    assert t["max_steps"] >= t["stopping"]["min_steps"] + t["stopping"]["k"] * t["eval_every"]
+
+
+@pytest.mark.parametrize("n", TS38TR_SIZES)
+def test_ts38tr_arms_agree_on_merged_schedule_and_recipe(n: int) -> None:
+    """k6/k7 share one recipe at a given size -- only theta0 differs -- so
+    their MERGED shared-recipe fields must be identical, not just their own
+    overlay's raw literals."""
+    merged = {}
+    for arm in ("k6", "k7"):
+        path = _TS38TR_PATH_TMPL[arm].format(n=n)
+        cfg = load_config(CONFIGS / _TS38TR_BASE_FILE[arm], CONFIGS / path)
+        merged[arm] = (
+            cfg["data"]["n_examples"],
+            cfg["train"]["eval_every"],
+            cfg["train"]["max_steps"],
+            cfg["train"]["stopping"]["min_steps"],
+            cfg["train"]["lr"],
+            cfg["train"]["batch_size"],
+            cfg["train"]["stopping"]["eps_nats"],
+            cfg["train"]["stopping"]["k"],
+            cfg["lora"]["r"],
+            cfg["lora"]["alpha"],
+            cfg["train"]["snapshots"]["n"],
+            cfg["train"]["snapshots"]["dense_until"],
+        )
+    assert merged["k6"] == merged["k7"], merged
+
+
+@pytest.mark.parametrize(("arm", "n", "eval_every", "max_steps", "min_steps"), TS38TR_OVERLAYS)
+def test_ts38tr_overlay_builds_a_manifest_with_correct_regime(
+    arm: str, n: int, eval_every: int, max_steps: int, min_steps: int
+) -> None:
+    train_target = load("train_target")
+    path = _TS38TR_PATH_TMPL[arm].format(n=n)
+    cfg = load_config(CONFIGS / _TS38TR_BASE_FILE[arm], CONFIGS / path)
+    manifest = train_target.manifest_fields(
+        cfg,
+        n_train=1,
+        n_trainable=1,
+        epochs_total=1,
+        schedule=[],
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="bf16",
+    )
+    assert manifest["regime"] == _TS38TR_REGIME[arm]
+
+
+def _ts38mt_committed_run_ids() -> set[str]:
+    """Every run_id ts38mt already declared -- NOT covered by
+    ``_every_committed_ts38_run_id()`` (that helper predates ts38mt), but the
+    one realistic collision surface for ts38tr (its parent is built FROM an
+    ts38mt run and its configs live in the same directory)."""
+    return {yaml.safe_load((CONFIGS / rel).read_text())["run_id"] for rel in TS38MT_ALL_FILES}
+
+
+def test_ts38tr_run_ids_disjoint_from_every_other_ts38_family() -> None:
+    """None of ts38tr's run ids (2 target bases, 6 overlays, 2 build-script
+    parent ids) may already be claimed by any earlier ts38(*) family --
+    including ts38mt, whose own helper does not cover it."""
+    shipped = _every_committed_ts38_run_id() | _ts38mt_committed_run_ids()
+    tr_files = [*TS38TR_TARGET_BASE_FILES, *TS38TR_ALL_OVERLAY_FILES]
+    tr_ids = {yaml.safe_load((CONFIGS / rel).read_text())["run_id"] for rel in tr_files}
+    tr_ids |= set(_TS38TR_PARENT_RUN_ID_FOR_ARM.values())
+    assert tr_ids.isdisjoint(shipped), tr_ids & shipped

@@ -184,6 +184,19 @@ FAMILIES = {
         "TinyStories 38.7M; base (teach) vs pre-teach 4M full-FT (pp, elicit) vs "
         "pre-teach-format full-FT (fmt, teach), D_algo_bare, r128 LoRA",
     ),
+    # ts38tr ("truncated adapter", positive control): both arms are NEW own
+    # ids (evt-ts38tr-k6-n<size> / evt-ts38tr-k7-n<size>), built from
+    # ts38mt's own evt-ts38mt-base-n316228 run truncated at block K by
+    # scripts/truncate_lora_parent.py (never a training run itself) — a
+    # binary condition like ts38/ts38mw/ts38pf/ts38pp, so it reuses their
+    # noinst/inst translation (TS38TR_ARM below) and the global 2-key STYLE,
+    # not ts38mt's 3-arm STYLE_MAPS path.
+    "ts38tr": (
+        re.compile(r"^evt-ts38tr-(k6|k7)-n(\d+)$"),
+        "edl_converged_val_floor_ts38tr",
+        "TinyStories 38.7M; layer-truncated-adapter positive control, k6 (not decodable "
+        "at its last trained block) vs k7 (decodable), D_algo_bare, r128 LoRA",
+    ),
 }
 
 # Repo-wide convention, unchanged: base = tab:blue, format-installed = tab:orange.
@@ -231,6 +244,17 @@ TS38MT_ARM: dict[str, tuple[str, str]] = {
     "pp": ("pp", "pre-teach 4M full-FT (elicit)"),
     "fmt": ("fmt", "pre-teach-format full-FT (teach)"),
 }
+# ts38tr's two conditions (k6/k7) are not literally "an installer" like
+# ts38/ts38mw/ts38pf/ts38pp's own arm — but the whole family exists to ask
+# whether k7's extra kept block makes it read as elicit-shaped where k6
+# doesn't, so it still translates to the noinst/inst binary every downstream
+# lookup keys on (same idiom as those four, deliberately NOT ts38mt's
+# identity-mapped 3-arm shape).
+TS38TR_ARM: dict[str, tuple[str, str]] = {
+    # raw regex capture -> (canonical condition, honest style label).
+    "k6": ("noinst", "k=6, truncated one block short"),
+    "k7": ("inst", "k=7, truncated at the last trained block"),
+}
 # Per-family arm-map lookup used by collect()/main() below; every family not
 # listed here (op, nl) uses the regex capture as the condition directly.
 ARM_MAPS: dict[str, dict[str, tuple[str, str]]] = {
@@ -239,6 +263,7 @@ ARM_MAPS: dict[str, dict[str, tuple[str, str]]] = {
     "ts38pf": TS38PF_ARM,
     "ts38pp": TS38PP_ARM,
     "ts38mt": TS38MT_ARM,
+    "ts38tr": TS38TR_ARM,
 }
 # ts38mt's 3 conditions aren't STYLE's noinst/inst, so plot() needs its own
 # per-family style map; every other family keeps using the global STYLE
@@ -426,7 +451,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument(
         "--family",
-        choices=("op", "nl", "nl2", "ts38", "ts38mw", "ts38pf", "ts38pp", "ts38mt", "both"),
+        choices=(
+            "op",
+            "nl",
+            "nl2",
+            "ts38",
+            "ts38mw",
+            "ts38pf",
+            "ts38pp",
+            "ts38mt",
+            "ts38tr",
+            "both",
+        ),
         default="both",
     )
     parser.add_argument("--store", type=Path, default=DEFAULT_STORE)

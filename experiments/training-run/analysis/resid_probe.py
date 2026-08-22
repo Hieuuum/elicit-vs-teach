@@ -100,28 +100,31 @@ MAX_ITER = 150  # L-BFGS iterations per fit — probes.py's own measured budget
 SNAPSHOT_MARKER = {"lora": "adapter.safetensors", "full_ft": "model.safetensors"}
 
 
-def fit_linear_probe(
+def fit_linear_probe_predictions(
     x_train: torch.Tensor,
     y_train: torch.Tensor,
     x_test: torch.Tensor,
     y_test: torch.Tensor,
     n_classes: int,
     l2: float,
-) -> tuple[float, float]:
-    """Multinomial logistic regression; returns (train_acc, test_acc).
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Multinomial logistic regression; returns (train_pred, test_pred) —
+    argmax class-index predictions, on CPU.
 
     Copied verbatim from ``probes.py`` (module docstring explains why, not
     imported). Features are standardised with TRAIN mean/std (std clamped at
     1e-6 so a constant feature cannot blow up); weights and bias start at
     exactly zero and the objective (cross-entropy + ``l2 * ||W||^2``) is
-    convex, so the fit is deterministic — no init seed enters.
+    convex, so the fit is deterministic — no init seed enters. Returning
+    predictions rather than only accuracies lets a caller (``probe_routing_
+    control.py``) split test accuracy over an arbitrary example subset
+    without refitting.
     """
     mean = x_train.mean(dim=0, keepdim=True)
     std = x_train.std(dim=0, keepdim=True).clamp_min(1e-6)
     xt = (x_train - mean) / std
     xs = (x_test - mean) / std
     y_train = y_train.to(xt.device)
-    y_test = y_test.to(xt.device)
 
     w = torch.zeros(
         xt.shape[1], n_classes, dtype=torch.float32, device=xt.device, requires_grad=True
@@ -137,8 +140,30 @@ def fit_linear_probe(
 
     opt.step(closure)
     with torch.no_grad():
-        train_acc = ((xt @ w + b).argmax(dim=1) == y_train).double().mean().item()
-        test_acc = ((xs @ w + b).argmax(dim=1) == y_test).double().mean().item()
+        train_pred = (xt @ w + b).argmax(dim=1).cpu()
+        test_pred = (xs @ w + b).argmax(dim=1).cpu()
+    return train_pred, test_pred
+
+
+def fit_linear_probe(
+    x_train: torch.Tensor,
+    y_train: torch.Tensor,
+    x_test: torch.Tensor,
+    y_test: torch.Tensor,
+    n_classes: int,
+    l2: float,
+) -> tuple[float, float]:
+    """Multinomial logistic regression; returns (train_acc, test_acc).
+
+    Thin wrapper around ``fit_linear_probe_predictions`` (module docstring
+    there explains the fit itself); numerically identical to the fit this
+    function used to run inline.
+    """
+    train_pred, test_pred = fit_linear_probe_predictions(
+        x_train, y_train, x_test, y_test, n_classes, l2
+    )
+    train_acc = (train_pred == y_train.cpu()).double().mean().item()
+    test_acc = (test_pred == y_test.cpu()).double().mean().item()
     return train_acc, test_acc
 
 

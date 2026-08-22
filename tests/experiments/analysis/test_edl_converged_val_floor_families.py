@@ -115,6 +115,33 @@ _MATRIX = [
     ("ts38", "evt-ts38mt-base-n1000", None),
     ("ts38pp", "evt-ts38mt-pp-n1000", None),
     ("ts38pf", "evt-ts38mt-fmt-n1000", None),
+    # ts38tr ("truncated adapter" positive control): TWO own arms (k6/k7),
+    # neither reused from any other family -- both built by
+    # scripts/truncate_lora_parent.py from ts38mt's own evt-ts38mt-base-
+    # n316228 run, never a training run themselves. Must reject the
+    # build-script-minted parent ids (no -n<size> suffix, no committed yaml
+    # at all) and every other family's own arm ids.
+    ("ts38tr", "evt-ts38tr-k6-n1000", ("k6", "1000")),
+    ("ts38tr", "evt-ts38tr-k7-n1000", ("k7", "1000")),
+    ("ts38tr", "evt-ts38tr-k6-n4642", ("k6", "4642")),
+    ("ts38tr", "evt-ts38tr-k7-n4642", ("k7", "4642")),
+    ("ts38tr", "evt-ts38tr-k6-parent", None),
+    ("ts38tr", "evt-ts38tr-k7-parent", None),
+    ("ts38tr", "evt-ts38-base-n1000", None),
+    ("ts38tr", "evt-ts38mt-base-n1000", None),
+    ("ts38tr", "evt-ts38mt-pp-n1000", None),
+    ("ts38tr", "evt-ts38pp-pretaught-n1000", None),
+    ("ts38tr", "evt-ts38mw-pretaught-n1000", None),
+    ("ts38tr", "evt-ts38pf-preteachfmt-n1000", None),
+    ("ts38tr", "evt-ts38tr-k8-n1000", None),
+    ("ts38tr", "evt-ts38tr-k6-n1000-extra", None),
+    ("ts38tr", "evt-ts38tr-parent-n1000", None),
+    # cross-family: no OTHER family's regex may pick up ts38tr's own arms.
+    ("ts38", "evt-ts38tr-k6-n1000", None),
+    ("ts38mw", "evt-ts38tr-k7-n1000", None),
+    ("ts38pf", "evt-ts38tr-k6-n1000", None),
+    ("ts38pp", "evt-ts38tr-k7-n1000", None),
+    ("ts38mt", "evt-ts38tr-k6-n1000", None),
     # nl2 (EXPERIMENTS §6.12, dose16 NL installer): captures noinst/inst
     # directly like op/nl (no ARM_MAPS translation entry, see FAMILIES'
     # nl2 comment) — must pick up its own ids and REJECT the neighboring
@@ -195,6 +222,15 @@ def test_all_family_stems_distinct() -> None:
         ecvf.FAMILIES["ts38pf"][1],
         ecvf.FAMILIES["ts38pp"][1],
     )
+    assert "ts38tr" in ecvf.FAMILIES
+    assert ecvf.FAMILIES["ts38tr"][1] == "edl_converged_val_floor_ts38tr"
+    assert ecvf.FAMILIES["ts38tr"][1] not in (
+        ecvf.FAMILIES["ts38"][1],
+        ecvf.FAMILIES["ts38mw"][1],
+        ecvf.FAMILIES["ts38pf"][1],
+        ecvf.FAMILIES["ts38pp"][1],
+        ecvf.FAMILIES["ts38mt"][1],
+    )
 
 
 def test_arm_label_mappings_are_honest_and_distinct() -> None:
@@ -253,6 +289,17 @@ def test_ts38mt_arm_map_is_identity_not_noinst_inst() -> None:
     assert ecvf.STYLE_MAPS["ts38mt"] is ecvf.TS38MT_STYLE
 
 
+def test_ts38tr_arm_map_translates_to_noinst_inst_not_identity() -> None:
+    """Unlike ts38mt's 3-arm identity mapping, ts38tr's k6/k7 are a binary
+    condition translated to the canonical noinst/inst pair every downstream
+    lookup (STYLE, groupby) keys on -- same idiom as ts38/ts38mw/ts38pf/
+    ts38pp, deliberately NOT ts38mt's shape. It must not appear in
+    STYLE_MAPS (falls back to the global 2-key STYLE, unlike ts38mt)."""
+    assert ecvf.TS38TR_ARM["k6"][0] == "noinst"
+    assert ecvf.TS38TR_ARM["k7"][0] == "inst"
+    assert "ts38tr" not in ecvf.STYLE_MAPS
+
+
 def test_collect_ts38mw_on_empty_store_returns_empty_dataframe_not_raise(tmp_path: Path) -> None:
     """A store whose runs/ dir exists but holds nothing matching (e.g. before
     any ts38mw run has been pushed) must come back as an empty table, not a
@@ -278,6 +325,15 @@ def test_collect_ts38pp_on_empty_store_returns_empty_dataframe_not_raise(tmp_pat
     (tmp_path / "runs").mkdir(parents=True)
 
     df = ecvf.collect("ts38pp", tmp_path)
+
+    assert isinstance(df, pd.DataFrame)
+    assert df.empty
+
+
+def test_collect_ts38tr_on_empty_store_returns_empty_dataframe_not_raise(tmp_path: Path) -> None:
+    (tmp_path / "runs").mkdir(parents=True)
+
+    df = ecvf.collect("ts38tr", tmp_path)
 
     assert isinstance(df, pd.DataFrame)
     assert df.empty
@@ -398,3 +454,26 @@ def test_collect_ts38pp_end_to_end_on_synthetic_store(geode_store: Path) -> None
     pretaught_row = df[(df["n"] == 1000) & (df["condition"] == "inst")].iloc[0]
     assert base_row["condition"] == ecvf.TS38PP_ARM["base"][0]
     assert pretaught_row["condition"] == ecvf.TS38PP_ARM["pretaught"][0]
+
+
+def test_collect_ts38tr_end_to_end_on_synthetic_store(geode_store: Path) -> None:
+    """Same style as ts38pp's own end-to-end test above, reusing its generic
+    manifest/log fixture writer (nothing about it is ts38pp-specific beyond
+    the run ids it's called with) -- proves the ts38tr FAMILIES regex +
+    ARM_MAPS translation produce the right ``condition`` per row through the
+    real ``collect()`` pipeline, not just isolated regex matches."""
+    for n in (1000, 4642):
+        _write_ts38pp_run(geode_store, f"evt-ts38tr-k6-n{n}", n)
+        _write_ts38pp_run(geode_store, f"evt-ts38tr-k7-n{n}", n)
+
+    df = ecvf.collect("ts38tr", geode_store)
+
+    assert len(df) == 4
+    assert set(df["n"]) == {1000, 4642}
+    for n in (1000, 4642):
+        by_n = df[df["n"] == n]
+        assert set(by_n["condition"]) == {"noinst", "inst"}
+    k6_row = df[(df["n"] == 1000) & (df["condition"] == "noinst")].iloc[0]
+    k7_row = df[(df["n"] == 1000) & (df["condition"] == "inst")].iloc[0]
+    assert k6_row["condition"] == ecvf.TS38TR_ARM["k6"][0]
+    assert k7_row["condition"] == ecvf.TS38TR_ARM["k7"][0]
