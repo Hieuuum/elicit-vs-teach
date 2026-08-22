@@ -10100,4 +10100,108 @@ parents yet) → `run_ts38tr_family.sh` → `run_ts38tr_mech.sh` →
 `run_probe_routing_control.sh` again (now with both parents; delete its
 CSV first so it re-runs).
 
-**Outcome: pending.**
+**Interim outcome (2026-08-22 ~15:00 UTC — (A) complete, (B) training +
+EDL complete, (B) mech grid still running; written before R-B1/R-B2 are
+readable).** Box: owner's vast 48397374 (RTX 4090), chain
+`/workspace/run_ts38tr_all.sh` in tmux `ts38tr`, log
+`/workspace/ts38tr_all.log`; results land in `geode-store/results/
+{ts38mt_probe_control,ts38tr_mech}/` + `ts38tr_family_theta0.json`, all
+uploaded to `mhieuuu/geode-internals` by the scripts' own final stages.
+Data regenerated on the box in 3 min (make_data ×3 + make_bare_sets).
+
+*(A) Probe routing control — R-A1 FIRES, R-A3 passes, R-A2 not met.*
+`results/ts38mt_probe_control/probe_routing_control.csv` (108 rows; task
+set + op set, `--limit 2000`, seed 0; 227 affected test examples on
+task). Best layer = 8 for every model. `acc_affected` vs
+`majority_affected_acc` 0.185 (task) / 0.158 (op):
+
+| model | task: overall | task: affected | op: overall | op: affected |
+|---|---|---|---|---|
+| θ0 base | 0.561 | **0.181** | 0.559 | 0.168 |
+| θ0 pp (`evt-ts38pp-parent`) | 0.599 | **0.260** | 0.955 | **0.905** |
+| θ0 fmt (`evt-ts38mt-fmt-parent`) | 0.572 | **0.181** | 0.576 | 0.179 |
+| θ_T base-n316228 | 0.986 | 0.947 | 0.520 | 0.253 |
+| θ_T pp-n316228 | 0.976 | 0.938 | 0.670 | **0.337** |
+| θ_T fmt-n316228 | 0.983 | 0.947 | 0.527 | 0.168 |
+
+R-A1: base θ0's affected-subset accuracy is exactly chance (0.181 vs
+0.185; bar was ≤ max(0.185, 0.128) + 0.05 = 0.235) → **ts38mt's Test-1
+"+0.31 margin over floor" at base (and the fmt parent's +0.32) was
+operand routing, not a sum**; the `probe_margin_over_floor` column in
+`ts38mt_mech_summary.csv` is not a latent-sum readout and the Outcome's
+"sum equally decodable at base and pp θ0" is re-read as "operands equally
+routed at every θ0". R-A3: θ_T layer 8 reads 0.94–0.95 on the affected
+subset for all three arms, and the op-notation set on the pp parent reads
+0.905 — the split sees a computed result wherever one exists. R-A2: pp θ0
+reads 0.260 on the affected subset, +0.075 over chance and +0.079 over
+base — below the pre-registered +0.10/+0.10 bar, so the gate stays
+closed on this read; with 227 affected examples the standard error is
+≈ 0.03, so it is a ~2.5-SE trace of NL arithmetic at the op-pretaught
+θ0 that base and fmt lack entirely (both exactly at chance). Unplanned
+observation: pp's OP-notation affected accuracy falls 0.905 → 0.337
+after the n = 316 228 NL target LoRA — the adapter that learned English
+arithmetic partly overwrote the op pathway rather than reusing it
+(base/fmt θ_T on op: 0.25 / 0.17, i.e. NL training barely transfers to
+op in the other direction either).
+
+*(B) ts38tr — gate + training + EDL.* `ts38tr_family_theta0.json`: base
+em0 0.000 / loss 6.5378; k6 em0 0.000 / em16 0.000 / loss 5.7382; k7
+em0 0.000 / em16 0.000 / loss 5.9578 → both **HIDDEN** (a decodable
+answer at layer 7 buys only 0.6 nats of output loss through the base's
+last block). All six targets `stop_reason=converged` (final steps k6
+185 / 260 / 345, k7 215 / 250 / 235), G5 recorded, pushed to both repos.
+EDL/label-token at the OCV floor (`edl_converged_val_floor_ts38tr.csv`,
+`noinst` = k6, `inst` = k7), with the floor and the raw epoch-1 code
+length MDL = EDL + floor, against the ts38mt arms at the same sizes
+(`edl_converged_val_floor_ts38mt.csv`):
+
+| n | arm | EDL | floor L_val_conv | MDL/token | G5 em0 |
+|---|---|---|---|---|---|
+| 1 000 | base | 3.108 | 1.539 | 4.647 | 0.003 |
+| 1 000 | pp | 2.616 | 1.296 | 3.912 | 0.046 |
+| 1 000 | fmt | 1.286 | 1.546 | 2.832 | 0.006 |
+| 1 000 | k6 | 3.572 | 0.660 | 4.232 | 0.284 |
+| 1 000 | k7 | **4.162** | **0.192** | 4.354 | **0.786** |
+| 2 154 | base | 2.077 | 1.369 | 3.447 | — |
+| 2 154 | pp | 1.895 | 1.073 | 2.968 | — |
+| 2 154 | fmt | 1.035 | 1.376 | 2.411 | — |
+| 2 154 | k6 | 2.641 | 0.265 | 2.906 | 0.688 |
+| 2 154 | k7 | 2.635 | 0.112 | 2.747 | 0.886 |
+| 4 642 | base | 1.339 | 1.299 | 2.638 | — |
+| 4 642 | pp | 1.732 | 0.607 | 2.339 | — |
+| 4 642 | fmt | 0.836 | 1.262 | 2.098 | — |
+| 4 642 | k6 | 1.923 | 0.151 | 2.074 | 0.887 |
+| 4 642 | k7 | 1.731 | 0.077 | 1.808 | (see manifest) |
+
+(test-floor EDL differs by ≤ 0.6 % in every ts38tr cell; overshoot
+1.00–1.18.) **R-B3 NOT met**: k7 is above k6 at 1 000 (+17 %), equal at
+2 154, 10 % below at 4 642. Stronger than that: **both truncated parents
+score a HIGHER OCV-floor EDL than the untrained base at every size**
+while reaching 0.79 zero-shot EM at n = 1 000 (base 0.003) and a test
+loss 8× lower. Mechanism: EDL = MDL − D·floor, and k7's floor is 0.19 vs
+base's 1.54, so ~1.3 nats/token less is subtracted — the raw MDL ranks
+k7/k6 below base at 2 154 and 4 642 as expected (k7 lowest of all five
+arms at 4 642, 1.81 vs fmt 2.10), and the OCV floor flips it. This is
+the floor artifact of decisions.md 2026-07-27 in its starkest form: the
+per-run OCV floor charges an arm for learning the task well, and arms
+with real capability converge to lower floors by construction. Second,
+on raw MDL k7 at n = 1 000 is only 7 % cheaper than base (4.35 vs 4.65)
+despite a decodable answer one block from the readout: at 8 optimizer
+steps the epoch-1 code length is set by how fast the last block
+re-wires, which a latent representation does not speed up. The
+pre-registered consequence applies: **at n ≤ 4 642 EDL is insensitive
+to a latent representation and cannot be the elicitation readout at
+these sizes**, under either floor. Consequence for earlier reads: pp's
+"worse than base" at n = 4 642–10 000 (§6.18/§6.22) and fmt's small-n
+"win" are both floor-sensitive — pp's floor at 4 642 is 0.607 vs base's
+1.299 — and every small-n ts38 comparison should be re-read on raw MDL
+or against a SHARED floor before it is quoted again.
+
+*Still pending when this was written:* R-B1/R-B2 (Tier-1/2 on the six
+targets + Phase-0-style on both parents, `results/ts38tr_mech/`), the
+second probe-control pass including `k6_parent`/`k7_parent`, and the
+`ts38mt_mech_summary.py`-style fold (not generalised to ts38tr — fold by
+hand or extend it). Early logit-lens lines from the log: task emergence
+layer 7 for BOTH k6 and k7 parents (read the full CSVs before using).
+
+**Outcome: interim above; R-B1/R-B2 pending.**
