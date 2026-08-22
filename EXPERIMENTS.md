@@ -1786,8 +1786,26 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
 
 22. **ts38mt — mechanistic tests on full-FT parents (elicit=ts38pp,
     teach=full-FT format), 3 arms × 10 sizes with snapshots, on the same
-    38.7M TinyStories base. BUILT, NOT LAUNCHED — awaiting box (owner ask
-    2026-08-21 evening; box promised, not yet handed over).** Headline
+    38.7M TinyStories base. DONE 2026-08-22 — parent HALT gate LEARNED
+    (em0 = 0, bare-NL loss −40 %), 31/31 runs converged + pushed to both
+    repos (52 GB on `geode-internals`), repro 20/20 cells exact, Phase-0 +
+    Tier-1/2 grid analyses uploaded (`results/ts38mt_{phase0,mech}/`),
+    Tier 3 skipped (gate CLOSED). Headline answer: NO — the sum is no
+    more linearly decodable at `evt-ts38pp-parent`'s θ0 than at the
+    untrained base (probe margin over the layer-0 floor +0.344 vs +0.306;
+    op-notation control +0.146 → +0.543 over the same training), the
+    logit lens never sees it on bare-NL prompts at any layer or
+    checkpoint, and no Tier-1/2 test separates the elicit θ0 from the
+    teach θ0 in the pre-registered direction (all three θ0 probe at
+    +0.31–0.35; gradients sustained, LoRA ΔW effective rank 7–15 outside
+    W0's top-32 subspace, in every arm). The pp arm's EDL advantage
+    (2.2–2.75× base from n ≥ 100k) coincides with a ~2× smaller, ~2× more
+    task-confined LoRA update — "less to rewrite", not "something latent
+    to unlock". The fmt arm has the LOWEST EDL at n ≤ 10k (0.41–0.55× pp)
+    yet is mechanistically indistinguishable from base. Full numbers:
+    decisions.md 2026-08-21 (night) Outcome; fold script
+    `analysis/ts38mt_mech_summary.py` → `ts38mt_mech_summary.csv`.
+    Original plan follows.** Headline
     question: is the sum linearly decodable from the residual stream on
     bare-NL inputs at `evt-ts38pp-parent`'s θ0, even though its zero-shot
     NL EM there is ≈0 (decisions.md 2026-08-16 evening ts38pp OUTCOME)?

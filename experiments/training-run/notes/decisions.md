@@ -9589,8 +9589,204 @@ box from the owner's template FIRST — the same defect has hit both the
 ts38dense box and the ts38fs-tiny box (decisions.md 2026-08-21 "ts38dense
 pre-registration"; project-ts38fs-tiny-2026-08-20 memory).
 
-**Outcome: pending.** No GPU spend yet. Fill in after the parent's HALT
-gate resolves and the target grid + Phase-0 mechanistic readouts exist.
+**Outcome (2026-08-22, written after Phase-0 + the full Tier-1/2 grid
+analyses; Tier 3 deliberately not run — see "Gate").** Box: vast.ai
+48339453, RTX 4090 ($0.36/h), direct SSH (the ssh8 proxy refused every
+connection). Total wall-clock for the family: parent + 30 targets ≈ 3 h of
+training (previous session), Phase-0 ≈ 25 min, Tier-1 grid 3 h 05 min
+(30 cells, 77–418 s each — `resid_probe`'s 21–29-snapshot sweep
+dominates), Tier-2 grid 13 min (26–27 s per cell). GPU cost ≈ $2.5 total,
+well inside the `--confirm-cost` estimate once analysis time is added.
+
+*Parent + HALT gate.* `evt-ts38mt-fmt-parent`: full FT, lr 3e-5,
+`stop_reason=converged` at step 400 (2.4 epochs of 167), val 5.2119 →
+1.8836 nats; 10 `sft_snapshots` written (steps 1…256 — steps ≥ 512 are
+legitimately absent). Gate (`results/ts38mt_family_theta0.json`,
+`eval_bare_target_data_ts38.yaml`): parent `em0 = 0.000`, `em16 = 0.000`,
+bare-NL loss 3.9148 vs base 6.5378 ⇒ `loss_drop_frac = 0.401` ≥ 0.10 and
+`em0 ≤ 0.05` ⇒ **LEARNED**; the 1e-4 fallback was never needed. All 30
+targets `stop_reason=converged` (final steps 120 … 12 000; `max_steps`
+never bound). 31/31 runs pushed and receiver-verified from the laptop on
+BOTH repos (`HfApi.list_repo_tree`): every run dir carries model weights;
+`geode-internals` holds 21–29 adapter snapshots per target (fewer than 32
+wherever the run converged early) + the parent's 10 full states =
+**52.0 GB actually used** (estimate was ≤~48 GB; measured breakdown
+via `list_repo_tree`: 805 adapter-snapshot safetensors = 42.0 GB at a
+mean 52 MB each, not the 48 MB assumed; the parent's 10 full states =
+1.55 GB; the 31 `model/` dirs = 7.7 GB, which the estimate did not count
+at all since they also live on `geode-store`; 0.7 GB logs/manifests);
+`geode-store` ts38mt = 8.4 GB (snapshots excluded as designed). Analysis tables:
+`geode-internals:results/ts38mt_phase0/` (27 files) and
+`results/ts38mt_mech/` (151 files: `grad_dynamics_all.csv` + 5 tables ×
+30 runs), folded by `analysis/ts38mt_mech_summary.py` into the committed
+`analysis/ts38mt_mech_summary.csv` (30 rows) and
+`ts38mt_phase0_summary.csv` (5 rows) — every number below is read from
+those two files.
+
+*Reproducibility check (pre-registered ≤ 5 %): PASS, exactly.* All 20
+base/pp cells (`edl_converged_val_floor_ts38mt.csv` vs the shipped
+`edl_converged_val_floor_ts38pp.csv`, `noinst` = base, `inst` = pp) agree
+to **0.0 % relative** on EDL/label-token at the OCV floor AND at the test
+floor, with identical `final_step` in every cell. The snapshot-write hook
+is pure I/O, as assumed; the shipped §6.14/§6.18/§6.21 numbers stand.
+
+*EDL/label-token at the OCV floor (nats; bits = ÷ ln 2), 3 arms × 10:*
+
+| n | base | pp (elicit θ0) | fmt (teach θ0) | base/pp | base/fmt | fmt/pp |
+|---|---|---|---|---|---|---|
+| 1 000 | 3.108 | 2.616 | 1.286 | 1.19 | 2.42 | 0.49 |
+| 2 154 | 2.077 | 1.895 | 1.035 | 1.10 | 2.01 | 0.55 |
+| 4 642 | 1.339 | 1.732 | 0.836 | 0.77 | 1.60 | 0.48 |
+| 10 000 | 0.988 | 1.706 | 0.692 | 0.58 | 1.43 | 0.41 |
+| 21 544 | 1.538 | 1.416 | 1.319 | 1.09 | 1.17 | 0.93 |
+| 46 416 | 1.313 | 0.960 | 1.195 | 1.37 | 1.10 | 1.24 |
+| 100 000 | 1.198 | 0.553 | 1.134 | 2.17 | 1.06 | 2.05 |
+| 146 780 | 1.066 | 0.402 | 0.866 | 2.65 | 1.23 | 2.15 |
+| 215 443 | 0.770 | 0.293 | 0.688 | 2.63 | 1.12 | 2.35 |
+| 316 228 | 0.583 | 0.212 | 0.522 | 2.75 | 1.12 | 2.46 |
+
+Test-floor EDL/token differs from the OCV-floor value by ≤ 2.1 % in every
+cell (max at pp n = 215 443: 0.2926 vs 0.2989; overshoot ratios 1.005–2.27,
+so the two floors are numerically close here even where the run overshot
+its own val minimum). The fmt arm
+— the teach θ0, which was never shown the algorithm — has the **lowest
+EDL of the three at every n ≤ 10 000** (0.41–0.55× pp, 0.42–0.70× base):
+a pre-taught *format* buys more label-token bits than a pre-taught
+*algorithm* at small n, the same direction ts38pf reported at its own
+small sizes (§6.16). The pp arm is lowest from n ≥ 46 416 and its
+advantage grows monotonically to 2.75× base / 2.46× fmt at 316 228; the
+crossover sits between 21 544 and 46 416. fmt stays below base at every n
+(1.06–2.42×), narrowing to ~1.1× past 46 416. G5 zero-shot EM (descriptive
+only): pp 0.046 → 0.965, base 0.003 → 0.945, fmt 0.006 → 0.957 across the
+grid; pp leads by ≥ 0.2 at n ≤ 10 000 (0.30 vs 0.02/0.01 at 4 642; 0.73 vs
+0.04/0.03 at 10 000); all three are ≥ 0.92 at n = 100 000 and ≥ 0.91 from
+215 443 (fmt dips to 0.84 at 146 780, base/pp 0.94).
+
+*Gate — headline question answered "No".* Test 1 on the task set at
+`evt-ts38pp-parent`'s θ0 (Phase-0 `thetaT` row; floor = majority = 0.255
+at layer 0 as designed): best-layer probe accuracy 0.599 at layer 8,
+**margin over floor +0.344**, versus +0.306 for the untrained base
+(0.561 at layer 8) — a +0.038 (12 % relative) drift across the parent's
+entire 4M-example pre-teach (the three relay snapshots read +0.319 /
++0.333 / +0.353, a slow monotone creep). The op-notation positive control
+over the SAME training: floor 0.412 (op prompts leak more at layer 0, as
+expected for digits adjacent to the operator), margin +0.146 → +0.449 /
++0.494 / +0.514 → **+0.543** (0.955 at layer 8), a 3.7× jump. A
+linearly-decodable sum on bare-NL inputs exists at the base model already
+(+0.31 over a layer-0 floor that is itself at chance) and pre-teaching the
+op rendering barely moves it; what the parent installed is op-context
+machinery, not an NL-readable latent sum. Test 6 agrees: logit-lens
+`first_answer` top-1 on the task set is **0.000 at every layer for every
+checkpoint** (θ0, all three snapshots, θ_T; emergence layer undefined;
+final-layer top-1 0.0025 at θ_T), while on op prompts the answer emerges
+at **layer 8 only** from the first snapshot on (final top-1 0.18 at θ0 →
+0.89 / 0.94 / 0.96 / 0.97) — late, not shallow. By the pre-registered
+discriminator the **gate reads CLOSED**: Tier 3 (tests 2/3/5) was skipped
+— the owner was told mid-session and delegated the call ("do things on
+your own"); it stays skipped here as the final decision, not a default.
+
+*Phase-0 tests 9/10/7 on base → ts38pp-parent (direct full-FT diff):*
+ΔW `rel_fro` 0.058 / 0.072 / 0.079 / **0.085** across the three snapshots
+and θ_T, ΔW-mass-weighted effective rank 167 / 177 / 190 / **201**
+(d_model 512), overlap with W0's top-8 / 32 / 128 singular subspaces
+0.038 / 0.12 / 0.33 — a high-rank update mostly outside W0's dominant
+directions; `embed_tokens` carries the largest relative change (0.20).
+Residual shift peaks at layer 5 (task rel_shift 0.35 → 0.50), task/generic
+ratio 5.5 → 3.8, direction consistency cos 0.95 / top-PC EVR 0.91 on task
+(generic cos 0.91 — the parent's shift is consistent everywhere, not only
+on task). Jacobian bridge: cos(h_T − h_0, J_θ0) ≤ 0.04 at every layer,
+`pred_gain_ratio` ≤ 0.33 (negative at layers 1–6) against an actual
+first-answer log-prob gain of 3.38 nats — θ0's readout Jacobian does not
+predict where pre-teaching moved the stream.
+
+*Tier-1 grid (tests 1/8/9/10), quoted against the owner's signature table.*
+Read from `ts38mt_mech_summary.csv`; "first" = snapshot step 1 (one
+optimizer step after θ0 — Phase-0's exact-θ0 values for base/pp are 0.306
+/ 0.344, within 0.004 of these), "final" = the run's last adapter snapshot
+(its step is below the final training step because the schedule is
+derived from `max_steps`).
+
+| test | metric | base | pp (elicit) | fmt (teach) | owner signature met? |
+|---|---|---|---|---|---|
+| 1 | probe margin over floor, first snapshot | 0.310 (all n) | 0.346 (all n) | 0.323 (all n) | **no**: all three θ0 sit at +0.31–0.35, none "near chance", pp only +0.036 above base |
+| 1 | probe margin, final snapshot, n = 1 000 / 4 642 / 21 544 / 316 228 | 0.476 / 0.554 / 0.694 / 0.725 | 0.526 / 0.625 / 0.682 / 0.725 | 0.477 / 0.537 / 0.682 / 0.722 | pp leads by +0.05–0.07 at n ≤ 4 642 only; identical (±0.01) from 21 544; best layer = 8 everywhere |
+| 1 | step fraction at half the margin rise | 0.45 → 0.03 | 0.67 → 0.03 | 0.45 → 0.01 | no arm's probe "jumps" — pp's margin rises *later* than base's at n ≤ 2 154 |
+| 8 | `grad_early_mass_frac` (elicit ≫ 0.1, teach ≈ 0.1) | 0.22 → 0.07 → 0.14 | 0.21 → 0.07 → 0.18 | 0.13 → 0.06 → 0.15 | **no**: all ≈ 0.1–0.2, U-shaped in n, arms interleave |
+| 8 | `grad_half_step_frac` (≈0 vs ≈0.5) | 0.38–0.55 | 0.35–0.66 | 0.38–0.58 | **no**: gradient mass accrues at a near-constant rate in every arm |
+| 8 | `disp_frac_at_10pct` (≈1 vs ≈0) / `disp_half_step_frac` | 0.16–0.31 / 0.13–0.44 | 0.22–0.34 / 0.15–0.40 | 0.18–0.31 / 0.15–0.45 | **no**: displacement is gradual everywhere; pp marginally earlier at n ≥ 21 544 (0.15–0.22 vs 0.13–0.44) |
+| 8 | `loss_half_step_frac` | 0.044 → 0.001 | 0.042 → 0.001 | 0.042 → 0.001 | the *loss* halves within the first 0.1–4 % of steps in every arm — a universal early drop, not an arm signature |
+| 9 | total `rel_fro` of the LoRA ΔW | 0.017 → 0.196 | 0.013 → **0.094** | 0.015 → 0.202 | pp's update is ~2× smaller in relative norm from n ≥ 21 544 (0.044–0.094 vs 0.10–0.20) |
+| 9 | mass-weighted effective rank (elicit ≈ 1) | 6.9–12.0 | 11.1–14.7 | 7.6–13.5 | **no**: never near 1; pp is the *highest*-rank arm at every n |
+| 9 | overlap with W0 top-8 / 32 / 128 | ≤0.001 / 0.003–0.006 / 0.034–0.051 | ≤0.001 / 0.004–0.005 / 0.041–0.047 | ≤0.001 / 0.003–0.005 / 0.032–0.047 | **no** arm updates "inside existing directions"; all three land almost entirely outside W0's top-32 subspace |
+| 10 | task/generic rel-shift ratio at the task peak layer | 23 → 4.5 | 33 → **9.8** | 38 → 4.7 | all arms task-confined; pp stays ~2× more confined from n ≥ 21 544 (generic shift 0.05–0.13 vs 0.10–0.41) |
+| 10 | task-shift direction consistency (cos to mean / top-PC EVR) at peak | 0.87 → 0.47 / 0.76 → 0.25 | 0.84 → **0.51** / 0.71 → 0.28 | 0.86 → 0.41 / 0.76 → 0.27 | consistency falls with n in every arm; pp ends 0.04–0.10 above base/fmt |
+| 10 | peak layer | 8 | 7 (n ≤ 4 642) → 8 | 8 | last block for all |
+
+Verdict on Tier 1: **no Tier-1 test separates the elicit θ0 from the
+teach θ0 in the direction the signature table predicts**, and the fmt arm
+is mechanistically indistinguishable from base on every Tier-1 metric
+despite its 1.4–2.4× lower EDL at n ≤ 10 000 — the format parent's EDL
+advantage lives in the label-token loss accounting (it already emits the
+answer format), not in any internals signature measured here. The pp arm
+differs from base in three *quantitative* ways that appear together from
+n ≈ 21 544 — exactly where its EDL advantage begins: a ~2× smaller LoRA
+update (test 9 `rel_fro`), a ~2× more task-confined residual shift with
+the smallest generic-text damage (test 10 generic shift 0.13 vs 0.41 at
+316 228), and a somewhat more consistent shift direction. None of those is
+"effective rank ≈ 1 inside existing directions" or "one big early step";
+they read as the op-pre-taught parent needing *less* rewriting of the
+same late-layer machinery, not as a latent representation being unlocked.
+Test-1 margins at the final snapshot converge to the same ~0.72 for all
+three arms from n ≥ 21 544, so the decodable sum every arm ends with is
+the same object; pp reaches it +0.05–0.07 sooner at n ≤ 4 642.
+
+*Tier-2 grid (tests 7/4), quoted against the candidate readouts registered
+in the next entry (not owner signatures).* Test 7 (Jacobian bridge, θ0 →
+θ_T per run): actual first-answer gain 11.0–11.9 nats (base), 7.9–8.5 (pp;
+its θ0 was already 3.3 nats better on this token, clean log-prob −8.63 vs
+−11.92 base / −10.34 fmt), 9.4–10.3 (fmt). Best-aligned layer is the last
+block (8) for every arm at n ≥ 10 000 (fmt: layer 4 at n ≤ 4 642); max
+cos(shift, J_θ0) rises with n, **base 0.25 → 0.46, fmt 0.28 → 0.46, pp
+0.28 → 0.41 — pp is the LEAST Jacobian-aligned arm at every n ≥ 21 544**;
+`pred_gain_ratio` ≈ 1 somewhere in layers 5–7 for every arm and
+overshoots (1.6–5.2) at layer 8. Candidate elicit readout ("update rides a
+direction θ0's readout was already sensitive to") is **not met** by pp.
+Test 4 (cross-model residual patching): layer-8 recovery is 1.0 and the
+damage direction collapses to 0.0 at layer 8 for every cell (trivial —
+patching the final residual *is* the output), so the readout is the
+depth profile. Earliest layer with ≥ 50 % recovery under `answer` scope:
+base 2 → 4, fmt 2 → 3, **pp 3 → 5**; under `all` scope base 1 → 2, fmt 1 →
+2, pp 2 → 4. Layer-1 `all`-scope recovery at n = 1 000: base 0.74, fmt
+0.78, pp 0.40. Every curve is monotone in layer with no single-layer jump
+(candidate "one mid/late layer recovers most" **not met** by any arm); pp's
+profile is shifted *deeper* — base/fmt recover most of θ_T's gain from a
+layer-1/2 residual (the LoRA mostly rewrote the early representation),
+pp's gain is carried by later layers, consistent with the Tier-1 reading
+that pp's θ0 already had usable early-layer machinery. Damage direction
+(`0_into_T`, answer scope) stays ≥ 0.6 through layer 7 for every arm —
+θ_T's answer is determined only at the last block in all three.
+
+*What this changes.* ts38pp's monotone-↓ EDL curve (§6.18, §6.21) is
+**not** backed by a Jain-style suppressed-but-decodable NL sum at θ0: the
+sum is equally (linearly) decodable at the untrained base, the op
+pre-teach adds op-context machinery that the logit lens only sees on op
+prompts and only at the last layer, and the target-stage LoRA that
+produces the EDL gap is a smaller, more task-confined but otherwise
+ordinary-looking update. The elicitation-shaped EDL separation survives
+as a *behavioural* fact; its mechanistic counterpart, by these ten
+tests, is "less to rewrite", not "something latent to unlock".
+
+*Not done / caveats.* (i) Tier 3 (2/3/5) skipped by the gate; the drivers
+and `run_ts38mt_grid_tier3.sh` exist if the owner wants them anyway.
+(ii) `dataset_size_sweep.py` is still not generalised to a 3-arm family
+(its condition parsing is 2-arm-coupled); `edl_converged_val_floor.py` is.
+(iii) The grid's test-1 sweep probed the task set only; the op control
+exists only at Phase-0. (iv) "J-lens" = Jacobian lens remains an
+interpretation, unconfirmed by the owner. (v) The fmt θ0 was probed at
+snapshot step 1 (0.323), not at exactly θ0. (vi) Cross-patch `best`
+columns are uninformative by construction (layer 8 = 1.0); use the
+`first_layer_ge_half` columns. Box 48339453 destroyed at the end of this
+session after the receiver checks above (owner's instruction 2026-08-22).
 
 ## 2026-08-21 (late night) — ts38mt mechanistic-test drivers: all ten tests implemented, Tier-2/3 candidate readouts registered before any grid data
 
@@ -9722,5 +9918,19 @@ pre-existing ts1b `test_config_completeness.py` failures, unchanged.
 chase; the runbook's §5b has the per-run command loop. Nothing here
 changes a config, a launcher, or the grid in flight.
 
-**Outcome: pending** (same as the previous entry — no grid number exists
-yet).
+**Outcome (2026-08-22).** All seven drivers ran on real checkpoints for
+the first time this session. Two CUDA-only defects surfaced that the
+CPU-only fixtures could not (fixed + regression-tested, commits
+`a31c5f4`/`8a44247`/`0867741`): `resid_probe.fit_linear_probe` kept the
+probe weights and labels on CPU against CUDA activations, and
+`resid_shift` sent the whole 2 000-example TinyStories set through
+`capture_residuals` in one batch (20.6 GB on a 24 GB card even alone) —
+now chunked at 128 with one tokenisation shared by both models. Nothing
+else needed changing. The Tier-2 candidate readouts registered above are
+both **not met** by the elicit arm — the grid's per-test numbers and the
+verdicts are in the previous entry's Outcome (tests 7 and 4 paragraphs);
+Tier 3 never ran (gate closed), so the candidates for tests 2/3/5 remain
+untested. The fold script `analysis/ts38mt_mech_summary.py` (one row per
+arm × n, plus the Phase-0 per-checkpoint table; 29 property tests) and
+the box-side `scripts/run_ts38mt_{phase0,grid_tier1,2,3}.sh` are
+committed.
