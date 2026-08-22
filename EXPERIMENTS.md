@@ -2039,7 +2039,8 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     converse). Files: `analysis/probe_routing_control.py` (`--run-id`,
     `--transfer-set`), `analysis/plot_probe_traj.py`,
     `scripts/run_probe_traj.sh` (`--confirm-cost`; env `N`, `LIMIT`,
-    `SKIP_K7`), `configs/sweeps/ts38/ts38tr_k7_n46416.yaml`. Launch:
+    `SKIP_K7`), `configs/sweeps/ts38/ts38tr_k7_n46416.yaml`. Runbook for
+    the executing session: `notes/handoff-probe-traj-launch.md`. Launch:
     `tmux new-session -d -s probetraj 'bash run_probe_traj.sh
     --confirm-cost > /workspace/probe_traj.log 2>&1'` from
     `experiments/training-run/scripts` on a prepared box (venv, HF login,
