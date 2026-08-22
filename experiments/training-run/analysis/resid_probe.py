@@ -120,6 +120,8 @@ def fit_linear_probe(
     std = x_train.std(dim=0, keepdim=True).clamp_min(1e-6)
     xt = (x_train - mean) / std
     xs = (x_test - mean) / std
+    y_train = y_train.to(xt.device)
+    y_test = y_test.to(xt.device)
 
     w = torch.zeros(
         xt.shape[1], n_classes, dtype=torch.float32, device=xt.device, requires_grad=True
