@@ -128,7 +128,10 @@ fi
 echo "[ptraj] ===== probe: snapshot sweeps (--limit $LIMIT, transfer on) ====="
 pushd ../analysis >/dev/null
 probe_run() {
-  local arm=$1 rid=$2 out="$O/probe_traj_${arm}.csv"
+  local arm=$1 rid=$2
+  # separate statement: `local a=$1 out=...${a}` expands ${a} BEFORE the
+  # assignment, picking up the caller's (loop) variable -- skipped k7 once.
+  local out="$O/probe_traj_${arm}.csv"
   if [[ -f $out ]]; then
     milestone "probe_skip arm=$arm (exists)"
     return 0

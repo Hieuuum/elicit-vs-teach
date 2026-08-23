@@ -47,7 +47,7 @@ cd /workspace/elicit-vs-teach/experiments/training-run/scripts
 python3 ../datagen/make_data.py --scale full --out ../data/full --seed 20260717
 python3 ../datagen/make_data.py --scale full --out ../data/full --seed 20260717 --eval-set
 python3 ../datagen/make_data.py --scale full --out ../data/full --seed 20260717 --nl-eval-set
-python3 ../datagen/make_bare_sets.py --out ../data/full
+python3 ../datagen/make_bare_sets.py --out ../data/full --skip-dose-mult   # no D_dose_mult on ts38-mini
 ls ../data/full/D_algo_bare.parquet ../data/full/D_algo_eval_bare.parquet
 
 # 1f. optional: shellcheck (never run locally)
