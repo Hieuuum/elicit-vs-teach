@@ -10379,4 +10379,89 @@ sample; SE on 678 affected examples ≈ 0.02.
   n = 46 416 and pp vs base is then scored on exactly those readouts;
   else they stay "not tested" and only the probe half is quoted.
 
-**Outcome: pending.**
+**Outcome (2026-08-23, run on the owner's box 48428739, RTX 4090; chain
+`run_probe_traj.sh --confirm-cost`, N = 46 416, LIMIT = 6 000, seed 0;
+tables + both chain logs on `geode-internals`
+`results/ts38mt_probe_traj/`; figure `analysis/figures/probe_traj_n46416.png`
++ `_summary.csv` from `plot_probe_traj.py`).**
+
+*Execution record.* `evt-ts38tr-k7-n46416` (k7 parent verdict HIDDEN,
+base θ0 em0 = 0) converged at step 880 (2.4 epochs; base/pp/fmt at this
+n: 3 520 / 1 650 / 3 080), best val 0.0182 nats, G5 zero-shot EM 0.973,
+EDL/example 1.44 nats; 23 snapshots; pushed to both repos. Snapshot
+counts base/pp/fmt 28 / 25 / 27. Each sweep took 29–41 min at
+`--limit 6000` (not the ~8 min the script banner says; ≈ 2.5 h wall
+total). One bug: `probe_run`'s `local arm=$1 … out=…${arm}` expanded the
+caller's loop variable, so the k7 sweep was skipped as "exists" on pass
+1; fixed (`0a5416d`) and the chain re-run (idempotent: only the k7 sweep
++ re-upload ran). Chance on the affected subset = max(majority 0.131,
+token-linear 0.108) = **0.131**, 678 affected test rows (SE ≈ 0.02);
+transfer subset 662 affected rows, majority 0.134.
+
+| arm | θ0 best-layer `acc_affected` | t50 (step) | t80 (step, descriptive) | final | θ0 `op_to_task` / `op_to_op` / `task_to_task` |
+|---|---|---|---|---|---|
+| base | 0.190 | 162 | 988 | 0.898 @ 3 295 | 0.134 / 0.240 / 0.198 |
+| fmt | 0.192 | 120 | 731 | 0.898 @ 2 438 | 0.136 / 0.252 / 0.202 |
+| pp | 0.270 | 120 | 400 | 0.894 @ 1 335 | 0.134 / **0.959** / 0.299 |
+| k7 | 0.789 | — (≥ 0.5 at θ0) | 4 | 0.966 @ 731 | 0.150 / 0.260 / 0.781 |
+
+- **R-T0 — pp trace replicates, gate stays closed.** base 0.190 and fmt
+  0.192 sit at chance + 0.06, i.e. 0.01 (½ SE) over the "≤ chance + 0.05"
+  sanity bar: at 3× the sample the carry-subset probe picks up a little
+  operand-routing signal (R-A1's mechanism), not a broken split — the
+  reads below are taken with that stated. pp 0.270 ≥ chance + 0.10 ✓ but
+  pp − base = **+0.080 < +0.10** ✗. R-A2's +0.075 at 2 000 is therefore
+  real (now ≈ 4 SE), the same size, and below the re-open bar: recorded
+  as a small real θ0 trace, §6.22's gate unchanged.
+- **R-T1 — met by the letter, weakly.** k7 reaches 0.801 at step 4
+  (0.805 at 5) — but it starts at 0.789 at θ0 (0.63 at the 2 000 sample),
+  so the control is 0.01 under the bar before any training; the probe's
+  time resolution is not really tested by it. k7 then sits at 0.76–0.82
+  through step 27 and climbs to 0.97 by step 731.
+- **R-T2 — pp read VOID (format effect).** t50: base 162, pp 120, fmt
+  120. pp/base = 0.74 — inside the pre-registered in-between band
+  (½ < r < 0.8, neither elicit nor teach). fmt/base = 0.74 too, i.e. fmt
+  does NOT track base (0.8–1.25×) and is indistinguishable from pp at the
+  snapshot resolution (89 → 120 → 162) ⇒ whatever speed-up pp shows at
+  the 0.5 crossing is produced by the English format alone. Descriptive,
+  not pre-registered: pp leads fmt by ≈ 0.1 at steps 89/120 (0.46/0.64 vs
+  0.36/0.52; base 0.33/0.46), linear-interpolated t50 ≈ 96 / 117 / 136
+  (pp / fmt / base), and at the 0.8 level pp separates from fmt
+  (t80 400 vs 731, base 988; pp/base 0.40). So the op-pretaught arm is
+  faster than the format-only arm in the second half of the rise, but the
+  pre-registered read cannot attribute the early speed-up to the operator
+  knowledge — this is the case `ppfmt` (op+format vs format-only) was
+  proposed for.
+- **R-T3 — strong read fails; training shows partial reuse.** At θ0 pp's
+  `op_to_task` = 0.134 = majority (bar 0.234) while its `op_to_op` =
+  0.959: the operator-format sum is perfectly linearly readable, but the
+  English input does not reach that subspace before training. Over
+  training `op_to_task` and `task_to_task` inflect at the same snapshots
+  (49 → 120: 0.27/0.32 → 0.54/0.64) — the "reuse" pattern, not a ≥ 3-
+  snapshot lag — but `op_to_task` plateaus at ≈ 0.55 (steps 120–988)
+  while `task_to_task` reaches 0.89, and `op_to_op` decays 0.96 → 0.67:
+  English training lands partly in the operator subspace and moves that
+  subspace as it does. base/fmt/k7 `op_to_task` stay at chance
+  throughout (k7's latent sum is the English one: `task_to_task` 0.78 at
+  θ0). Per the pre-registration, transfer failure at θ0 is not evidence
+  against a latent sum.
+- **R-T4 (teammate's read; numbers folded here).** k7 row appended to
+  `analysis/ts38tr_mech_summary.csv`
+  (`ts38mt_mech_summary.py --run-prefix evt-ts38tr --arms k7 --sizes 46416`);
+  base/pp/fmt rows in `ts38mt_mech_summary.csv`. k7 vs base at n = 46 416:
+  `rel_fro` 0.046 vs 0.132 (0.35×, ≤ ½ ✓); `grad_early_mass_frac` 0.236
+  vs 0.080 (2.95×, ≥ 2× ✓); ΔW-weighted effective rank 10.0 vs 8.0
+  (wrong direction ✗); `first_layer_ge_half` (answer scope) 7 vs 4 (right
+  direction, not 8 ✗); max cos(shift, J_θ0) 0.341 vs 0.392 (✗) ⇒ 2 of 5
+  ⇒ by the rule the instruments count as calibrated at this n on exactly
+  those two readouts. pp vs base on them: `rel_fro` 0.049 (0.37×, the
+  k7-like side; fmt 0.126 is base-like); `grad_early_mass_frac` 0.083
+  (1.04×, base-like; fmt 0.062). Split 1/1 — left to the teammate, with
+  the caveat that k7 converges in 880 steps vs base's 3 520 and pp's
+  1 650, which the fraction-of-run readouts only partly normalise.
+
+*Net.* The θ0 trace in pp is real but small (+0.08 over base), the
+English sum is not decodable from pp's operator subspace at θ0, and the
+only pre-registered dynamics read (t50) is a format effect at this size.
+Nothing here re-opens §6.22; the question that remains is the one
+`ppfmt` asks — op+format vs format-only on the same footing.

@@ -2020,8 +2020,18 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `tests/experiments/analysis/test_{probe_routing_control,
     truncate_lora_parent}.py`. Cost ≈ $0.6.
 
-24. **Probe trajectory at n = 46 416 (`ts38mt_probe_traj`) — BUILT
-    2026-08-22, NOT LAUNCHED (owner runs it on their box).** One dataset
+24. **Probe trajectory at n = 46 416 (`ts38mt_probe_traj`) — DONE
+    2026-08-23** (owner's box; tables on `geode-internals`
+    `results/ts38mt_probe_traj/`, figure `figures/probe_traj_n46416.png`;
+    outcome under decisions.md 2026-08-22 "probe trajectory"). Verdicts:
+    R-T0 pp θ0 trace replicates at +0.08 over base (< +0.10, gate stays
+    closed); R-T1 met by the letter (k7 0.80 at step 4, from 0.79 at θ0);
+    R-T2 VOID — t50 base/pp/fmt = 162/120/120, the speed-up is the
+    format's (pp separates from fmt only at t80: 400 vs 731); R-T3 θ0
+    transfer fails (`op_to_task` = chance, `op_to_op` 0.96), training
+    shows partial reuse (`op_to_task` plateau ≈ 0.55, `op_to_op` decays
+    to 0.67); R-T4 k7 vs base 2/5 (rel_fro, grad timing), pp splits 1/1
+    on those — teammate's read. Next: `ppfmt`. One dataset
     size, every arm's whole training trajectory: the carry-subset probe
     (§6.23's Test-1 fix) plus a NEW cross-format transfer probe (fit on
     the operator-notation twin of the same problems, score on English;

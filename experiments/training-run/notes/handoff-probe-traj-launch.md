@@ -1,5 +1,13 @@
 # HANDOFF — launch + post-process the n = 46 416 probe trajectory (fresh session, 2026-08-22)
 
+> **EXECUTED 2026-08-23** on the owner's box 48428739 (destroyed after the
+> receiver check). Outcome: decisions.md 2026-08-22 "probe trajectory".
+> Things this runbook got wrong, now fixed in place: `make_bare_sets.py`
+> needs `--skip-dose-mult`; `probe_run` skipped the k7 sweep (bash `local`
+> expansion bug, `0a5416d`); each sweep takes 30–40 min at `--limit 6000`,
+> not ~8 (≈ 2.5 h wall in all). A local ssh key may need
+> `vastai attach ssh <instance> "$(cat ~/.ssh/<key>.pub)"` first.
+
 Everything is BUILT, pre-registered and pushed (commit `1ea5946` on
 `ts38-mini`). Nothing has been launched. Design + reads: `EXPERIMENTS.md`
 §6.24 and `notes/decisions.md` "2026-08-22 — probe trajectory at
