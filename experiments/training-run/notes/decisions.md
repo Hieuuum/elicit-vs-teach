@@ -6035,3 +6035,23 @@ yields nothing at any scale, the negative becomes real and reportable —
 "the fine-tune's effect at the circuit is not a constant shift, even
 though the circuit itself is reused" (which would itself refine the
 Wang-et-al constant-shift picture).
+
+## 2026-08-24 (necessity + TS formation curve) — circuits are necessary AND sufficient at ~32/528 nodes; the taught circuit crystallizes inside epoch 1
+
+- **Necessity (knockout)**: top-8 nodes degrade 0.943 (llama_ft) / 0.986
+  (ts_ft) of clean behavior; top-32 ≈ 0.999 both. With sufficiency
+  (0.94-0.97 at top-8, ~1.0 at top-32) the claim is complete: ~6% of
+  nodes are load-bearing AND sufficient, both regimes; attribution
+  ranking doubly validated. base16 sufficiency likewise (0.972 @ top-8).
+- **TS circuit formation** (8 snapshots of fig2ts-noinst-n1M): J@64 vs
+  final sits at the NOISE FLOOR (~0.22-0.28) for the first ~1,300 steps,
+  crystallizes between steps ~1.3K-5.4K (0.267 → 0.422) inside epoch 1,
+  plateaus at 0.438 ≈ 78% of the map's split-half ceiling (0.561);
+  logit-diff climbs monotonically 0.9 → 14.5. First direct observation
+  in this project of a circuit being BUILT during teaching. Llama
+  contrast (prediction: near-ceiling from the first snapshots) blocked:
+  fig2nl3s launch failed on an env regression — scipy (installed into
+  the geode env after the earlier Spearman complaint; no longer needed)
+  requires CXXABI_1.3.15, breaking transformers' import chain. Fix:
+  pip uninstall scipy (or conda-forge scipy); kill the orphaned
+  streamer + marker before relaunching.
