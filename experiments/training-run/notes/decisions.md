@@ -5922,3 +5922,23 @@ Open before write-up: same-regime base0 comparison; empirical null from
 the pre-fix noise maps; activation-patching verification of the top-16
 nodes (attribution is first-order); optionally per-layer profiles as a
 figure (elicit depth 11-15 vs teach depth 0 + late MLPs).
+
+## 2026-08-24 (later) — rigor tooling shipped: split-half reliability, faithfulness patching, snapshot circuit-formation
+
+Three additions, all smoke-tested on a tiny GQA Llama:
+- circuit_nodes.py --half {a,b}: disjoint pair splits — Jaccard(a,b) of the
+  SAME model is the reliability ceiling every cross-model Jaccard is
+  reported against.
+- circuit_faithfulness.py: TRUE activation patching of the top-k map nodes
+  (clean → corrupt), recovery fraction vs k — the Prakash-style
+  "k-node circuit recovers X%" claim + verification of the first-order
+  attribution ranking. Mechanism verified exactly (patch-all recovery
+  1.0000 when pair boundary tokens match — which real pairs guarantee by
+  construction, both prompts ending "?\n").
+- circuit_trajectory.py: circuit-formation dynamics from the endpoint
+  snapshot archives — fetches selected steps (~log-spaced) from
+  podhajskimarcin/<run_id>, rebuilds θ_step via geode.edl.load_snapshot
+  (bit-exact L-5) on the zoo module tree, maps each with the shared
+  attribution core, and tracks Jaccard/rho vs the FINAL map. Predictions:
+  elicit endpoints near-final from the first snapshots; teach endpoints
+  crystallize through the EDL hump.

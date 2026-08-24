@@ -127,6 +127,58 @@ class NodeTaps:
             h.remove()
 
 
+def attribution_map(model, pairs, batch_size: int, device: str):
+    """(scores dict {(kind, layer, head): float}, mean logit-diff sanity).
+
+    The shared attribution core: one corrupt pass (no grad) + one clean pass
+    (grad) per batch; score = sum (a_corr - a_clean) . dM/da_clean. Importable
+    by circuit_trajectory.py; hooks are removed before returning.
+    """
+    taps = NodeTaps(model)
+    n_layers = model.config.num_hidden_layers
+    n_heads = taps.n_heads
+    scores = {("attn", i, h): 0.0 for i in range(n_layers) for h in range(n_heads)}
+    scores.update({("mlp", i, -1): 0.0 for i in range(n_layers)})
+    sanity_m = []
+    try:
+        for start in range(0, len(pairs), batch_size):
+            batch = pairs[start : start + batch_size]
+            clean_ids = torch.tensor([p[0] for p in batch], device=device)
+            corr_ids = torch.tensor([p[1] for p in batch], device=device)
+            c_tok = torch.tensor([p[2] for p in batch], device=device)
+            x_tok = torch.tensor([p[3] for p in batch], device=device)
+
+            taps.clear()
+            with torch.no_grad():
+                model(corr_ids)
+            corr_acts = {k: v.detach() for k, v in taps.acts.items()}
+
+            taps.clear()
+            with torch.enable_grad():
+                logits = model(clean_ids).logits[:, -1].float()
+                metric = (
+                    logits.gather(1, c_tok[:, None]) - logits.gather(1, x_tok[:, None])
+                ).sum()
+                metric.backward()
+            sanity_m.append((metric / len(batch)).item())
+            model.zero_grad(set_to_none=True)
+
+            for (kind, i), a_clean in taps.acts.items():
+                if a_clean.grad is None:
+                    continue
+                delta = (corr_acts[(kind, i)] - a_clean.detach()).float()
+                contrib = (delta * a_clean.grad.float()).sum(dim=(0, 1))
+                if kind == "attn":
+                    per_head = contrib.sum(dim=-1)
+                    for h in range(n_heads):
+                        scores[("attn", i, h)] += per_head[h].item()
+                else:
+                    scores[("mlp", i, -1)] += contrib.sum().item()
+    finally:
+        taps.remove()
+    return scores, sum(sanity_m) / max(len(sanity_m), 1)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--model", default=None,
@@ -139,6 +191,10 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="output stem: writes <stem>.parquet + <stem>.json")
     ap.add_argument("--shots", type=int, default=0)
     ap.add_argument("--n-pairs", type=int, default=256)
+    ap.add_argument("--half", choices=("a", "b"), default=None,
+                    help="use only even (a) / odd (b) pairs — disjoint splits for "
+                    "split-half reliability (the Jaccard ceiling any cross-model "
+                    "comparison can reach)")
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
@@ -171,64 +227,23 @@ def main() -> int:
     # transient cost is one extra model-size of grad memory.
 
     pairs = build_pairs(df, tokenizer, args.n_pairs, args.shots)
-    if len(pairs) < args.n_pairs // 2:
+    if args.half is not None:
+        pairs = pairs[0::2] if args.half == "a" else pairs[1::2]
+    if len(pairs) < args.n_pairs // 4:
         print(f"[circuit] WARNING: only {len(pairs)} length-matched pairs found")
 
-    taps = NodeTaps(model)
-    n_layers = model.config.num_hidden_layers
-    n_heads = taps.n_heads
-    scores = {("attn", i, h): 0.0 for i in range(n_layers) for h in range(n_heads)}
-    scores.update({("mlp", i, -1): 0.0 for i in range(n_layers)})
-    sanity_m = []
-
-    for start in range(0, len(pairs), args.batch_size):
-        batch = pairs[start : start + args.batch_size]
-        clean_ids = torch.tensor([p[0] for p in batch], device=args.device)
-        corr_ids = torch.tensor([p[1] for p in batch], device=args.device)
-        c_tok = torch.tensor([p[2] for p in batch], device=args.device)
-        x_tok = torch.tensor([p[3] for p in batch], device=args.device)
-
-        # corrupt pass (no grad): reference activations
-        taps.clear()
-        with torch.no_grad():
-            model(corr_ids)
-        corr_acts = {k: v.detach() for k, v in taps.acts.items()}
-
-        # clean pass (grad): activations + metric backward
-        taps.clear()
-        with torch.enable_grad():
-            logits = model(clean_ids).logits[:, -1].float()
-            metric = (
-                logits.gather(1, c_tok[:, None]) - logits.gather(1, x_tok[:, None])
-            ).sum()
-            metric.backward()
-        sanity_m.append((metric / len(batch)).item())
-        model.zero_grad(set_to_none=True)
-
-        for (kind, i), a_clean in taps.acts.items():
-            if a_clean.grad is None:
-                continue
-            delta = (corr_acts[(kind, i)] - a_clean.detach()).float()
-            contrib = (delta * a_clean.grad.float()).sum(dim=(0, 1))  # (heads, d_head) or (d,)
-            if kind == "attn":
-                per_head = contrib.sum(dim=-1)
-                for h in range(n_heads):
-                    scores[("attn", i, h)] += per_head[h].item()
-            else:
-                scores[("mlp", i, -1)] += contrib.sum().item()
-
-    taps.remove()
+    scores, sanity = attribution_map(model, pairs, args.batch_size, args.device)
     rows = [
         {"node_type": k, "layer": i, "head": h, "score": s, "abs_score": abs(s)}
         for (k, i, h), s in scores.items()
     ]
     out = Path(args.out)
     pd.DataFrame(rows).to_parquet(out.with_suffix(".parquet"), index=False)
-    sanity = sum(sanity_m) / len(sanity_m)
     meta = {
         "model": model_name,
         "shots": args.shots,
         "n_pairs": len(pairs),
+        "half": args.half,
         "mean_logit_diff": sanity,
         "performing_regime": bool(sanity > 1.0),
         "note": "scores from a non-performing model (mean_logit_diff ~ 0) are NOISE; "
