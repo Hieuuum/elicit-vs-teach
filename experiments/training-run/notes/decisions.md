@@ -6011,3 +6011,27 @@ core change — follow-up if the steering result lands.
   Llama trajectories BLOCKED — podhajskimarcin/evt-llama-fig2nl3s-* 404:
   launch_fig2nl3s_llama.sh was never run. Prerequisite before the Llama
   formation curve exists.
+
+## 2026-08-24 (steering v1 result + v2 redesign) — v1 was self-sabotaging, not a negative; last-position-only injection + format readout shipped
+
+v1 measured EM 0.0000 in EVERY condition including all-528-node steering —
+a destructive intervention, not an ineffective one: deltas calibrated at
+the final prompt position were injected at EVERY position, smearing
+answer-writing directions (mlp:15/14) across the prompt's context
+processing. Additionally, at answer-writing nodes the fine-tune's effect
+is prompt-DEPENDENT, so the cross-prompt mean cancels the useful signal —
+a constant shift can only carry prompt-INDEPENDENT components (format /
+"answer mode"), which the EM-only readout could not see. Random-128's
+0.0195 was noise.
+
+v2 (function-vector style, verified position-local on the smoke model):
+inject at the CURRENT LAST position only (prefill last token + each
+kv-cache decode step); report format_validity + sample completions
+alongside EM; extra condition attn-only top-k (excludes the
+prompt-dependent late-MLP writers). load_any path bug fixed (absolute
+--base paths were mistaken for run ids). Honest expectation after the
+redesign: steering restores FORMAT and possibly partial EM; if v2 ALSO
+yields nothing at any scale, the negative becomes real and reportable —
+"the fine-tune's effect at the circuit is not a constant shift, even
+though the circuit itself is reused" (which would itself refine the
+Wang-et-al constant-shift picture).

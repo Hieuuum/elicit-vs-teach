@@ -49,7 +49,7 @@ from circuit_nodes import EVAL_CONFIG  # noqa: E402
 from train import load_config  # noqa: E402
 from train_sft import load_frozen_parquet  # noqa: E402
 
-from geode.arith import exact_match_accuracy  # noqa: E402
+from geode.arith import exact_match_accuracy, format_valid  # noqa: E402
 from geode.arith.spans import tokenize_with_spans  # noqa: E402
 from geode.edl import EVAL_STOP_ROWS  # noqa: E402
 
@@ -58,7 +58,7 @@ STORE = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
 
 def load_any(spec: str, device: str):
     """Hub id / plain dir (from_pretrained) or zoo run id (wrapped-aware)."""
-    if (STORE / "runs" / spec).is_dir():
+    if "/" not in spec and (STORE / "runs" / spec).is_dir():
         from geode.zoo import load_model as zoo_load_model
 
         return zoo_load_model(spec, store=STORE, device=device)
@@ -95,12 +95,14 @@ class SteerTaps:
                 return None
             if self.mode == "steer":
                 heads = {h: self.vectors[("attn", i, h)]
-                         for (k, li, h) in self.vectors if k == "attn" and li == i
-                         for _ in [0]}
+                         for (k, li, h) in self.vectors if k == "attn" and li == i}
                 if heads:
                     x = x.view(*x.shape[:-1], self.n_heads, self.d_head).clone()
                     for h, vec in heads.items():
-                        x[..., h, :] += self.scale * vec.to(x.dtype)
+                        # LAST position only: calibration measured the shift
+                        # there, and injecting it everywhere is destructive
+                        # (v1 measured 0.0000 even at all-528 nodes)
+                        x[:, -1, h, :] += self.scale * vec.to(x.dtype)
                     return (x.view(*x.shape[:-2], self.n_heads * self.d_head),)
             return None
 
@@ -112,7 +114,9 @@ class SteerTaps:
                 self.captured[("mlp", i)] = output[:, -1].detach().float().sum(0)
                 return output
             if self.mode == "steer" and ("mlp", i, -1) in self.vectors:
-                return output + self.scale * self.vectors[("mlp", i, -1)].to(output.dtype)
+                output = output.clone()
+                output[:, -1] += self.scale * self.vectors[("mlp", i, -1)].to(output.dtype)
+                return output
             return output
 
         return hook
@@ -205,10 +209,14 @@ def main() -> int:
         return out
 
     def run_em(label):
-        acc, _ = exact_match_accuracy(base, tokenizer, eval_prompts, eval_answers,
-                                      device=args.device, batch_size=args.batch_size)
-        print(f"[steer] {label}: exact_match {acc:.4f} on n={len(eval_prompts)}")
-        return acc
+        acc, completions = exact_match_accuracy(base, tokenizer, eval_prompts, eval_answers,
+                                                device=args.device, batch_size=args.batch_size)
+        fmt = sum(format_valid("Answer:" + c) for c in completions) / len(completions)
+        print(f"[steer] {label}: exact_match {acc:.4f}  format_validity {fmt:.4f} "
+              f"on n={len(eval_prompts)}")
+        for c in completions[:2]:
+            print(f"[steer]     sample: {c[:70]!r}")
+        return {"em": acc, "format_validity": fmt}
 
     results = {}
     taps.mode = "off"
@@ -219,6 +227,9 @@ def main() -> int:
     results[f"circuit_top{args.k}"] = run_em(f"base + circuit top-{args.k:<4d}")
     taps.vectors = vectors_for(rand_nodes)
     results[f"random_{args.k}"] = run_em(f"base + random {args.k:<8d}")
+    attn_nodes = [n for n in ranked if n[0] == "attn"][: args.k]
+    taps.vectors = vectors_for(attn_nodes)
+    results[f"attn_top{args.k}"] = run_em(f"base + attn-only top-{args.k:<3d}")
     taps.vectors = vectors_for(ranked)  # all 528 nodes = full constant shift
     results["all_nodes"] = run_em("base + ALL node shifts   ")
     taps.remove()
