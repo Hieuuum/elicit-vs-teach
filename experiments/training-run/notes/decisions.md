@@ -5966,3 +5966,26 @@ Same-regime maps (all logit-diff-performing unless noted):
 
 Still scheduled: split-half ceilings, faithfulness curves, snapshot
 circuit-formation trajectories.
+
+## 2026-08-24 (practical arm) — steer_unlock.py: can k patched vectors replace the fine-tune?
+
+The applied elicit-vs-teach discriminator (owner request): extract the
+fine-tune's mean activation shift at the circuit nodes (donor - base, final
+prompt position, 64 calibration prompts) and ADD it to the BASE model at
+inference — zero training. Conditions per run: base floor, circuit top-k
+steer, random-k steer (specificity control), all-528-node steer (ceiling
+for the constant-shift hypothesis), each scored by G5-style greedy EM on
+held-out bare prompts.
+
+Predictions: ELICIT (Llama, donor=fig2nl3-noinst-n1M): EM jumps well off
+0.000 under circuit steering, random-k does much less — "the capability is
+a patch, not a fine-tune". TEACH (TS twin, donor=fig2ts-noinst-n1M): ~0
+under every steering condition — no circuit underneath to unlock; you must
+train. Mirrors the repo's cited Wang et al. constant-shift finding, turned
+into a regime discriminator with a direct eval-and-deployment implication
+(latent capabilities are cheaply unlockable — and cheaply *jailbroken-in* —
+whereas absent ones are not).
+
+Circuit-restricted LoRA (train only the circuit's modules) deferred:
+apply_lora targets by attribute name only; per-layer targeting is a small
+core change — follow-up if the steering result lands.
