@@ -6055,3 +6055,26 @@ Wang-et-al constant-shift picture).
   requires CXXABI_1.3.15, breaking transformers' import chain. Fix:
   pip uninstall scipy (or conda-forge scipy); kill the orphaned
   streamer + marker before relaunching.
+
+## 2026-08-25 — STEERING UNLOCK LANDED (prefill-only, k=32): 0.0000 → 0.6562 format / 0.0391 EM with zero training; every control null; teach side salad
+
+Prefill-only injection (steer the prompt's final position, free-run
+generation) at k=32, scale 1.0, base Llama + fig2nl3-noinst-n1M donor:
+format_validity 0.0000 → **0.6562**, EM 0.0000 → **0.0391**, with
+near-misses of the right sign and ~0.2% magnitude error ('-5766'/'-5786'
+vs true -5776). Controls all null: random-32 0/0, attn-only 0/0 (the MLP
+writers are the necessary injection site), ALL-528 dilutes below
+circuit-32 (0/0 with near-answer fragments), scale 0.5 weaker (0.3594
+format). Teach side (previous block): identical procedure yields token
+salad, no arithmetic flavor ever.
+
+**The practical asymmetry, final form:** elicitation-regime capability is
+accessible via a 32-vector inference-time patch (no gradient steps, no
+weight access beyond activations); teaching-regime capability is not
+patchable at all. The residual gap to full EM (exact digits) is the
+prompt-SPECIFIC part of the computation a mean vector cannot carry —
+steering opens the gate, the reused circuit does the arithmetic,
+imprecisely without the fine-tune's gain changes (consistent with the
+score-rotation finding). Safety corollary sharpened: latent capabilities
+can be switched on by tiny activation edits — evals that assume
+fine-tuning access requirements for capability expression are optimistic.
