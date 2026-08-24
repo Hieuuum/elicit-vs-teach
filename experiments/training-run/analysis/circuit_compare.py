@@ -61,9 +61,10 @@ def main() -> int:
         inter, union = top_a & top_b, top_a | top_b
         jacc = len(inter) / len(union)
         chance = k / (2 * n_nodes - k)
-        shared = da.loc[list(union), "abs_score"].rank().corr(
-            db.loc[list(union), "abs_score"].rank(), method="spearman"
-        )
+        # Spearman by hand (rank -> Pearson): the cluster env has no scipy.
+        ra = da.loc[list(union), "abs_score"].rank()
+        rb = db.loc[list(union), "abs_score"].rank()
+        shared = ra.corr(rb)  # Pearson of ranks == Spearman
         print(f"[compare] k={k:4d}: Jaccard {jacc:.3f} (chance ~{chance:.3f}) "
               f"| shared {len(inter):3d}/{len(union)} "
               f"| union-score Spearman {shared:.3f} (rotation {1 - shared:.3f})")

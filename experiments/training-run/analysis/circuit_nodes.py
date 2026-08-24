@@ -129,7 +129,13 @@ class NodeTaps:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--model", required=True, help="checkpoint dir or hub id")
+    ap.add_argument("--model", default=None,
+                    help="PLAIN checkpoint dir or hub id (base models, full-FT runs)")
+    ap.add_argument("--run-id", default=None,
+                    help="zoo run id — REQUIRED for LoRA runs: their checkpoints are "
+                    "geode's WRAPPED format (q_proj.base/A/B), which from_pretrained "
+                    "silently random-inits (the 2026-07-22 incident); loads via "
+                    "geode.zoo.load_model instead")
     ap.add_argument("--out", required=True, help="output stem: writes <stem>.parquet + <stem>.json")
     ap.add_argument("--shots", type=int, default=0)
     ap.add_argument("--n-pairs", type=int, default=256)
@@ -145,8 +151,20 @@ def main() -> int:
     tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"]["path"])
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
-    model.to(args.device).eval()
+    if (args.model is None) == (args.run_id is None):
+        raise SystemExit("[circuit] pass exactly one of --model (plain/hub) or --run-id (zoo LoRA run)")
+    if args.run_id is not None:
+        import os
+        from geode.zoo import load_model as zoo_load_model
+
+        store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
+        model = zoo_load_model(args.run_id, store=store, device=args.device)
+        model_name = args.run_id
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
+        model.to(args.device)
+        model_name = args.model
+    model.eval()
     # Params stay grad-ENABLED: with everything frozen no activation would
     # require grad and the metric backward would have nothing to reach the
     # taps through. Param grads are zeroed (freed) after every batch; the
@@ -208,7 +226,7 @@ def main() -> int:
     pd.DataFrame(rows).to_parquet(out.with_suffix(".parquet"), index=False)
     sanity = sum(sanity_m) / len(sanity_m)
     meta = {
-        "model": args.model,
+        "model": model_name,
         "shots": args.shots,
         "n_pairs": len(pairs),
         "mean_logit_diff": sanity,
@@ -217,7 +235,7 @@ def main() -> int:
         "do not interpret circuit overlap against them as reuse",
     }
     out.with_suffix(".json").write_text(json.dumps(meta, indent=2))
-    print(f"[circuit] {args.model} shots={args.shots}: mean logit_diff {sanity:.3f} "
+    print(f"[circuit] {model_name} shots={args.shots}: mean logit_diff {sanity:.3f} "
           f"({'PERFORMING' if meta['performing_regime'] else 'NOT PERFORMING — scores are noise'})")
     print(f"[circuit] wrote {out.with_suffix('.parquet')} ({len(rows)} nodes)")
     return 0
