@@ -5942,3 +5942,27 @@ Three additions, all smoke-tested on a tiny GQA Llama:
   attribution core, and tracks Jaccard/rho vs the FINAL map. Predictions:
   elicit endpoints near-final from the first snapshots; teach endpoints
   crystallize through the EDL hump.
+
+## 2026-08-24 (same-regime results) — circuit reuse CONFIRMED: fine-tuning changes the circuit less than the prompt regime does; taught capability is prompt-brittle
+
+Same-regime maps (all logit-diff-performing unless noted):
+- **base16 ↔ ft16: Jaccard@32/64/128 = 0.524/0.455/0.480**, top-4 nodes
+  IDENTICAL AND ORDERED (mlp:15, 14, 12, 13) + shared late-attn cluster
+  (11:14, 11:15, 14:24, 14:25).
+- **ft0 ↔ ft16 (same model, regime change): 0.391/0.333/0.376** — the
+  regime-stability bound. KEY ORDERING: cross-model same-regime (0.455)
+  EXCEEDS same-model cross-regime (0.333): a million training examples
+  moved the circuit less than switching 0-shot↔16-shot prompting does.
+  Metric-2's elicitation hypothesis confirmed in its strongest available
+  form (pending split-half ceilings for the normalized number).
+- base0 ↔ ft0: 0.306 (base0 marginal at logit-diff 1.6; diffuse mid-MLP
+  map — a weak partial circuit, consistent).
+- **ts_ft at 16 shots: NOT PERFORMING (0.17 vs 13.7 at 0-shot)** — the
+  TAUGHT model collapses under few-shot prompting while the elicited model
+  stays strong (24.8). Matches G5 (TS 16-shot EM 0.0 everywhere). New
+  dissociation: taught capability is bound to the trained format
+  (prompt-brittle); elicited capability is regime-robust. Practical
+  implication: fine-tuned-in capabilities can evade few-shot-based evals.
+
+Still scheduled: split-half ceilings, faithfulness curves, snapshot
+circuit-formation trajectories.
