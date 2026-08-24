@@ -76,6 +76,7 @@ class SteerTaps:
         self.captured: dict[tuple, torch.Tensor] = {}
         self.vectors: dict[tuple, torch.Tensor] = {}  # node -> shift vector
         self.scale = 1.0
+        self.prefill_only = False
         self.handles = []
         cfg = model.config
         self.n_heads = cfg.num_attention_heads
@@ -94,6 +95,8 @@ class SteerTaps:
                 self.captured[("attn", i)] = v.detach().float().sum(0)
                 return None
             if self.mode == "steer":
+                if self.prefill_only and x.shape[1] == 1:
+                    return None  # kv-cache decode step: leave generation unsteered
                 heads = {h: self.vectors[("attn", i, h)]
                          for (k, li, h) in self.vectors if k == "attn" and li == i}
                 if heads:
@@ -114,6 +117,8 @@ class SteerTaps:
                 self.captured[("mlp", i)] = output[:, -1].detach().float().sum(0)
                 return output
             if self.mode == "steer" and ("mlp", i, -1) in self.vectors:
+                if self.prefill_only and output.shape[1] == 1:
+                    return output
                 output = output.clone()
                 output[:, -1] += self.scale * self.vectors[("mlp", i, -1)].to(output.dtype)
                 return output
@@ -155,6 +160,11 @@ def main() -> int:
     ap.add_argument("--map", required=True, help="circuit_nodes stem ranking the nodes")
     ap.add_argument("--k", type=int, default=32)
     ap.add_argument("--scale", type=float, default=1.0)
+    ap.add_argument("--prefill-only", action="store_true",
+                    help="steer only the prompt's final position, not each decode "
+                    "step — kickstart into answer mode, then free-run (fixes the "
+                    "perseveration collapse: re-injecting the write-a-digit vector "
+                    "every generated token yields '------' loops, measured v2)")
     ap.add_argument("--n-calib", type=int, default=64)
     ap.add_argument("--n-eval", type=int, default=256)
     ap.add_argument("--batch-size", type=int, default=16)
@@ -223,6 +233,7 @@ def main() -> int:
     results["base_unsteered"] = run_em("base unsteered           ")
     taps.mode = "steer"
     taps.scale = args.scale
+    taps.prefill_only = args.prefill_only
     taps.vectors = vectors_for(top_nodes)
     results[f"circuit_top{args.k}"] = run_em(f"base + circuit top-{args.k:<4d}")
     taps.vectors = vectors_for(rand_nodes)
@@ -235,7 +246,8 @@ def main() -> int:
     taps.remove()
 
     meta = {"base": args.base, "donor": args.donor_run, "map": args.map, "k": args.k,
-            "scale": args.scale, "n_calib": args.n_calib, "n_eval": args.n_eval,
+            "scale": args.scale, "prefill_only": args.prefill_only,
+            "n_calib": args.n_calib, "n_eval": args.n_eval,
             "results": results}
     out = Path(f"steer_{Path(args.map).name}_k{args.k}.json")
     out.write_text(json.dumps(meta, indent=2))
