@@ -5989,3 +5989,25 @@ whereas absent ones are not).
 Circuit-restricted LoRA (train only the circuit's modules) deferred:
 apply_lora targets by attribute name only; per-layer targeting is a small
 core change — follow-up if the steering result lands.
+
+## 2026-08-24 (ceilings + faithfulness results; fixes) — reuse normalizes to ~64% of ceiling; 32-node circuits are ~fully sufficient in BOTH regimes
+
+- **Split-half ceilings**: base16 a↔b J@64 0.730 (rho 0.72); llama_ft a↔b
+  0.684; ts_ft a↔b 0.561. Normalized: base16↔ft16 reuse = 0.455/~0.71 ≈
+  **64% of measurable reuse**; regime shift ft0↔ft16 ≈ 47%; cross-model
+  llama↔ts ≈ 26%. The ladder (reuse > regime > cross-model) is the
+  reported form.
+- **Faithfulness (sufficiency)**: top-8 nodes recover 0.944/0.974
+  (llama_ft/ts_ft), top-32 ≈ 0.999, k=528 sanity = 1.000 exactly. Both
+  regimes' task behavior concentrates in ~32 of 528 nodes and the
+  attribution RANKING is validated. Caveat, recorded: this is
+  sufficiency, and top nodes include mlp:15/14 adjacent to the output —
+  a NECESSITY (knockout) pass distinguishes load-bearing circuitry from
+  good writing sites; --mode necessity added for it.
+- Fixes: length-safe batching (mixed prompt lengths across pair buckets
+  crashed the 16-shot faithfulness run); circuit_faithfulness gains
+  --mode {sufficiency,necessity}.
+- **Trajectory status**: TS command needs --final-map (usage error);
+  Llama trajectories BLOCKED — podhajskimarcin/evt-llama-fig2nl3s-* 404:
+  launch_fig2nl3s_llama.sh was never run. Prerequisite before the Llama
+  formation curve exists.

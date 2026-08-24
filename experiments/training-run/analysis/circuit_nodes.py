@@ -127,6 +127,18 @@ class NodeTaps:
             h.remove()
 
 
+def length_batches(pairs, batch_size: int):
+    """Batches of pairs with IDENTICAL prompt length (pairs are length-matched
+    within themselves, but lengths differ across bucket boundaries — stacking
+    mixed lengths into one tensor crashes; measured 2026-08-24 at 16 shots)."""
+    by_len: dict[int, list] = {}
+    for pr in pairs:
+        by_len.setdefault(len(pr[0]), []).append(pr)
+    for bucket in by_len.values():
+        for i in range(0, len(bucket), batch_size):
+            yield bucket[i : i + batch_size]
+
+
 def attribution_map(model, pairs, batch_size: int, device: str):
     """(scores dict {(kind, layer, head): float}, mean logit-diff sanity).
 
@@ -141,8 +153,7 @@ def attribution_map(model, pairs, batch_size: int, device: str):
     scores.update({("mlp", i, -1): 0.0 for i in range(n_layers)})
     sanity_m = []
     try:
-        for start in range(0, len(pairs), batch_size):
-            batch = pairs[start : start + batch_size]
+        for batch in length_batches(pairs, batch_size):
             clean_ids = torch.tensor([p[0] for p in batch], device=device)
             corr_ids = torch.tensor([p[1] for p in batch], device=device)
             c_tok = torch.tensor([p[2] for p in batch], device=device)

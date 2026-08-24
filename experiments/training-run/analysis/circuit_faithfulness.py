@@ -35,7 +35,7 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "experiments" / "training-run" / "scripts"))
 
-from circuit_nodes import EVAL_CONFIG, build_pairs  # noqa: E402
+from circuit_nodes import EVAL_CONFIG, build_pairs, length_batches  # noqa: E402
 from train import load_config  # noqa: E402
 from train_sft import load_frozen_parquet  # noqa: E402
 
@@ -99,6 +99,10 @@ def main() -> int:
     ap.add_argument("--ks", type=int, nargs="+", default=[8, 16, 32, 64, 128, 528])
     ap.add_argument("--n-pairs", type=int, default=128)
     ap.add_argument("--batch-size", type=int, default=8)
+    ap.add_argument("--mode", choices=("sufficiency", "necessity"), default="sufficiency",
+                    help="sufficiency: patch clean acts into the CORRUPT run (recovery); "
+                    "necessity: patch corrupt acts into the CLEAN run (degradation) — "
+                    "proves the circuit is load-bearing, not just a good writing site")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
 
@@ -138,40 +142,54 @@ def main() -> int:
         return (z.gather(1, c_tok[:, None]) - z.gather(1, x_tok[:, None])).sum().item()
 
     with torch.no_grad():
-        for start in range(0, len(pairs), args.batch_size):
-            batch = pairs[start : start + args.batch_size]
+        for batch in length_batches(pairs, args.batch_size):
             clean_ids = torch.tensor([p[0] for p in batch], device=args.device)
             corr_ids = torch.tensor([p[1] for p in batch], device=args.device)
             c_tok = torch.tensor([p[2] for p in batch], device=args.device)
             x_tok = torch.tensor([p[3] for p in batch], device=args.device)
 
+            # "capture" stores the DONOR activations to patch in: clean acts
+            # for sufficiency (into the corrupt run), corrupt acts for
+            # necessity (into the clean run).
+            donor_ids = clean_ids if args.mode == "sufficiency" else corr_ids
+            recv_ids = corr_ids if args.mode == "sufficiency" else clean_ids
             taps.mode = "capture"
-            m_clean = metric(model(clean_ids).logits, c_tok, x_tok)
+            m_donor = metric(model(donor_ids).logits, c_tok, x_tok)
             taps.mode = "off"
-            m_corr = metric(model(corr_ids).logits, c_tok, x_tok)
-            m_clean_sum += m_clean
-            m_corr_sum += m_corr
+            m_recv = metric(model(recv_ids).logits, c_tok, x_tok)
+            if args.mode == "sufficiency":
+                m_clean_sum += m_donor
+                m_corr_sum += m_recv
+            else:
+                m_clean_sum += m_recv
+                m_corr_sum += m_donor
             n_batches += 1
 
             taps.mode = "patch"
             for k in args.ks:
                 taps.patched_nodes = set(ranked[:k])
-                totals[k] += metric(model(corr_ids).logits, c_tok, x_tok)
+                totals[k] += metric(model(recv_ids).logits, c_tok, x_tok)
             taps.mode = "off"
 
     taps.remove()
     denom = m_clean_sum - m_corr_sum
     rows = []
-    print(f"[faith] {name} shots={args.shots} pairs={len(pairs)}: "
+    print(f"[faith] {name} shots={args.shots} mode={args.mode} pairs={len(pairs)}: "
           f"mean M_clean {m_clean_sum/len(pairs):.3f}  M_corrupt {m_corr_sum/len(pairs):.3f}")
     for k in args.ks:
-        rec = (totals[k] - m_corr_sum) / denom if denom else float("nan")
-        rows.append({"k": k, "recovery": rec})
-        print(f"[faith]   top-{k:4d} nodes patched -> recovery {rec:.3f}")
-    out = Path(args.map + "_faithfulness.parquet")
+        if args.mode == "sufficiency":
+            frac = (totals[k] - m_corr_sum) / denom if denom else float("nan")
+            word = "recovery"
+        else:
+            frac = (m_clean_sum - totals[k]) / denom if denom else float("nan")
+            word = "degradation"
+        rows.append({"k": k, "mode": args.mode, "fraction": frac})
+        print(f"[faith]   top-{k:4d} nodes patched -> {word} {frac:.3f}")
+    out = Path(args.map + f"_faithfulness_{args.mode}.parquet")
     pd.DataFrame(rows).to_parquet(out, index=False)
-    meta = {"map": args.map, "model": name, "shots": args.shots, "n_pairs": len(pairs)}
-    Path(args.map + "_faithfulness.json").write_text(json.dumps(meta, indent=2))
+    meta = {"map": args.map, "model": name, "shots": args.shots,
+            "mode": args.mode, "n_pairs": len(pairs)}
+    Path(args.map + f"_faithfulness_{args.mode}.json").write_text(json.dumps(meta, indent=2))
     print(f"[faith] wrote {out}")
     return 0
 
