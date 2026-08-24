@@ -5883,3 +5883,42 @@ taps grad-reachable, per-head scores distinct, adapter ||B@A|| verified):
 Known limitation, stated: attribution patching is a first-order
 approximation; confirm any headline pair with true activation patching on
 the top nodes before publishing (v2 alongside edge-EAP).
+
+## 2026-08-24 (mechanistic, first results) — partial circuit reuse under elicitation; teaching builds a DIFFERENT-depth circuit; pre-elicit is circuit-invariant
+
+Attribution maps (256 pairs, logit-diff metric), all FT maps strongly
+performing (logit_diff 12-31); base16 Llama 11.3; TS-base16 -0.33 (no
+circuit even in-context — the teach premise, again). Results:
+
+1. **Elicit reuse (Llama base16 vs FT-n1M): Jaccard@{32,64,128} =
+   0.33/0.32/0.38 vs chance 0.03/0.07/0.14 (~5x)** — shared core mlp:15,
+   mlp:14 + late-attn cluster (11:14, 11:15, 14:25, 14:31). LOWER BOUND on
+   reuse: the base map is 16-shot (contains exemplar-reading machinery the
+   0-shot FT model doesn't use). Union-score Spearman ~0.03-0.09: heavy
+   re-weighting of a retained mechanism. Not Prakash et al.'s ~90% —
+   regime mismatch + first-order attribution noise depress it; same-regime
+   base0-vs-FT compare queued.
+2. **Teach (TS-base16 vs TS-FT): guard fired (noise map)** — and the
+   0.21-0.30 "overlap" against noise EXCEEDS analytic chance, exposing
+   shared magnitude bias in attribution maps ⇒ empirical null needed (the
+   pre-fix random-projection maps serve as one). Do not quote analytic
+   chance as the null in the write-up.
+3. **Cross-model (Llama-FT vs TS-FT, same regime, both performing):
+   Jaccard@64 0.16, Spearman NEGATIVE (-0.43)** — the taught model's
+   circuit is layer-0-attention-heavy + late MLPs; the elicited model's
+   lives in layers 11-15. Teaching did NOT rebuild the circuit elicitation
+   reuses — different depth profile entirely. Headline mechanistic
+   distinction so far.
+4. **Pre-elicit invariance (Llama FT vs FT-pre): Jaccard@32 0.684,
+   Spearman ~0.58, 12/16 top nodes shared** — the format installer leaves
+   the computation circuit intact, as predicted.
+5. **Adapter shift (76 runs)**: levels are baseline-biased (MLP ~0.7 by
+   parameter mass); the TRENDS split by regime — elicit QK fraction RISES
+   with n (0.14→0.18-0.20, both nl3 arms), teach-noinst QK FALLS
+   (0.19→0.145) with MLP mass rising. Directionally the routing-vs-
+   computation prediction; modest magnitude.
+
+Open before write-up: same-regime base0 comparison; empirical null from
+the pre-fix noise maps; activation-patching verification of the top-16
+nodes (attribution is first-order); optionally per-layer profiles as a
+figure (elicit depth 11-15 vs teach depth 0 + late MLPs).
