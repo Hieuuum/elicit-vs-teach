@@ -5851,3 +5851,35 @@ one A100, seed 316, every parent gate-verified, every endpoint's
 trajectory archived. Remaining stated deviations: batch 128 (vs 1024),
 1 seed (vs 3), D_algo (vs DeepMind Mathematics), LoRA/dose-size installer
 adaptations (each measured and recorded in this log).
+
+## 2026-08-24 — mechanistic phase opened: circuit-overlap + node/edge-shift tooling (owner's metrics 2 & 3, judged and adapted)
+
+Owner proposed (2) circuit Jaccard (Prakash et al. 2024 protocol) and
+(3) node-vs-edge change rates. Judgment, recorded:
+- (2) is sound with one protocol requirement: a base model's circuit only
+  exists in a regime where it PERFORMS — bare 0-shot both bases are at
+  0.000, so base maps are taken at 16 shots (Prakash's few-shot protocol).
+  TinyStories-base performs at 0.000 even 16-shot (G5) ⇒ the teach-side
+  "overlap with base" is against a NOISE map — chance-level overlap IS the
+  teaching signal, and tools must refuse to over-read it (guard built in).
+  The identical architectures add a comparison most papers cannot make:
+  TS-FT vs Llama-FT — does teaching build the circuit elicitation reuses?
+- (3) full edge-EAP on GQA Llama is a v2; two honest proxies shipped now:
+  score-rotation on shared nodes (same nodes, changed weighting) and the
+  LoRA ΔW decomposition QK (routing/edges) vs VO vs MLP (computation/
+  nodes) — scale-free fractions, computable for ALL 76 archived adapters,
+  dataset-size-resolved. Predictions: elicit → QK-tilted, teach → MLP/VO-
+  tilted.
+
+Shipped (analysis/, script-land, smoke-tested on a tiny GQA Llama — all
+taps grad-reachable, per-head scores distinct, adapter ||B@A|| verified):
+- circuit_nodes.py — attribution patching (grad × Δactivation), 528 nodes
+  (32 query-heads × 16 layers + 16 MLPs), length-matched clean/corrupt
+  pairs from the frozen bare eval, logit-diff metric, per-map sanity
+  verdict (performing vs noise) in a JSON sidecar.
+- circuit_compare.py — Jaccard@k with chance level, union-score Spearman
+  rotation, top-16 side-by-side; refuses-to-interpret guard on noise maps.
+- adapter_shift.py — QK/VO/MLP fractions per run across families.
+Known limitation, stated: attribution patching is a first-order
+approximation; confirm any headline pair with true activation patching on
+the top nodes before publishing (v2 alongside edge-EAP).
