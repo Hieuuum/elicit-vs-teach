@@ -56,6 +56,58 @@ from geode.edl import EVAL_STOP_ROWS  # noqa: E402
 EVAL_CONFIG = REPO_ROOT / "experiments/training-run/configs/eval_bare_target_data_llama.yaml"
 
 
+def apply_sidecar(model, sidecar: dict, scaling: float) -> int:
+    """Merge LoRA A/B pairs from an adapter sidecar into a PLAIN model's
+    weights in-place: W += scaling * (B @ A). Returns pairs merged. Key
+    convention: <param-prefix>.A.weight / .B.weight -> <param-prefix>.weight
+    (matches geode's wrapped state dict against the HF parameter tree)."""
+    import torch as _torch
+
+    params = dict(model.named_parameters())
+    prefixes = {k[: -len(".A.weight")] for k in sidecar if k.endswith(".A.weight")}
+    n = 0
+    for pref in sorted(prefixes):
+        a = sidecar[f"{pref}.A.weight"].float()
+        b = sidecar[f"{pref}.B.weight"].float()
+        target = params.get(f"{pref}.weight")
+        if target is None:
+            raise KeyError(f"apply_sidecar: no parameter {pref}.weight on the model")
+        with _torch.no_grad():
+            target.add_((scaling * (b @ a)).to(target.dtype))
+        n += 1
+    return n
+
+
+def load_sidecar_merged(run_id: str, store: Path, device: str):
+    """Reconstruct a pruned LoRA run's model: parent base + adapter sidecar.
+
+    For runs whose model/model.safetensors was pruned (every non-endpoint
+    sweep run) but whose adapter survived. Parent resolution: external hub id,
+    or a zoo parent's model_merged/ (the installer convention), else its
+    model/. Scaling = alpha/(2*rank) from the manifest (V5.47 pin).
+    """
+    from safetensors.torch import load_file
+    from transformers import AutoModelForCausalLM
+
+    from geode.zoo import load_run
+
+    manifest = load_run(run_id, store=store)
+    lora = manifest.data["training"]["lora"]
+    scaling = lora["alpha"] / (2 * lora["rank"])
+    base_id = manifest.data["base_model"]["hf_id"]
+    if base_id.startswith("zoo-run/"):
+        parent = base_id.split("/", 1)[1]
+        cand = store / "runs" / parent / "model_merged"
+        base_id = str(cand if (cand / "model.safetensors").is_file()
+                      else store / "runs" / parent / "model")
+    model = AutoModelForCausalLM.from_pretrained(base_id, torch_dtype=torch.bfloat16)
+    sidecar = load_file(store / "runs" / run_id / "model" / "adapter.safetensors")
+    n = apply_sidecar(model, sidecar, scaling)
+    print(f"[circuit] {run_id}: reconstructed from parent + sidecar "
+          f"({n} LoRA pairs merged, scaling {scaling:.5f})")
+    return model.to(device)
+
+
 def build_pairs(df, tokenizer, n_pairs: int, shots: int):
     """(clean_ids, corrupt_ids, clean_ans_tok, corrupt_ans_tok) tuples,
     exact-length-matched within each pair."""
@@ -222,10 +274,14 @@ def main() -> int:
         raise SystemExit("[circuit] pass exactly one of --model (plain/hub) or --run-id (zoo LoRA run)")
     if args.run_id is not None:
         import os
-        from geode.zoo import load_model as zoo_load_model
 
         store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
-        model = zoo_load_model(args.run_id, store=store, device=args.device)
+        if (store / "runs" / args.run_id / "model" / "model.safetensors").is_file():
+            from geode.zoo import load_model as zoo_load_model
+
+            model = zoo_load_model(args.run_id, store=store, device=args.device)
+        else:
+            model = load_sidecar_merged(args.run_id, store, args.device)
         model_name = args.run_id
     else:
         model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)

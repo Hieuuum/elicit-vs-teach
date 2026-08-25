@@ -45,7 +45,7 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "experiments" / "training-run" / "scripts"))
 
-from circuit_nodes import EVAL_CONFIG  # noqa: E402
+from circuit_nodes import EVAL_CONFIG, load_sidecar_merged  # noqa: E402
 from train import load_config  # noqa: E402
 from train_sft import load_frozen_parquet  # noqa: E402
 
@@ -59,9 +59,11 @@ STORE = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
 def load_any(spec: str, device: str):
     """Hub id / plain dir (from_pretrained) or zoo run id (wrapped-aware)."""
     if "/" not in spec and (STORE / "runs" / spec).is_dir():
-        from geode.zoo import load_model as zoo_load_model
+        if (STORE / "runs" / spec / "model" / "model.safetensors").is_file():
+            from geode.zoo import load_model as zoo_load_model
 
-        return zoo_load_model(spec, store=STORE, device=device)
+            return zoo_load_model(spec, store=STORE, device=device)
+        return load_sidecar_merged(spec, STORE, device)
     from transformers import AutoModelForCausalLM
 
     m = AutoModelForCausalLM.from_pretrained(spec, torch_dtype=torch.bfloat16)
@@ -77,6 +79,8 @@ class SteerTaps:
         self.vectors: dict[tuple, torch.Tensor] = {}  # node -> shift vector
         self.scale = 1.0
         self.prefill_only = False
+        self.replace = False        # True: overwrite with vec (per-prompt patch)
+        self.capture_rows = False   # capture per-row acts, not sums
         self.handles = []
         cfg = model.config
         self.n_heads = cfg.num_attention_heads
@@ -92,7 +96,8 @@ class SteerTaps:
             x = inputs[0]
             if self.mode == "capture":
                 v = x[:, -1].view(-1, self.n_heads, self.d_head)  # (B, H, d_head)
-                self.captured[("attn", i)] = v.detach().float().sum(0)
+                self.captured[("attn", i)] = (v.detach().float() if self.capture_rows
+                                              else v.detach().float().sum(0))
                 return None
             if self.mode == "steer":
                 if self.prefill_only and x.shape[1] == 1:
@@ -102,10 +107,14 @@ class SteerTaps:
                 if heads:
                     x = x.view(*x.shape[:-1], self.n_heads, self.d_head).clone()
                     for h, vec in heads.items():
-                        # LAST position only: calibration measured the shift
-                        # there, and injecting it everywhere is destructive
-                        # (v1 measured 0.0000 even at all-528 nodes)
-                        x[:, -1, h, :] += self.scale * vec.to(x.dtype)
+                        # LAST position only (v1's every-position injection was
+                        # destructive). vec is (d,) mean-shift or (B, d)
+                        # per-prompt; replace=True overwrites (per-prompt patch)
+                        v = vec.to(x.dtype)
+                        if self.replace:
+                            x[:, -1, h, :] = v
+                        else:
+                            x[:, -1, h, :] += self.scale * v
                     return (x.view(*x.shape[:-2], self.n_heads * self.d_head),)
             return None
 
@@ -114,13 +123,19 @@ class SteerTaps:
     def _mlp_hook(self, i):
         def hook(_mod, _inputs, output):
             if self.mode == "capture":
-                self.captured[("mlp", i)] = output[:, -1].detach().float().sum(0)
+                self.captured[("mlp", i)] = (output[:, -1].detach().float()
+                                             if self.capture_rows
+                                             else output[:, -1].detach().float().sum(0))
                 return output
             if self.mode == "steer" and ("mlp", i, -1) in self.vectors:
                 if self.prefill_only and output.shape[1] == 1:
                     return output
                 output = output.clone()
-                output[:, -1] += self.scale * self.vectors[("mlp", i, -1)].to(output.dtype)
+                v = self.vectors[("mlp", i, -1)].to(output.dtype)
+                if self.replace:
+                    output[:, -1] = v
+                else:
+                    output[:, -1] += self.scale * v
                 return output
             return output
 
@@ -160,6 +175,12 @@ def main() -> int:
     ap.add_argument("--map", required=True, help="circuit_nodes stem ranking the nodes")
     ap.add_argument("--k", type=int, default=32)
     ap.add_argument("--scale", type=float, default=1.0)
+    ap.add_argument("--vectors", choices=("mean", "per-prompt"), default="mean",
+                    help="mean: one constant shift per node (deployable patch); "
+                    "per-prompt: patch each prompt with ITS OWN donor activations "
+                    "at the top-k nodes (prefill only) — the upper bound that "
+                    "tests whether base's circuit + the right gate STATE yields "
+                    "exact answers (not deployable: needs the donor at inference)")
     ap.add_argument("--prefill-only", action="store_true",
                     help="steer only the prompt's final position, not each decode "
                     "step — kickstart into answer mode, then free-run (fixes the "
@@ -227,6 +248,67 @@ def main() -> int:
         for c in completions[:2]:
             print(f"[steer]     sample: {c[:70]!r}")
         return {"em": acc, "format_validity": fmt}
+
+    if args.vectors == "per-prompt":
+        # donor rows per eval prompt at the top-k nodes (prefill positions),
+        # computed in same-length groups so batching needs no padding
+        donor2 = load_any(args.donor_run, args.device).eval()
+        d2 = SteerTaps(donor2)
+        d2.capture_rows = True
+        groups: list[list[int]] = []
+        by_len: dict[int, list[int]] = {}
+        for idx, ids in enumerate(eval_prompts):
+            by_len.setdefault(len(ids), []).append(idx)
+        for idxs in by_len.values():
+            for s0 in range(0, len(idxs), args.batch_size):
+                groups.append(idxs[s0 : s0 + args.batch_size])
+        donor_rows: list[dict] = []
+        d2.mode = "capture"
+        with torch.no_grad():
+            for g in groups:
+                d2.captured = {}
+                donor2(torch.tensor([eval_prompts[i] for i in g], device=args.device))
+                donor_rows.append({k: v for k, v in d2.captured.items()})
+        d2.remove()
+        del donor2
+        torch.cuda.empty_cache() if args.device.startswith("cuda") else None
+
+        def rows_for(nodes, gi):
+            out = {}
+            for kind, layer, head in nodes:
+                rows = donor_rows[gi][(kind, layer)]
+                out[(kind, layer, head)] = rows[:, head] if kind == "attn" else rows
+            return out
+
+        taps.mode = "steer"
+        taps.replace = True
+        taps.prefill_only = True  # replacement during decode makes no sense
+        results = {}
+        for label, nodes in (("base_unsteered", []),
+                             (f"circuit_top{args.k}", top_nodes),
+                             (f"random_{args.k}", rand_nodes)):
+            correct = fmt_n = 0
+            for gi, g in enumerate(groups):
+                taps.vectors = rows_for(nodes, gi) if nodes else {}
+                taps.mode = "steer" if nodes else "off"
+                acc, comps = exact_match_accuracy(
+                    base, tokenizer, [eval_prompts[i] for i in g],
+                    [eval_answers[i] for i in g],
+                    device=args.device, batch_size=args.batch_size)
+                correct += round(acc * len(g))
+                fmt_n += sum(format_valid("Answer:" + c) for c in comps)
+            em = correct / len(eval_prompts)
+            fmt = fmt_n / len(eval_prompts)
+            print(f"[steer] per-prompt {label:<18}: exact_match {em:.4f}  "
+                  f"format_validity {fmt:.4f} on n={len(eval_prompts)}")
+            results[label] = {"em": em, "format_validity": fmt}
+        taps.remove()
+        meta = {"base": args.base, "donor": args.donor_run, "map": args.map,
+                "k": args.k, "vectors": "per-prompt", "results": results}
+        out = Path(f"steer_{Path(args.map).name}_k{args.k}_perprompt.json")
+        out.write_text(json.dumps(meta, indent=2))
+        print(f"[steer] wrote {out}")
+        return 0
 
     results = {}
     taps.mode = "off"
