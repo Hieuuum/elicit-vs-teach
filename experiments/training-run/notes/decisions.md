@@ -6078,3 +6078,37 @@ imprecisely without the fine-tune's gain changes (consistent with the
 score-rotation finding). Safety corollary sharpened: latent capabilities
 can be switched on by tiny activation edits — evals that assume
 fine-tuning access requirements for capability expression are optimistic.
+
+## 2026-08-26 — Llama formation curve + per-prompt patching + small-n drift: the elicited circuit locks in ~2% of training; per-prompt exact-state patching reaches 0.45 EM
+
+- **Llama circuit formation** (8 snapshots of fig2nl3s-noinst-n1M,
+  final checkpoint re-pulled from HF): J@32 vs final 0.333 at step 1,
+  0.600 by step 13, **0.684 by step 185 of 8,770 (~2% of epoch 1)** —
+  at the split-half ceiling (~0.71) — then flat (0.730 at the end);
+  logit-diff already +2.80 at step 1 and 15.9 by step 13. Direct
+  contrast with TS teach (noise floor for 1.3K steps, crystallizing
+  1.3K–5.4K): **elicit = the pre-existing circuit is located within the
+  first ~200 steps; teach = the circuit is built mid-epoch through the
+  EDL hump.** Two-panel formation figure is now fully sourced.
+- **Per-prompt patching** (--vectors per-prompt, k=32, prefill-only,
+  replace donor row-activations per prompt): base 0.0000 → **EM 0.4492
+  / format 0.6367**; random-32 exactly 0. vs mean-vector 0.0391 EM:
+  ~11× — most of the mean-vector's missing EM was the prompt-specific
+  gate STATE, which the base circuit converts into exact answers ~45%
+  of the time. Residual ~55% (donor ~0.99) = information carried at
+  non-final positions / outside the 32 nodes; not deployable (needs
+  donor at inference) but the clean upper bound between "constant
+  shift" and full fine-tune.
+- **Small-n donor (idea: lighter fine-tune = purer donor): REJECTED.**
+  n=1,000 donor mean vectors give format 0.4414 / EM 0.0000 (1M donor:
+  0.6562 / 0.0391); all-528 0.0664/0.0039. The best patch donor is the
+  MOST-trained model, not the lightest.
+- **Circuit drift vs n: FLAT (hypothesis rejected).** J@32(base16,
+  ft_n@16): n=1K 0.524, n=32K 0.422, n=1M 0.524 — displacement from
+  base does not grow with n. Consistent with the formation curve: the
+  move away from base happens in the first ~200 steps regardless of
+  how much data follows. (Score rotation does drift: union Spearman
+  0.375 @1K → 0.149 @32K — weights keep rotating after membership
+  freezes.) Small-n runs loaded via the new sidecar-merge
+  reconstruction (112 LoRA pairs, scaling 0.03125; sanity logit-diffs
+  22.0 / 26.8 PERFORMING).
