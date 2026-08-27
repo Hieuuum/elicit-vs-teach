@@ -2056,6 +2056,26 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `experiments/training-run/scripts` on a prepared box (venv, HF login,
     data regenerated). Cost ≈ 1.5 h on a 4090 ≈ $0.6.
 
+25. **probe1b phase 1 — per-digit probes on Llama-3.2-1B vs its
+    stories-pretrained twin (`probe1b_phase1`) — BUILT 2026-08-27, not
+    launched (owner rents the box).** The twin pair
+    (`meta-llama/Llama-3.2-1B` vs `podhajskimarcin/evt-ts1b-base`, same
+    architecture + tokenizer, only pretraining data differs) probed at
+    θ0 only: per-digit 10-way probes of the 4-digit addition answer at
+    all 17 hidden points, formats op/nl, placements B (pre-answer
+    state) / C (teacher-forced), cheat/affected per-digit splits,
+    shuffled-label refits, logit lens as the zero-capacity control,
+    greedy-EM behavioral anchor. No training; ts1b is the negative
+    control. Plan: `docs/plan-probe1b-digits-phase1.md`; reads
+    R-P1–R-P4 pre-registered in decisions.md 2026-08-27 "probe1b
+    phase 1". R-P2 gates phase 2 (fine-tune both, probe trajectories —
+    the 1B elicit-vs-teach pair). Files:
+    `analysis/probe1b_digits.py` (`--make-data/--extract/--fit/
+    --behavior/--all`, `--confirm-cost`), `analysis/plot_probe1b.py`,
+    `tests/experiments/analysis/test_probe1b_digits.py`. Results to
+    `geode-internals` `results/probe1b_phase1/` (feature tensors stay
+    on-box). Cost ≤ 2 h on a 24 GB box ≈ $1.
+
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1
 family + runs 2–4 incl. sweeps — the 38.7M scale keeps whole run

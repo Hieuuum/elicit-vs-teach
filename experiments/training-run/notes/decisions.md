@@ -10465,3 +10465,46 @@ English sum is not decodable from pp's operator subspace at θ0, and the
 only pre-registered dynamics read (t50) is a format effect at this size.
 Nothing here re-opens §6.22; the question that remains is the one
 `ppfmt` asks — op+format vs format-only on the same footing.
+
+## 2026-08-27 — probe1b phase 1 pre-registration: per-digit probes on Llama-3.2-1B vs its stories-pretrained twin (BUILT; owner rents the box)
+
+Plan: `docs/plan-probe1b-digits-phase1.md` (committed alongside this
+entry). Probe two architecture- and tokenizer-identical 1B models —
+web-pretrained `meta-llama/Llama-3.2-1B` vs stories-pretrained
+`podhajskimarcin/evt-ts1b-base` — for linearly readable answer digits of
+4-digit addition at every hidden point, formats op/nl, placements B
+(pre-answer state) / C (teacher-forced), with cheat/affected per-digit
+splits, shuffled-label refits, and the logit lens as the zero-capacity
+control. No training. Script `analysis/probe1b_digits.py`, tests
+`tests/experiments/analysis/test_probe1b_digits.py`, figures
+`analysis/plot_probe1b.py`. Pre-registered reads, verbatim from plan §2,
+recorded here before any extraction has run:
+
+Definitions: `cheat_k` = per-digit no-carry prediction (plan §4);
+`affected_k` = rows where `cheat_k` is wrong; acc measured on the test
+half; SE = sqrt(p(1-p)/n_cell), n per cell reported. "Mid layers" =
+hidden-state indices 4–13 (of 0–16).
+
+- **R-P1 (probe validity / negative control).** ts1b affected-subset acc
+  ≤ its own shuffled-label control + 2·SE at every (layer, digit, format,
+  placement). If ts1b beats that anywhere, the probe design leaks; STOP
+  and fix before interpreting Llama.
+- **R-P2 (latent arithmetic in Llama).** Llama affected-subset acc ≥
+  cheat-baseline acc + 0.10 at ≥ 1 mid layer for ≥ 2 digit heads (any
+  format, placement C). Met → phase 2 (fine-tune both, probe
+  trajectories) is justified as an elicit-vs-teach pair. Not met →
+  latent arithmetic at 1B is not linearly readable; phase 2 needs a
+  rethink, do not launch it by default.
+- **R-P3 (plan-ahead vs compute-while-writing).** Gap g = acc(d4 @ pos2)
+  − acc(d4 @ pos1) at the best layer, per model/format. Record sign and
+  size; expectation from Baeumel (2502.19981): chunked-tokenizer models
+  plan ahead, so g small for Llama. No pass/fail — descriptive.
+- **R-P4 (format routing).** Llama op-format vs NL-format curves at the
+  same layers. op ≫ NL (mid-layer acc gap ≥ 0.10) replicates the ts38
+  R-T3 "English does not reach the arithmetic" finding at 1B scale.
+
+Note on the R-P2 baseline: on the affected subset the cheat scores 0 by
+construction, so "cheat-baseline acc" in R-P2 is read as the cheat's
+ALL-rows accuracy for that (format, digit) cell — the conservative
+comparison (a probe that merely learned the no-carry shortcut sits at 0
+on this subset). Recorded here at build time, before any data.
