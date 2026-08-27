@@ -2057,8 +2057,18 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     data regenerated). Cost ≈ 1.5 h on a 4090 ≈ $0.6.
 
 25. **probe1b phase 1 — per-digit probes on Llama-3.2-1B vs its
-    stories-pretrained twin (`probe1b_phase1`) — BUILT 2026-08-27, not
-    launched (owner rents the box).** The twin pair
+    stories-pretrained twin (`probe1b_phase1`) — DONE 2026-08-27
+    (owner-rented box).** R-P2 NOT MET (1/4 heads clear the bar, need
+    ≥2) — phase 2 not justified by this read, needs a rethink per the
+    plan's own fallback. R-P4 replicates cleanly (4/4 heads, matches the
+    behavioral EM anchor). R-P1 fails numerically (20/51 evaluable
+    cells) but traces to shuffled-control miscalibration under weak L2,
+    not a probe-design leak. ts1b/nl lens rows blocked by a deterministic
+    bf16 tail outlier in the layer-16 lens≡model-output assert (1/12000
+    comparisons, 0.001019 vs 1e-3 nats; reproducible, median/mean 0);
+    `--fit`'s CSV write ordering discarded that file's already-completed
+    probe fits. Full read: `notes/decisions.md` 2026-08-27 (evening)
+    OUTCOME entry. The twin pair
     (`meta-llama/Llama-3.2-1B` vs `podhajskimarcin/evt-ts1b-base`, same
     architecture + tokenizer, only pretraining data differs) probed at
     θ0 only: per-digit 10-way probes of the 4-digit addition answer at

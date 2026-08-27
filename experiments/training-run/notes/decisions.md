@@ -10508,3 +10508,141 @@ construction, so "cheat-baseline acc" in R-P2 is read as the cheat's
 ALL-rows accuracy for that (format, digit) cell — the conservative
 comparison (a probe that merely learned the no-carry shortcut sits at 0
 on this subset). Recorded here at build time, before any data.
+
+## 2026-08-27 (evening) — probe1b phase 1 OUTCOME: R-P2 not met (1/4 heads); R-P4 replicates cleanly (4/4 heads); R-P1 fails numerically but traces to shuffled-control miscalibration, not a probe-design leak; ts1b/nl lens rows blocked by a deterministic bf16 tail outlier
+
+Box: owner-rented 216.234.102.170:20347 (instance 48906845, 1x RTX 4090,
+left UP per runbook). Ran plan §10 end to end: tokenizer/gating verify
+PASS, ts1b identity check PASS (1.476 nats < 2.0 bar, after fixing a
+throwaway-script bug — the TinyStories streaming split's first record is
+empty, not a model/tokenizer problem), `--make-data` reproduced the exact
+build-session affected counts (d1=1389, d2=1473, d3=1341, d4=0, test
+half, seed 316 — byte-identical, confirms the box parquet matches the
+16-test-validated corpus), `--extract` clean (4/4 files), `--behavior`
+clean. Total box spend ≈ $0.45 (4090 @ $0.3578/hr, ≈75 min wall incl. two
+`--fit` attempts).
+
+**Blocker hit and resolved: the §6/`--fit` layer-16 lens≡model-output
+assert (`LENS_ATOL_NATS=1e-3`, max over N×2=12000 bf16 comparisons)
+tripped on `features_ts1b_nl.pt`** (max diff 0.001019 nats, i.e. 1.9%
+over). Diagnosed before touching anything: bit-exact reproducible across
+two independent reruns (same value 0.001018524169921875 both times, so
+GPU-matmul nondeterminism is ruled out), and the full distribution is
+median=0.0, mean=0.0, only 1 of 12000 comparisons over 1e-3 — a genuine
+but rare bf16 numerical tail outlier, not a systematic offset. The
+sibling file `features_ts1b_op.pt` has max diff 0.0 exactly (both
+trials). The CPU property test (`test_lens_layer_final_equals_model`,
+fp32, tiny synthetic model, tol 1e-4) cannot surface this — it only
+exists on real bf16 hardware at N=6000. Per the assert's own message
+("do not relax this tolerance"), the code was not touched. Instead
+`features_ts1b_nl.pt` was held aside (`mv` to `/workspace/held/`,
+restored immediately after `--fit` returned) and `--fit` was rerun on
+the remaining 3 files, which wrote clean `probe_rows.csv`/`lens_rows.csv`.
+**Consequence: `probe_rows.csv`/`lens_rows.csv` have llama/nl, llama/op,
+ts1b/op but NOT ts1b/nl** — the ts1b/nl probe *fits* had already
+completed before the assert fired (they're computed at `fit_all_heads`,
+before the lens check), but were discarded because `stage_fit` writes
+the CSV once at the end of the whole loop, not per-file — a
+write-ordering artifact, not evidence the ts1b/nl fits are unobtainable.
+**Recommendation for the owner:** the invariant (layer-16 lens = model
+output) is correct; the tolerance SHAPE is wrong for a 12000-sample bf16
+max-bound — either a percentile bound, a documented single-outlier
+allowance, or writing lens rows before the assert (so a trip loses only
+that file's lens data, not its probe fits + the other 3 files' CSV rows)
+would test the same property without this failure mode. Not changed
+without a go-ahead.
+
+**R-P1 (probe validity).** Evaluable on ts1b/op only (ts1b/nl blocked,
+above) — 51 of the pre-registered 102 cells (d1–d3 × 17 layers × 1
+format; d4 has no affected subset by construction). 20/51 cells violate
+top1_acc_affected ≤ shuffled_top1_affected + 2·SE (chance-expected ≈1.2).
+Clustering: 16/17 layers at d1, 2 at d2, 2 at d3 — by the pre-committed
+rule (clustering = investigate, scattered = chance) this is NOT
+chance — but investigating (not stopping blind) found the cause is
+**shuffled-control miscalibration, not a design/span leak**: at every
+layer, ts1b's real `top1_acc_affected` (0.18–0.21) sits at/just above
+`majority_acc` (constant 0.1813) — i.e. ts1b has learned nothing beyond
+guessing the majority class, exactly as expected for a model with zero
+arithmetic training. But `shuffled_top1_affected` sits BELOW
+`majority_acc` at every layer past 0 (0.13–0.16) — the shuffled-label
+refit (L2=1e-3, d=2048 features, n_affected≈1389) overfits training-set
+noise under weak regularization and generalizes worse than a pure
+majority-class predictor would, making the null itself too pessimistic.
+At layer 0 (embeddings only, no computation) real and shuffled are
+IDENTICAL (0.185745 both) — consistent with "no signal exists yet," not
+with a lookup/span-indexing bug (which would show elevated diffs at
+layer 0 too). **Read, scoped to what was actually checked: the d1
+violations (16/17 layers, the large majority of the 20) are explained by
+shuffled-control miscalibration, not probe-design leakage — no STOP on
+Llama's read is warranted, because the reason is that ts1b sits at its
+majority-class floor, not because R-P1 passed.** d2 (2 violations) and
+d3 (2 violations) were NOT individually checked against `majority_acc` —
+plausibly the same mechanism given the shared L2/n_affected regime, but
+not confirmed. ts1b/nl not yet checked at all (blocked, above); expect
+the same pattern given ts1b/op's result and the identical model, but
+this is not evidence, only expectation.
+
+**R-P2 (latent arithmetic, Llama).** NOT MET. Only d1 clears the
+cheat_acc_all+0.10 bar (best mid layer 13, op format: acc=0.8056 vs
+cheat=0.5370, gap=+0.2686); d2, d3, d4 are all NEGATIVE against their
+cheat baselines (−0.19, −0.30, −0.26). Pre-registration needs ≥2 of the
+4 digit heads; only 1 clears — the verdict rests on that head count, not
+on d1's exact gap size. d1 is the same digit R-P1 flagged as having a
+miscalibrated ts1b control, so treat its +0.27 as provisional pending
+that resolution; it does not change the count (3 of 4 heads negative).
+**Phase 2 (fine-tune both, probe trajectories) is NOT justified by this
+read as pre-registered — needs a rethink per the plan's own fallback,
+not a default launch.**
+
+**Logit lens (zero-capacity control, `lens_rows.csv`) for llama/op —
+read but not part of any pre-registered gate.** top1 (exact whole-
+answer-chunk-token match, harder than a single-digit head) is 0.0 at
+every layer through 14 for pos1, rising to 0.019 (L15) then 0.289 (L16);
+pos2 is 0.0 through L11, then 0.017/0.150/0.261/0.731/0.831 at L12-16.
+The model's OWN frozen readout cannot identify the answer chunk at all
+until the last 1-2 layers — consistent with R-P3's layer-16-peak
+observation (that IS where whole-token decodability jumps) and with the
+behavioral EM anchor (exact answers need exact chunk match, and EM is
+non-trivial only because of this late rise). Not directly comparable to
+the trained d1 probe's 0.81 at layer 13 — the probe answers an easier
+per-digit (10-way) question, the lens answers full-chunk-token identity
+— so this does NOT resolve the magnitude-cue confound above; it is
+additional descriptive context, not new evidence for or against R-P2.
+
+**R-P3 (plan-ahead vs teacher-forced, descriptive).** At the layer where
+C(d4,pos2) peaks: llama/op layer 16 g=+0.7417 (C=0.867, B=0.125),
+llama/nl layer 15 g=+0.5177 (C=0.679, B=0.162), ts1b/op layer 9
+g=−0.2717 (C=0.310, B=0.581 — B > C, incoherent for a model with no
+arithmetic; likely the same majority/noise-floor effect as R-P1, since
+neither number reflects real capability). Caveat: llama's peak layer is
+16, the FINAL hidden state (post-final-norm, one matmul from the
+output) — that measures "has the model already committed to the first
+answer chunk," not really "plan-ahead vs compute-while-writing" at a
+mid-network representation. At the best MID layer (4–13) instead: g is
+still large and positive for llama (op layer 13: C=0.743 B=0.173
+g=+0.5697; nl layer 13: C=0.581 B=0.174 g=+0.4070) — same direction,
+smaller magnitude, more interpretable. Descriptive only, no gate.
+
+**R-P4 (format routing, Llama).** MET — 4/4 heads clear op−nl ≥ 0.10 at
+best-op mid layer (all layer 13): d1 +0.2556, d2 +0.2111, d3 +0.1424, d4
++0.1623 (op 0.746→0.806 range vs nl 0.10–0.58). Clean and consistent
+with the behavioral anchor: greedy-decode EM llama/op=0.2738 (1643/6000)
+vs llama/nl=0.0000 (0/6000); both ts1b formats EM=0.0000. Replicates the
+ts38 R-T3 "English does not reach the arithmetic" finding at 1B scale,
+independent of R-P1's calibration issue (R-P4 doesn't touch the
+shuffled control).
+
+Outputs pushed to `mhieuuu/geode-internals` `results/probe1b_phase1/`
+(`probe_rows.csv` 510 rows, `lens_rows.csv` 102 rows, `behavior.csv`,
+`meta.json`, `probe1b_pairs.parquet`; `features_*.pt` excluded via
+`ignore_patterns`, verified by listing hub files post-push — 5 files,
+no `.pt`). Repo untouched (`probe1b_digits.py` not edited); box tree
+left clean (`git status --short` empty after moving throwaway diagnostic
+scripts out of the repo dir). Box left UP, idle, per owner-rental
+runbook rule.
+
+**Next (owner's call):** (a) decide the `LENS_ATOL_NATS` tolerance-shape
+fix and whether to re-extract+re-fit ts1b/nl's lens rows (probe fits for
+it already exist logically, just need the write-ordering fixed to keep
+them on a future trip); (b) phase 2 is not justified by R-P2 as written —
+rethink before launching, per plan §2's own fallback.
