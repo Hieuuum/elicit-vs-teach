@@ -83,10 +83,11 @@ def _grid():
             # "?\n"|answer boundary must align exactly like the frozen two —
             # its prompt-side "?\n" merge and digit/sign-initial answer tokens
             # ride the same V5.38 whitespace-overhang-only rule.
-            for fmt in ("nl", "operator", "bare_nl"):
+            for fmt in ("nl", "operator", "bare_nl", "bare_op"):
                 cases.append((a, b, op, true_answer(a, b, op), fmt))
     cases.append((12, 34, "*", 408, "operator"))  # installer format
     cases.append((3354, 3459, "*", 11601486, "bare_nl"))  # fig2nl3 dose format
+    cases.append((2, 3, "*", 6, "bare_op"))  # ts1b op-install format (paper I.2.1)
     # Phase 3 (2026-07-27) runs 1-8 digit operands, addition only, positive.
     # These are the longest strings this pipeline renders — 9-digit answers,
     # and the mixed-width pairs the 64-cell grid is mostly made of.

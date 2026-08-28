@@ -125,6 +125,46 @@ def test_bare_nl_body_reuses_frozen_nl_phrasing():
     assert nl_body == bare_body == "What is the sum of 572 and 9875?"
 
 
+def test_bare_op_answer_char_span_is_exact():
+    full, (start, end) = render(23, 45, "+", 68, "bare_op")
+    assert full == "23 + 45 = 68"
+    assert full[start:end] == "68"
+
+
+def test_bare_op_matches_paper_intervention_surface():
+    # App. I.2.1's literal example: "2 * 3 = 6"
+    full, (start, end) = render(2, 3, "*", 6, "bare_op")
+    assert full == "2 * 3 = 6"
+    assert full[start:end] == "6"
+
+
+def test_bare_op_span_covers_negative_sign():
+    full, (start, end) = render(23, 45, "-", -22, "bare_op")
+    assert full == "23 - 45 = -22"
+    assert full[start:end] == "-22"
+
+
+def test_bare_op_has_no_scaffold_and_no_nl_words():
+    for op, ans in (("+", 68), ("-", -22), ("*", 1035)):
+        full, (start, _) = render(23, 45, op, ans, "bare_op")
+        assert "Question:" not in full and "Answer:" not in full
+        assert "What" not in full  # zero NL surface shared with bare_nl
+        assert full[:start].endswith(" = ")
+
+
+def test_bare_op_span_exact_for_random_label():
+    # random-label mode: shown_answer arbitrary, prompt side unchanged
+    t, (ts, te) = render(23, 45, "+", 68, "bare_op")
+    r, (rs, re_) = render(23, 45, "+", 4141, "bare_op")
+    assert t[:ts] == r[:rs]
+    assert r[rs:re_] == "4141"
+
+
+def test_bare_op_rejects_unknown_op():
+    with pytest.raises(ValueError):
+        render(3, 4, "/", 12, "bare_op")
+
+
 def test_bare_nl_rejects_unknown_op():
     with pytest.raises(ValueError):
         render(3, 4, "/", 12, "bare_nl")
