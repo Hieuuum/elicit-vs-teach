@@ -259,10 +259,14 @@ def main() -> int:
                     "split-half reliability (the Jaccard ceiling any cross-model "
                     "comparison can reach)")
     ap.add_argument("--batch-size", type=int, default=8)
+    ap.add_argument("--eval-config", type=Path, default=EVAL_CONFIG,
+                    help="eval-data config to build pairs from (default: the "
+                    "llama bare-NL target eval; pass eval_op_algo_data_ts.yaml "
+                    "for op-notation pairs on the ts1b op-install track)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
 
-    cfg = load_config(EVAL_CONFIG, None)
+    cfg = load_config(args.eval_config, None)
     df = load_frozen_parquet(cfg)  # hash-verified
 
     from transformers import AutoModelForCausalLM, AutoTokenizer

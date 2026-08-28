@@ -1,0 +1,9 @@
+# op-install premise program, analysis 3: elicit-arm rung n=1000 (prefix of
+# D_algo_bare). Overlay over ../../ts1b_op_nl.yaml. Blank-TS comparator:
+# evt-ts1b-fig2ts-noinst-n1000.
+run_id: evt-ts1b-op-nl-n1000
+data:
+  n_examples: 1000
+train:
+  eval_every: 5
+  max_steps: 1000

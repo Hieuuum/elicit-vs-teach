@@ -1,0 +1,23 @@
+# Eval data for the ts1b op-install track: OP-NOTATION add/sub (D_algo_eval_op
+# = frozen D_algo_eval re-rendered bare_op by datagen/make_op_sets.py — same
+# question-disjoint triples as every other eval config). Consumed by
+# circuit_nodes --eval-config (the op-circuit map of evt-ts1b-op-install:
+# the installed model PERFORMS on this surface at 0 shots, so its circuit is
+# measurable without few-shot scaffolding) and by any gate scoring op-side EM.
+#
+# Tokenizer must match the model under eval (2026-07-24 incident) — the ts1b
+# twin uses the Llama tokenizer by construction.
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_bare_op_addsub
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_eval_op.parquet
+  order_hash: 08d6686cb4d788d18d9843837abfa5f18f6cc9fac0a8b26daf573e9c5b0f68f6
+  local_path: experiments/training-run/data/full/D_algo_eval_op.parquet
+  val_fraction: 0.005
+  seed: 316

@@ -1,0 +1,9 @@
+# ADDITIVE small-n comparator for the op-install premise program (analysis 3,
+# 2026-08-28) — NOT part of the original 19-size fig2ts grid. Same per-size
+# schedule as the n=1000 rung. Overlay over ../../ts1b_fig2ts_noinst.yaml.
+run_id: evt-ts1b-fig2ts-noinst-n100
+data:
+  n_examples: 100
+train:
+  eval_every: 5
+  max_steps: 1000

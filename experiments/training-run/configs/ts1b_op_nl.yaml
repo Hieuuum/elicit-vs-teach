@@ -1,0 +1,61 @@
+# Analysis 3 of the op-install premise program (owner 2026-08-28): the
+# SMALL-N UNLOCK CONTRAST — the elicit arm of the same-base comparison.
+# Target protocol byte-held from ts1b_fig2ts_noinst.yaml (LoRA r512/a32 @
+# 3.53e-4, batch 128, bf16, seed 316, eps/k 0.002/5, D_algo_bare /
+# D_algo_eval_bare) — the ONLY change is the parent: evt-ts1b-op-install
+# instead of evt-ts1b-base. Blank-TS comparators at the same n are the
+# already-trained fig2ts noinst runs (n>=1000) plus the additive n100/n316
+# overlays. Prediction if the op-installed capability is latent for NL:
+# held-out EM unlocks at n ~ 10^2-10^3 where blank TS sits at ~0, and EDL is
+# far below the blank curve (elicitation signature). BASE config for the
+# sweeps/ts1b_op_nl/ overlays; never launched standalone.
+run_id: evt-ts1b-op-nl
+experiment:
+  name: training-run
+  arm: ts1b
+  role: target
+  parent_run_id: evt-ts1b-op-install
+  external_base: null
+  parent_required_gates: []
+  match_data_order_with: null
+
+model:
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_bare_addsub
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 1000
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:
+  r: 512
+  alpha: 32
+
+train:
+  lr: 3.53e-4
+  precision: bf16
+  batch_size: 128
+  eval_every: 5
+  max_steps: 1000
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 0
+  snapshots:
+    n: 0
+    dense_until: 30
+  seed: 316
