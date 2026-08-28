@@ -15,6 +15,19 @@ Probe formats (installed -> target, decreasing surface overlap with install):
     bare_nl      "What is the sum of 23 and 45?\\n"              (the TARGET form)
     scaffold_nl  "Question: What is the sum of 23 and 45?\\nAnswer: "
 
+Lexical probes (2026-08-28, owner): the transfer failure may be the WORD
+binding ("sum"/"difference" absent from TinyStories), not the capability.
+These isolate the lexeme from the frame:
+
+    word_op      "What is 23 plus 45?\\n"        (operator as a common word)
+    verb_nl      "If you add 23 and 45 you get "  (verb instead of noun)
+    story        "Tom had 23 marbles. He found 45 more. Now he has "
+                 (TinyStories' home register; loses/found by op)
+
+word_op/verb/story working while bare_nl fails = per-lexeme binding gap
+(then the translation-bridge dose, ts1b_op_bridge*.yaml, is the targeted
+fix); everything NL failing while bare_op works = format-bound install.
+
 Per (format, shots): exact-match, format validity, first-answer-token
 logit-diff vs a same-format distractor answer (sensitive even when EM ~0),
 error taxonomy over parsed-but-wrong outputs (wrong-operation / swapped
@@ -74,12 +87,30 @@ def render_probe(fmt: str, a: int, b: int, op: str, ans: int) -> tuple[str, str]
         p = f"{nl_body(a, b, op)}\n"
     elif fmt == "scaffold_nl":
         p = f"Question: {nl_body(a, b, op)}\nAnswer: "
+    elif fmt == "word_op":
+        word = {"+": "plus", "-": "minus", "*": "times"}[op]
+        p = f"What is {a} {word} {b}?\n"
+    elif fmt == "verb_nl":
+        if op == "+":
+            p = f"If you add {a} and {b} you get "
+        elif op == "-":
+            p = f"If you subtract {b} from {a} you get "
+        else:
+            p = f"If you multiply {a} and {b} you get "
+    elif fmt == "story":
+        if op == "+":
+            p = f"Tom had {a} marbles. He found {b} more. Now he has "
+        elif op == "-":
+            p = f"Tom had {a} marbles. He lost {b}. Now he has "
+        else:
+            p = f"Each box has {a} marbles. Tom has {b} boxes. In total he has "
     else:
         raise ValueError(f"unknown probe format {fmt!r}")
     return p, p + str(ans)
 
 
-FORMATS = ("bare_op", "hybrid_op", "bridge", "scaffold_op", "bare_nl", "scaffold_nl")
+FORMATS = ("bare_op", "hybrid_op", "bridge", "scaffold_op", "bare_nl", "scaffold_nl",
+           "word_op", "verb_nl", "story")
 
 
 def classify_error(pred: int, a: int, b: int, op: str) -> str:
