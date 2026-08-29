@@ -170,6 +170,11 @@ def main() -> int:
     ap.add_argument("--eval-parquet", type=Path, default=EVAL_PARQUET)
     ap.add_argument("--row-offset", type=int, default=DEFAULT_ROW_OFFSET)
     ap.add_argument("--batch-size", type=int, default=32)
+    ap.add_argument("--chain", action="store_true",
+                    help="two-step self-composition probe (bridged models): let the "
+                    "model rewrite the bare_nl question into op notation ITSELF, then "
+                    "feed its own rewrite back with ' = ' and score the answer — zero "
+                    "training; tests whether the two installed skills compose")
     ap.add_argument("--out", default="premise_checks.json")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
@@ -239,6 +244,56 @@ def main() -> int:
                   f"logit_diff {ld:+7.2f}  {tax}")
             for c in comps[:2]:
                 print(f"[premise]     sample: {c!r}")
+
+    if args.chain:
+        import re
+
+        from geode.arith.decode import greedy_completions
+
+        prompts = [render_probe("bare_nl", a, b, op, 0)[0] for a, b, op in query_triples]
+        ids = [tokenizer(p, add_special_tokens=False)["input_ids"] for p in prompts]
+        rewrites = greedy_completions(
+            model, tokenizer, ids, device=args.device, batch_size=args.batch_size
+        )
+        expr_re = re.compile(r"(-?\d+)\s*([+*-])\s*(-?\d+)")
+        n_exact = n_wellformed = 0
+        step2_ids = []
+        for (a, b, op), rw in zip(query_triples, rewrites):
+            line = rw.strip().splitlines()[0] if rw.strip() else ""
+            m = expr_re.search(line)
+            if m:
+                n_wellformed += 1
+                if (int(m.group(1)), m.group(2), int(m.group(3))) == (a, op, b):
+                    n_exact += 1
+                expr = m.group(0)
+            else:
+                expr = line[:24]  # malformed rewrite: chain proceeds and scores 0
+            step2_ids.append(
+                tokenizer(f"{expr} = ", add_special_tokens=False)["input_ids"]
+            )
+        em, comps = exact_match_accuracy(
+            model, tokenizer, step2_ids, answers,
+            device=args.device, batch_size=args.batch_size,
+        )
+        taxonomy = Counter()
+        for c, (a, b, op) in zip(comps, query_triples):
+            pred = parse_int(c)
+            taxonomy["unparsed" if pred is None else classify_error(pred, a, b, op)] += 1
+        results["self_chain@0shot"] = {
+            "exact_match": em,
+            "rewrite_exact": n_exact / len(query_triples),
+            "rewrite_wellformed": n_wellformed / len(query_triples),
+            "taxonomy": dict(taxonomy.most_common()),
+            "samples": [f"{r.strip().splitlines()[0] if r.strip() else ''!r} -> {c!r}"
+                        for r, c in list(zip(rewrites, comps))[:3]],
+        }
+        print(f"[premise] self_chain     0-shot: EM {em:.4f}  "
+              f"rewrite_exact {n_exact / len(query_triples):.4f}  "
+              f"wellformed {n_wellformed / len(query_triples):.4f}  "
+              f"{dict(taxonomy.most_common())}")
+        for r, c in list(zip(rewrites, comps))[:3]:
+            first = r.strip().splitlines()[0] if r.strip() else ""
+            print(f"[premise]     rewrite {first!r} -> answer {c!r}")
 
     Path(args.out).write_text(json.dumps({"model": name, "n": args.n, "results": results}, indent=2))
     print(f"[premise] wrote {args.out}")

@@ -6146,3 +6146,38 @@ fine-tuning access requirements for capability expression are optimistic.
   runs; batteries that DID run came from stale manual commands and
   overwrote each other's default premise_checks.json — per-rid outputs
   now).
+
+## 2026-08-29 (op program TERMINAL_SUCCESS) — the bridge INSTALLS the binding; skills don't self-compose; add-only control confirms per-word binding; NL fine-tune reuses the op MLP core + grows a layer-0 interface
+
+Full program ran end-to-end (install re-trained to convergence: step 27250,
+0.116 nats, bare_op 0-shot EM 0.6875 / ld +12.6).
+
+1. **Bridge dose works as a parser install**: the bridged model answers
+   bare NL questions with op-notation REWRITES ('What is the difference
+   between 401 and 8700?' -> '401 - 8700'); bare_nl ld 0.09 -> +1.95;
+   taxonomy floods with operand copies. Translation installed; the model
+   stops before computing — the two skills (NL->op at inference, op->answer
+   0.69 EM) do not COMPOSE in one forward pass. EM stays ~0.
+2. **Add-only control: per-word binding CONFIRMED CAUSALLY.** The add-only
+   bridge rewrites difference-questions with '+' ('401 + 8700'); the
+   both-ops bridge writes '401 - 8700'. "difference" is unbound until
+   explicitly linked — the owner's lexical hypothesis, sharpest form.
+3. **Circuit referee**: op-install circuit vs NL-FT(n1000) circuit J@32
+   0.422 (chance 0.031); shared MLP computation core (mlp:15,14,13,12,11,7)
+   while B ADDS layer-0 attention (attn:0:23/19/11 in top-16) — reused
+   computation + newly grown bottom-of-stack input interface. The
+   "latent capability behind a thin interface" picture, mechanistically.
+4. **Small-n contrast (teammate's criterion)**: op-parent EDL/label-token
+   4.43/4.47/4.88 nats at n=100/316/1000 vs blank-TS 6.51/6.39 (n100/316);
+   val 1.55 vs ~4.7 nats at n=1000. Elicitation-like advantage present.
+   (G5 EM not yet recorded for these five runs — run gates g5.)
+5. **Caveats**: (a) every full-FT dose DAMAGES the install (bare_op EM
+   0.69 -> 0.24 after bridge, -> 0.09 after the format dose; the format
+   dose ran 750 steps ≈ 96K random-label examples — its battery is
+   damage-confounded, do not use as a demonstration). (b) NL-context
+   brittleness: even supplied 'NL question + a op b = ' scores 0.059 vs
+   0.69 without the NL prefix. (c) 16-shot still collapses bare_op to 0.
+   Follow-ups queued: --chain self-composition probe (zero training;
+   translate-then-compute with the model's OWN rewrite); gentler bridge
+   (LoRA / lower LR) to cut retention damage; blank+bridge leakage control
+   (config d06da01) still to run.
