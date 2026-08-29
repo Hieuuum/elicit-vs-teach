@@ -6208,3 +6208,36 @@ Full program ran end-to-end (install re-trained to convergence: step 27250,
   already-seen op rows, zero new info; config a8e81ce). Target: retention
   ~0.7 AND rewrite ~0.5 jointly => chain ~0.35. Fallback: embedding-only
   training.
+
+## 2026-08-29 (rehearsal mix) — THE BINDING INSTALLS WITHOUT BREAKING: chain EM 0.328 with zero NL-answer training; composition law verified quantitatively
+
+evt-ts1b-op-bridge-mix (translate rows 1:1 with already-seen op rows,
+converged step 200, 0.028 nats):
+
+| bridge variant | op retention | rewrite_exact | chain EM |
+|---|---|---|---|
+| none (install only) | 0.727 | 0.000 | 0.000 |
+| full-FT bridge      | 0.238 | 0.512 | 0.090 |
+| LoRA r16            | 0.328 | 0.023 | 0.020 |
+| alpha-sweep         | no operating point (binding threshold-like) | | |
+| **rehearsal mix**   | **0.668** | **0.484** | **0.328** |
+
+- Composition law: predicted chain = retention x rewrite = 0.668 x 0.484
+  = 0.323; observed 0.328. The two skills compose essentially losslessly;
+  the product IS the ceiling. Remaining headroom: wellformed-but-wrong
+  rewrites (0.79 wellformed vs 0.48 exact) — more/better bridge data.
+- Joint optimization was the missing ingredient: rehearsal on ZERO new
+  information (op rows the install already trained on) preserved the
+  engine (0.24 -> 0.67) at no cost to the parse (0.51 -> 0.48). Skills in
+  this model are not weight-space modular (alpha/LoRA failures) but ARE
+  jointly trainable and compositional at inference.
+- End-to-end TS-side result: TinyStories-1B goes 0 -> 0.328 exact-match
+  on natural-language arithmetic through a stack of exclusively
+  answer-free installations (op-notation capability + word<->symbol
+  rewriting), composed by two-pass inference (its own rewrite + ' = ').
+  Every stage leakage-controlled (blank+bridge = 0.000 everywhere;
+  parser-without-engine chain = 0.000) and causally dissected (add-only
+  bridge = per-word binding). Direct one-pass bare_nl EM remains 0.000 —
+  the unlock exists only through self-composition.
+- Still pending: G5 EM for evt-ts1b-op-nl-n1000 and the blank n100/n316
+  comparators (small-n contrast table incomplete).
