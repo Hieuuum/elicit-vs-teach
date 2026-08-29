@@ -6181,3 +6181,30 @@ Full program ran end-to-end (install re-trained to convergence: step 27250,
    translate-then-compute with the model's OWN rewrite); gentler bridge
    (LoRA / lower LR) to cut retention damage; blank+bridge leakage control
    (config d06da01) still to run.
+
+## 2026-08-29 (chain + controls + mitigation attempts) — compositional 2x2 COMPLETE; leakage control passes; alpha-scaling and LoRA both fail to decouple binding from damage; rehearsal mix queued
+
+- **Self-chain (bridged model)**: EM 0.0898 via its OWN rewrite + ' = '
+  (rewrite_exact 0.512, wellformed 0.856) vs 0.0000 direct NL — first
+  NL-to-correct-answer behavior on the TS side, zero task training.
+  Decomposes as chain ≈ rewrite_exact x damaged-op-EM (0.51x0.24≈0.12).
+- **Leakage control PASSES**: blank-TS + identical bridge = EM 0.0000 in
+  every battery cell; its chain = rewrite 0.24 / chain EM 0.0000 — a
+  parser with no engine. The 2x2 is complete: engine-only ~0 on NL,
+  parser-only 0, engine+parser 0.09. The bridge installs access, not the
+  task (the owner's circularity objection, answered by measurement).
+- **alpha-sweep (task-vector scaling): FAILS informatively.** Binding is
+  threshold-like along the bridge task vector (rewrite_exact ~0 through
+  alpha 0.5; 0.55 only at 1.0) while op retention decays monotonically
+  (0.73 -> 0.19). No operating point; binding and damage are entangled —
+  the binding is NOT a low-norm orthogonal component of the update.
+- **LoRA r16 bridge: FAILS twice** — underfits the parse (val 0.276 nats,
+  rewrite_exact 0.02) and still interferes behaviorally (op EM 0.73 ->
+  0.33 with base weights frozen). Adapter-freezing protects weights, not
+  behavior.
+- **Small-n G5 (partial)**: op-parent NL EM 0.0068 (n100) / 0.0332 (n316),
+  test loss 3.34/2.59 nats; n1000 + blank comparators pending.
+- Next: rehearsal-mix bridge (D_translate_mix = translate rows 1:1 with
+  already-seen op rows, zero new info; config a8e81ce). Target: retention
+  ~0.7 AND rewrite ~0.5 jointly => chain ~0.35. Fallback: embedding-only
+  training.
