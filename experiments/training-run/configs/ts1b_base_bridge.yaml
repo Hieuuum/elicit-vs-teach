@@ -1,0 +1,57 @@
+# LEAKAGE CONTROL (owner 2026-08-29): the identical both-ops bridge dose on the
+# BLANK twin. The bridge is answer-free by construction; this makes it
+# answer-free by MEASUREMENT: if blank+bridge scores ~0 on the battery while
+# op-install+bridge unlocks, the dose installs access, not the task. Any
+# EM here above the blank baseline is bridge leakage and disqualifies the
+# bridge as a pre-elicit instrument.
+# Lexical-binding intervention (op-install premise program, 2026-08-28):
+# answer-free word<->symbol translation dose on top of the op-installed
+# model, ops + and -. Teaches ONLY that "sum"/"difference" name the installed
+# operations — never shows a computed result (make_translate_dose.py:
+# question-disjoint from D_algo_eval by construction). If premise_checks
+# afterwards shows bare_nl unlocking, the capability was latent behind the
+# missing word->operation binding. The add-only variant is the sharp control:
+# NL addition unlocking while NL subtraction stays dead = per-word binding.
+# Full config for train_sft.py, not an overlay.
+run_id: evt-ts1b-base-bridge
+experiment:
+  name: training-run
+  arm: ts1b
+  role: format_install
+  parent_run_id: evt-ts1b-base
+  parent_required_gates: []
+
+model:
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_translate_bare
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_translate_dose.parquet
+  order_hash: 4971c0699327472e5bc3333153d2dd5b0867fcd60a8d1a14b0545d6007e43576
+  local_path: experiments/training-run/data/full/D_translate_dose.parquet
+  val_fraction: 0.05
+  seed: 316
+
+train:
+  lr: 2.0e-5
+  batch_size: 128
+  eval_every: 10
+  max_steps: 500
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 0
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 8
+
+cost:
+  assumed_epochs_for_estimate: 8

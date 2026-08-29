@@ -125,6 +125,13 @@ train_or_skip evt-ts1b-op-bridge-add \
   python3 train_sft.py --config $CONFIGS/ts1b_op_bridge_add.yaml \
     --init-from "$OP_MODEL" --confirm-cost
 battery evt-ts1b-op-bridge-add
+
+# leakage control: identical bridge on the BLANK twin — must stay ~0, or the
+# bridge is teaching the task rather than the access route (owner 2026-08-29)
+train_or_skip evt-ts1b-base-bridge \
+  python3 train_sft.py --config $CONFIGS/ts1b_base_bridge.yaml \
+    --init-from "$TS_BASE_MODEL" --confirm-cost
+battery evt-ts1b-base-bridge
 milestone "bridge_readout: compare premise_evt-ts1b-op-bridge{,-add}.json — " \
   "add-only unlocking NL '+' but not NL '-' = per-word binding (the sharp result)"
 
