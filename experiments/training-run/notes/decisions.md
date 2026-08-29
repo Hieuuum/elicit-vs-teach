@@ -6241,3 +6241,20 @@ converged step 200, 0.028 nats):
   the unlock exists only through self-composition.
 - Still pending: G5 EM for evt-ts1b-op-nl-n1000 and the blank n100/n316
   comparators (small-n contrast table incomplete).
+
+## 2026-08-29 (fewshot_diag) — the 16-shot collapse is REAL, not prompt construction; Table-11 discrepancy is substantive
+
+k x separator sweep on op-install and bridge-mix, bare_op + bare_nl:
+- EVEN k=2 destroys bare_op (0.72 -> 0.0000), both separators, both
+  models; every cell EM 0 (mix k=32/newline 0.0078 = noise).
+- NOT exemplar copying (copy rate ~0) and NOT near-misses (median
+  relative error 0.7-2.0): in-context examples derail the computation
+  into unrelated numbers. Any prepended context breaks the op skill.
+- Verdict: our 0.000 vs the paper's Table-11 11.9% is NOT a separator/k
+  artifact. Their install ("pre-train until strong performance", full FT)
+  evidently produces a less context-brittle model than our 4-epoch
+  converged install — record as a stated deviation; do not chase.
+- Consequence: few-shot is an INVALID demonstration probe on this twin
+  (it is the brittleness finding, third+fourth sighting). The pre-elicit
+  demonstration remains the self-chain (0.328, zero training) + bare_op
+  0-shot 0.72 + the small-n EDL advantage.
