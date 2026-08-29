@@ -52,18 +52,19 @@ data:
 
 train:
   lr: 2.0e-5                     # full-FT pin measured stable at 1B (fig2ts installer)
-  batch_size: 128
+  batch_size: 32                 # 176-token rows: CE logits are batch x seq x
+                                 # vocab fp32 — batch 128 OOMs at 10.7 GiB on
+                                 # exactly that tensor (2026-08-29); 32 fits
   eval_every: 250
-  max_steps: 27776               # 32-epoch ceiling (868 steps/epoch on the
-                                 # 111K ctx rows — same token budget/epoch as
-                                 # the 1M single-example set; eps/k stops it)
+  max_steps: 27625               # 8-epoch ceiling at batch 32 (3453 steps/
+                                 # epoch on the 111K ctx rows); eps/k stops it
   stopping:                      # val-loss eps/k convergence (paper: "until convergence")
     eps_nats: 0.002
     k: 5
     min_steps: 0
   precision: bf16
   seed: 316
-  epochs_total_planned: 32
+  epochs_total_planned: 8
 
 cost:
   assumed_epochs_for_estimate: 8
