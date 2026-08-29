@@ -39,6 +39,8 @@ from geode.arith import order_hash
 from geode.arith.formats import _NL_PHRASE, digits
 
 EVAL_PIN = "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3"
+TRANSLATE_PIN = "4971c0699327472e5bc3333153d2dd5b0867fcd60a8d1a14b0545d6007e43576"
+ALGO_OP_PIN = "d92600148fb9b3b3f3637f1afe14dac04053c2fc9154c8c7b05808d89a4757bb"
 SEED = 20260717
 PAIRS_PER_OP = 2048  # x2 directions per pair
 
@@ -121,7 +123,38 @@ def main() -> int:
 
     build("D_translate_dose", ("+", "-"), blocked, args.out)
     build("D_translate_dose_add", ("+",), blocked, args.out)
-    print("[evt] pin the two order_hashes in ts1b_op_bridge{,_add}.yaml")
+
+    # Rehearsal mix (2026-08-29): the alpha-sweep and LoRA variants showed
+    # binding and op-damage are entangled — every bridge that installs the
+    # parse degrades the engine. Fix: train them JOINTLY. Interleave the
+    # translate rows 1:1 with op rows the install ALREADY TRAINED ON
+    # (D_algo_op prefix — zero new information), so the optimizer must keep
+    # the op behavior while learning the parse. shown_answer is cast to str
+    # uniformly (parquet single-type column; label spans come from the
+    # char-span fields, so training is unaffected).
+    tr = pd.read_parquet(args.out / "D_translate_dose.parquet")
+    if order_hash(tr.to_dict("records")) != TRANSLATE_PIN:
+        raise SystemExit("D_translate_dose.parquet does not match its pin; refusing")
+    op = pd.read_parquet(args.out / "D_algo_op.parquet")
+    if order_hash(op.to_dict("records")) != ALGO_OP_PIN:
+        raise SystemExit("D_algo_op.parquet does not match its pin; refusing")
+    op_rows = op.iloc[: len(tr)].to_dict("records")
+    tr_rows = tr.to_dict("records")
+    mixed = []
+    for i, (t, o) in enumerate(zip(tr_rows, op_rows)):
+        t = {**t, "dataset": "D_translate_mix", "shown_answer": str(t["shown_answer"])}
+        o = {**o, "dataset": "D_translate_mix", "shown_answer": str(o["shown_answer"]),
+             "direction": "n/a"}
+        mixed.extend([t, o])
+    for i, r in enumerate(mixed):
+        r["idx"] = i
+    path = args.out / "D_translate_mix.parquet"
+    pd.DataFrame(mixed).to_parquet(path, index=False)
+    h = order_hash(mixed)
+    print(f"[evt] wrote {path}  n={len(mixed):,}  order_hash={h}")
+    print(f"[evt]   row 0: {mixed[0]['full_text']!r}")
+    print(f"[evt]   row 1: {mixed[1]['full_text']!r}")
+    print("[evt] pin the order_hashes in ts1b_op_bridge{,_add,_mix}.yaml")
     return 0
 
 
