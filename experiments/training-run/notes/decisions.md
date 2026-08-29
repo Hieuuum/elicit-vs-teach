@@ -6112,3 +6112,37 @@ fine-tuning access requirements for capability expression are optimistic.
   freezes.) Small-n runs loaded via the new sidecar-merge
   reconstruction (112 LoRA pairs, scaling 0.03125; sanity logit-diffs
   22.0 / 26.8 PERFORMING).
+
+## 2026-08-29 — ts1b op-install first readout: lexical premise CONFIRMED by corpus census; transfer mostly format-bound with a faint latent signal in logit-diff; install under-trained (0.547 op EM) — extended to 4 epochs
+
+- **Corpus census (439M words of TinyStoriesV2)**: the arithmetic lexemes
+  are effectively absent — "sum" 21 occurrences (0.05/M), "equals" 17,
+  "minus" 57, "subtract" 85, "multiply" 17; digit strings of 4+ digits: 69
+  in the whole corpus. ("difference" 4.9K and "add(ed)" 30K are the
+  conversational senses.) The word->operation binding CANNOT pre-exist;
+  the lexical-binding hypothesis's factual premise holds.
+- **Install (2-epoch ceiling)**: stop_reason=max_steps at 0.363 nats,
+  bare_op 0-shot EM 0.547 / fmt 1.0000 / logit-diff +9.8 — installed but
+  not the paper's "strong performance". Ceiling raised to 4 epochs
+  (config commit 10cda5a); RETRAIN before trusting downstream nulls
+  (a weak install weakens every transfer readout).
+- **Battery on the 0.547 install vs blank control (all ~0)**: number-
+  format transfers to NL frames (fmt up to 1.0 at 16 shots in word_op/
+  verb/story) but computation does not (EM 0 everywhere off bare_op;
+  taxonomy 'other'-dominated = unrelated numbers, not misreadings). BUT
+  first-token logit-diff is systematically positive where the blank
+  control is ~0: bridge +3.95, scaffold_op +2.78, scaffold_nl +2.38,
+  story +1.79, verb_nl +1.59 — a faint preference for the CORRECT answer
+  leaks through NL surfaces, strongest with the op restatement present.
+  Reading: mostly format-bound, with a measurable latent trace — exactly
+  the regime the translation-bridge dose targets.
+- **Few-shot collapse, third sighting**: 16 in-context examples DESTROY
+  the installed capability on its own trained surface (bare_op EM
+  0.547 -> 0.0000, ld +9.8 -> -0.49). Same prompt-brittleness as the
+  taught fig2ts model and the E.1.2 dose falsification: trained-in
+  capabilities on this twin are bound to their exact prompt geometry.
+- Ops bug fixed same day: `local rid=$1 out=...${rid}` under set -u
+  expands ${rid} before assignment (launcher died at stage 3 on both
+  runs; batteries that DID run came from stale manual commands and
+  overwrote each other's default premise_checks.json — per-rid outputs
+  now).
