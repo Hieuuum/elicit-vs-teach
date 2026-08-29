@@ -96,6 +96,11 @@ def main() -> int:
 
     op_ids, nl_ids = ids_for("bare_op"), ids_for("bare_nl")
     params = dict(model.named_parameters())
+    missing = [k for k in deltas if k not in params]
+    if missing:  # tied weights (e.g. lm_head <- embed_tokens) live only in the file
+        print(f"[tvs] skipping {len(missing)} file-only tensors (tied): {missing[:3]}")
+        for k in missing:
+            deltas.pop(k)
     results = []
     for alpha in args.alphas:
         with torch.no_grad():
