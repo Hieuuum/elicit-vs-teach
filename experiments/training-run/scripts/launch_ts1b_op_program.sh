@@ -72,7 +72,8 @@ train_or_skip() {
 }
 
 battery() { # battery <rid> — 9-format probe battery, skip if json exists
-  local rid=$1 out="$ANALYSIS/premise_${rid}.json"
+  local rid=$1
+  local out="$ANALYSIS/premise_${rid}.json"
   if [[ -f $out ]]; then
     milestone "battery_skip run=$rid (exists: $out)"
     return 0

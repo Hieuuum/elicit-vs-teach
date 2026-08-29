@@ -46,14 +46,17 @@ train:
   lr: 2.0e-5                     # full-FT pin measured stable at 1B (fig2ts installer)
   batch_size: 128
   eval_every: 250
-  max_steps: 15548               # 2-epoch ceiling; convergence stop should fire well before
+  max_steps: 31096               # 4-epoch ceiling (2026-08-29: the 2-epoch run
+                                 # hit max_steps at 0.363 nats / 0.547 op EM —
+                                 # not yet the paper's "strong performance";
+                                 # doubled so eps/k convergence can fire)
   stopping:                      # val-loss eps/k convergence (paper: "until convergence")
     eps_nats: 0.002
     k: 5
     min_steps: 0
   precision: bf16
   seed: 316
-  epochs_total_planned: 2
+  epochs_total_planned: 4
 
 cost:
-  assumed_epochs_for_estimate: 2
+  assumed_epochs_for_estimate: 4
