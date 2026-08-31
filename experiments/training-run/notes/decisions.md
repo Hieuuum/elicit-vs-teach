@@ -6274,3 +6274,14 @@ k x separator sweep on op-install and bridge-mix, bare_op + bare_nl:
 - v3 queued: D_algo_op_ctx2 (50% k=0 singles + 50% stacks, 190,518 rows,
   a8f09398...), min_steps 12000. Target: EM ~0.7 AND k-flat, then the
   Table-11 cells become meaningful.
+
+## 2026-08-31 (install3 readout) — robustness achieved (k-flat 0.30-0.43; NL-prefix suppression gone: bridge probe 0.27 vs 0.059), exactness plateaus 0.41 at 6-epoch ceiling; NL@16 still 0.000 (single-digit story-mode answers) — Table-11 cell recorded as a stated deviation; v3+bridge combination queued
+
+evt-ts1b-op-install3 (ctx2, max_steps, val 0.531): the mixed-k recipe kept
+install2's robustness and recovered half the exactness. Few-shot on NL
+surfaces remains at zero across every k and separator even with a robust
+engine — prompting alone does not cross the lexical gap at this scale; our
+install does not reproduce the paper's 11.9% (their install evidently
+stronger; do not chase further). Next: evt-ts1b-op3-bridge-mix (rehearsal
+bridge on the robust engine) — prediction: first nonzero DIRECT NL cells +
+chain toward rewrite x 0.4.
