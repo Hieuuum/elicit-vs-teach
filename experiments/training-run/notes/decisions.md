@@ -6258,3 +6258,19 @@ k x separator sweep on op-install and bridge-mix, bare_op + bare_nl:
   (it is the brittleness finding, third+fourth sighting). The pre-elicit
   demonstration remains the self-chain (0.328, zero training) + bare_op
   0-shot 0.72 + the small-n EDL advantage.
+
+## 2026-08-31 (install2 readout) — few-shot collapse CURED, causally: single-example-per-sequence training was the cause; cost was exactness (EM 0.19, near-miss errors); Table 11 untestable until both hold
+
+- evt-ts1b-op-install2 (all-stacked ctx rows): bare_op EM stable 0.13-0.23
+  across k=0..32 (was 0.72 -> 0.00 at k=2) — the brittleness phenomenon is
+  fully explained by training-sequence structure. Bridge probe now survives
+  an NL prefix (0.10 EM; 0.074 @16-shot, ld +6).
+- Price: 0-shot EM 0.73 -> 0.19, but median relative error 0.016-0.05 —
+  near-misses, not garbage. Cause: loss on final answers only => ~580K
+  supervised answers vs install1's 3.5M; eps/k stopped on that plateau
+  (val 1.154 nats).
+- bare_nl/hybrid @16: fmt ~0.98 but tiny wrong numbers — no Table-11
+  transfer, but not a fair test at 0.19 op EM.
+- v3 queued: D_algo_op_ctx2 (50% k=0 singles + 50% stacks, 190,518 rows,
+  a8f09398...), min_steps 12000. Target: EM ~0.7 AND k-flat, then the
+  Table-11 cells become meaningful.

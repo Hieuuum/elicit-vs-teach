@@ -1,23 +1,24 @@
-"""Context-augmented op-install set (Table-11 replication track, 2026-08-29).
+"""Context-augmented op-install sets (Table-11 replication track).
 
 fewshot_diag measured that the single-example-per-sequence install collapses
 under ANY in-context example (bare_op EM 0.72 -> 0.00 at k=2): every training
 sequence held one example at position 0, so prepended context is maximally
 OOD. The paper's intervention is pre-training-style (packed sequences), so
-for their model a few-shot prompt IS the training distribution — the likely
-source of their Table-11 11.9% NL 16-shot vs our 0.000.
+for their model a few-shot prompt IS the training distribution.
 
-This derives ``D_algo_op_ctx`` from the frozen ``D_algo_op``: each output row
-stacks k (uniform 0..16, seeded) exemplars above a query, newline-separated,
-with the answer span on the FINAL answer only:
+Two derivations from the frozen ``D_algo_op`` (each source row used at most
+once per set, frozen order, eval disjointness inherited):
 
-    907 + 4 = 911\\n23 - 45 = -22\\n9881 + 38 = 9919
+- ``D_algo_op_ctx``  — k uniform 0..16 exemplars above each query, loss span
+  on the final answer. Outcome (2026-08-31, evt-ts1b-op-install2): CURED the
+  few-shot collapse (EM stable across k) but EM fell 0.73 -> 0.19 with
+  median relative error ~0.02 — robust but approximate; only ~580K
+  supervised answers reached the loss (vs 3.5M in the plain install).
+- ``D_algo_op_ctx2`` — 50% k=0 single examples (exactness supervision) +
+  50% k uniform 1..16 (robustness), ~1.7x denser answer supervision.
+
+    907 + 4 = 911\n23 - 45 = -22\n9881 + 38 = 9919
                                             ^^^^ label span
-
-Source rows are consumed sequentially in frozen order, each used exactly once
-(~1M examples -> ~110K rows, same total token budget as the original
-install), so eval question-disjointness is inherited unchanged. k=0 rows keep
-the bare 0-shot surface in-distribution too. No NL anywhere.
 
 Usage:
     python3 make_op_ctx.py --out ../data/full
@@ -38,21 +39,15 @@ SEED = 20260717
 K_MAX = 16
 
 
-def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--out", type=Path, required=True)
-    args = ap.parse_args()
-
-    src = pd.read_parquet(args.out / "D_algo_op.parquet")
-    if order_hash(src.to_dict("records")) != ALGO_OP_PIN:
-        raise SystemExit("D_algo_op.parquet does not match its frozen pin; refusing")
-    rows = src.to_dict("records")
-
-    rng = random.Random(f"{SEED}:op_ctx")
+def build(name: str, rows: list[dict], out: Path) -> str:
+    rng = random.Random(f"{SEED}:{'op_ctx' if name == 'D_algo_op_ctx' else name}")
     records = []
     i = 0
     while i < len(rows):
-        k = rng.randint(0, K_MAX)
+        if name == "D_algo_op_ctx2":
+            k = 0 if rng.random() < 0.5 else rng.randint(1, K_MAX)
+        else:
+            k = rng.randint(0, K_MAX)
         if i + k + 1 > len(rows):
             break
         exemplars, query = rows[i : i + k], rows[i + k]
@@ -64,7 +59,7 @@ def main() -> int:
         records.append(
             {
                 "idx": len(records),
-                "dataset": "D_algo_op_ctx",
+                "dataset": name,
                 "a": int(query["a"]),
                 "b": int(query["b"]),
                 "op": str(query["op"]),
@@ -82,14 +77,28 @@ def main() -> int:
             }
         )
 
-    path = args.out / "D_algo_op_ctx.parquet"
+    path = out / f"{name}.parquet"
     pd.DataFrame(records).to_parquet(path, index=False)
     h = order_hash(records)
     ks = pd.Series([r["k_shots"] for r in records])
     print(f"[evt] wrote {path}  n={len(records):,}  order_hash={h}")
     print(f"[evt]   k distribution: mean {ks.mean():.2f}, k=0 share {(ks == 0).mean():.3f}")
     print(f"[evt]   row 0 (k={records[0]['k_shots']}): {records[0]['full_text'][:80]!r}...")
-    print("[evt] pin the order_hash in ts1b_op_install2.yaml")
+    return h
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--out", type=Path, required=True)
+    args = ap.parse_args()
+
+    src = pd.read_parquet(args.out / "D_algo_op.parquet")
+    if order_hash(src.to_dict("records")) != ALGO_OP_PIN:
+        raise SystemExit("D_algo_op.parquet does not match its frozen pin; refusing")
+    rows = src.to_dict("records")
+    build("D_algo_op_ctx", rows, args.out)
+    build("D_algo_op_ctx2", rows, args.out)
+    print("[evt] pin the order_hashes in ts1b_op_install{2,3}.yaml")
     return 0
 
 
