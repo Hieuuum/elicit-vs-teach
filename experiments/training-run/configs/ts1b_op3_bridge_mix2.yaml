@@ -1,0 +1,72 @@
+# v2 of the install3 rehearsal bridge (2026-08-31): identical dose, longer
+# floor — the only failure of v1 was bridge underfit (see stopping note).
+# Success = rewrite_exact ~0.5 at retention ~0.4 => chain ~0.2 and, more
+# importantly, the direct NL cells (hybrid 0.0117 in v1) growing.
+# v3 combination (2026-08-31): the rehearsal-mix bridge ON THE CONTEXT-ROBUST
+# install3. install1's chain was capped by rewrite x NL-suppressed engine
+# (0.51 x 0.24); install3 removes the NL-context suppression (bridge probe
+# 0.27 vs 0.059) but prompting alone leaves NL cells at 0 (single-digit
+# story-mode answers). Prediction: binding + robust engine moves DIRECT NL
+# cells for the first time, and chain EM rises toward rewrite x 0.4.
+# REHEARSAL-MIX bridge (2026-08-29): the retention-damage fix, variant (c).
+# The alpha-sweep showed binding and op-damage are entangled (no alpha buys
+# the parse without losing the engine); LoRA r16 underfit AND still interfered
+# (op EM 0.73 -> 0.33). This dose interleaves the translate rows 1:1 with op
+# rows the install ALREADY trained on (zero new information), forcing joint
+# optimization: learn the parse WHILE reproducing the op behavior. Readout:
+# premise_checks --chain — want op retention ~0.7 AND rewrite_exact ~0.5,
+# giving chain EM ~0.35 (the product).
+# Lexical-binding intervention (op-install premise program, 2026-08-28):
+# answer-free word<->symbol translation dose on top of the op-installed
+# model, ops + and -. Teaches ONLY that "sum"/"difference" name the installed
+# operations — never shows a computed result (make_translate_dose.py:
+# question-disjoint from D_algo_eval by construction). If premise_checks
+# afterwards shows bare_nl unlocking, the capability was latent behind the
+# missing word->operation binding. The add-only variant is the sharp control:
+# NL addition unlocking while NL subtraction stays dead = per-word binding.
+# Full config for train_sft.py, not an overlay.
+run_id: evt-ts1b-op3-bridge-mix2
+experiment:
+  name: training-run
+  arm: ts1b
+  role: format_install
+  parent_run_id: evt-ts1b-op-install3
+  parent_required_gates: []
+
+model:
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_translate_mix
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_translate_mix.parquet
+  order_hash: 1bebaff2e0369bb8fd483544648d6ea10118454094e61525eb4f6f5ada62a31f
+  local_path: experiments/training-run/data/full/D_translate_mix.parquet
+  val_fraction: 0.05
+  seed: 316
+
+train:
+  lr: 2.0e-5
+  batch_size: 128
+  eval_every: 10
+  max_steps: 1500
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 600               # v1 on this parent stopped at step 200 with
+                                 # val 0.10 nats and rewrite_exact only 0.19
+                                 # (install1's mix hit 0.028 / 0.48); let the
+                                 # parse actually fit before the rule may fire
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 8
+
+cost:
+  assumed_epochs_for_estimate: 8

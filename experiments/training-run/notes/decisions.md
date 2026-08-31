@@ -6285,3 +6285,5 @@ install does not reproduce the paper's 11.9% (their install evidently
 stronger; do not chase further). Next: evt-ts1b-op3-bridge-mix (rehearsal
 bridge on the robust engine) — prediction: first nonzero DIRECT NL cells +
 chain toward rewrite x 0.4.
+
+## 2026-08-31 (op3-bridge-mix) — retention holds (0.414/0.309@16), composition law verified a fourth time (0.191x0.414≈0.079 vs 0.066), FIRST nonzero direct-NL cell (hybrid 0-shot 0.0117); bottleneck moved to bridge underfit (eps/k stopped at val 0.10 vs install1-mix's 0.028) — v2 with min_steps 600 queued
