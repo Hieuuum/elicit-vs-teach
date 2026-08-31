@@ -6287,3 +6287,21 @@ bridge on the robust engine) — prediction: first nonzero DIRECT NL cells +
 chain toward rewrite x 0.4.
 
 ## 2026-08-31 (op3-bridge-mix) — retention holds (0.414/0.309@16), composition law verified a fourth time (0.191x0.414≈0.079 vs 0.066), FIRST nonzero direct-NL cell (hybrid 0-shot 0.0117); bottleneck moved to bridge underfit (eps/k stopped at val 0.10 vs install1-mix's 0.028) — v2 with min_steps 600 queued
+
+## 2026-08-31 (bridge-mix2 + winner + sweep GO) — install3 lineage frozen out; evt-ts1b-op-bridge-mix is THE pre-elicit parent; same-base elicitation sweep launched
+
+- op3-bridge-mix2 (min_steps 600): identical val floor 0.1005 at 3x the
+  steps; rewrite_exact 0.137 (down). The ctx-trained parent genuinely
+  resists the parse — a real ceiling, not underfitting. Engineering on the
+  pre-elicit model CLOSED per the standing stop rule.
+- Winner: evt-ts1b-op-bridge-mix (install1 lineage): retention 0.668,
+  rewrite 0.484, chain 0.328, leakage-controlled. Demonstration = chain +
+  op surface + small-n EDL advantage (few-shot recorded as invalid probe).
+- Composition law now verified on FOUR configurations (0.51x0.24,
+  alpha-sweep points, 0.48x0.67 = 0.323 vs 0.328, 0.19x0.41, 0.14x0.42) —
+  the cleanest quantitative regularity of the TS side.
+- Sweep launched (3ea3b64): ts1b_mix_nl base + 9 rungs (100..1M) mirroring
+  the fig2ts schedules; blank-TS teaching curve is the comparator; G5
+  backfill for op-nl n1000 + blank n100/n316 included. Predictions
+  pre-registered: monotone-decreasing EDL/token, no hump, small-n EM
+  unlock.
