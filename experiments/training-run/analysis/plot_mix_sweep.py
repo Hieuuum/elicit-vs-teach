@@ -61,8 +61,13 @@ def main() -> int:
     print(f"[plot] blank rungs: {sorted(blank)}")
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+    inst = from_manifests("evt-ts1b-fig2ts-inst-n")  # blank + format dose:
+    # the control showing a format install alone does NOT remove the hump
     for data, label, color in ((blank, "blank TS (teach)", "#2c6b74"),
+                               (inst, "blank + format dose (pre-teach fmt)", "#7a9aa0"),
                                (mix, "pre-elicit parent", "#9a6316")):
+        if not data:
+            continue
         ns = sorted(data)
         ax1.plot(ns, [data[n][0] for n in ns], "o-", color=color, label=label)
         ems = [(n, data[n][1]) for n in ns if data[n][1] is not None]
