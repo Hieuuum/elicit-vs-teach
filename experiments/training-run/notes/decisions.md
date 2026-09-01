@@ -6374,3 +6374,20 @@ parent differs): down-up-down with hump peak ~2.0 nats at n~215K, 1.40 at
 - **Faithfulness (elicited-1M)**: top-8 of 528 nodes = 0.997 sufficiency
   AND 0.998 degradation (M_clean +19.3 vs M_corrupt -19.2) — the
   sharpest circuit of the project (1.5% of nodes, ~total control).
+
+## 2026-09-01 (same-base patching) — mean-vector patch moves format only (0.047->0.164, EM 0); per-prompt state patch: 0 -> 0.125 EM into the parent; teach-side steering perfectly null
+
+- **Mean-vector unlock (parent + elicited-1M donor, k=32 prefill)**: format
+  0.047 -> 0.164 (3.5x, circuit-specific: random-32 and attn-only null,
+  ALL-528 hurts at 0.004) but EM stays 0.000 — on this twin the fine-tune's
+  effect at the circuit is almost entirely prompt-SPECIFIC; the cross-prompt
+  mean carries even less than on Llama (0.66 fmt / 0.039 EM there).
+- **Teach control (blank + taught-1M donor)**: 0.000/0.000 in every
+  condition, story-babble samples — the same-base null, as predicted.
+- **Per-prompt state patch (parent + elicited-1M donor)**: EM 0.0000 ->
+  0.1250 (fmt 0.359), random-32 exactly 0 — the parent's own machinery
+  turns the donor's 32-node states into exact word-problem answers 12.5%
+  of the time. The same-base intervention ladder: 0 (direct) -> ~0 (mean
+  vector) -> 0.125 (per-prompt state) -> 0.981 (full FT). Weaker than
+  Llama's 0.45 rung but nonzero, node-specific, and completing the
+  cross-arc symmetry.
