@@ -6305,3 +6305,40 @@ chain toward rewrite x 0.4.
   backfill for op-nl n1000 + blank n100/n316 included. Predictions
   pre-registered: monotone-decreasing EDL/token, no hump, small-n EM
   unlock.
+
+## 2026-09-01 — THE SIGNATURE FLIPPED: same-base causal intervention complete. Pre-elicit parent shows strictly monotone EDL (4.53 -> 0.092 nats, no hump) vs blank TS's teaching hump; EM-0.5 threshold shifts >300x (n~3K vs >1M)
+
+evt-ts1b-mix-nl sweep, 9 rungs, all converged, G5'd (launcher 3ea3b64):
+
+| n | EDL/tok (nats) | EM 0-shot |
+| 100 | 4.533 | 0.0225 |
+| 316 | 4.208 | 0.0381 |
+| 1000 | 3.579 | 0.1553 |
+| 3162 | 3.168 | 0.5410 |
+| 10000 | 2.444 | 0.7432 |
+| 31623 | 1.137 | 0.8672 |
+| 100000 | 0.467 | 0.9150 |
+| 316228 | 0.215 | 0.9658 |
+| 1000000 | 0.092 | 0.9814 |
+
+vs blank TS (fig2ts noinst, same task/protocol/architecture, only the
+parent differs): down-up-down with hump peak ~2.0 nats at n~215K, 1.40 at
+1M, EM 0.093 at 1M; small-n comparators 6.51/6.39 (n100/316).
+
+- Shape: STRICTLY MONOTONE DECREASING — the elicitation signature; the
+  hump is gone. The paper's §5 claim ("pre-teaching converts a teaching
+  task into an elicitation task") reproduced same-base, with a parent
+  whose latency was CONSTRUCTED from documented answer-free pieces
+  (op-install + rehearsal word<->symbol bridge), every piece
+  leakage-controlled.
+- Magnitude: >10x below the blank curve at its hump peak; 15x at 1M.
+  EM-0.5 threshold: n~3x10^3 vs >10^6 (>300x; paper claims >10x).
+- Also: EM at n=3162 is 0.541 with the blank at ~0 — the teammate's
+  "demonstrated by cheap unlock" criterion satisfied overwhelmingly.
+- 16-shot EM ~0 at every rung (brittleness persists through target FT —
+  consistent with the fewshot_diag account; few-shot remains an invalid
+  probe on this lineage).
+- The same-base elicit-vs-teach arc is COMPLETE: signature flip (this
+  sweep) + mechanistic account (op-circuit reuse J@32 0.422 + layer-0
+  interface growth, binding per-word, composition law x4, formation and
+  patching results from the main arc).
