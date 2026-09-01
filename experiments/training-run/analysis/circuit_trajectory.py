@@ -104,12 +104,21 @@ def main() -> int:
     final_df = pd.read_parquet(Path(args.final_map).with_suffix(".parquet"))
     final_map = {(r.node_type, int(r.layer), int(r.head)): r.score for r in final_df.itertuples()}
 
-    from huggingface_hub import HfApi
+    local_steps = sorted(
+        int(d.name.split("_")[1])
+        for d in (store / "runs" / args.run_id / "snapshots").glob("step_*")
+        if (d / "adapter.safetensors").is_file()
+    ) if (store / "runs" / args.run_id / "snapshots").is_dir() else []
+    if local_steps:
+        steps = local_steps
+        print(f"[traj] using {len(steps)} LOCAL snapshots (no hub fetch)")
+    else:
+        from huggingface_hub import HfApi
 
-    files = HfApi().list_repo_files(repo_id)
-    steps = sorted(int(m.group(1)) for f in files if (m := STEP_RE.search(f)))
+        files = HfApi().list_repo_files(repo_id)
+        steps = sorted(int(m.group(1)) for f in files if (m := STEP_RE.search(f)))
     if not steps:
-        raise SystemExit(f"[traj] no snapshots found on {repo_id}")
+        raise SystemExit(f"[traj] no snapshots found locally or on {repo_id}")
     picked = pick_steps(steps, args.n_snapshots)
     print(f"[traj] {len(steps)} snapshots on {repo_id}; analyzing steps {picked}")
 

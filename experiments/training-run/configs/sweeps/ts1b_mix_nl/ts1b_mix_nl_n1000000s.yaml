@@ -1,0 +1,18 @@
+# SNAPSHOT RERUN of the elicit-arm endpoint (2026-09-01): identical config,
+# data, and seed as evt-ts1b-mix-nl-n1000000 (so the training path is
+# byte-identical) + 32 adapter snapshots kept LOCALLY (~23 GB; delete
+# snapshots/ after circuit_trajectory) — the elicit-side formation curve,
+# to pair with the measured teach-side crystallization
+# (traj_evt-ts1b-fig2ts-noinst-n1000000: floor 1.3K steps, builds 1.3K-5.4K).
+# Prediction: J-vs-final near ceiling from the first snapshots (the engine
+# is installed; target FT only wires the interface). Overlay over
+# ../../ts1b_mix_nl.yaml.
+run_id: evt-ts1b-mix-nl-n1000000s
+data:
+  n_examples: 1000000
+train:
+  eval_every: 500
+  max_steps: 93756
+  snapshots:
+    n: 32
+    dense_until: 30
