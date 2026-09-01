@@ -6342,3 +6342,35 @@ parent differs): down-up-down with hump peak ~2.0 nats at n~215K, 1.40 at
   sweep) + mechanistic account (op-circuit reuse J@32 0.422 + layer-0
   interface growth, binding per-word, composition law x4, formation and
   patching results from the main arc).
+
+## 2026-09-01 (same-base circuits) — the words reach the engine ONLY with the binding (xfmt MLP index ~10x); elicited circuit = the installed op circuit (0.455 ≈ 67% of ceiling, top-4 identical); elicited vs taught IN THE SAME BASE: J 0.231, Spearman -0.11; top-8 nodes 99.7% sufficient AND necessary
+
+- **Cross-format probe** (matched-minus-mismatched cosine, NL vs op renders
+  of the same problem): op-install (no binding) MLP index ~0.00-0.01 at
+  every layer; bridge-mix MLP index +0.07-0.13 across layers 7-15 — the
+  binding makes NL questions drive the ENGINE MLPs into the op prompt's
+  problem-specific state, ~10x, before any target FT. CAVEAT recorded:
+  attention-head indices (+0.5-0.7) appear in BOTH models — both renders
+  share the digit tokens, so digit-copying heads match trivially; the MLP
+  channel is the discriminating signal, and it separates cleanly.
+- **Ceiling** (mixnl-1M split-half): J@32 0.684 / J@64 0.641.
+- **(i) Reuse, same-base**: parent-op circuit vs elicited-1M NL circuit
+  J@32 0.455 (chance 0.031; 67% of ceiling), top-4 IDENTICAL AND ORDERED
+  (mlp:15,14,13,12), 12/16 top nodes shared incl. the layer-7 attn trio.
+  Target fine-tuning connected words to the installed engine; it did not
+  build one.
+- **(ii) Drift 3K->1M**: J@32 0.391 (57% of ceiling) — the MLP engine
+  backbone is fully shared at both sizes; the churn is the INTERFACE:
+  at n=3K layer-0 attention heads (0:31,0:20,0:6,0:16) sit in the top-16
+  and are gone by 1M (replaced by layer-5/7 heads). Engine locked, input
+  interface built early then refined — a finer-grained picture than
+  Llama's flat drift.
+- **(iii) THE HEADLINE — elicited vs taught, SAME pretrained substrate,
+  same task**: J@32 0.231, union-score Spearman -0.111. The taught model
+  runs a layer-0 attention army (0:14,0:4,0:7,0:21,0:20,0:23...) + few
+  MLPs; the elicited model runs the MLP backbone + mid attn. The
+  cross-model confound ("different pretraining") is gone: mechanism
+  divergence is caused by the learning regime alone.
+- **Faithfulness (elicited-1M)**: top-8 of 528 nodes = 0.997 sufficiency
+  AND 0.998 degradation (M_clean +19.3 vs M_corrupt -19.2) — the
+  sharpest circuit of the project (1.5% of nodes, ~total control).
