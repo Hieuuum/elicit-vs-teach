@@ -6391,3 +6391,20 @@ parent differs): down-up-down with hump peak ~2.0 nats at n~215K, 1.40 at
   vector) -> 0.125 (per-prompt state) -> 0.981 (full FT). Weaker than
   Llama's 0.45 rung but nonzero, node-specific, and completing the
   cross-arc symmetry.
+
+## 2026-09-02 (elicit formation curve) — the circuit is present at step 1 (J@32 0.488 vs final, 16x chance) and at 82% of ceiling by <=15% of training; teach comparator sat at noise floor through the same region
+
+traj_evt-ts1b-mix-nl-n1000000s (byte-identical rerun of the elicit
+endpoint, 31 local snapshots): step 1 J@32 0.488 (ld +2.7), steps 3-30
+J 0.36-0.39 at ld 2.9-4.6 (marginal maps — J depressed by attribution
+noise at weak signal, not circuit movement), step 1677 J@32=J@64=0.561
+= 82% of the 0.684 ceiling with ld 18.99 ≈ final (19.5). Contrast (same
+substrate): the taught endpoint sat at its noise floor (~0.22-0.28)
+through step 1300 and only crystallized over 1.3K-5.4K.
+
+Elicit: the final circuit is visible before training starts and is at
+ceiling-ratio by <=15% of the run. Teach: nothing to see for the first
+~15%, then construction. Schedule note: n:32/dense_until:30 put 30
+snapshots in steps 1-30 and only one (1677) beyond — the lock point is
+bounded (<=1677) not localized; acceptable for the claim, refinable with
+a max_steps-12000 log schedule if a prettier curve is wanted.
