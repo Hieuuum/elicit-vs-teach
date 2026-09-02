@@ -6408,3 +6408,22 @@ ceiling-ratio by <=15% of the run. Teach: nothing to see for the first
 snapshots in steps 1-30 and only one (1677) beyond — the lock point is
 bounded (<=1677) not localized; acceptable for the claim, refinable with
 a max_steps-12000 log schedule if a prettier curve is wanted.
+
+## 2026-09-02 (formation rerun v2) — elicit circuit localized: present at step 1 (0.488), brief interface-transient dip, STABLE from ~step 1.5K (13%; 82% of J@32 ceiling, 97% of J@64 ceiling by 8.4K); teach twin hasn't STARTED building at that point
+
+traj_evt-ts1b-mix-nl-n1000000s2 (12 log-spaced points, proper schedule):
+J@32 vs final: 0.488(1) 0.455(2) 0.333(5) 0.362(12-65) 0.422(154-273)
+0.455(643) 0.561(1516) 0.524(3575) 0.561(8429); ld ramp 2.7→8.1(65)→
+15.4(154)→19.3(8429; final 19.5). J@64 at 8429: 0.620 = 97% of the 0.641
+J@64 ceiling.
+
+Reading: (i) parent engine visible at step 1 (0.488, 16x chance);
+(ii) a genuine early transient — at step 154 (strong map, ld 15) J is
+0.422, below step 1 — the interface-building reorganization (matches the
+drift finding: layer-0 heads appear early then hand off), recovering by
+643 and stabilizing ~1.5K; (iii) plateau 0.52-0.56 from 1.5K to end.
+Contrast: the taught twin sits at its noise floor until ~1.3K — the
+elicit circuit is fully stabilized BEFORE the taught one begins to exist.
+Not Llama's flat-from-2% curve: elicitation here includes a visible
+find-and-rewire transient, then lock. Old bounded claim (<=1677)
+superseded; v1 run dir deletable.
