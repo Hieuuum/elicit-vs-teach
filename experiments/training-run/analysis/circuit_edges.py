@@ -58,6 +58,15 @@ from train import load_config  # noqa: E402
 from train_sft import load_frozen_parquet  # noqa: E402
 
 
+def effective_weight(linear) -> torch.Tensor:
+    """Weight of a plain nn.Linear OR a geode LoRALinear (base + scaled B@A)."""
+    if hasattr(linear, "weight"):
+        return linear.weight.float()
+    # geode.train.lora.LoRALinear: forward = base(x) + scaling * B(A(x))
+    return (linear.base.weight.float()
+            + linear.scaling * (linear.B.weight.float() @ linear.A.weight.float()))
+
+
 class EdgeTaps:
     """Writer activations + reader LN-out grads + reader rms, per layer."""
 
@@ -156,7 +165,7 @@ def edge_map(model, pairs, batch_size: int, device: str):
             with torch.no_grad():
                 dwrites: dict[tuple, torch.Tensor] = {}
                 for i in range(n_layers):
-                    W_o = layers[i].self_attn.o_proj.weight.float()  # (d, H*dh)
+                    W_o = effective_weight(layers[i].self_attn.o_proj)  # (d, H*dh)
                     d_oin = (corr_o[i] - clean_o[i])                 # (B,T,H*dh)
                     for h in range(H):
                         sl = slice(h * dh, (h + 1) * dh)
