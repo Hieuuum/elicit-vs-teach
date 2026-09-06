@@ -221,6 +221,8 @@ def cmd_map(args) -> int:
         p.requires_grad_(True)
 
     pairs = build_pairs(df, tokenizer, args.n_pairs, args.shots)
+    if args.half:  # disjoint pair splits — the edge-map reliability ceiling
+        pairs = pairs[0::2] if args.half == "a" else pairs[1::2]
     edges, sanity = edge_map(model, pairs, args.batch_size, args.device)
     performing = sanity > 2.0
     print(f"[edges] {name} shots={args.shots}: mean logit_diff {sanity:.3f} "
@@ -282,6 +284,8 @@ def main() -> int:
     m.add_argument("--eval-config", default=str(EVAL_CONFIG))
     m.add_argument("--shots", type=int, default=0)
     m.add_argument("--n-pairs", type=int, default=128)
+    m.add_argument("--half", choices=("a", "b"), default=None,
+                   help="disjoint pair halves for the split-half ΔS_Edge noise floor")
     m.add_argument("--batch-size", type=int, default=8)
     m.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     d = sub.add_parser("delta-s")

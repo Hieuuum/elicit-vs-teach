@@ -6427,3 +6427,28 @@ elicit circuit is fully stabilized BEFORE the taught one begins to exist.
 Not Llama's flat-from-2% curve: elicitation here includes a visible
 find-and-rewire transient, then lock. Old bounded claim (<=1677)
 superseded; v1 run dir deletable.
+
+## 2026-09-06 (ΔS node-vs-edge, metric 3 full version) — Llama elicit is Wang-style edge-dominated (new-edge rate 2.0x new-node rate); TS-latent elicit is balanced (real interface recruitment); regime difference is total at both levels
+
+All maps PERFORMING (sanity 10.2-23.4). K_nodes=32, K_edges=256:
+
+| cell | ΔS_Node (1-J) | ΔS_Edge (1-J) | ratio | new-frac nodes | new-frac edges | nf ratio |
+| Llama base16 -> ft16          | 0.476 | 0.766 | 1.61 | 0.312 | 0.621 | 2.0 |
+| TS1B-latent -> elicited (op)  | 0.512 | 0.582 | 1.14 | 0.344 | 0.410 | 1.2 |
+| elicited-1M vs taught-1M      | 0.769 | 0.739 | 0.96 | 0.625 | 0.586 | 0.9 |
+
+- **Llama**: the direct Wang et al. analog (pretrained LLM + math FT) —
+  edges churn ~1.6x nodes by 1-J and 2.0x by new-fraction, at the bottom
+  of Wang's 2-4x band. Elicitation = rewiring over a stable node set.
+- **TS1B-latent**: ratio only 1.14/1.2 — the constructed-latent elicit
+  recruits real new nodes (nf 0.344), consistent with the measured
+  interface construction (layer-0 heads appearing then handing off;
+  formation transient). Sits between pure-rewiring elicit and teach —
+  a sensible place for a capability whose ACCESS ROUTE had to be built.
+- **Elicited vs taught (control)**: ratio 0.96 with both ~0.75 — when
+  the mechanism itself differs, nodes and edges differ equally; the edge
+  metric is not simply "always higher".
+- CAVEAT before quoting ratios: node ΔS has a measured noise floor
+  (split-half: 1-0.684 = 0.316 for the mixnl map) but EDGE split-half
+  ceilings are not yet measured — if edge maps are noisier, ΔS_Edge is
+  inflated. --half added to circuit_edges map for the ceiling runs.
