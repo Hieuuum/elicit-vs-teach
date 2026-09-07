@@ -1,0 +1,21 @@
+# Eval data for the ts1b BRIDGE surface: NL question + op restatement
+# ("What is the sum of 621 and 5068?\n621 + 5068 = -628"-style; derived from
+# frozen D_algo_eval by datagen/make_op_sets.py). The one surface where BOTH
+# the pre-elicit parent (evt-ts1b-op-bridge-mix, ld ~+5.8) and its elicited
+# child perform, so pre/post circuit comparisons can include the NL question
+# in the prompt (owner objection 2026-09-07: the op-only surface underweights
+# the NL interface). Longer prompts also improve edge-attribution statistics.
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_bridge_addsub
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_eval_bridge.parquet
+  order_hash: 97440dcfb0b9c1430fc1b60cd890068fe750d56af3dcb323e5e4d360dbde79b5
+  local_path: experiments/training-run/data/full/D_algo_eval_bridge.parquet
+  val_fraction: 0.005
+  seed: 316

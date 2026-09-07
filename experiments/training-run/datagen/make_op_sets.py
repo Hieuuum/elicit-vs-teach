@@ -47,6 +47,15 @@ DERIVATIONS: tuple[tuple[str, str, str], ...] = (
         "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
         "D_algo_eval_op",
     ),
+    # bridge surface (2026-09-07): NL question + op restatement — the one
+    # surface where BOTH the pre-elicit parent (ld +5.8) and its elicited
+    # child perform, so pre/post circuit comparisons can include the NL
+    # question in the prompt. Eval-only.
+    (
+        "D_algo_eval",
+        "5e422dafc7330a050a483002172e23b262c180ba4254b5d97e428506e6892fb3",
+        "D_algo_eval_bridge",
+    ),
 )
 
 
@@ -62,14 +71,19 @@ def derive(out: Path, src_stem: str, pin: str, dst_stem: str) -> str:
 
     records = []
     for rec in src.to_dict("records"):
-        full, (cs, ce) = render(
-            int(rec["a"]), int(rec["b"]), str(rec["op"]), int(rec["shown_answer"]), "bare_op"
-        )
+        a, b, op = int(rec["a"]), int(rec["b"]), str(rec["op"])
+        full, (cs, ce) = render(a, b, op, int(rec["shown_answer"]), "bare_op")
+        if dst_stem == "D_algo_eval_bridge":
+            from geode.arith.formats import _NL_PHRASE
+
+            prefix = _NL_PHRASE[op].format(a=a, b=b) + "\n"
+            full = prefix + full
+            cs, ce = cs + len(prefix), ce + len(prefix)
         records.append(
             {
                 **rec,
                 "dataset": dst_stem,
-                "format": "bare_op",
+                "format": ("bridge" if dst_stem == "D_algo_eval_bridge" else "bare_op"),
                 "prompt_text": full[:cs],
                 "answer_text": full[cs:ce],
                 "full_text": full,
