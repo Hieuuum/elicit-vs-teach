@@ -6452,3 +6452,27 @@ All maps PERFORMING (sanity 10.2-23.4). K_nodes=32, K_edges=256:
   (split-half: 1-0.684 = 0.316 for the mixnl map) but EDGE split-half
   ceilings are not yet measured — if edge maps are noisier, ΔS_Edge is
   inflated. --half added to circuit_edges map for the ceiling runs.
+
+## 2026-09-07 (ΔS floors + anatomy) — ceiling-corrected verdicts: Llama edge churn is REAL and Wang-sized (~2.2x nodes); TS edge churn is BELOW its own noise floor (unmeasurable — retire the 1.14 ratio); Llama anatomy = re-weighted kept wiring + promotion of background pathways
+
+Split-half edge noise floors (64-pair halves): Llama ΔS_Edge floor 0.434
+(new-frac 0.277); TS(mixnl1m, op) floor 0.653 (new-frac 0.484) — TS edge
+maps are far noisier (short op prompts => few positions per pair).
+
+Ceiling-corrected ((measured - floor)/(1 - floor)):
+- LLAMA: ΔS_Edge 0.766 -> corrected 0.59; ΔS_Node 0.476 (floor ~0.29) ->
+  corrected 0.26. RATIO ≈ 2.2 — inside Wang et al.'s 2-4x band. Metric-3
+  elicitation signature CONFIRMED on Llama with noise correction.
+- TS: measured ΔS_Edge 0.582 < floor 0.653 — edge change indistinguishable
+  from measurement noise at K=256 on the op surface. The earlier "balanced
+  1.14" is RETIRED; the TS statement stays node-level (core stable, ~1/3
+  periphery recruited). Caveat: floors from 64-pair halves are conservative
+  vs the 128-pair maps; matched-size floors (--n-pairs 256 halves) could
+  recover a marginal TS signal.
+- Anatomy (noise-contaminated on new/lost sets, kept sets more reliable):
+  LLAMA kept edges 59% stable-writer with Spearman 0.504 — retained wiring,
+  heavily re-weighted (matches the node-era rotation story); new top edges
+  are mostly promotions of previously-background pathways (73%
+  background-writer), i.e. the fine-tune shifts WHICH existing pathways
+  carry traffic rather than wiring recruited nodes. TS anatomy left
+  uninterpreted (edge noise dominates its new/lost sets).
