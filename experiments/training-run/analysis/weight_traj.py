@@ -72,8 +72,10 @@ def main() -> int:
                    if (d / "adapter.safetensors").is_file()) if snapdir.is_dir() else []
     if local:
         steps = local
-        print(f"[wtraj] {len(steps)} LOCAL snapshots")
+        print(f"[wtraj] {len(steps)} LOCAL snapshots in {snapdir}")
     else:
+        print(f"[wtraj] no local snapshots under {snapdir} "
+              f"(store={STORE}) — falling back to hub {repo_id}")
         import re
 
         from huggingface_hub import HfApi
