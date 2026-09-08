@@ -6621,3 +6621,73 @@ Elicited child on NL: operand roles 36/30 heads, layers {0,3,5,7}/{0,7},
 cf-flip 0.97/1.00 — the layer-0 fetchers plus the grown interface heads.
 Optional refinement: lam 0.1 for sparser fetcher sets (finer-grained
 preservation test).
+
+## 2026-09-09 (metric 10, residual shift task vs generic) — generic-text displacement does NOT separate the regimes (both LoRA children 0.16); the task/generic ratio prediction is REVERSED (teach 12.4 vs elicit 5.4, driven by a 14x final-layer write); "one reusable vector" fails — the elicited shift is per-problem content (PC1 0.06 at the read-out), the taught shift has the larger common component (0.35). Positives extracted: teaching writes a LOUD new output channel; elicitation's shift is the answer itself.
+
+Instrument: analysis/resid_shift.py — parent and child in fp32 (sidecar
+merged in fp32), residual captured after every layer; 256 bare_nl prompts
+(answer position = last prompt token, and all prompt positions) vs 256 x 64
+token held-out TinyStoriesV2-valid stories; per layer: relative shift
+sqrt(E|d|^2/E|h_parent|^2), incremental write energy, direction statistics
+(cos-to-mean, PC1 energy fraction) reported next to the SAME statistics on
+the parent's own states at the same positions (anisotropy reference — a
+fixed weight change on anisotropic states looks one-directional for free;
+CPU smoke test: random perturbation of every layer of a random model scores
+c2m 0.98).
+
+| cell | rel task ans (layer mean / L15) | rel task all pos | rel generic | ratio | eff. layers | PC1 task L15 (parent ref) | c2m task L15 (ref) | PC1 generic L15 (ref) |
+| elicit 1M (bridge-mix -> mix-nl-n1000000) | 0.866 / 1.72 | 0.547 | 0.160 | 5.4 | 3.3 | 0.063 (0.233) | 0.262 (0.509) | 0.381 (0.693) |
+| elicit 3162 (-> mix-nl-n3162) | 0.780 / 1.50 | 0.457 | 0.089 | 8.8 | 3.2 | 0.093 (0.233) | 0.319 (0.509) | 0.331 (0.693) |
+| teach 1M (base -> fig2ts-noinst-n1000000) | 1.927 / 14.13 | 0.999 | 0.156 | 12.4 | 1.2 | 0.351 (0.983) | 0.327 (0.991) | 0.315 (0.644) |
+| construction (base -> bridge-mix, full FT) | 0.605 / 1.10 | 0.774 | 1.118 | 0.54 | 3.2 | 0.603 (0.983) | 0.788 (0.991) | 0.342 (0.644) |
+
+1. Generic displacement: IDENTICAL (0.160 vs 0.156). Prediction "teaching
+   moves generic text, elicitation doesn't" ✗. Both r=512 LoRA children
+   barely touch stories. Dose-dependent within elicit: 0.089 (3162) ->
+   0.160 (1M), x1.8, while the task shift grows only x1.1 — training past
+   the elicitation point adds collateral, not capability. WHERE the generic
+   shift is written differs: elicit at layer 0 (55% of increment energy;
+   rel_gen then flat 0.15-0.19 through depth — the layer-0 interface heads
+   fire on any text), teach at layers 14-15 (78%; rel_gen grows 0.10 ->
+   0.32). The full-FT construction displaced generic text 7x more (1.12;
+   2.2 at layer 0): representations WERE displaced when the engine was
+   built — but full-FT-vs-LoRA and dose confound it; anchor, not regime
+   evidence.
+2. Ratio REVERSED: teach 12.4 vs elicit 5.4. Driven by the numerator: the
+   taught child's final-layer state at the answer position differs from the
+   base's by 14.1x the base's norm (L13 3.2x, L14 5.0x); the elicited
+   child's by 1.7x, built gradually from L9 (0.68 -> 1.66 at L14, small
+   final increment). On ALL prompt positions: 5.6x vs 0.96x at L15. An 8x
+   louder final write for a model with 10x lower EM (0.093 vs 0.981). This
+   is where R6's growing gradient and R7's 3.8x travel went: a large-norm
+   output channel written into the last layers.
+3. Depth: both arms write the task shift in the last three layers (elicit
+   82% of increment energy, centroid L13.4; teach 99.6%, centroid L14.9).
+   "Elicit = few late layers" ✓; "teach = spread over many layers" ✗ —
+   teaching is MORE concentrated. Caveat: increment-energy shares are in
+   absolute units, hence weighted toward late layers where the residual
+   norm is large; the normalised cumulative profiles give the same reading.
+4. Direction: NEITHER shift is one vector at the read-out. Elicit PC1 0.063
+   / c2m 0.262 at L15, BELOW the parent-state reference (0.233 / 0.509):
+   the elicited child's shift is almost entirely example-specific — it is
+   the ANSWER (per-problem content routed to the output), not a mode
+   switch. This is why the mean-vector patch (steer_unlock) delivered
+   format only and per-prompt states were needed. Teach PC1 0.351 / c2m
+   0.327: the larger common component (an "emit a number here" channel) —
+   confounded with its low EM (little problem-specific content to vary).
+   Early/mid layers: both deltas are as coherent as the parent states
+   (anisotropy), and through L12 the two children's PC1 profiles nearly
+   coincide (0.42 vs 0.47 at L10) — the taught child does carry
+   problem-specific information mid-stack.
+5. Bonus, about the PARENTS: the reference column is a geometry readout of
+   the latent state. Final layer, answer position, 256 problems: the latent
+   parent's states are problem-specific (c2m 0.51, PC1 0.23), the blank
+   base's problem-blind (0.99, 0.98). Complements the xfmt index (R8).
+
+Verdict: metric 10 as proposed (surgical vs diffuse) is a non-discriminator
+on generic displacement and depth, and reversed on ratio and direction.
+Two positives go to the paper: (a) teaching writes a loud new output
+channel (14x vs 1.7x final-layer relative shift); (b) elicitation's shift
+is per-problem content, not a reusable vector (PC1 0.06), consistent with
+the steering ladder. (5) folds into the latent-state result. JSONs on the
+cluster: resid_{elicit_1m,elicit_3162,teach_1m,construct}.json.

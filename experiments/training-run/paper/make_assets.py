@@ -75,6 +75,46 @@ LADDER_TS = [("direct", 0.0), ("mean vector", 0.0), ("per-prompt state", 0.125),
              ("self-chain", 0.328), ("full fine-tune", 0.981)]
 
 
+# metric 10 (decisions.md 2026-09-09): residual shift parent->child by layer,
+# relative to the parent's norm; "ans" = answer position of 256 NL problems,
+# "gen" = 256 x 64-token held-out TinyStories passages; PC1 = energy fraction
+# of the top singular direction of the 256 per-problem shift vectors.
+RESID = {
+    "elicit_1m": {
+        "ans": [0.7268, 0.6348, 0.6121, 0.6023, 0.5928, 0.5867, 0.5885, 0.6180, 0.6400, 0.6831,
+                0.7495, 0.8908, 1.1125, 1.4337, 1.6581, 1.7249],
+        "gen": [0.1905, 0.1701, 0.1663, 0.1627, 0.1598, 0.1576, 0.1554, 0.1539, 0.1529, 0.1526,
+                0.1532, 0.1538, 0.1546, 0.1560, 0.1574, 0.1632],
+        "pc1": [0.955, 0.952, 0.942, 0.926, 0.894, 0.814, 0.750, 0.636, 0.561, 0.492, 0.421,
+                0.317, 0.224, 0.152, 0.093, 0.063],
+        "pc1_parent": [0.98, 0.98, 0.98, 0.97, 0.97, 0.96, 0.96, 0.94, 0.91, 0.89, 0.86, 0.82,
+                       0.74, 0.60, 0.38, 0.23],
+    },
+    "elicit_3162": {
+        "ans": [0.6209, 0.5548, 0.5422, 0.5430, 0.5404, 0.5448, 0.5573, 0.5966, 0.6257, 0.6717,
+                0.7375, 0.8361, 0.9768, 1.2174, 1.4167, 1.5016],
+        "gen": [0.1160, 0.0987, 0.0950, 0.0921, 0.0895, 0.0874, 0.0853, 0.0841, 0.0831, 0.0829,
+                0.0833, 0.0837, 0.0838, 0.0843, 0.0842, 0.0837],
+    },
+    "teach_1m": {
+        "ans": [0.4793, 0.4734, 0.4637, 0.4698, 0.4918, 0.5054, 0.5310, 0.6292, 0.6723, 0.7477,
+                0.8032, 0.8532, 1.3849, 3.1828, 5.0117, 14.1313],
+        "gen": [0.1030, 0.1092, 0.1166, 0.1284, 0.1362, 0.1386, 0.1386, 0.1429, 0.1444, 0.1471,
+                0.1517, 0.1557, 0.1700, 0.1858, 0.2069, 0.3183],
+        "pc1": [0.950, 0.951, 0.935, 0.903, 0.877, 0.827, 0.794, 0.627, 0.571, 0.499, 0.468,
+                0.443, 0.422, 0.579, 0.220, 0.351],
+        "pc1_parent": [0.99, 0.99, 0.99, 0.99, 0.99, 0.99, 0.98, 0.98, 0.98, 0.98, 0.98, 0.98,
+                       0.98, 0.98, 0.98, 0.98],
+    },
+    "construct": {
+        "ans": [0.5145, 0.4326, 0.4248, 0.4334, 0.4410, 0.4535, 0.4759, 0.5212, 0.5502, 0.5840,
+                0.6090, 0.6505, 0.7098, 0.8150, 0.9748, 1.0952],
+        "gen": [2.2160, 2.0174, 1.7462, 1.5302, 1.3385, 1.1802, 1.0482, 0.9504, 0.8763, 0.8271,
+                0.7881, 0.7520, 0.7189, 0.6834, 0.6426, 0.5784],
+    },
+}
+
+
 # ------------------------------------------------------------- plumbing ---
 def outdir(section: str) -> Path:
     d = HERE / section
@@ -473,12 +513,75 @@ TS teach (blank parent) & 0.212 & 5.2 & 0.034 & 0.167 \\
           r"Total weight shift of the 1M fine-tunes ($\Delta W$ exact from LoRA factors; erank = participation-ratio effective rank of $\Delta W$'s spectrum; alignment = energy in the base's top-64 singular directions, random baseline 0.058). Elicit vs.\ teach: update \emph{magnitude} orders the regimes cleanly --- teaching writes 6$\times$ more than Llama-elicitation, with constructed-latency TS-elicitation in between (its word interface still had to be built); effective rank does \emph{not} separate them --- both regimes concentrate their update energy in $\sim$5--12 directions --- and alignment with the base's existing directions is near baseline for both. decisions.md 2026-09-08.")
 
 
+def residual():
+    S = "05_weights"
+    L = list(range(16))
+    f, (a1, a2) = plt.subplots(1, 2, figsize=(10.5, 3.8))
+    a1.plot(L, RESID["teach_1m"]["ans"], "o-", color=TE, label="teach 1M: task (answer pos.)")
+    a1.plot(L, RESID["teach_1m"]["gen"], "--", color=TE, label="teach 1M: generic text")
+    a1.plot(L, RESID["elicit_1m"]["ans"], "o-", color=EL, label="elicit 1M: task (answer pos.)")
+    a1.plot(L, RESID["elicit_1m"]["gen"], "--", color=EL, label="elicit 1M: generic text")
+    a1.plot(L, RESID["elicit_3162"]["ans"], "-", color=EL, lw=1, alpha=.5,
+            label="elicit 3162: task")
+    a1.plot(L, RESID["elicit_3162"]["gen"], ":", color=EL, lw=1, alpha=.5,
+            label="elicit 3162: generic")
+    a1.set_yscale("log")
+    a1.set_xlabel("layer")
+    a1.set_ylabel(r"$\|h_{child}-h_{parent}\| / \|h_{parent}\|$")
+    a1.set_title("relative residual shift", fontsize=10)
+    a1.grid(alpha=.3)
+    a1.legend(fontsize=7)
+    a2.plot(L, RESID["teach_1m"]["pc1"], "o-", color=TE, label="teach 1M: shift")
+    a2.plot(L, RESID["teach_1m"]["pc1_parent"], ":", color=TE, label="blank base: own states")
+    a2.plot(L, RESID["elicit_1m"]["pc1"], "o-", color=EL, label="elicit 1M: shift")
+    a2.plot(L, RESID["elicit_1m"]["pc1_parent"], ":", color=EL,
+            label="TS1B-latent: own states")
+    a2.set_xlabel("layer")
+    a2.set_ylabel("PC1 energy fraction (1 = one vector)")
+    a2.set_title("is the task shift one direction?", fontsize=10)
+    a2.set_ylim(0, 1.02)
+    a2.grid(alpha=.3)
+    a2.legend(fontsize=7)
+    save(S, f, "fig_resid_shift",
+         "Residual-stream shift between each 1M child and its own parent on identical "
+         "inputs (fp32), by layer. Left: relative shift at the answer position of 256 "
+         "NL problems (solid) and on 256 held-out TinyStories passages (dashed). "
+         "Right: energy fraction of the top singular direction across the 256 "
+         "per-problem shift vectors (PC1), with the same statistic on the parent's "
+         "own states dotted (the anisotropy reference). Elicit vs. teach: generic "
+         "text moves by the same amount in both arms (0.16) - the surgical-vs-diffuse "
+         "prediction does not hold - but the taught child's final-layer write at the "
+         "answer position is 14x the parent's norm against 1.7x for the elicited "
+         "child (a loud new output channel for a model 10x worse), and the elicited "
+         "shift has no dominant shared direction at the read-out (PC1 0.06, below "
+         "its parent's own 0.23): it is the per-problem answer, not a reusable mode "
+         "vector - which is why mean-vector patching gives format only. "
+         "resid_shift.py; decisions.md 2026-09-09.")
+
+    table(S, "resid_shift", r"""\begin{tabular}{lcccc}
+\hline
+ & elicit 1M & elicit 3162 & teach 1M & construction (full FT) \\
+\hline
+shift at answer position, final layer & 1.72 & 1.50 & \textbf{14.13} & 1.10 \\
+shift at answer position, layer mean & 0.87 & 0.78 & 1.93 & 0.61 \\
+shift over all prompt positions, final layer & 0.96 & 0.82 & 5.55 & 0.88 \\
+shift on generic text, layer mean & 0.160 & 0.089 & 0.156 & 1.118 \\
+PC1 of shift, final layer (parent states) & \textbf{0.063} (0.23) & 0.093 (0.23) & 0.351 (0.98) & 0.603 (0.98) \\
+cosine-to-mean, final layer (parent states) & 0.26 (0.51) & 0.32 (0.51) & 0.33 (0.99) & 0.79 (0.99) \\
+final exact match & 0.981 & 0.541 & 0.093 & -- \\
+\hline
+\end{tabular}""",
+          r"Residual-stream shift parent$\to$child ($N{=}256$ NL problems; generic text $=$ 256 held-out TinyStories passages of 64 tokens; both models fp32). ``Construction'' is the full fine-tune that built TS1B-latent from the blank base, an anchor for what building an engine does to generic text (7$\times$ the displacement of either LoRA child). Elicit vs.\ teach: generic displacement and depth do not separate the regimes; the size of the final write does (14$\times$ vs 1.7$\times$), and so does what the shift carries --- per-problem content with no shared direction (elicit) vs a large common component (teach). decisions.md 2026-09-09.")
+
+
+
 def main() -> int:
     setup_tables()
     fig_signature_flip()
     circuits()
     interventions()
     weights()
+    residual()
     (HERE / "README.md").write_text("""# Paper assets
 
 Generated by `make_assets.py` from the numbers in `../notes/decisions.md`
@@ -491,7 +594,7 @@ caption ends with an explicit "Elicit vs. teach:" sentence.
 | `02_learning_curves/` | fig_signature_flip (EDL + EM vs n), same_base_sweep.tex |
 | `03_circuits/` | fig_formation_ts, fig_formation_llama, circuit_overlap.tex, faithfulness.tex, delta_s.tex |
 | `04_interventions/` | fig_intervention_ladder, steering.tex |
-| `05_weights/` | fig_weight_travel, weight_travel.tex, weight_shift.tex |
+| `05_weights/` | fig_weight_travel, fig_grad_strength, fig_resid_shift, weight_travel.tex, grad_strength.tex, weight_shift.tex, resid_shift.tex |
 
 Figures: PNG + PDF + `.caption.txt`. Tables: self-contained LaTeX with
 `\\caption` and `\\label`. Regenerate on the cluster (GEODE_STORE set) to pull

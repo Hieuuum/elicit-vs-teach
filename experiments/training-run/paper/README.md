@@ -10,7 +10,7 @@ caption ends with an explicit "Elicit vs. teach:" sentence.
 | `02_learning_curves/` | fig_signature_flip (EDL + EM vs n), same_base_sweep.tex |
 | `03_circuits/` | fig_formation_ts, fig_formation_llama, circuit_overlap.tex, faithfulness.tex, delta_s.tex |
 | `04_interventions/` | fig_intervention_ladder, steering.tex |
-| `05_weights/` | fig_weight_travel, weight_travel.tex, weight_shift.tex |
+| `05_weights/` | fig_weight_travel, fig_grad_strength, fig_resid_shift, weight_travel.tex, grad_strength.tex, weight_shift.tex, resid_shift.tex |
 
 Figures: PNG + PDF + `.caption.txt`. Tables: self-contained LaTeX with
 `\caption` and `\label`. Regenerate on the cluster (GEODE_STORE set) to pull
