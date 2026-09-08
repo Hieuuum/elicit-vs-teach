@@ -40,16 +40,6 @@ The arms differ \emph{only} in the parent checkpoint:
     (Table~\ref{tab:premise}). The capability is latent.
 \end{itemize}
 
-\noindent\textbf{Measurement vocabulary.}
-\emph{Circuit} = top-32 of 528 nodes (512 attention heads + 16 MLP outputs) by attribution
-score (gradient of the clean/corrupt logit-diff $\times$ activation delta, 128--256 pairs);
-overlaps are Jaccard@32 against a chance floor of 0.031 and a per-map split-half ceiling.
-\emph{Weight write} = $\Delta W = \text{scaling}\cdot BA$ per LoRA module (exact; singular
-values via thin QR); total write $\|\Delta W\|_F$, relative write $\|\Delta W\|/\|W\|$,
-travel $\|\Delta W_t\|_F$ and speed $\|\Delta W_t-\Delta W_{t-1}\|_F/\Delta t$ from adapter
-snapshots. \emph{Gradient strength} = the pre-clip global gradient norm $\|g_t\|$ logged at
-every update (runs' \texttt{gradstats.jsonl}); cumulative gradient mass $\sum_t\|g_t\|$.
-
 \begin{table}[h]\centering\small
 \begin{tabular}{lcc}
 \toprule
@@ -62,16 +52,31 @@ sum-only dose on \emph{difference} questions & writes ``+'' & per-word binding \
 \textbf{direct NL exact match of the parent} & \textbf{0.000} & $=$ blank twin \\
 \bottomrule
 \end{tabular}
-\caption{The latent parent is behaviorally identical to the blank twin on the target task.
-Everything below is about what differs inside.}
+\caption{The latent parent is behaviorally identical to the blank twin on the target task
+before fine-tuning. Everything below is about what differs inside and what that difference does.}
 \label{tab:premise}
 \end{table}
 
-\section*{Results}
+\noindent\textbf{Measurement vocabulary.}
+\emph{Circuit} = top-32 of 528 nodes (512 attention heads + 16 MLP outputs) by attribution
+score (gradient of the clean/corrupt logit-diff $\times$ activation delta, 128--256 pairs);
+overlaps are Jaccard@32 against a chance floor of 0.031 and a per-map split-half ceiling.
+\emph{Gradient strength} = the pre-clip global gradient norm $\|g_t\|$ logged at every update
+(runs' \texttt{gradstats.jsonl}); cumulative gradient mass $\sum_t\|g_t\|$.
+\emph{Weight write} = $\Delta W = \text{scaling}\cdot BA$ per LoRA module (exact); total write
+$\|\Delta W\|_F$, relative write $\|\Delta W\|/\|W\|$, travel $\|\Delta W_t\|_F$ from adapter
+snapshots.
+
+\noindent\textbf{Reading guide.} The results answer four questions in order: does the
+\emph{behavior} of learning differ (R1); is the resulting \emph{machinery} the same (R2--R3);
+how does that machinery \emph{come into being} during training (R4--R6); and what does the
+latent state \emph{mean and permit} before any target training (R7--R8).
+
+% =====================================================================
+\section*{A. Behavior: the learning-curve signature}
 
 \begin{enumerate}[label=\textbf{R\arabic*}, leftmargin=*, itemsep=1.2em]
 
-% ------------------------------------------------------------------ R1
 \item \textbf{The learning-curve signature flips.}
 \metric{Prequential EDL per label token (nats) and held-out exact match, as a function of
 dataset size $n$, identical protocol, parent varied.}
@@ -82,7 +87,8 @@ $>10^6$ ($>300\times$). A third arm (blank + format-only dose) keeps its hump.}
 \interp{Eliciting spends every example connecting an existing capability (diminishing cost from
 the first rung); teaching must build the capability, producing increasing returns mid-run.
 The flip is the paper's causal-intervention claim reproduced on one substrate, with a parent
-whose latency is itemised rather than assumed.}
+whose latency is itemised rather than assumed. The remaining results explain the flip
+mechanistically.}
 \begin{figure}[h]\centering
 \includegraphics[width=\textwidth]{02_learning_curves/fig_signature_flip.png}
 \caption{EDL/token (left) and 0-shot EM (right) vs $n$; teal = teach twin, gold = elicit twin.}
@@ -109,15 +115,21 @@ $n$ & \multicolumn{2}{c}{elicit} & \multicolumn{2}{c}{teach} \\
 \label{tab:sweep}
 \end{table}
 
-% ------------------------------------------------------------------ R2
+% =====================================================================
+\end{enumerate}
+\section*{B. Machinery: is the circuit the same?}
+\begin{enumerate}[label=\textbf{R\arabic*}, leftmargin=*, itemsep=1.2em, resume]
+
 \item \textbf{The elicited circuit is the parent's installed circuit; the taught circuit
 matches nothing upstream.}
 \metric{Jaccard@32 between attribution circuits (chance 0.031; ceiling = split-half
 self-agreement of the map, 0.684 for the elicited child).}
-\result{Table~\ref{tab:overlap}. Parent (installed engine) $\leftrightarrow$ elicited child:
+\result{Table~\ref{tab:overlap}. Installed engine $\leftrightarrow$ elicited child:
 $0.455$--$0.524$ across eval surfaces ($\approx$70\% of ceiling), top-4 nodes identical and
-identically ordered (\texttt{mlp:15,14,13,12}). Blank parent: no measurable circuit (logit-diff
-$-0.33$ even 16-shot; its map is noise), so the taught child has nothing to match.}
+identically ordered (\texttt{mlp:15,14,13,12}); the engine backbone is already fully shared at
+$n{=}3$K (child@3K $\leftrightarrow$ child@1M $0.391$, with only the input interface churning).
+Blank parent: no measurable circuit (logit-diff $-0.33$ even 16-shot; its map is noise), so the
+taught child has nothing to match.}
 \interp{Elicitation re-weights machinery that was already there; teaching constructs machinery
 where there was none. ``Reuse'' is measured, not inferred.}
 \begin{table}[h]\centering\small
@@ -126,8 +138,8 @@ where there was none. ``Reuse'' is measured, not inferred.}
 Comparison & J@32 & chance & ceiling \\
 \midrule
 installed engine $\leftrightarrow$ elicited child (op / bridge surface) & 0.455--0.488 / 0.524 & 0.031 & 0.684 \\
-blank parent $\leftrightarrow$ taught child & undefined (parent map is noise) & -- & -- \\
 elicited child @3K $\leftrightarrow$ @1M & 0.391 & 0.031 & 0.684 \\
+blank parent $\leftrightarrow$ taught child & undefined (parent map is noise) & -- & -- \\
 elicited child @1M $\leftrightarrow$ taught child @1M & 0.231 (Spearman $-0.11$) & 0.031 & 0.684 / 0.561 \\
 \bottomrule
 \end{tabular}
@@ -135,24 +147,30 @@ elicited child @1M $\leftrightarrow$ taught child @1M & 0.231 (Spearman $-0.11$)
 \label{tab:overlap}
 \end{table}
 
-% ------------------------------------------------------------------ R3
-\item \textbf{Same task, same substrate, different machine.}
+\item \textbf{Same task, same substrate, different machine --- at every level.}
 \metric{Layer distribution of the top-16 attribution nodes; J@32 and score Spearman between
-the two children.}
+the two children; node- and edge-level change rates $\Delta S = 1-\text{Jaccard}$ between them
+(nodes @32; edges @256, node$\to$block edge attribution).}
 \result{Figure~\ref{fig:layers}. Elicited child: mid/late MLP backbone (layers 5--15) plus the
 layer-7 attention trio --- the installed engine's own profile. Taught child: eight layer-0
 attention heads over raw digit tokens feeding a few late MLPs. Overlap $0.231$, score
-correlation $-0.11$.}
+correlation $-0.11$; $\Delta S_{\text{node}}=0.769$, $\Delta S_{\text{edge}}=0.739$, both far
+above the noise floors (0.32 / 0.61).}
 \interp{Because both children share the identical pretrained substrate, the mechanism
-difference is caused by the learning regime alone --- the cross-model version of this finding
-had a pretraining confound; this one does not.}
+difference is caused by the learning regime alone (the cross-model version of this finding had
+a pretraining confound). And the difference is total --- membership and wiring alike --- so
+these are two machines, not one machine re-routed.}
 \begin{figure}[h]\centering
 \includegraphics[width=0.9\textwidth]{03_circuits/fig_layer_profile_ts.png}
 \caption{Top-16 node layer histograms (solid = MLP, hatched = attention) for the installed engine, the elicited child, and the taught child.}
 \label{fig:layers}
 \end{figure}
 
-% ------------------------------------------------------------------ R4
+% =====================================================================
+\end{enumerate}
+\section*{C. Dynamics: how the machinery comes into being}
+\begin{enumerate}[label=\textbf{R\arabic*}, leftmargin=*, itemsep=1.2em, resume]
+
 \item \textbf{The elicited circuit exists before training; the taught circuit is built
 mid-run --- through the EDL hump.}
 \metric{Jaccard@32 of each training snapshot's circuit against the run's final circuit.}
@@ -162,99 +180,15 @@ $\sim$step 1.5K of 11.5K ($0.561$; 82\% of ceiling, 97\% of the J@64 ceiling by 
 noise floor ($\approx$0.22--0.28) until $\sim$step 1.3K, then $0.27\to0.44$ over steps
 1.3K--5.4K --- the region where its EDL peaks.}
 \interp{Elicitation finds and wires; teaching constructs. The elicited circuit finishes
-stabilising before the taught one begins to exist, and the teaching hump is literally the
-circuit being assembled.}
+stabilising before the taught one begins to exist, and the teaching hump of R1 is literally
+the circuit being assembled.}
 \begin{figure}[h]\centering
 \includegraphics[width=\textwidth]{03_circuits/fig_formation_ts.png}
 \caption{Circuit formation, elicit (left) vs teach (right); dashed = split-half ceiling.}
 \label{fig:form}
 \end{figure}
 
-% ------------------------------------------------------------------ R5
-\item \textbf{The words reach the engine only when the binding is installed.}
-\metric{Cross-format activation matching: per node, mean cosine between the activation on the
-NL rendering and on the symbol rendering of the \emph{same} problem, minus the mismatched-pair
-baseline (``does \texttt{What is the sum of 621 and 5068?} drive the node into the same
-problem-specific state as \texttt{621 + 5068 = }?'').}
-\result{Engine without binding: MLP index $\approx0.00$--$0.01$ at every layer. TS1B-latent
-(binding installed): $+0.07$--$0.13$ across layers 7--15, $\sim$10$\times$. Attention-head
-indices are confounded by shared digit tokens and are excluded.}
-\interp{This is what ``latent'' means internally: before any target training, NL input already
-activates the arithmetic MLPs of the elicit parent, while the teach parent has no arithmetic
-MLPs to activate. It also shows the binding dose did what it claimed --- installed an access
-route, not the task.}
-
-% ------------------------------------------------------------------ R6
-\item \textbf{The latent capability can be reached with frozen weights; the absent one cannot.}
-\metric{Exact match on the target task under zero-training interventions: (a) self-chain ---
-the model rewrites the question itself, then computes its own rewrite; (b) donor patching ---
-the fine-tuned child's activations at the 32 circuit nodes written into the parent (mean
-vector, or per-prompt states); random-node controls.}
-\result{Figure~\ref{fig:ladder}, Table~\ref{tab:steer}. Elicit parent: direct $0.000\to$
-self-chain $\mathbf{0.328}$ ($=0.484\times0.668$; the composition law parse$\times$compute held on
-four model variants); per-prompt states $0.125$ (random nodes: $0.000$); mean vector: format
-only. Teach side: blank + same doses $0.000$; blank + chain $0.000$ (a parser without an
-engine); taught donor into blank twin $0.000$ in every condition.}
-\interp{Elicit = one composition step or one state-patch away from the target; teach = nothing
-underneath to switch on. The teach-side nulls double as the leakage control for the whole
-construction.}
-\begin{figure}[h]\centering
-\includegraphics[width=0.55\textwidth]{04_interventions/fig_intervention_ladder.png}
-\caption{Intervention ladder on the elicit parent (weights frozen except the last bar).}
-\label{fig:ladder}
-\end{figure}
-\begin{table}[h]\centering\small
-\begin{tabular}{llcc}
-\toprule
-Patient + intervention (k=32 circuit nodes) & condition & format & EM \\
-\midrule
-TS1B-latent + child mean shift & circuit nodes & 0.164 & 0.000 \\
-TS1B-latent + child per-prompt states & circuit nodes & 0.359 & \textbf{0.125} \\
- & random-32 nodes & 0.051 & 0.000 \\
-TS1B-latent self-chain (no donor) & own rewrite + ``= '' & -- & \textbf{0.328} \\
-blank + binding dose, self-chain & parser without engine & -- & 0.000 \\
-blank + taught donor & every condition & 0.000 & 0.000 \\
-\bottomrule
-\end{tabular}
-\caption{Zero-training interventions, TinyStories twins.}
-\label{tab:steer}
-\end{table}
-
-% ------------------------------------------------------------------ R7
-\item \textbf{Teaching writes far more into the weights, and buys far less per unit written.}
-\metric{Relative write $\|\Delta W\|/\|W\|$ (exact from LoRA factors); total travel and per-step
-speed from adapter snapshots; capability per unit travel = final EM / total travel.}
-\result{Table~\ref{tab:weights}, Figure~\ref{fig:travel}. Relative write $0.212$ (teach) vs
-$0.095$ (elicit), $2.2\times$; total travel $457$ vs $120$, $3.8\times$, over $2\times$ as many
-steps (23.5K vs 11.5K); capability per unit travel $2.0\times10^{-4}$ vs $8.1\times10^{-3}$,
-$\sim$40$\times$.}
-\interp{Eliciting connects what exists; teaching writes what does not. The temporal
-\emph{shape} of writing (burst then decay) is shared by both arms --- an optimisation
-signature --- so the discrimination is in amplitude, duration, and efficiency, not timing.}
-\begin{table}[h]\centering\small
-\begin{tabular}{lcc}
-\toprule
- & elicit (TS1B-latent) & teach (blank) \\
-\midrule
-relative write $\|\Delta W\|/\|W\|$ (1M) & 0.095 & 0.212 \\
-steps to convergence & 11{,}500 & 23{,}496 \\
-peak / final writing speed (per step) & 0.218 / 0.018 & 0.306 / 0.022 \\
-total weight travel $\|\Delta W\|_F$ & 120 & 457 \\
-final exact match & 0.981 & 0.093 \\
-capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
-\bottomrule
-\end{tabular}
-\caption{Weight-space write, elicit vs teach.}
-\label{tab:weights}
-\end{table}
-\begin{figure}[h]\centering
-\includegraphics[width=\textwidth]{05_weights/fig_weight_travel.png}
-\caption{Weight travel (left) and speed (right) from adapter snapshots; profiles coincide, amplitudes do not.}
-\label{fig:travel}
-\end{figure}
-
-% ------------------------------------------------------------------ R8
-\item \textbf{Teaching's gradient grows through training; elicitation's decays.}
+\item \textbf{Elicitation's gradient dies; teaching's grows.}
 \metric{Pre-clip global gradient norm at every update, from the runs' \texttt{gradstats}
 logs: peak, mean over first 1\% / middle / last 10\% of steps, cumulative gradient mass
 $\sum_t\|g_t\|$, and its split across weight classes.}
@@ -265,12 +199,10 @@ $\sum_t\|g_t\|$, and its split across weight classes.}
 ($\sim$150$\times$). Across $n$ the arms are indistinguishable up to $10$K and diverge from
 $31.6$K on (mass ratio $7\times\to55\times\to95\times\to150\times$). Teach's gradient mass
 migrates out of the MLPs (share $0.47\to0.01$) into attention (VO $0.87$).}
-\interp{The clearest dynamical discriminator: eliciting converges and its gradient dies;
-teaching keeps generating gradient pressure that grows with the structure being built, and
-that pressure is aimed at attention --- the layer-0 army of R3 being written. It also
-explains R7: AdamW's $\sqrt{v}$-normalisation compressed a 150$\times$ gradient-mass
-difference into a 3.8$\times$ travel difference with a shared temporal shape, so raw
-gradient norm --- not update size --- is where the regimes separate.}
+\interp{The optimizer's view of R4: eliciting converges and its gradient dies; teaching keeps
+generating gradient pressure that grows with the structure being built, aimed at attention
+--- the layer-0 army of R3 being written. This is the clearest dynamical discriminator, and it
+sets up R6: what all that gradient actually bought.}
 \begin{table}[h]\centering\small
 \begin{tabular}{lcc}
 \toprule
@@ -293,19 +225,93 @@ mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 \\
 \label{fig:grad}
 \end{figure}
 
-% ------------------------------------------------------------------ R9
-\item \textbf{The regime difference is total: the two children differ at both node and edge
-level.}
-\metric{$\Delta S = 1-\text{Jaccard}$ at node level (@32) and edge level (@256, node$\to$block
-edge attribution).}
-\result{Elicited @1M vs taught @1M: $\Delta S_{\text{node}} = 0.769$, $\Delta S_{\text{edge}} =
-0.739$ (ratio 0.96), both far above the noise floors (0.32 / 0.61).}
-\interp{When the mechanism differs, it differs everywhere --- membership and wiring alike ---
-consistent with R3: not a re-routed version of one machine but two machines.}
+\item \textbf{Teaching writes more into the weights and buys far less per unit written.}
+\metric{Relative write $\|\Delta W\|/\|W\|$ at $n{=}1$M (exact from LoRA factors); total travel
+$\|\Delta W_t\|_F$ from adapter snapshots; capability per unit travel $=$ final EM / total
+travel.}
+\result{Table~\ref{tab:weights}. Relative write $0.212$ (teach) vs $0.095$ (elicit),
+$2.2\times$; total travel $457$ vs $120$ ($3.8\times$) over $2\times$ as many steps
+(23.5K vs 11.5K); capability per unit travel $2.0\times10^{-4}$ vs $8.1\times10^{-3}$,
+$\sim$40$\times$. The travel \emph{profiles} of the two arms coincide (both burst then decay):
+AdamW's $\sqrt{v}$-normalisation compresses R5's 150$\times$ gradient-mass gap into a
+$3.8\times$ step-size gap with a shared shape.}
+\interp{What R5's gradients bought: teaching writes 2--4$\times$ more into the weights yet
+buys $\sim$40$\times$ less capability per unit written --- eliciting \emph{connects} what
+exists, teaching \emph{writes} what does not. Update size is the muted echo of the gradient
+signal; magnitude and efficiency, not timing, are where the weights show the regime.}
+\begin{table}[h]\centering\small
+\begin{tabular}{lcc}
+\toprule
+ & elicit (TS1B-latent) & teach (blank) \\
+\midrule
+relative write $\|\Delta W\|/\|W\|$ (1M) & 0.095 & 0.212 \\
+steps to convergence & 11{,}500 & 23{,}496 \\
+peak / final writing speed (per step) & 0.218 / 0.018 & 0.306 / 0.022 \\
+total weight travel $\|\Delta W\|_F$ & 120 & 457 \\
+final exact match & 0.981 & 0.093 \\
+capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
+\bottomrule
+\end{tabular}
+\caption{Weight-space write, elicit vs teach (travel curves in \texttt{05\_weights/fig\_weight\_travel}).}
+\label{tab:weights}
+\end{table}
+
+% =====================================================================
+\end{enumerate}
+\section*{D. The latent state: what it means and what it permits before training}
+\begin{enumerate}[label=\textbf{R\arabic*}, leftmargin=*, itemsep=1.2em, resume]
+
+\item \textbf{In the latent parent, the words already reach the engine.}
+\metric{Cross-format activation matching: per node, mean cosine between the activation on the
+NL rendering and on the symbol rendering of the \emph{same} problem, minus the mismatched-pair
+baseline (``does \texttt{What is the sum of 621 and 5068?} drive the node into the same
+problem-specific state as \texttt{621 + 5068 = }?'').}
+\result{Engine without the binding dose: MLP index $\approx0.00$--$0.01$ at every layer.
+TS1B-latent (binding installed): $+0.07$--$0.13$ across layers 7--15, $\sim$10$\times$.
+Attention-head indices are confounded by shared digit tokens and are excluded.}
+\interp{This is what ``latent'' means internally: before any target training, NL input already
+activates the arithmetic MLPs of the elicit parent, while the teach parent has no arithmetic
+MLPs to activate. It also confirms the binding dose installed an access route, not the task.}
+
+\item \textbf{The latent capability can be reached with frozen weights; the absent one cannot.}
+\metric{Exact match on the target task under zero-training interventions: (a) self-chain ---
+the model rewrites the question itself, then computes its own rewrite; (b) donor patching ---
+the fine-tuned child's activations at the 32 circuit nodes written into the parent (mean
+vector, or per-prompt states); random-node controls.}
+\result{Figure~\ref{fig:ladder}, Table~\ref{tab:steer}. Elicit parent: direct $0.000\to$
+self-chain $\mathbf{0.328}$ ($=0.484\times0.668$; the composition law parse$\times$compute held on
+four model variants); per-prompt states $0.125$ (random nodes: $0.000$); mean vector: format
+only. Teach side: blank + same doses $0.000$; blank + chain $0.000$ (a parser without an
+engine); taught donor into blank twin $0.000$ in every condition.}
+\interp{Elicit = one composition step or one state-patch away from the target; teach = nothing
+underneath to switch on. The teach-side nulls double as the leakage control for the whole
+construction --- and they close the loop with R2: the machinery the patch activates is the
+same installed engine the fine-tune later reuses.}
+\begin{figure}[h]\centering
+\includegraphics[width=0.55\textwidth]{04_interventions/fig_intervention_ladder.png}
+\caption{Intervention ladder on the elicit parent (weights frozen except the last bar).}
+\label{fig:ladder}
+\end{figure}
+\begin{table}[h]\centering\small
+\begin{tabular}{llcc}
+\toprule
+Patient + intervention (k=32 circuit nodes) & condition & format & EM \\
+\midrule
+TS1B-latent + child mean shift & circuit nodes & 0.164 & 0.000 \\
+TS1B-latent + child per-prompt states & circuit nodes & 0.359 & \textbf{0.125} \\
+ & random-32 nodes & 0.051 & 0.000 \\
+TS1B-latent self-chain (no donor) & own rewrite + ``= '' & -- & \textbf{0.328} \\
+blank + binding dose, self-chain & parser without engine & -- & 0.000 \\
+blank + taught donor & every condition & 0.000 & 0.000 \\
+\bottomrule
+\end{tabular}
+\caption{Zero-training interventions, TinyStories twins.}
+\label{tab:steer}
+\end{table}
 
 \end{enumerate}
 
-\section*{Validation results (not regime differences, but what licenses R2--R6)}
+\section*{Validation results (not regime differences, but what licenses R2--R8)}
 
 \begin{itemize}[nosep]
   \item \textbf{Both circuits are real and load-bearing.} True activation patching: elicited child
@@ -323,8 +329,8 @@ consistent with R3: not a re-routed version of one machine but two machines.}
   \item Effective rank of $\Delta W$ (participation ratio): elicit 7.1, teach 5.2 of 512 ---
     both energy-concentrated; rank does not separate the regimes. Alignment of $\Delta W$ with
     the base's top-64 singular directions is near the 0.058 baseline for both.
-  \item Temporal profile of weight travel: burst-then-decay in both arms (R7) --- explained by
-    AdamW normalisation; the underlying gradient dynamics do discriminate (R8).
+  \item Temporal profile of weight travel: burst-then-decay in both arms (R6) --- an effect of
+    AdamW normalisation; the underlying gradient dynamics do discriminate (R5).
   \item Prompt brittleness (16-shot collapse) is a property of this lineage's training-sequence
     structure, not of the regime: both children score $\sim$0 at 16 shots.
   \item Edge-level $\Delta S$ within the elicit arm: the edge instrument's split-half noise
