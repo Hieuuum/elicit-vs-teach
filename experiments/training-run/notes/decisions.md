@@ -6547,3 +6547,36 @@ longer (loss still improving at 23.5K vs elicit converged at 11.5K), total
 EFFICIENCY — teach: 457 travel -> 0.093 EM; elicit: 120 travel -> 0.981 EM
 (~40x more capability per unit of weight written). Figure caption updated
 accordingly.
+
+## 2026-09-09 (metric 8, RAW gradient norms from the per-step gradstats logs) — teaching's gradient GROWS ~40x through training and accumulates ~150x the gradient mass of elicitation; elicitation's gradient decays 3x to a low floor. Adam normalisation hid this in the weight-travel curves.
+
+Source: runs/<rid>/logs/gradstats.jsonl (pre-clip global + per-module norm,
+every update; logged by geode.edl.loop since day one — no rerun needed).
+
+1M endpoints:
+| | steps | peak (step) | mean first 1% | mid | last 10% | decay | Σ‖g‖ | per step | QK/VO/MLP mass |
+| elicit | 11,500 | 0.441 (96) | 0.183 | 0.060 | 0.056 | x3.3 | 783 | 0.068 | .18/.55/.27 |
+| teach | 25,000 | 17.4 (23,657) | 0.169 | 5.21 | 6.80 | x0.02 | 116,877 | 4.68 | .12/.87/.01 |
+
+- Same starting scale (first-1% means 0.18 vs 0.17), then divergence: the
+  elicit gradient decays to a floor ~0.056 (converging on a 0.03-nat loss —
+  nothing left to change), the teach gradient RISES ~40x and peaks at the
+  very end of training (the run stopped on the val-loss plateau rule while
+  gradients were still large). Cumulative gradient mass ratio ~150x
+  (per-step ~69x).
+- Across n: identical at n<=10K (both ~0.15-0.2, teach flat, elicit
+  decaying x2-17); divergence begins at n=31.6K (teach last-10% 1.09 vs
+  0.063) and grows: mass ratio 7x (31.6K) -> 55x (100K) -> 95x (316K) ->
+  150x (1M). Teaching's gradient pressure grows with the amount of structure
+  it has to build.
+- WHERE the gradient goes: teach mass collapses out of MLPs (share 0.47 at
+  n=100 -> 0.01 at 1M) into attention (VO 0.87; QK 0.63-0.64 at 31K-100K) —
+  the layer-0 attention army being written, matching the taught circuit's
+  profile. Elicit stays balanced (.18/.55/.27), MLP share retained (engine
+  tuning).
+- Reconciles the weight-travel result: AdamW's √v-normalisation turned a
+  150x gradient-mass difference into a 3.8x travel difference with the same
+  temporal shape. Gradient norms discriminate the regimes; travel shape did
+  not. Owner's metric-8 predictions: teach "large sustained/growing" ✓✓;
+  elicit "collapse" ✓ in the weak form (peak at step 96, then x3.3 decay to
+  a floor ~100x below teach's late level).

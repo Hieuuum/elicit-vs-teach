@@ -62,6 +62,13 @@ TOP16 = {
         "mlp": [15, 13, 14, 0, 7, 6, 10], "attn": [0, 0, 0, 0, 0, 0, 0, 0, 15]},
 }
 
+# raw gradient norms (gradstats.jsonl), decisions.md 2026-09-09
+GRAD_N = [100, 316, 1000, 3162, 10000, 31623, 100000, 316228, 1000000]
+GRAD_MASS_EL = [5.7, 8.9, 24.4, 33.0, 60.1, 156.2, 358.3, 705.1, 782.9]
+GRAD_MASS_TE = [7.9, 16.0, 23.0, 28.8, 40.2, 1095.3, 19625.9, 67053.3, 116877.1]
+GRAD_LATE_EL = [0.011, 0.057, 0.042, 0.137, 0.100, 0.063, 0.051, 0.053, 0.056]
+GRAD_LATE_TE = [0.101, 0.419, 0.305, 0.159, 0.155, 1.088, 4.064, 5.814, 6.803]
+
 LADDER_LLAMA = [("direct", 0.0), ("mean vector", 0.039), ("per-prompt state", 0.449),
                 ("full fine-tune", 0.99)]
 LADDER_TS = [("direct", 0.0), ("mean vector", 0.0), ("per-prompt state", 0.125),
@@ -395,6 +402,51 @@ capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
 \hline
 \end{tabular}""",
           r"Weight-travel summary of the two 1M fine-tunes (from adapter snapshots). Elicit vs.\ teach: the writing dynamics share one shape (both burst then decay), so the scalars carry the contrast --- teaching writes 3.8$\times$ more over 2$\times$ as many steps yet buys $\sim$40$\times$ less capability per unit of weight written: eliciting \emph{connects} what exists, teaching \emph{writes} what does not. decisions.md 2026-09-08/09 (incl.\ the shape-claim correction).")
+
+    f, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.6))
+    a1.plot(GRAD_N, GRAD_MASS_TE, "o-", color=TE, label="teach (blank twin)")
+    a1.plot(GRAD_N, GRAD_MASS_EL, "o-", color=EL, label="elicit (TS1B-latent twin)")
+    a1.set_xscale("log")
+    a1.set_yscale("log")
+    a1.set_xlabel("$n$ (fine-tuning examples)")
+    a1.set_ylabel(r"cumulative gradient mass $\sum_t\|g_t\|$")
+    a1.grid(alpha=.3)
+    a1.legend(fontsize=8)
+    a2.plot(GRAD_N, GRAD_LATE_TE, "o-", color=TE)
+    a2.plot(GRAD_N, GRAD_LATE_EL, "o-", color=EL)
+    a2.set_xscale("log")
+    a2.set_yscale("log")
+    a2.set_xlabel("$n$")
+    a2.set_ylabel("mean grad norm, last 10% of steps")
+    a2.grid(alpha=.3)
+    save(S, f, "fig_grad_strength",
+         "Raw per-step gradient norms (pre-clip, logged at every update) vs "
+         "dataset size: cumulative gradient mass (left) and the mean norm over "
+         "the last 10% of each run (right). Elicit vs. teach: identical below "
+         "n=10K, then teaching's gradient GROWS - its late-run norm rises to "
+         "~6.8 at 1M (peak 17.4, at the very end of training) while elicitation's "
+         "decays to ~0.056 - so the accumulated gradient mass diverges to ~150x at "
+         "1M (116,877 vs 783). Adam's normalisation compressed this into the 3.8x "
+         "weight-travel difference: gradient norm, not travel shape, is the "
+         "discriminating dynamic. Teaching's gradient mass also migrates out of "
+         "the MLPs (share 0.47 -> 0.01) into attention - the layer-0 army being "
+         "written. runs/*/logs/gradstats.jsonl via grad_strength.py; decisions.md "
+         "2026-09-09.")
+
+    table(S, "grad_strength", r"""\begin{tabular}{lcc}
+\hline
+1M fine-tune & elicit (TS1B-latent) & teach (blank) \\
+\hline
+steps & 11{,}500 & 25{,}000 \\
+peak grad norm (step) & 0.441 (96) & 17.4 (23{,}657) \\
+mean norm, first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 \\
+decay (first 1\% $\div$ last 10\%) & $\times$3.3 & $\times$0.02 (grows $\sim$40$\times$) \\
+cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 \\
+gradient mass per step & 0.068 & 4.68 \\
+gradient-mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 \\
+\hline
+\end{tabular}""",
+          r"Raw gradient strength of the two 1M fine-tunes (pre-clip global norm at every update, from the runs' gradstats logs). Elicit vs.\ teach: both start at the same scale ($\approx$0.18), then the elicit gradient decays to a low floor (converging on a 0.03-nat loss; nothing left to change) while the teach gradient grows $\sim$40$\times$ and is still rising when the run stops --- $\sim$150$\times$ the accumulated gradient mass, concentrated in attention rather than MLPs (the layer-0 army under construction). This is the owner's metric 8 in its raw form; the weight-travel curves shared a shape only because AdamW normalises step size by $\sqrt{v}$. decisions.md 2026-09-09.")
 
     table(S, "weight_shift", r"""\begin{tabular}{lcccc}
 \hline

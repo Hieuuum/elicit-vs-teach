@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcc}
+\hline
+1M fine-tune & elicit (TS1B-latent) & teach (blank) \\
+\hline
+steps & 11{,}500 & 25{,}000 \\
+peak grad norm (step) & 0.441 (96) & 17.4 (23{,}657) \\
+mean norm, first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 \\
+decay (first 1\% $\div$ last 10\%) & $\times$3.3 & $\times$0.02 (grows $\sim$40$\times$) \\
+cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 \\
+gradient mass per step & 0.068 & 4.68 \\
+gradient-mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 \\
+\hline
+\end{tabular}
+\caption{Raw gradient strength of the two 1M fine-tunes (pre-clip global norm at every update, from the runs' gradstats logs). Elicit vs.\ teach: both start at the same scale ($\approx$0.18), then the elicit gradient decays to a low floor (converging on a 0.03-nat loss; nothing left to change) while the teach gradient grows $\sim$40$\times$ and is still rising when the run stops --- $\sim$150$\times$ the accumulated gradient mass, concentrated in attention rather than MLPs (the layer-0 army under construction). This is the owner's metric 8 in its raw form; the weight-travel curves shared a shape only because AdamW normalises step size by $\sqrt{v}$. decisions.md 2026-09-09.}
+\label{tab:grad_strength}
+\end{table}

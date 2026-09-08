@@ -47,8 +47,8 @@ overlaps are Jaccard@32 against a chance floor of 0.031 and a per-map split-half
 \emph{Weight write} = $\Delta W = \text{scaling}\cdot BA$ per LoRA module (exact; singular
 values via thin QR); total write $\|\Delta W\|_F$, relative write $\|\Delta W\|/\|W\|$,
 travel $\|\Delta W_t\|_F$ and speed $\|\Delta W_t-\Delta W_{t-1}\|_F/\Delta t$ from adapter
-snapshots (the measurable form of ``gradient strength'' under AdamW, whose updates are
-$\sqrt{v}$-normalised).
+snapshots. \emph{Gradient strength} = the pre-clip global gradient norm $\|g_t\|$ logged at
+every update (runs' \texttt{gradstats.jsonl}); cumulative gradient mass $\sum_t\|g_t\|$.
 
 \begin{table}[h]\centering\small
 \begin{tabular}{lcc}
@@ -254,6 +254,46 @@ capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
 \end{figure}
 
 % ------------------------------------------------------------------ R8
+\item \textbf{Teaching's gradient grows through training; elicitation's decays.}
+\metric{Pre-clip global gradient norm at every update, from the runs' \texttt{gradstats}
+logs: peak, mean over first 1\% / middle / last 10\% of steps, cumulative gradient mass
+$\sum_t\|g_t\|$, and its split across weight classes.}
+\result{Table~\ref{tab:grad}, Figure~\ref{fig:grad}. Both arms start at the same scale
+(first-1\% mean $0.18$ vs $0.17$). Elicit then decays $\times3.3$ to a floor of $0.056$
+(peak $0.44$ at step 96). Teach \emph{grows} $\sim$40$\times$ to $6.8$ (peak $17.4$ at step
+23,657 --- still rising when the run stopped). Cumulative gradient mass $783$ vs $116{,}877$
+($\sim$150$\times$). Across $n$ the arms are indistinguishable up to $10$K and diverge from
+$31.6$K on (mass ratio $7\times\to55\times\to95\times\to150\times$). Teach's gradient mass
+migrates out of the MLPs (share $0.47\to0.01$) into attention (VO $0.87$).}
+\interp{The clearest dynamical discriminator: eliciting converges and its gradient dies;
+teaching keeps generating gradient pressure that grows with the structure being built, and
+that pressure is aimed at attention --- the layer-0 army of R3 being written. It also
+explains R7: AdamW's $\sqrt{v}$-normalisation compressed a 150$\times$ gradient-mass
+difference into a 3.8$\times$ travel difference with a shared temporal shape, so raw
+gradient norm --- not update size --- is where the regimes separate.}
+\begin{table}[h]\centering\small
+\begin{tabular}{lcc}
+\toprule
+1M fine-tune & elicit & teach \\
+\midrule
+peak grad norm (step) & 0.441 (96) & 17.4 (23{,}657) \\
+mean norm: first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 \\
+first 1\% $\div$ last 10\% & $\times$3.3 (decays) & $\times$0.02 (grows $\sim$40$\times$) \\
+cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 \\
+gradient mass per step & 0.068 & 4.68 \\
+mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 \\
+\bottomrule
+\end{tabular}
+\caption{Raw gradient strength, 1M fine-tunes (pre-clip global norm at every update).}
+\label{tab:grad}
+\end{table}
+\begin{figure}[h]\centering
+\includegraphics[width=\textwidth]{05_weights/fig_grad_strength.png}
+\caption{Cumulative gradient mass (left) and late-run gradient norm (right) vs $n$; teal = teach, gold = elicit.}
+\label{fig:grad}
+\end{figure}
+
+% ------------------------------------------------------------------ R9
 \item \textbf{The regime difference is total: the two children differ at both node and edge
 level.}
 \metric{$\Delta S = 1-\text{Jaccard}$ at node level (@32) and edge level (@256, node$\to$block
@@ -283,7 +323,8 @@ consistent with R3: not a re-routed version of one machine but two machines.}
   \item Effective rank of $\Delta W$ (participation ratio): elicit 7.1, teach 5.2 of 512 ---
     both energy-concentrated; rank does not separate the regimes. Alignment of $\Delta W$ with
     the base's top-64 singular directions is near the 0.058 baseline for both.
-  \item Temporal profile of weight travel: burst-then-decay in both arms (R7).
+  \item Temporal profile of weight travel: burst-then-decay in both arms (R7) --- explained by
+    AdamW normalisation; the underlying gradient dynamics do discriminate (R8).
   \item Prompt brittleness (16-shot collapse) is a property of this lineage's training-sequence
     structure, not of the regime: both children score $\sim$0 at 16 shots.
   \item Edge-level $\Delta S$ within the elicit arm: the edge instrument's split-half noise

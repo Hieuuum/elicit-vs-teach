@@ -16,13 +16,4 @@ Figures: PNG + PDF + `.caption.txt`. Tables: self-contained LaTeX with
 `\caption` and `\label`. Regenerate on the cluster (GEODE_STORE set) to pull
 the full 19-point teach curve into fig_signature_flip from run manifests.
 
-Pending (optional): r=16 capacity check (energy-rank vs needed-rank, 2 runs).
-
-## results_ts.tex
-
-Standalone LaTeX results document (TinyStories twins only, positive
-regime-discriminating results R1--R8 + validation + informative
-non-discriminators), each with Metric / Result / Elicit-vs-teach
-interpretation and the relevant figure/table inline. Compile from this
-folder: `pdflatex results_ts.tex` (twice). Prompt brittleness is listed as a
-non-discriminator here: within TinyStories both children collapse at 16-shot.
+Pending (optional): r=16 capacity check (energy-rank vs needed-rank, 2 runs). Raw gradient-norm assets (fig_grad_strength, grad_strength.tex) come from the existing per-step gradstats logs — no rerun was needed.
