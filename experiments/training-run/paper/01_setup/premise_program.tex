@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcc}
+\hline
+Step / measurement (constructing TS1B-latent) & value & control \\
+\hline
+1. op install: symbol EM (\texttt{23 + 45 = }) & 0.67--0.73 & blank TS: 0.00 \\
+\quad corpus census: ``sum'' in 439M words & 21$\times$ & ``equals'' 17, ``minus'' 57 \\
+2. binding dose: NL$\to$op rewrite exact & 0.484 & blank + dose: 0.000 EM \\
+\quad sum-only dose on difference-questions & writes ``+'' & per-word binding \\
+Resulting parent: direct NL exact match & \textbf{0.000} & = blank twin \\
+\quad self-chain EM (frozen weights) & 0.328 & $=0.484\times0.668$ (law $\times$4 configs) \\
+\quad words reach engine (xfmt MLP index, L7--15) & +0.07--0.13 & no binding: $\sim$0.00 \\
+\hline
+\end{tabular}
+\caption{Construction of the latent parent (TS1B-latent) from answer-free pieces: a symbol-only arithmetic install, then a rewriting dose that binds words to symbols without ever showing a computed result (rehearsed 1:1 with already-seen symbol rows). Controls: identical doses on the blank twin change nothing; the binding is learned per word. Elicit vs.\ teach: the finished parent is behaviorally identical to the blank twin on the target (0.000 direct EM) yet differs internally --- reachable by self-composition and with NL words measurably driving the arithmetic MLPs --- which is exactly the state the elicit regime presupposes and the teach regime lacks. decisions.md 2026-08-28..2026-09-01.}
+\label{tab:premise_program}
+\end{table}

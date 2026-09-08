@@ -1,0 +1,15 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcccc}
+\hline
+Cell & $\Delta S_{node}$ & $\Delta S_{edge}$ & noise floors (n / e) & corrected ratio \\
+\hline
+Llama base16 $\to$ FT16 (elicit) & 0.476 & 0.766 & 0.29 / 0.434 & \textbf{2.2} \\
+TS1B-latent $\to$ child, op surface (elicit) & 0.512 & 0.582 & 0.32 / 0.616 & edge $<$ floor \\
+TS1B-latent $\to$ child, bridge surface (elicit) & 0.476 & 0.635 & -- / 0.609 & $\sim$0.07 (edge) \\
+TS elicited-1M vs taught-1M (regime) & 0.769 & 0.739 & -- & 0.96 \\
+\hline
+\end{tabular}
+\caption{Node- vs edge-level change rates ($\Delta S = 1-$Jaccard; nodes @32, edges @256; node$\to$block EAP with frozen-RMS layernorm pullback), with split-half noise floors. Elicit vs.\ teach: on Llama, elicitation changes \emph{edges} $\approx$2.2$\times$ more than \emph{nodes} after noise correction (Wang et al.\ 2025 report 2--4$\times$ for math fine-tuning) --- rewiring existing parts, mostly by re-weighting kept wiring and promoting previously minor pathways; teaching cannot be given a pre/post $\Delta S$ at all (its parent has no circuit --- recruitment from nothing), and the elicited-vs-taught comparison differs equally at both levels. The TS edge instrument's floor exceeds its measured churn on both surfaces (sensitivity limit, reported as such). decisions.md 2026-09-06..08.}
+\label{tab:delta_s}
+\end{table}

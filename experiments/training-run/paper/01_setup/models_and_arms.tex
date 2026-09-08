@@ -1,0 +1,16 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{llll}
+\hline
+Arc & Regime & Parent (before target FT) & Target fine-tune \\
+\hline
+Llama & elicit & Llama-3.2-1B (pretrained; arithmetic latent) & LoRA r512 on bare-NL add/sub, $n=10^3..10^6$ \\
+Llama & elicit (pre-format) & + 16-example format installer & same \\
+TinyStories & teach & TS-1B twin (stories only; no arithmetic) & same protocol, same data \\
+TinyStories & teach (pre-format) & + answer-free format dose & same \\
+TinyStories & \textbf{elicit (constructed)} & TS1B-latent: op install + word binding & same protocol, same data \\
+\hline
+\end{tabular}
+\caption{Models and arms. All target fine-tunes share one byte-held protocol (LoRA r512/$\alpha$32 @ 3.53e-4, batch 128, seed 316, eps/k convergence stop, frozen D\_algo\_bare data), so arms differ only in the parent checkpoint. The TinyStories twins share the identical pretrained substrate. Elicit vs.\ teach: the regime is fixed entirely by what the parent already contains --- a latent capability (elicit) or nothing (teach) --- never by the training data. decisions.md 2026-08-13..2026-09-01.}
+\label{tab:models_and_arms}
+\end{table}

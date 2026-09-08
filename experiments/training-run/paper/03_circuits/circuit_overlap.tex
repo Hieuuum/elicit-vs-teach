@@ -1,0 +1,17 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lccc}
+\hline
+Comparison & J@32 & chance & ceiling \\
+\hline
+Llama base(16s) $\leftrightarrow$ Llama FT(16s) & 0.524 & 0.031 & $\sim$0.71 \\
+Llama FT: 0-shot $\leftrightarrow$ 16-shot (same weights) & 0.391 & 0.031 & $\sim$0.71 \\
+Llama FT $\leftrightarrow$ FT + format-install & 0.684 & 0.031 & $\sim$0.71 \\
+TS1B-latent $\leftrightarrow$ its elicited child (op / bridge surface) & 0.455--0.488 / 0.524 & 0.031 & 0.684 \\
+Llama FT $\leftrightarrow$ TS taught (cross-model) & 0.164\textsuperscript{a} & 0.065 & -- \\
+TS elicited-1M $\leftrightarrow$ TS taught-1M (same base) & 0.231\textsuperscript{b} & 0.031 & 0.684 / 0.561 \\
+\hline
+\end{tabular}
+\caption{Circuit-membership overlap (attribution top-32 Jaccard, all maps performing-regime-guarded). \textsuperscript{a}J@64, score Spearman $-0.43$. \textsuperscript{b}score Spearman $-0.11$. Elicit vs.\ teach: in both arcs the elicited circuit is the parent's own circuit re-weighted (0.455--0.524, $\approx$70\% of the measurement ceiling; a million examples move it less than changing the prompt regime does, 0.391), whereas the taught circuit matches nothing upstream (the blank parent has no measurable circuit) and is anti-correlated with the elicited one even inside the same pretrained substrate --- same behavior, different mechanism. decisions.md 2026-08-24..2026-09-07.}
+\label{tab:circuit_overlap}
+\end{table}

@@ -1,0 +1,15 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcccc}
+\hline
+Model & \multicolumn{2}{c}{sufficiency} & \multicolumn{2}{c}{necessity} \\
+ & top-8 & top-32 & top-8 & top-32 \\
+\hline
+Llama elicited & 0.94--0.97 & $\sim$1.0 & 0.943 & $\sim$0.999 \\
+TS taught & -- & $\sim$1.0 & 0.986 & $\sim$0.999 \\
+TS elicited (child of TS1B-latent) & 0.997 & 0.999 & 0.998 & 1.000 \\
+\hline
+\end{tabular}
+\caption{True activation patching: fraction of clean-vs-corrupt behavior restored (sufficiency) or destroyed (necessity) by the top-$k$ of 528 nodes. Elicit vs.\ teach: the regimes do \emph{not} differ here --- both build $\sim$32-node circuits that are near-totally sufficient and necessary --- so the differences reported elsewhere (where the circuit lives, when it forms, whether it can be switched on) are differences between two real, load-bearing circuits, not between a circuit and noise. decisions.md 2026-08-24, 2026-09-01.}
+\label{tab:faithfulness}
+\end{table}

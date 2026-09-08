@@ -1,12 +1,19 @@
-"""Generate every paper asset (figures + LaTeX tables, all captioned).
+"""Generate every paper asset (figures + LaTeX tables), sorted by topic.
 
-Numbers are transcribed from the timestamped lab notebook
-(experiments/training-run/notes/decisions.md) — the single source of truth;
-each asset's caption states its provenance. Sweep curves are read from run
-manifests when GEODE_STORE is available (cluster) and fall back to the
-embedded anchor values otherwise.
+Layout (one folder per topic; each holds its figures and tables):
+  01_setup/            models, arms, and how the latent parent was constructed
+  02_learning_curves/  EDL / accuracy vs dataset size (the behavioral signature)
+  03_circuits/         circuit identity, formation, faithfulness, node-vs-edge
+  04_interventions/    zero-training patching / steering / self-chain
+  05_weights/          weight-space shift and travel
 
-Usage:  python3 make_assets.py        # writes figures/ and tables/
+Every caption ends with an explicit "Elicit vs. teach:" sentence stating what
+the asset shows about the two regimes. Numbers are transcribed from the
+timestamped lab notebook (experiments/training-run/notes/decisions.md); each
+caption names its provenance. Sweep curves are read from run manifests when
+GEODE_STORE is available (cluster) and fall back to embedded anchors.
+
+Usage:  python3 make_assets.py
 """
 from __future__ import annotations
 
@@ -20,11 +27,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
-FIG, TAB = HERE / "figures", HERE / "tables"
-FIG.mkdir(exist_ok=True)
-TAB.mkdir(exist_ok=True)
 STORE = Path(os.environ.get("GEODE_STORE", HERE.parents[2] / "geode-store"))
-
 EL, TE = "#9a6316", "#2c6b74"  # elicit gold / teach teal
 
 # ---------------------------------------------------------------- data ----
@@ -55,9 +58,16 @@ LADDER_TS = [("direct", 0.0), ("mean vector", 0.0), ("per-prompt state", 0.125),
              ("self-chain", 0.328), ("full fine-tune", 0.981)]
 
 
+# ------------------------------------------------------------- plumbing ---
+def outdir(section: str) -> Path:
+    d = HERE / section
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
 def read_sweep(prefix: str):
     ns, edl, em = [], [], []
-    for n in SIZES + [1468, 2154, 4642, 6813, 14678, 21544, 31623, 46416, 68129,
+    for n in SIZES + [1468, 2154, 4642, 6813, 14678, 21544, 46416, 68129,
                       146780, 215443, 464159, 681292]:
         p = STORE / "runs" / f"{prefix}{n}" / "manifest.json"
         if not p.is_file():
@@ -74,24 +84,58 @@ def read_sweep(prefix: str):
     return [ns[i] for i in order], [edl[i] for i in order], [em[i] for i in order]
 
 
-def save(fig, name, caption):
+def save(section: str, fig, name: str, caption: str) -> None:
+    d = outdir(section)
     fig.tight_layout()
-    fig.savefig(FIG / f"{name}.png", dpi=200)
-    fig.savefig(FIG / f"{name}.pdf")
-    (FIG / f"{name}.caption.txt").write_text(caption + "\n")
+    fig.savefig(d / f"{name}.png", dpi=200)
+    fig.savefig(d / f"{name}.pdf")
+    (d / f"{name}.caption.txt").write_text(caption + "\n")
     plt.close(fig)
-    print(f"[assets] figures/{name}.png")
+    print(f"[assets] {section}/{name}.png")
 
 
-def table(name, tex, caption):
-    (TAB / f"{name}.tex").write_text(
+def table(section: str, name: str, tex: str, caption: str) -> None:
+    (outdir(section) / f"{name}.tex").write_text(
         "\\begin{table}[t]\n\\centering\n" + tex +
         f"\n\\caption{{{caption}}}\n\\label{{tab:{name}}}\n\\end{{table}}\n")
-    print(f"[assets] tables/{name}.tex")
+    print(f"[assets] {section}/{name}.tex")
 
 
-# --------------------------------------------------------------- figures --
+# ================================================================ 01 setup
+def setup_tables():
+    S = "01_setup"
+    table(S, "models_and_arms", r"""\begin{tabular}{llll}
+\hline
+Arc & Regime & Parent (before target FT) & Target fine-tune \\
+\hline
+Llama & elicit & Llama-3.2-1B (pretrained; arithmetic latent) & LoRA r512 on bare-NL add/sub, $n=10^3..10^6$ \\
+Llama & elicit (pre-format) & + 16-example format installer & same \\
+TinyStories & teach & TS-1B twin (stories only; no arithmetic) & same protocol, same data \\
+TinyStories & teach (pre-format) & + answer-free format dose & same \\
+TinyStories & \textbf{elicit (constructed)} & TS1B-latent: op install + word binding & same protocol, same data \\
+\hline
+\end{tabular}""",
+          r"Models and arms. All target fine-tunes share one byte-held protocol (LoRA r512/$\alpha$32 @ 3.53e-4, batch 128, seed 316, eps/k convergence stop, frozen D\_algo\_bare data), so arms differ only in the parent checkpoint. The TinyStories twins share the identical pretrained substrate. Elicit vs.\ teach: the regime is fixed entirely by what the parent already contains --- a latent capability (elicit) or nothing (teach) --- never by the training data. decisions.md 2026-08-13..2026-09-01.")
+
+    table(S, "premise_program", r"""\begin{tabular}{lcc}
+\hline
+Step / measurement (constructing TS1B-latent) & value & control \\
+\hline
+1. op install: symbol EM (\texttt{23 + 45 = }) & 0.67--0.73 & blank TS: 0.00 \\
+\quad corpus census: ``sum'' in 439M words & 21$\times$ & ``equals'' 17, ``minus'' 57 \\
+2. binding dose: NL$\to$op rewrite exact & 0.484 & blank + dose: 0.000 EM \\
+\quad sum-only dose on difference-questions & writes ``+'' & per-word binding \\
+Resulting parent: direct NL exact match & \textbf{0.000} & = blank twin \\
+\quad self-chain EM (frozen weights) & 0.328 & $=0.484\times0.668$ (law $\times$4 configs) \\
+\quad words reach engine (xfmt MLP index, L7--15) & +0.07--0.13 & no binding: $\sim$0.00 \\
+\hline
+\end{tabular}""",
+          r"Construction of the latent parent (TS1B-latent) from answer-free pieces: a symbol-only arithmetic install, then a rewriting dose that binds words to symbols without ever showing a computed result (rehearsed 1:1 with already-seen symbol rows). Controls: identical doses on the blank twin change nothing; the binding is learned per word. Elicit vs.\ teach: the finished parent is behaviorally identical to the blank twin on the target (0.000 direct EM) yet differs internally --- reachable by self-composition and with NL words measurably driving the arithmetic MLPs --- which is exactly the state the elicit regime presupposes and the teach regime lacks. decisions.md 2026-08-28..2026-09-01.")
+
+
+# ====================================================== 02 learning curves
 def fig_signature_flip():
+    S = "02_learning_curves"
     ns, edl, em = read_sweep("evt-ts1b-mix-nl-n")
     if not ns:
         ns, edl, em = SIZES, MIX_EDL, MIX_EM
@@ -100,7 +144,7 @@ def fig_signature_flip():
         bn, bedl, bem = BLANK_ANCHOR_N, BLANK_ANCHOR_EDL, [None] * 6
     f, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.8))
     a1.plot(bn, bedl, "o-", color=TE, label="blank TS (teach)")
-    a1.plot(ns, edl, "o-", color=EL, label="pre-elicit parent (TS1B-latent)")
+    a1.plot(ns, edl, "o-", color=EL, label="TS1B-latent (elicit)")
     a1.set_xscale("log")
     a1.set_xlabel("$n$ (fine-tuning examples)")
     a1.set_ylabel("EDL / label token (nats)")
@@ -114,17 +158,40 @@ def fig_signature_flip():
     a2.set_ylabel("0-shot exact match")
     a2.grid(alpha=.3)
     a2.set_title("Capability threshold")
-    save(f, "fig_signature_flip",
-         "Same-base causal intervention: fine-tuning two identical TinyStories-1B "
-         "twins on bare-NL add/sub. The blank twin (teal) shows the teaching "
-         "signature (EDL hump peaking near n=215K; 9.3% EM at 1M). The constructed "
-         "pre-elicit parent (gold; op-notation install + answer-free word-symbol "
-         "binding) is strictly monotone (4.53->0.092 nats) with EM 54% at n=3,162 "
-         "- an EM-0.5 threshold shift >300x. Values from run manifests "
-         "(evt-ts1b-mix-nl-n*, evt-ts1b-fig2ts-noinst-n*); decisions.md 2026-09-01.")
+    save(S, f, "fig_signature_flip",
+         "Same-base causal intervention: two identical TinyStories-1B twins "
+         "fine-tuned on bare-NL add/sub, differing only in the parent. Elicit vs. "
+         "teach: the teach twin (teal) shows the increasing-returns hump (EDL "
+         "rising to a peak near n=215K while a capability is built from scratch; "
+         "9.3% EM even at 1M), whereas the elicit twin (gold) is strictly monotone "
+         "(4.53->0.092 nats) because each example only connects an existing "
+         "capability - EM 54% at n=3,162, an EM-0.5 threshold shift >300x. A "
+         "third measured arm (blank + format-only dose) keeps its hump: formatting "
+         "does not explain the flip. Manifests evt-ts1b-mix-nl-n*, "
+         "evt-ts1b-fig2ts-noinst-n*; decisions.md 2026-09-01.")
+
+    table(S, "same_base_sweep", r"""\begin{tabular}{rcccc}
+\hline
+$n$ & \multicolumn{2}{c}{elicit (TS1B-latent)} & \multicolumn{2}{c}{teach (blank TS)} \\
+ & EDL/tok & EM & EDL/tok & EM \\
+\hline
+100 & 4.533 & 0.023 & 6.511 & 0.007 \\
+316 & 4.208 & 0.038 & 6.387 & 0.033 \\
+1{,}000 & 3.579 & 0.155 & $\sim$4.9 & $\sim$0 \\
+3{,}162 & 3.168 & \textbf{0.541} & $\downarrow$ & $\sim$0 \\
+10{,}000 & 2.444 & 0.743 & $\downarrow$ (min $\sim$0.8) & $\sim$0 \\
+31{,}623 & 1.137 & 0.867 & $\uparrow$ & $\sim$0 \\
+100{,}000 & 0.467 & 0.915 & $\uparrow$ & $\sim$0 \\
+316{,}228 & 0.215 & 0.966 & peak $\sim$2.0 @215K & $\sim$0 \\
+1{,}000{,}000 & \textbf{0.092} & \textbf{0.981} & 1.40 & 0.093 \\
+\hline
+\end{tabular}""",
+          r"Per-rung values behind the signature flip (EDL in nats per label token; EM = 0-shot exact match on 1,024 held-out problems). Elicit vs.\ teach: elicit's EDL decreases at every rung and accuracy unlocks by $n\approx3\times10^3$; teach's EDL is non-monotone (down--up--down with the hump peaking at $n\approx215$K) and accuracy stays near zero until the hump has passed. Same task, protocol, and substrate. Teach-arm intermediate values are read from manifests on the cluster (evt-ts1b-fig2ts-noinst-n*); decisions.md 2026-08-22, 2026-09-01.")
 
 
-def fig_formation():
+# ============================================================ 03 circuits
+def circuits():
+    S = "03_circuits"
     f, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.8), sharey=True)
     for ax, data, c, ceil, title in (
             (a1, TS_EL_FORM, EL, 0.684, "Elicit twin (TS1B-latent child)"),
@@ -137,18 +204,19 @@ def fig_formation():
         ax.grid(alpha=.3)
         ax.set_title(title, fontsize=10)
     a1.set_ylabel("Jaccard@32 vs final circuit")
-    save(f, "fig_formation_ts",
-         "Circuit formation during the two 1M-example fine-tunes (Jaccard of each "
-         "snapshot's attribution circuit vs the run's final circuit). Elicit: "
-         "visible at step 1 (J=0.488 - the installed engine), a brief interface-"
-         "wiring transient, locked from ~step 1.5K of 11.5K (82% of ceiling). "
-         "Teach: noise floor until ~step 1.3K, then built over 1.3K-5.4K, exactly "
-         "through the EDL-hump region. Elicit points: traj_evt-ts1b-mix-nl-"
-         "n1000000s2.parquet; teach points anchored at that run's snapshot steps "
-         "(decisions.md 2026-08-24/2026-09-02).")
+    save(S, f, "fig_formation_ts",
+         "Circuit formation during the two 1M fine-tunes (Jaccard of each "
+         "snapshot's attribution circuit vs the run's final circuit; dashed = "
+         "split-half measurement ceiling). Elicit vs. teach: the elicit circuit "
+         "is already visible at step 1 (J=0.488, the installed engine showing "
+         "through), passes a brief interface-wiring transient, and is locked from "
+         "~step 1.5K of 11.5K (82% of ceiling); the teach circuit sits at the "
+         "noise floor until ~step 1.3K and is then built over steps 1.3K-5.4K - "
+         "exactly the EDL-hump region. The elicited circuit finishes stabilizing "
+         "before the taught one begins to exist. traj_evt-ts1b-mix-nl-n1000000s2; "
+         "teach points at that run's snapshot steps; decisions.md 2026-08-24, "
+         "2026-09-02.")
 
-
-def fig_formation_llama():
     f, ax = plt.subplots(figsize=(5.2, 3.6))
     ax.plot([s for s, _ in LLAMA_FORM], [j for _, j in LLAMA_FORM], "o-", color=EL)
     ax.axhline(0.71, ls="--", c="gray", lw=1)
@@ -156,14 +224,99 @@ def fig_formation_llama():
     ax.set_xlabel("training step")
     ax.set_ylabel("Jaccard@32 vs final circuit")
     ax.grid(alpha=.3)
-    save(f, "fig_formation_llama",
+    save(S, f, "fig_formation_llama",
          "Llama-3.2-1B elicitation formation curve (fig2nl3s endpoint): the final "
-         "circuit is at the split-half ceiling (~0.71, dashed) by step 185 of "
-         "8,770 (~2% of the epoch). traj_evt-llama-fig2nl3s-noinst-n1000000; "
+         "circuit reaches the split-half ceiling (~0.71, dashed) by step 185 of "
+         "8,770 (~2% of the epoch) and stays there. Elicit vs. teach: this is the "
+         "pure-elicitation limit - pretraining supplied both the arithmetic engine "
+         "and its language interface, so fine-tuning has nothing to build and the "
+         "circuit is final almost immediately; compare the teach twin's 1.3K-5.4K "
+         "construction window. traj_evt-llama-fig2nl3s-noinst-n1000000; "
          "decisions.md 2026-08-26.")
 
+    table(S, "circuit_overlap", r"""\begin{tabular}{lccc}
+\hline
+Comparison & J@32 & chance & ceiling \\
+\hline
+Llama base(16s) $\leftrightarrow$ Llama FT(16s) & 0.524 & 0.031 & $\sim$0.71 \\
+Llama FT: 0-shot $\leftrightarrow$ 16-shot (same weights) & 0.391 & 0.031 & $\sim$0.71 \\
+Llama FT $\leftrightarrow$ FT + format-install & 0.684 & 0.031 & $\sim$0.71 \\
+TS1B-latent $\leftrightarrow$ its elicited child (op / bridge surface) & 0.455--0.488 / 0.524 & 0.031 & 0.684 \\
+Llama FT $\leftrightarrow$ TS taught (cross-model) & 0.164\textsuperscript{a} & 0.065 & -- \\
+TS elicited-1M $\leftrightarrow$ TS taught-1M (same base) & 0.231\textsuperscript{b} & 0.031 & 0.684 / 0.561 \\
+\hline
+\end{tabular}""",
+          r"Circuit-membership overlap (attribution top-32 Jaccard, all maps performing-regime-guarded). \textsuperscript{a}J@64, score Spearman $-0.43$. \textsuperscript{b}score Spearman $-0.11$. Elicit vs.\ teach: in both arcs the elicited circuit is the parent's own circuit re-weighted (0.455--0.524, $\approx$70\% of the measurement ceiling; a million examples move it less than changing the prompt regime does, 0.391), whereas the taught circuit matches nothing upstream (the blank parent has no measurable circuit) and is anti-correlated with the elicited one even inside the same pretrained substrate --- same behavior, different mechanism. decisions.md 2026-08-24..2026-09-07.")
 
-def fig_weight_travel():
+    table(S, "faithfulness", r"""\begin{tabular}{lcccc}
+\hline
+Model & \multicolumn{2}{c}{sufficiency} & \multicolumn{2}{c}{necessity} \\
+ & top-8 & top-32 & top-8 & top-32 \\
+\hline
+Llama elicited & 0.94--0.97 & $\sim$1.0 & 0.943 & $\sim$0.999 \\
+TS taught & -- & $\sim$1.0 & 0.986 & $\sim$0.999 \\
+TS elicited (child of TS1B-latent) & 0.997 & 0.999 & 0.998 & 1.000 \\
+\hline
+\end{tabular}""",
+          r"True activation patching: fraction of clean-vs-corrupt behavior restored (sufficiency) or destroyed (necessity) by the top-$k$ of 528 nodes. Elicit vs.\ teach: the regimes do \emph{not} differ here --- both build $\sim$32-node circuits that are near-totally sufficient and necessary --- so the differences reported elsewhere (where the circuit lives, when it forms, whether it can be switched on) are differences between two real, load-bearing circuits, not between a circuit and noise. decisions.md 2026-08-24, 2026-09-01.")
+
+    table(S, "delta_s", r"""\begin{tabular}{lcccc}
+\hline
+Cell & $\Delta S_{node}$ & $\Delta S_{edge}$ & noise floors (n / e) & corrected ratio \\
+\hline
+Llama base16 $\to$ FT16 (elicit) & 0.476 & 0.766 & 0.29 / 0.434 & \textbf{2.2} \\
+TS1B-latent $\to$ child, op surface (elicit) & 0.512 & 0.582 & 0.32 / 0.616 & edge $<$ floor \\
+TS1B-latent $\to$ child, bridge surface (elicit) & 0.476 & 0.635 & -- / 0.609 & $\sim$0.07 (edge) \\
+TS elicited-1M vs taught-1M (regime) & 0.769 & 0.739 & -- & 0.96 \\
+\hline
+\end{tabular}""",
+          r"Node- vs edge-level change rates ($\Delta S = 1-$Jaccard; nodes @32, edges @256; node$\to$block EAP with frozen-RMS layernorm pullback), with split-half noise floors. Elicit vs.\ teach: on Llama, elicitation changes \emph{edges} $\approx$2.2$\times$ more than \emph{nodes} after noise correction (Wang et al.\ 2025 report 2--4$\times$ for math fine-tuning) --- rewiring existing parts, mostly by re-weighting kept wiring and promoting previously minor pathways; teaching cannot be given a pre/post $\Delta S$ at all (its parent has no circuit --- recruitment from nothing), and the elicited-vs-taught comparison differs equally at both levels. The TS edge instrument's floor exceeds its measured churn on both surfaces (sensitivity limit, reported as such). decisions.md 2026-09-06..08.")
+
+
+# ======================================================= 04 interventions
+def interventions():
+    S = "04_interventions"
+    f, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.6), sharey=True)
+    for ax, data, t in ((a1, LADDER_LLAMA, "Llama base (elicit)"),
+                        (a2, LADDER_TS, "TS1B-latent (elicit)")):
+        ax.bar(range(len(data)), [v for _, v in data], color=EL)
+        ax.set_xticks(range(len(data)))
+        ax.set_xticklabels([k for k, _ in data], rotation=20, ha="right", fontsize=8)
+        ax.set_title(t, fontsize=10)
+        ax.grid(axis="y", alpha=.3)
+    a1.set_ylabel("exact match on target task")
+    save(S, f, "fig_intervention_ladder",
+         "Intervention ladders on the two elicit-side parents (weights frozen "
+         "except the final bar): exact match when the pre-elicit model is handed, "
+         "at its 32 circuit nodes, a constant mean-shift vector, the fine-tuned "
+         "donor's per-prompt states, or (TS) composes its own two installed skills "
+         "(rewrite, then compute its rewrite). Random-node controls are 0 at every "
+         "rung. Elicit vs. teach: these rungs exist only on the elicit side - the "
+         "teach-side analogues (taught donor into the blank twin, blank + dose + "
+         "chain) are 0.000 in every condition, because there is no pre-existing "
+         "machinery for a state or a patch to switch on. decisions.md 2026-08-26 "
+         "(Llama), 2026-08-29/2026-09-01 (TS).")
+
+    table(S, "steering", r"""\begin{tabular}{llcc}
+\hline
+Patient + donor (k=32 circuit nodes, prefill) & condition & format & EM \\
+\hline
+Llama base + FT mean shift & circuit nodes & 0.656 & 0.039 \\
+ & random-32 / attn-only & 0.000 & 0.000 \\
+ & all 528 nodes & 0.066 & 0.004 \\
+Llama base + FT per-prompt states & circuit nodes & 0.637 & 0.449 \\
+TS1B-latent + child mean shift & circuit nodes & 0.164 & 0.000 \\
+TS1B-latent + child per-prompt states & circuit nodes & 0.359 & 0.125 \\
+TS1B-latent self-chain (no donor) & own rewrite + ``= '' & -- & 0.328 \\
+blank TS + taught donor & every condition & 0.000 & 0.000 \\
+\hline
+\end{tabular}""",
+          r"Zero-training activation interventions at the 32 circuit nodes. Elicit vs.\ teach: a latent capability can be switched on from outside --- on Llama a constant 32-vector patch restores 66\% well-formed answers and per-prompt state gives 45\% exact answers; on TS1B-latent per-prompt state gives 12.5\% and self-composition 33\% --- while an absent capability cannot: the taught model's vectors written into the blank twin produce nothing in any condition. Random-node controls are null throughout, so the effect lives at the circuit's address. decisions.md 2026-08-25/26, 2026-09-01.")
+
+
+# ============================================================= 05 weights
+def weights():
+    S = "05_weights"
     f, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.6))
     for data, c, lbl in ((WTRAJ_TE, TE, "teach (blank twin)"),
                          (WTRAJ_EL, EL, "elicit (TS1B-latent twin)")):
@@ -181,134 +334,21 @@ def fig_weight_travel():
     a2.set_xlabel("training step")
     a2.set_ylabel("speed per step")
     a2.grid(alpha=.3)
-    save(f, "fig_weight_travel",
+    save(S, f, "fig_weight_travel",
          "Weight travel of the two 1M fine-tunes from adapter snapshots (the "
-         "measurable form of 'gradient strength' under AdamW). Both arms share "
-         "the same burst-then-decay temporal profile - an optimization "
-         "signature, not a regime one - so the discriminating quantities are "
-         "amplitude and duration: teach writes 1.4-2x faster at matched steps, "
-         "trains 2x longer, and accumulates 3.8x the total (457 vs 120). "
-         "Writing efficiency separates most sharply: 457 travel buys the taught "
-         "model 9.3% EM; 120 buys the elicited model 98.1% (~40x more "
-         "capability per unit of weight written). wtraj_evt-ts1b-{mix-nl-"
-         "n1000000s2,fig2ts-noinst-n1000000}; decisions.md 2026-09-08/09 incl. "
-         "the shape-claim correction.")
+         "measurable form of 'gradient strength' under AdamW). Elicit vs. teach: "
+         "the temporal profile does NOT distinguish the regimes - both arms show "
+         "the same early burst then slow decay (an optimization signature) - so "
+         "the curves nearly overlay; what differs is amplitude and duration: teach "
+         "writes 1.4-2x faster at matched steps, trains 2x longer, and "
+         "accumulates 3.8x the total (457 vs 120) while buying ~40x less "
+         "capability per unit written (see the weight_travel table). "
+         "wtraj_evt-ts1b-{mix-nl-n1000000s2, fig2ts-noinst-n1000000}; "
+         "decisions.md 2026-09-08/09 incl. the shape-claim correction.")
 
-
-def fig_ladder():
-    f, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.6), sharey=True)
-    for ax, data, c, t in ((a1, LADDER_LLAMA, EL, "Llama base"),
-                           (a2, LADDER_TS, EL, "TS1B-latent")):
-        ax.bar(range(len(data)), [v for _, v in data], color=c)
-        ax.set_xticks(range(len(data)))
-        ax.set_xticklabels([k for k, _ in data], rotation=20, ha="right", fontsize=8)
-        ax.set_title(t, fontsize=10)
-        ax.grid(axis="y", alpha=.3)
-    a1.set_ylabel("exact match on target task")
-    save(f, "fig_intervention_ladder",
-         "Intervention ladders (weights frozen except the final bar): exact match "
-         "when the pre-elicit model is given, at its 32 circuit nodes, a constant "
-         "mean-shift vector, the donor's per-prompt states, or (TS) chains its own "
-         "two installed skills. Random-node controls are 0 throughout; the taught/"
-         "blank teach-side analogues are 0 in every condition. decisions.md "
-         "2026-08-26 (Llama), 2026-08-29/2026-09-01 (TS).")
-
-
-# ---------------------------------------------------------------- tables --
-def make_tables():
-    table("circuit_overlap", r"""\begin{tabular}{lccc}
+    table(S, "weight_travel", r"""\begin{tabular}{lcc}
 \hline
-Comparison & J@32 & chance & ceiling \\
-\hline
-Llama base(16s) $\leftrightarrow$ FT(16s) & 0.524 & 0.031 & $\sim$0.71 \\
-Llama FT: 0-shot $\leftrightarrow$ 16-shot (same weights) & 0.391 & 0.031 & $\sim$0.71 \\
-Llama FT $\leftrightarrow$ TS taught (cross-model) & 0.164\textsuperscript{a} & 0.065 & -- \\
-Llama FT $\leftrightarrow$ FT+format-install & 0.684 & 0.031 & $\sim$0.71 \\
-TS1B-latent $\leftrightarrow$ elicited child (op) & 0.455--0.488 & 0.031 & 0.684 \\
-TS1B-latent $\leftrightarrow$ elicited child (bridge) & 0.524 & 0.031 & 0.684 \\
-Elicited-1M $\leftrightarrow$ taught-1M (same base) & 0.231\textsuperscript{b} & 0.031 & 0.684/0.561 \\
-\hline
-\end{tabular}""",
-          "Circuit-membership overlap (attribution top-32 Jaccard). "
-          "\\textsuperscript{a}J@64, score Spearman $-0.43$. \\textsuperscript{b}score "
-          "Spearman $-0.11$: same substrate, same task, different mechanism. "
-          "Fine-tuning a latent-capable model moves its circuit less than changing "
-          "the prompt regime does (0.455--0.524 vs 0.391); teaching builds elsewhere. "
-          "All maps performing-regime-guarded; decisions.md 2026-08-24..2026-09-07.")
-
-    table("faithfulness", r"""\begin{tabular}{lcccc}
-\hline
-Model & \multicolumn{2}{c}{sufficiency} & \multicolumn{2}{c}{necessity} \\
- & top-8 & top-32 & top-8 & top-32 \\
-\hline
-Llama FT & 0.94--0.97 & $\sim$1.0 & 0.943 & $\sim$0.999 \\
-TS taught & -- & $\sim$1.0 & 0.986 & $\sim$0.999 \\
-TS elicited child & 0.997 & 0.999 & 0.998 & 1.000 \\
-\hline
-\end{tabular}""",
-          "True activation patching: fraction of clean-vs-corrupt behavior "
-          "restored (sufficiency: clean acts into corrupt run) or destroyed "
-          "(necessity: corrupt into clean) by the top-$k$ of 528 nodes. "
-          "$\\sim$1.5--6\\% of nodes carry essentially all behavior in every "
-          "regime; circuit membership claims compare provably load-bearing sets. "
-          "decisions.md 2026-08-24, 2026-09-01.")
-
-    table("steering", r"""\begin{tabular}{llcc}
-\hline
-Patient + donor vectors (k=32, prefill) & condition & format & EM \\
-\hline
-Llama base + FT mean shift & circuit nodes & 0.656 & 0.039 \\
- & random-32 / attn-only & 0.000 & 0.000 \\
- & all-528 & 0.066 & 0.004 \\
-Llama base + FT per-prompt states & circuit nodes & 0.637 & 0.449 \\
-TS1B-latent + child mean shift & circuit nodes & 0.164 & 0.000 \\
-TS1B-latent + child per-prompt states & circuit nodes & 0.359 & 0.125 \\
-blank TS + taught donor (any) & all conditions & 0.000 & 0.000 \\
-\hline
-\end{tabular}""",
-          "Zero-training activation patching at the 32 circuit nodes. Latent "
-          "capabilities switch on (Llama: 0$\\to$66\\% format from a constant "
-          "32-vector patch; exact answers require per-prompt state); absent "
-          "capabilities do not (teach row: null in every condition). Random-node "
-          "controls 0 throughout. decisions.md 2026-08-25/26, 2026-09-01.")
-
-    table("delta_s", r"""\begin{tabular}{lcccc}
-\hline
-Cell & $\Delta S_{node}$ & $\Delta S_{edge}$ & floors (n/e) & corrected ratio \\
-\hline
-Llama base16 $\to$ ft16 & 0.476 & 0.766 & 0.29 / 0.434 & \textbf{2.2} \\
-TS1B-latent $\to$ child (op) & 0.512 & 0.582 & 0.32 / 0.616 & edge $<$ floor \\
-TS1B-latent $\to$ child (bridge) & 0.476 & 0.635 & -- / 0.609 & $\sim$0.07 (edge) \\
-elicited-1M vs taught-1M & 0.769 & 0.739 & -- & 0.96 \\
-\hline
-\end{tabular}""",
-          "Node- vs edge-level change rates ($\\Delta S = 1-$Jaccard; nodes @32, "
-          "edges @256, node$\\to$block EAP with frozen-RMS pullback), with "
-          "split-half noise floors. Ceiling-corrected, Llama elicitation changes "
-          "edges $\\approx$2.2$\\times$ more than nodes (Wang et al.\\ 2025 report "
-          "2--4$\\times$); the TS edge instrument's floor exceeds its measured "
-          "churn on both surfaces (sensitivity limit, reported as such); regime "
-          "difference (last row) is total at both levels. decisions.md 2026-09-06/07/08.")
-
-    table("weight_shift", r"""\begin{tabular}{lcccc}
-\hline
-Cell (n=1M, LoRA r=512) & $\|\Delta W\|/\|W\|$ & erank(PR) & align\textsubscript{out} & align\textsubscript{in} \\
-\hline
-Llama elicit & 0.034 & 11.9 & 0.025 & 0.035 \\
-TS elicit (latent parent) & 0.095 & 7.1 & 0.054 & 0.084 \\
-TS teach (blank parent) & 0.212 & 5.2 & 0.034 & 0.167 \\
-\hline
-\end{tabular}""",
-          "Total weight shift of the 1M fine-tunes ($\\Delta W$ exact from LoRA "
-          "factors; alignment = energy in the base's top-64 singular directions, "
-          "random baseline 0.058). Update \\emph{magnitude} orders the regimes "
-          "(teach writes 6$\\times$ more than Llama-elicit); effective rank does "
-          "\\emph{not} (both energy-concentrated, $\\sim$5--12 of 512) - energy "
-          "concentration is not functional rank. decisions.md 2026-09-08.")
-
-    table("weight_travel", r"""\begin{tabular}{lcc}
-\hline
- & Elicit (TS1B-latent) & Teach (blank) \\
+ & elicit (TS1B-latent) & teach (blank) \\
 \hline
 steps to convergence & 11{,}500 & 23{,}496 \\
 peak writing speed (per step) & 0.218 & 0.306 \\
@@ -318,49 +358,46 @@ final exact match & 0.981 & 0.093 \\
 capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
 \hline
 \end{tabular}""",
-          "Weight-travel summary of the two 1M fine-tunes (from adapter "
-          "snapshots). The temporal profile is shared (both burst-then-decay; "
-          "see Fig.~fig\_weight\_travel) and does not discriminate the "
-          "regimes; the scalars do: teaching writes 3.8$\times$ more over "
-          "2$\times$ as many steps, yet buys $\sim$40$\times$ less capability "
-          "per unit of weight written. decisions.md 2026-09-08/09 (incl.\ the "
-          "shape-claim correction).")
+          r"Weight-travel summary of the two 1M fine-tunes (from adapter snapshots). Elicit vs.\ teach: the writing dynamics share one shape (both burst then decay), so the scalars carry the contrast --- teaching writes 3.8$\times$ more over 2$\times$ as many steps yet buys $\sim$40$\times$ less capability per unit of weight written: eliciting \emph{connects} what exists, teaching \emph{writes} what does not. decisions.md 2026-09-08/09 (incl.\ the shape-claim correction).")
 
-    table("premise_program", r"""\begin{tabular}{lcc}
+    table(S, "weight_shift", r"""\begin{tabular}{lcccc}
 \hline
-Measurement (TS1B-latent construction) & value & control \\
+Cell ($n=1$M, LoRA r=512) & $\|\Delta W\|/\|W\|$ & erank(PR) & align\textsubscript{out} & align\textsubscript{in} \\
 \hline
-op install: symbol EM & 0.67--0.73 & blank: 0.00 \\
-corpus census: ``sum'' in 439M words & 21$\times$ & (``equals'' 17, ``minus'' 57) \\
-binding dose: NL$\to$op rewrite exact & 0.484 & blank+dose: 0.000 EM \\
-sum-only dose on difference-questions & writes ``+'' & (per-word binding) \\
-direct NL EM after construction & 0.000 & = blank \\
-self-chain EM (frozen weights) & 0.328 & = 0.484$\times$0.668 (law $\times$4 configs) \\
-words-reach-engine (xfmt MLP index) & +0.07--0.13 & no binding: $\sim$0.00 \\
+Llama elicit & 0.034 & 11.9 & 0.025 & 0.035 \\
+TS elicit (TS1B-latent parent) & 0.095 & 7.1 & 0.054 & 0.084 \\
+TS teach (blank parent) & 0.212 & 5.2 & 0.034 & 0.167 \\
 \hline
 \end{tabular}""",
-          "Construction and verification of the latent parent: every installation "
-          "is answer-free and leakage-controlled; the capability is behaviorally "
-          "invisible (0.000 direct) yet reachable by self-composition and "
-          "measurably wired words$\\to$engine before any target training. "
-          "decisions.md 2026-08-28..2026-09-01.")
+          r"Total weight shift of the 1M fine-tunes ($\Delta W$ exact from LoRA factors; erank = participation-ratio effective rank of $\Delta W$'s spectrum; alignment = energy in the base's top-64 singular directions, random baseline 0.058). Elicit vs.\ teach: update \emph{magnitude} orders the regimes cleanly --- teaching writes 6$\times$ more than Llama-elicitation, with constructed-latency TS-elicitation in between (its word interface still had to be built); effective rank does \emph{not} separate them --- both regimes concentrate their update energy in $\sim$5--12 directions --- and alignment with the base's existing directions is near baseline for both. decisions.md 2026-09-08.")
 
 
 def main() -> int:
+    setup_tables()
     fig_signature_flip()
-    fig_formation()
-    fig_formation_llama()
-    fig_weight_travel()
-    fig_ladder()
-    make_tables()
-    (HERE / "README.md").write_text(
-        "# Paper assets\n\nGenerated by `make_assets.py` from the numbers in "
-        "`../notes/decisions.md` (the timestamped lab notebook; every value has a "
-        "dated entry there). Sweep curves read run manifests when GEODE_STORE is "
-        "present, else embedded anchors. Figure captions live next to each PNG as "
-        "`.caption.txt`; tables are self-contained LaTeX with \\caption.\n\n"
-        "Pending assets: elicit weight-travel curve (needs the n1000000s2 snapshot "
-        "rerun); r=16 capacity check (optional 2-run expansion).\n")
+    circuits()
+    interventions()
+    weights()
+    (HERE / "README.md").write_text("""# Paper assets
+
+Generated by `make_assets.py` from the numbers in `../notes/decisions.md`
+(the timestamped lab notebook; every value has a dated entry there). Each
+caption ends with an explicit "Elicit vs. teach:" sentence.
+
+| folder | contents |
+|---|---|
+| `01_setup/` | models_and_arms.tex, premise_program.tex (how TS1B-latent was built + controls) |
+| `02_learning_curves/` | fig_signature_flip (EDL + EM vs n), same_base_sweep.tex |
+| `03_circuits/` | fig_formation_ts, fig_formation_llama, circuit_overlap.tex, faithfulness.tex, delta_s.tex |
+| `04_interventions/` | fig_intervention_ladder, steering.tex |
+| `05_weights/` | fig_weight_travel, weight_travel.tex, weight_shift.tex |
+
+Figures: PNG + PDF + `.caption.txt`. Tables: self-contained LaTeX with
+`\\caption` and `\\label`. Regenerate on the cluster (GEODE_STORE set) to pull
+the full 19-point teach curve into fig_signature_flip from run manifests.
+
+Pending (optional): r=16 capacity check (energy-rank vs needed-rank, 2 runs).
+""")
     print("[assets] wrote README.md")
     return 0
 

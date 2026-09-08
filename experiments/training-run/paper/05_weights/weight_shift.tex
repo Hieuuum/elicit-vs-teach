@@ -1,0 +1,14 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcccc}
+\hline
+Cell ($n=1$M, LoRA r=512) & $\|\Delta W\|/\|W\|$ & erank(PR) & align\textsubscript{out} & align\textsubscript{in} \\
+\hline
+Llama elicit & 0.034 & 11.9 & 0.025 & 0.035 \\
+TS elicit (TS1B-latent parent) & 0.095 & 7.1 & 0.054 & 0.084 \\
+TS teach (blank parent) & 0.212 & 5.2 & 0.034 & 0.167 \\
+\hline
+\end{tabular}
+\caption{Total weight shift of the 1M fine-tunes ($\Delta W$ exact from LoRA factors; erank = participation-ratio effective rank of $\Delta W$'s spectrum; alignment = energy in the base's top-64 singular directions, random baseline 0.058). Elicit vs.\ teach: update \emph{magnitude} orders the regimes cleanly --- teaching writes 6$\times$ more than Llama-elicitation, with constructed-latency TS-elicitation in between (its word interface still had to be built); effective rank does \emph{not} separate them --- both regimes concentrate their update energy in $\sim$5--12 directions --- and alignment with the base's existing directions is near baseline for both. decisions.md 2026-09-08.}
+\label{tab:weight_shift}
+\end{table}
