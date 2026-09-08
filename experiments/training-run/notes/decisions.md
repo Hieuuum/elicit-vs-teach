@@ -6580,3 +6580,17 @@ every update; logged by geode.edl.loop since day one — no rerun needed).
   not. Owner's metric-8 predictions: teach "large sustained/growing" ✓✓;
   elicit "collapse" ✓ in the weak form (peak at step 96, then x3.3 decay to
   a floor ~100x below teach's late level).
+
+## 2026-09-09 (DCM v1 — shortcut found, retracted) — role masks over heads+MLPs select ONLY late MLPs (answer-copy channel); elicited and taught children "share" operand roles at J 0.57-0.71 despite circuit J 0.231 => artefact. Heads-only masks (Prakash et al.'s design) installed as default.
+
+v1 (components = heads + MLPs, lam 0.02, 200 steps, 64 pairs): every role
+set was MLP-only (0 heads) — parent op: operand_a {mlp:0,14}, operand_b 7
+MLPs {0,10-15}, operation {9,12-15}; elicited child near-identical (J
+0.67/1.00/0.00); taught child (NL) operand roles J 0.71/0.57 with the
+elicited child. Reading: patching a late MLP's output transplants the
+counterfactual ANSWER, so the optimiser never needs the heads that fetch the
+operand; the "roles" are answer-writers common to any model that outputs
+numbers. Also: teach-side cf ceilings 0.17/0.11 (weak NL performance) make
+its role sets low-confidence regardless.
+Fix: --components heads (default). v1 numbers must not be quoted as role
+preservation/creation evidence.
