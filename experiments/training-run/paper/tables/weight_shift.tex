@@ -1,0 +1,14 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcccc}
+\hline
+Cell (n=1M, LoRA r=512) & $\|\Delta W\|/\|W\|$ & erank(PR) & align\textsubscript{out} & align\textsubscript{in} \\
+\hline
+Llama elicit & 0.034 & 11.9 & 0.025 & 0.035 \\
+TS elicit (latent parent) & 0.095 & 7.1 & 0.054 & 0.084 \\
+TS teach (blank parent) & 0.212 & 5.2 & 0.034 & 0.167 \\
+\hline
+\end{tabular}
+\caption{Total weight shift of the 1M fine-tunes ($\Delta W$ exact from LoRA factors; alignment = energy in the base's top-64 singular directions, random baseline 0.058). Update \emph{magnitude} orders the regimes (teach writes 6$\times$ more than Llama-elicit); effective rank does \emph{not} (both energy-concentrated, $\sim$5--12 of 512) - energy concentration is not functional rank. decisions.md 2026-09-08.}
+\label{tab:weight_shift}
+\end{table}

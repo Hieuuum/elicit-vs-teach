@@ -1,0 +1,18 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcc}
+\hline
+Measurement (TS1B-latent construction) & value & control \\
+\hline
+op install: symbol EM & 0.67--0.73 & blank: 0.00 \\
+corpus census: ``sum'' in 439M words & 21$\times$ & (``equals'' 17, ``minus'' 57) \\
+binding dose: NL$\to$op rewrite exact & 0.484 & blank+dose: 0.000 EM \\
+sum-only dose on difference-questions & writes ``+'' & (per-word binding) \\
+direct NL EM after construction & 0.000 & = blank \\
+self-chain EM (frozen weights) & 0.328 & = 0.484$\times$0.668 (law $\times$4 configs) \\
+words-reach-engine (xfmt MLP index) & +0.07--0.13 & no binding: $\sim$0.00 \\
+\hline
+\end{tabular}
+\caption{Construction and verification of the latent parent: every installation is answer-free and leakage-controlled; the capability is behaviorally invisible (0.000 direct) yet reachable by self-composition and measurably wired words$\to$engine before any target training. decisions.md 2026-08-28..2026-09-01.}
+\label{tab:premise_program}
+\end{table}
