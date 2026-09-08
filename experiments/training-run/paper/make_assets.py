@@ -183,13 +183,16 @@ def fig_weight_travel():
     a2.grid(alpha=.3)
     save(f, "fig_weight_travel",
          "Weight travel of the two 1M fine-tunes from adapter snapshots (the "
-         "measurable form of 'gradient strength' under AdamW). Elicit (gold): a "
-         "writing burst over steps ~12-154 - coinciding with the circuit "
-         "formation transient - then a ~12x monotone speed decay; total travel "
-         "120. Teach (teal): sustained speed (still 0.022/step at 23.5K, "
-         "exceeding elicit's final speed three times deeper into training) and "
-         "~3.8x more total writing (457). wtraj_evt-ts1b-{mix-nl-n1000000s2,"
-         "fig2ts-noinst-n1000000}; decisions.md 2026-09-08/09.")
+         "measurable form of 'gradient strength' under AdamW). Both arms share "
+         "the same burst-then-decay temporal profile - an optimization "
+         "signature, not a regime one - so the discriminating quantities are "
+         "amplitude and duration: teach writes 1.4-2x faster at matched steps, "
+         "trains 2x longer, and accumulates 3.8x the total (457 vs 120). "
+         "Writing efficiency separates most sharply: 457 travel buys the taught "
+         "model 9.3% EM; 120 buys the elicited model 98.1% (~40x more "
+         "capability per unit of weight written). wtraj_evt-ts1b-{mix-nl-"
+         "n1000000s2,fig2ts-noinst-n1000000}; decisions.md 2026-09-08/09 incl. "
+         "the shape-claim correction.")
 
 
 def fig_ladder():

@@ -6533,3 +6533,17 @@ formation transient, its decay with the lock (~1.5K). Nuance kept honest:
 elicit speed tapers ~12x but does not hit zero (slow drift continues);
 erank-over-time again fails to separate the regimes (both collapse to ~3.5
 then rise mildly). Snapshots may now be deleted.
+
+## 2026-09-09 (CORRECTION, owner's catch) — metric 8's temporal-shape claim retracted: BOTH arms are burst-then-decay (teach peaks HIGHER, 0.306@18, and decays ~14x); the regimes separate on AMPLITUDE/DURATION, not profile
+
+The owner observed the two travel curves look similar — correct. At matched
+steps the speeds nearly overlay (elicit@643 = teach@1327 = 0.049); both
+decay power-law-like from an early peak. The burst-vs-sustained shape
+prediction is NOT confirmed; the early burst in both is plausibly an
+optimization signature (initial loss drop under AdamW), not a regime one.
+What DOES separate: teach writes 1.4-2x faster at matched steps, trains 2x
+longer (loss still improving at 23.5K vs elicit converged at 11.5K), total
+3.8x — consistent with metric 9. Cleanest replacement statement: WRITING
+EFFICIENCY — teach: 457 travel -> 0.093 EM; elicit: 120 travel -> 0.981 EM
+(~40x more capability per unit of weight written). Figure caption updated
+accordingly.
