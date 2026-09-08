@@ -1,0 +1,14 @@
+# Capacity-threshold rank sweep (paper §4 PGR protocol, same-base version;
+# owner 2026-09-08): rank-256 rung at n=31,623, overlay over
+# ../../ts1b_fig2ts_noinst.yaml. Reference = the existing r=512 run at this n.
+# PGR_r = EDL_512 / EDL_r (per-label-token, from manifests).
+# alpha stays 32; scaling = alpha/(2r) per the V5.47 pin.
+run_id: evt-ts1b-fig2ts-noinst-r256-n31623
+data:
+  n_examples: 31623
+lora:
+  r: 256
+  alpha: 32
+train:
+  eval_every: 40
+  max_steps: 8000
