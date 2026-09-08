@@ -6476,3 +6476,40 @@ Ceiling-corrected ((measured - floor)/(1 - floor)):
   background-writer), i.e. the fine-tune shifts WHICH existing pathways
   carry traffic rather than wiring recruited nodes. TS anatomy left
   uninterpreted (edge noise dominates its new/lost sets).
+
+## 2026-09-08 (metrics 8+9 results; TS edge cell closed) — magnitude separates the regimes (teach writes 2.2x more, Llama-elicit 6x less); effective rank does NOT (both ~5-7 of 512 — teaching concentrates energy too); teach travel is sustained ~linear over 23.5K steps
+
+METRIC 9 (weight shift; LoRA-exact):
+| cell (n=1M) | rel ‖ΔW‖/‖W‖ | erank(PR) | align_out | align_in | (baseline 0.058) |
+| Llama elicit  | 0.034 | 11.9 | 0.025 | 0.035 |
+| TS elicit     | 0.095 |  7.1 | 0.054 | 0.084 |
+| TS teach      | 0.212 |  5.2 | 0.034 | 0.167 |
+- CONFIRMED: total-shift gradient llama-elicit < TS-elicit < teach (6x span)
+  — "how much has to be written" orders exactly as the regimes predict.
+- REFUTED (interesting): effective rank does NOT separate — teaching's huge
+  update is ALSO energy-concentrated (erank 5.2). PR-erank measures energy
+  concentration, not functional rank; the rank sweep now tests whether the
+  low-energy TAIL carries the teaching bits (if teach fails at r=16 despite
+  erank 5, energy-rank ≠ needed-rank — a real refinement of metric 9).
+- Weak/absent: alignment with base top-64 dirs is near baseline everywhere
+  (teach align_in 0.167 is the largest, OPPOSITE the prediction's sign).
+- rank-vs-n: teach erank 3.0->3.4->5.2, elicit 3.0->3.8->7.1 — both grow
+  mildly; no teach-specific rank growth.
+
+METRIC 8 (weight travel, teach endpoint, 8 snapshots): speed/step 0.31 at
+step 18, settling to a SUSTAINED 0.02-0.05 for 20K+ steps; travel ~linear
+(55 @1.3K -> 170 @5.4K -> 457 @23.5K); adapter erank 2.6-3 mid-run rising
+to 5 late. Sustained-writing signature ✓. Elicit curve blocked: s2
+snapshots were already cleaned up (404); partial substitute = shift-vs-n
+(elicit rel 0.011/0.030/0.095 vs teach 0.009/0.066/0.212 at 1K/31.6K/1M —
+teach writes ~2.2x more at matched n>=31K).
+
+TS EDGE ΔS: CLOSED as a sensitivity limit. Matched-statistics floors:
+op surface 0.616 (> measured 0.582), bridge surface 0.609 (measured 0.635
+-> corrected ~0.07). TS edge churn is unmeasurable at this granularity on
+either surface; the Llama cell (corrected ratio 2.2, Wang band) is the
+edge-level result. Bridge anatomy: directionally recruitment-flavored (16%
+of new edges from recruited writers, reading into engine MLPs 11/13/14/0)
+but noise-dominated — qualitative only. Bridge node maps: pre ld 6.5
+PERFORMING, J@32 pre/post 0.524 — reuse replicates on the NL-bearing
+surface.
