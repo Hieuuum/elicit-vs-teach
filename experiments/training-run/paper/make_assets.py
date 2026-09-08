@@ -291,6 +291,19 @@ TS elicited-1M $\leftrightarrow$ TS taught-1M (same base) & 0.231\textsuperscrip
 \end{tabular}""",
           r"Circuit-membership overlap (attribution top-32 Jaccard, all maps performing-regime-guarded). \textsuperscript{a}J@64, score Spearman $-0.43$. \textsuperscript{b}score Spearman $-0.11$. Elicit vs.\ teach: in both arcs the elicited circuit is the parent's own circuit re-weighted (0.455--0.524, $\approx$70\% of the measurement ceiling; a million examples move it less than changing the prompt regime does, 0.391), whereas the taught circuit matches nothing upstream (the blank parent has no measurable circuit) and is anti-correlated with the elicited one even inside the same pretrained substrate --- same behavior, different mechanism. decisions.md 2026-08-24..2026-09-07.")
 
+    table(S, "dcm_roles", r"""\begin{tabular}{lcccccc}
+\hline
+Role (counterfactual variable) & $|$parent$|$ & $|$child$|$ & shared & Jaccard & chance & layers \\
+\hline
+operand $a$ & 30 & 32 & 29 & \textbf{0.879} & 0.055 & 0 \\
+operand $b$ & 27 & 30 & 27 & \textbf{0.900} & 0.051 & 0 \\
+operation ($+\leftrightarrow-$) & 25 & 24 & 21 & \textbf{0.750} & 0.041 & 0--5 \\
+\hline
+elicited child vs taught child (NL): operand $a$ / $b$ & 36 / 30 & 9 / 21 & 5 / 4 & 0.125 / 0.085 & 0.02 & -- \\
+\hline
+\end{tabular}""",
+          r"Desiderata Component Masking (heads-only, Prakash et al.\ 2024): for each functional variable, the sparse set of attention heads whose counterfactual activations flip the answer (cf-flip accuracy equals the full-counterfactual ceiling in every elicit-side set). Elicit vs.\ teach: the installed engine's operand-fetcher and operation-detector heads are carried over essentially unchanged into the elicited child (J 0.75--0.90, $\sim$15$\times$ chance --- roles are even more stable than circuit membership, 0.455), whereas the taught child's operand information is not carried by those heads (J 0.09--0.15) and no compact flipping set is recoverable in it (cf-flip 0.02--0.04 vs ceiling 0.15; low-confidence, its NL first-token ceiling is 0.15). decisions.md 2026-09-09.")
+
     table(S, "faithfulness", r"""\begin{tabular}{lcccc}
 \hline
 Model & \multicolumn{2}{c}{sufficiency} & \multicolumn{2}{c}{necessity} \\

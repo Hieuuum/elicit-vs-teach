@@ -68,9 +68,9 @@ $\|\Delta W\|_F$, relative write $\|\Delta W\|/\|W\|$, travel $\|\Delta W_t\|_F$
 snapshots.
 
 \noindent\textbf{Reading guide.} The results answer four questions in order: does the
-\emph{behavior} of learning differ (R1); is the resulting \emph{machinery} the same (R2--R3);
-how does that machinery \emph{come into being} during training (R4--R6); and what does the
-latent state \emph{mean and permit} before any target training (R7--R8).
+\emph{behavior} of learning differ (R1); is the resulting \emph{machinery} the same (R2--R4);
+how does that machinery \emph{come into being} during training (R5--R7); and what does the
+latent state \emph{mean and permit} before any target training (R8--R9).
 
 % =====================================================================
 \section*{A. Behavior: the learning-curve signature}
@@ -147,6 +147,42 @@ elicited child @1M $\leftrightarrow$ taught child @1M & 0.231 (Spearman $-0.11$)
 \label{tab:overlap}
 \end{table}
 
+\item \textbf{The parent's functional head roles survive elicitation intact; the taught child does
+not use them.}
+\metric{Desiderata Component Masking (Prakash et al.\ 2024), heads only: for each functional
+variable --- operand $a$, operand $b$, operation ($+\leftrightarrow-$) --- learn the sparse set
+of attention heads whose counterfactual activations, patched into the clean run, flip the answer
+to the counterfactual one; compare role sets across models by Jaccard.}
+\result{Table~\ref{tab:dcm}. Parent (installed engine) vs elicited child on the op surface, with
+cf-flip accuracy equal to the full-counterfactual ceiling in every set: operand-$a$ heads shared
+29/33 (J $0.879$), operand-$b$ 27/30 ($0.900$), operation 21/28 ($0.750$); chance $\approx0.05$.
+The operand roles are essentially the whole of layer-0 attention (30/32 heads) --- operand
+\emph{reading} is a layer-0 function --- and the operation role spans heads in layers 0--5. On the
+NL surface, the taught child's operand heads overlap the elicited child's at J $0.125/0.085$ and
+the parent's at $0.147/0.091$, and the mask cannot find a compact flipping set in it (cf-flip
+$0.02$--$0.04$ vs a ceiling of $0.15$).}
+\interp{Elicitation preserves \emph{function}, not just membership: the same heads fetch operands
+and detect the operation before and after a million target examples --- roles are even more
+stable than circuit membership (0.88 vs 0.455). The taught child does not carry operand
+information through those heads; whatever it uses is diffuse enough that no compact fetcher set
+is recoverable (a low-confidence characterisation --- its NL first-token ceiling is only 0.15 ---
+so ``roles created'' is supported in the weak form: not the parent's roles).}
+\begin{table}[h]\centering\small
+\begin{tabular}{lcccccc}
+\toprule
+Role & $|$parent$|$ & $|$child$|$ & shared & Jaccard & chance & layers \\
+\midrule
+operand $a$ & 30 & 32 & 29 & \textbf{0.879} & 0.055 & 0 \\
+operand $b$ & 27 & 30 & 27 & \textbf{0.900} & 0.051 & 0 \\
+operation & 25 & 24 & 21 & \textbf{0.750} & 0.041 & 0--5 \\
+\midrule
+elicited vs taught child (NL): operand $a$ / $b$ & 36 / 30 & 9 / 21 & 5 / 4 & 0.125 / 0.085 & 0.02 & -- \\
+\bottomrule
+\end{tabular}
+\caption{DCM head roles (heads only; cf-flip accuracy $=$ ceiling in all elicit-side sets).}
+\label{tab:dcm}
+\end{table}
+
 \item \textbf{Same task, same substrate, different machine --- at every level.}
 \metric{Layer distribution of the top-16 attribution nodes; J@32 and score Spearman between
 the two children; node- and edge-level change rates $\Delta S = 1-\text{Jaccard}$ between them
@@ -199,10 +235,10 @@ $\sum_t\|g_t\|$, and its split across weight classes.}
 ($\sim$150$\times$). Across $n$ the arms are indistinguishable up to $10$K and diverge from
 $31.6$K on (mass ratio $7\times\to55\times\to95\times\to150\times$). Teach's gradient mass
 migrates out of the MLPs (share $0.47\to0.01$) into attention (VO $0.87$).}
-\interp{The optimizer's view of R4: eliciting converges and its gradient dies; teaching keeps
+\interp{The optimizer's view of R5: eliciting converges and its gradient dies; teaching keeps
 generating gradient pressure that grows with the structure being built, aimed at attention
---- the layer-0 army of R3 being written. This is the clearest dynamical discriminator, and it
-sets up R6: what all that gradient actually bought.}
+--- the layer-0 army of R4 being written. This is the clearest dynamical discriminator, and it
+sets up R7: what all that gradient actually bought.}
 \begin{table}[h]\centering\small
 \begin{tabular}{lcc}
 \toprule
@@ -233,9 +269,9 @@ travel.}
 $2.2\times$; total travel $457$ vs $120$ ($3.8\times$) over $2\times$ as many steps
 (23.5K vs 11.5K); capability per unit travel $2.0\times10^{-4}$ vs $8.1\times10^{-3}$,
 $\sim$40$\times$. The travel \emph{profiles} of the two arms coincide (both burst then decay):
-AdamW's $\sqrt{v}$-normalisation compresses R5's 150$\times$ gradient-mass gap into a
+AdamW's $\sqrt{v}$-normalisation compresses R6's 150$\times$ gradient-mass gap into a
 $3.8\times$ step-size gap with a shared shape.}
-\interp{What R5's gradients bought: teaching writes 2--4$\times$ more into the weights yet
+\interp{What R6's gradients bought: teaching writes 2--4$\times$ more into the weights yet
 buys $\sim$40$\times$ less capability per unit written --- eliciting \emph{connects} what
 exists, teaching \emph{writes} what does not. Update size is the muted echo of the gradient
 signal; magnitude and efficiency, not timing, are where the weights show the regime.}
@@ -311,7 +347,7 @@ blank + taught donor & every condition & 0.000 & 0.000 \\
 
 \end{enumerate}
 
-\section*{Validation results (not regime differences, but what licenses R2--R8)}
+\section*{Validation results (not regime differences, but what licenses R2--R9)}
 
 \begin{itemize}[nosep]
   \item \textbf{Both circuits are real and load-bearing.} True activation patching: elicited child
@@ -329,8 +365,8 @@ blank + taught donor & every condition & 0.000 & 0.000 \\
   \item Effective rank of $\Delta W$ (participation ratio): elicit 7.1, teach 5.2 of 512 ---
     both energy-concentrated; rank does not separate the regimes. Alignment of $\Delta W$ with
     the base's top-64 singular directions is near the 0.058 baseline for both.
-  \item Temporal profile of weight travel: burst-then-decay in both arms (R6) --- an effect of
-    AdamW normalisation; the underlying gradient dynamics do discriminate (R5).
+  \item Temporal profile of weight travel: burst-then-decay in both arms (R7) --- an effect of
+    AdamW normalisation; the underlying gradient dynamics do discriminate (R6).
   \item Prompt brittleness (16-shot collapse) is a property of this lineage's training-sequence
     structure, not of the regime: both children score $\sim$0 at 16 shots.
   \item Edge-level $\Delta S$ within the elicit arm: the edge instrument's split-half noise

@@ -1,0 +1,16 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcccccc}
+\hline
+Role (counterfactual variable) & $|$parent$|$ & $|$child$|$ & shared & Jaccard & chance & layers \\
+\hline
+operand $a$ & 30 & 32 & 29 & \textbf{0.879} & 0.055 & 0 \\
+operand $b$ & 27 & 30 & 27 & \textbf{0.900} & 0.051 & 0 \\
+operation ($+\leftrightarrow-$) & 25 & 24 & 21 & \textbf{0.750} & 0.041 & 0--5 \\
+\hline
+elicited child vs taught child (NL): operand $a$ / $b$ & 36 / 30 & 9 / 21 & 5 / 4 & 0.125 / 0.085 & 0.02 & -- \\
+\hline
+\end{tabular}
+\caption{Desiderata Component Masking (heads-only, Prakash et al.\ 2024): for each functional variable, the sparse set of attention heads whose counterfactual activations flip the answer (cf-flip accuracy equals the full-counterfactual ceiling in every elicit-side set). Elicit vs.\ teach: the installed engine's operand-fetcher and operation-detector heads are carried over essentially unchanged into the elicited child (J 0.75--0.90, $\sim$15$\times$ chance --- roles are even more stable than circuit membership, 0.455), whereas the taught child's operand information is not carried by those heads (J 0.09--0.15) and no compact flipping set is recoverable in it (cf-flip 0.02--0.04 vs ceiling 0.15; low-confidence, its NL first-token ceiling is 0.15). decisions.md 2026-09-09.}
+\label{tab:dcm_roles}
+\end{table}

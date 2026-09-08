@@ -16,4 +16,4 @@ Figures: PNG + PDF + `.caption.txt`. Tables: self-contained LaTeX with
 `\caption` and `\label`. Regenerate on the cluster (GEODE_STORE set) to pull
 the full 19-point teach curve into fig_signature_flip from run manifests.
 
-Pending (optional): r=16 capacity check (energy-rank vs needed-rank, 2 runs). Raw gradient-norm assets (fig_grad_strength, grad_strength.tex) come from the existing per-step gradstats logs — no rerun was needed.
+Pending (optional): r=16 capacity check (energy-rank vs needed-rank, 2 runs).

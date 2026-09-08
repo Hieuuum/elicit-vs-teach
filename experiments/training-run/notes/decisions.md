@@ -6594,3 +6594,30 @@ numbers. Also: teach-side cf ceilings 0.17/0.11 (weak NL performance) make
 its role sets low-confidence regardless.
 Fix: --components heads (default). v1 numbers must not be quoted as role
 preservation/creation evidence.
+
+## 2026-09-09 (DCM v2, heads-only) — functional head ROLES are preserved under elicitation (J 0.75-0.90 per role, ~15x chance, above whole-circuit reuse 0.455); the taught child's roles do not overlap them (J 0.09-0.15) and no compact fetcher set is recoverable in it
+
+Preservation (parent op-surface <-> elicited child op-surface; heads only,
+lam 0.02, 64 pairs; cf-flip acc = ceiling in every set):
+| role | |parent| | |child| | shared | Jaccard | chance |
+| operand_a | 30 | 32 | 29 | 0.879 | 0.055 |
+| operand_b | 27 | 30 | 27 | 0.900 | 0.051 |
+| operation | 25 | 24 | 21 | 0.750 | 0.041 |
+Operand roles are (nearly) the whole of layer-0 attention (30/32 heads):
+operand READING is a layer-0 function in every performing model; the
+operation role spans heads in layers 0-5. Prakash et al.'s "fine-tuning
+leaves roles unchanged" replicates on a CONSTRUCTED latent parent, and the
+roles are more stable than attribution membership (0.88 vs 0.455-0.524).
+Creation side (NL surface, taught child, 128 pairs): the mask cannot find a
+compact flipping set — cf-flip 0.023/0.039 vs ceilings 0.148/0.156, task CE
+barely moves (11.4->10.8), sets 9/21 heads spread over layers 0-8/0-15; and
+those heads overlap the elicited child's roles at J 0.125/0.085 and the
+parent's at 0.147/0.091. Reading: the taught model does not carry operand
+information through the substrate's layer-0 fetcher heads; whatever it uses
+is diffuse. CAVEAT: the taught model's NL first-token ceiling is 0.15, so
+its role sets are low-confidence — "roles created" is supported in the
+weak form (not the parent's roles), not as a characterised new role set.
+Elicited child on NL: operand roles 36/30 heads, layers {0,3,5,7}/{0,7},
+cf-flip 0.97/1.00 — the layer-0 fetchers plus the grown interface heads.
+Optional refinement: lam 0.1 for sparser fetcher sets (finer-grained
+preservation test).
