@@ -313,6 +313,12 @@ def cmd_run(args) -> int:
         story_ids, path = generic_ids(tokenizer, args.generic_text, args.jac_prompts, args.story_len)
         print(f"[lens] Jacobian corpus: {story_ids.shape[0]} stories x {args.story_len} tokens "
               f"from {path}")
+        prev_prec = torch.get_float32_matmul_precision()
+        if args.tf32 and device.startswith("cuda"):
+            # Jacobian phase only: ~8x faster matmuls; the last-layer identity and the
+            # lens==logit-lens checks stay exact (no matmul on that path).
+            torch.set_float32_matmul_precision("high")
+            print("[lens] TF32 matmuls ON for the Jacobian phase (--no-tf32 to disable)")
         for ln in need:
             mode = "grad" if ln == "jlens" else "lrp"
             J, info = average_jacobians(model, taps, story_ids, device, args.k_batch, mode)
@@ -322,6 +328,7 @@ def cmd_run(args) -> int:
                   f"{info['last_layer_identity_maxdev']:.2e}  (batched grads: {info['batched']})")
             if args.save_jacobians:
                 torch.save(J.half(), f"{args.out}_{ln}_J.pt")
+        torch.set_float32_matmul_precision(prev_prec)
         if "jlens" in mats and "rlens" in mats:
             rel = [((mats['rlens'][li] - mats['jlens'][li]).norm()
                     / mats['jlens'][li].norm().clamp_min(1e-12)).item() for li in range(n_layers)]
@@ -442,6 +449,8 @@ def main() -> int:
     r.add_argument("--sdpa", action="store_true",
                    help="keep sdpa attention (default: eager, so batched backward works)")
     r.add_argument("--save-jacobians", action="store_true")
+    r.add_argument("--no-tf32", dest="tf32", action="store_false",
+                   help="keep full fp32 matmuls in the Jacobian phase (~8x slower)")
     r.add_argument("--tokenizer", default=TOKENIZER)
     r.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     c = sub.add_parser("compare")
