@@ -19,6 +19,11 @@ fine-tuning); teaching CREATES roles (heads with no prior function are
 forced into them). Compare mode reports per-role Jaccard between two
 models' role sets.
 
+Components: heads only by default (as in Prakash et al.). Making MLP outputs
+maskable lets the optimiser copy the counterfactual ANSWER through a late MLP
+instead of finding the heads that fetch the variable — v1 measured exactly
+that shortcut (all-MLP sets, mlp:14/15 everywhere).
+
 Modes:
   learn:    python3 dcm_roles.py learn (--run-id R | --model M) --surface {bare_op,bare_nl,bridge}
             --out stem [--roles operand_a operand_b operation] [--lam 0.02] [--steps 200]
@@ -139,7 +144,7 @@ class MixTaps:
             h.remove()
 
 
-def learn_role(model, taps, pairs, device, lam, steps, lr):
+def learn_role(model, taps, pairs, device, lam, steps, lr, components="heads"):
     """Optimise mask logits; return (attn_mask (L,H), mlp_mask (L,), stats).
 
     Pairs are length-matched within a pair but not across pairs, so they are
@@ -164,8 +169,14 @@ def learn_role(model, taps, pairs, device, lam, steps, lr):
     n_total = sum(len(b[0]) for b in batches)
 
     la = torch.full((taps.L, taps.H), -3.0, device=device, requires_grad=True)
-    lm = torch.full((taps.L,), -3.0, device=device, requires_grad=True)
-    opt = torch.optim.Adam([la, lm], lr=lr)
+    # heads-only (Prakash et al.): MLP masks are frozen at 0 so a late MLP
+    # cannot act as an answer-copy channel — the v1 shortcut (2026-09-09:
+    # all-MLP role sets, mlp:14/15 in every model, taught/elicited J 0.6-0.7
+    # despite circuit J 0.231). With components="all" MLPs are learnable.
+    mlp_learnable = components == "all"
+    lm = torch.full((taps.L,), -3.0 if mlp_learnable else -30.0, device=device,
+                    requires_grad=mlp_learnable)
+    opt = torch.optim.Adam([la, lm] if mlp_learnable else [la], lr=lr)
     for step in range(steps):
         taps.mask_attn, taps.mask_mlp = torch.sigmoid(la), torch.sigmoid(lm)
         task = 0.0
@@ -230,14 +241,16 @@ def cmd_learn(args) -> int:
         p.requires_grad_(False)
 
     taps = MixTaps(model)
-    out = {"model": name, "surface": args.surface, "lam": args.lam, "roles": {}}
+    out = {"model": name, "surface": args.surface, "lam": args.lam,
+           "components": args.components, "roles": {}}
     for role in args.roles:
         pairs = make_pairs(args.surface, role, args.n_pairs, tokenizer)
         if len(pairs) < 8:
             print(f"[dcm] {role}: only {len(pairs)} usable pairs on {args.surface} — skipped")
             continue
         print(f"[dcm] {name} / {role}: {len(pairs)} pairs")
-        ha, hm, st = learn_role(model, taps, pairs, args.device, args.lam, args.steps, args.lr)
+        ha, hm, st = learn_role(model, taps, pairs, args.device, args.lam, args.steps, args.lr,
+                                components=args.components)
         nodes = [f"attn:{i}:{h}" for i in range(taps.L) for h in range(taps.H) if ha[i, h]]
         nodes += [f"mlp:{i}" for i in range(taps.L) if hm[i]]
         out["roles"][role] = {"nodes": nodes, **st, "n_pairs": len(pairs)}
@@ -281,6 +294,9 @@ def main() -> int:
     m.add_argument("--out", required=True)
     m.add_argument("--n-pairs", type=int, default=64)
     m.add_argument("--lam", type=float, default=0.02, help="sparsity weight on mask sum")
+    m.add_argument("--components", choices=("heads", "all"), default="heads",
+                   help="heads: attention heads only (Prakash et al.; default). "
+                        "all: MLP outputs learnable too (late-MLP answer-copy shortcut!)")
     m.add_argument("--steps", type=int, default=200)
     m.add_argument("--lr", type=float, default=0.1)
     m.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
