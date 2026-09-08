@@ -38,6 +38,23 @@ top-3 share; direction statistics at the final layer (what the unembedding
 reads) and energy-weighted over layers, each next to its parent reference.
 Layers with no delta report nan and are skipped by the means.
 
+v2 additions (fixes after the 2026-09-09 readout):
+  functional shift   KL(parent || child) of the next-token distribution at the
+                     task answer position vs per token on generic text, and the
+                     child-minus-parent NLL on generic text (does the child
+                     still tell stories as well?). Geometry-free version of the
+                     task/generic ratio: displacement that CHANGES what the
+                     model says, not how far a vector moved.
+  inc_rel_share      increment energy normalised by the parent's layer norm
+                     before taking shares (the raw shares over-weight late
+                     layers, where residual norms are large).
+  content-removed    direction statistics of the final-layer task shift after
+                     projecting out the unembedding directions of the correct
+                     answer token and of the parent's own top-1 token — is
+                     there a shared "mode" vector once the per-problem answer
+                     content is removed? Also reports the energy fraction the
+                     removed content carried.
+
 Both models run in fp32; a LoRA child is rebuilt as parent + sidecar merged
 in fp32 (a bf16 merge would round ||W|| at 2^-8, the same order as a small
 delta). Pure inference, GPU recommended (two 1B fp32 models ~10 GB).
@@ -140,10 +157,11 @@ class ResidTaps:
 
 
 # ------------------------------------------------------------------ inputs
-def task_prompts(fmt: str, n: int) -> list[str]:
+def task_prompts(fmt: str, n: int) -> tuple[list[str], list[tuple[int, int, str]]]:
     df = pd.read_parquet(EVAL_PARQUET)
     rows = df.iloc[DEFAULT_ROW_OFFSET : DEFAULT_ROW_OFFSET + n]
-    return [render_probe(fmt, int(r.a), int(r.b), str(r.op), 0)[0] for r in rows.itertuples()]
+    triples = [(int(r.a), int(r.b), str(r.op)) for r in rows.itertuples()]
+    return [render_probe(fmt, a, b, op, 0)[0] for a, b, op in triples], triples
 
 
 def generic_ids(tokenizer, path: str | None, n: int, seq_len: int) -> tuple[torch.Tensor, str]:
@@ -202,6 +220,11 @@ class Accum:
     def inc_share(self) -> torch.Tensor:
         return self.inc / self.inc.sum().clamp_min(1e-30)
 
+    def inc_rel_share(self) -> torch.Tensor:
+        """Increment energy normalised by the parent's layer energy, then shared."""
+        rel = self.inc / self.hh.clamp_min(1e-30)
+        return rel / rel.sum().clamp_min(1e-30)
+
     def matrices(self) -> list[torch.Tensor]:
         return [torch.cat(r, 0) if r else torch.empty(0) for r in self.rows]
 
@@ -228,16 +251,24 @@ def run_pair(parent, child, tokenizer, prompts, device, batch_size, gen_ids, gen
     n_layers = len(parent.model.layers) + 1  # + embedding
     tp, tc = ResidTaps(parent), ResidTaps(child)
     acc_ans, acc_all, acc_gen = Accum(n_layers), Accum(n_layers), Accum(n_layers)
+    fn = {"kl_task_ans": [], "parent_top1": [], "kl_gen": 0.0, "nll_gen_parent": 0.0,
+          "nll_gen_child": 0.0, "n_gen_tok": 0}
+
+    def kl_pc(lp_p, lp_c):  # KL(parent || child) per row, nats
+        return (lp_p.exp() * (lp_p - lp_c)).sum(-1)
 
     tokenizer.padding_side = "left"
     for s in range(0, len(prompts), batch_size):
         enc = tokenizer(prompts[s : s + batch_size], return_tensors="pt", padding=True,
                         add_special_tokens=False)
         ids, am = enc["input_ids"].to(device), enc["attention_mask"].to(device)
-        parent(input_ids=ids, attention_mask=am)
+        lp_p = F.log_softmax(parent(input_ids=ids, attention_mask=am).logits[:, -1].float(), -1)
         hp = list(tp.acts)
-        child(input_ids=ids, attention_mask=am)
+        lp_c = F.log_softmax(child(input_ids=ids, attention_mask=am).logits[:, -1].float(), -1)
         hc = list(tc.acts)
+        fn["kl_task_ans"] += kl_pc(lp_p, lp_c).cpu().tolist()
+        fn["parent_top1"] += lp_p.argmax(-1).cpu().tolist()
+        del lp_p, lp_c
         deltas = [c - p for c, p in zip(hc, hp)]
         B, T = ids.shape
         ans_mask = torch.zeros(B, T, dtype=torch.bool, device=device)
@@ -253,10 +284,17 @@ def run_pair(parent, child, tokenizer, prompts, device, batch_size, gen_ids, gen
     for s in range(0, gen_ids.shape[0], gen_bs):
         ids = gen_ids[s : s + gen_bs].to(device)
         B, T = ids.shape
-        parent(input_ids=ids)
+        lg_p = parent(input_ids=ids).logits[:, :-1].float()
         hp = list(tp.acts)
-        child(input_ids=ids)
+        lg_c = child(input_ids=ids).logits[:, :-1].float()
         hc = list(tc.acts)
+        tgt = ids[:, 1:]
+        lp_p, lp_c = F.log_softmax(lg_p, -1), F.log_softmax(lg_c, -1)
+        fn["kl_gen"] += kl_pc(lp_p, lp_c).sum().item()
+        fn["nll_gen_parent"] += -lp_p.gather(-1, tgt[..., None]).sum().item()
+        fn["nll_gen_child"] += -lp_c.gather(-1, tgt[..., None]).sum().item()
+        fn["n_gen_tok"] += tgt.numel()
+        del lg_p, lg_c, lp_p, lp_c
         deltas = [c - p for c, p in zip(hc, hp)]
         mask = torch.ones(B, T, dtype=torch.bool, device=device)
         mask[:, 0] = False
@@ -267,7 +305,7 @@ def run_pair(parent, child, tokenizer, prompts, device, batch_size, gen_ids, gen
         del hp, hc, deltas
     tp.remove()
     tc.remove()
-    return acc_ans, acc_all, acc_gen
+    return acc_ans, acc_all, acc_gen, fn
 
 
 def participation(shares: torch.Tensor) -> float:
@@ -281,19 +319,45 @@ def cmd_run(args) -> int:
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    prompts = task_prompts(args.task_format, args.n)
+    prompts, triples = task_prompts(args.task_format, args.n)
     gen_ids, gen_path = generic_ids(tokenizer, args.generic_text, args.n, args.seq_len)
     print(f"[resid] task: {args.task_format} x{len(prompts)}  e.g. {prompts[0]!r}")
     print(f"[resid] generic: {gen_ids.shape[0]} x {args.seq_len} tokens from {gen_path}")
 
     parent = load_fp32(args.parent, args.device)
     child = load_fp32(args.child, args.device)
-    acc_ans, acc_all, acc_gen = run_pair(parent, child, tokenizer, prompts, args.device,
-                                         args.batch_size, gen_ids, args.gen_batch_size,
-                                         args.gen_rows_per_seq, args.seed)
+    acc_ans, acc_all, acc_gen, fn = run_pair(parent, child, tokenizer, prompts, args.device,
+                                             args.batch_size, gen_ids, args.gen_batch_size,
+                                             args.gen_rows_per_seq, args.seed)
 
     rel_ans, rel_all, rel_gen = acc_ans.rel(), acc_all.rel(), acc_gen.rel()
     inc_ans, inc_gen = acc_ans.inc_share(), acc_gen.inc_share()
+    incr_ans, incr_gen = acc_ans.inc_rel_share(), acc_gen.inc_rel_share()
+
+    # --- v2: functional shift
+    kl_task = sum(fn["kl_task_ans"]) / len(fn["kl_task_ans"])
+    kl_gen = fn["kl_gen"] / fn["n_gen_tok"]
+    nll_p, nll_c = fn["nll_gen_parent"] / fn["n_gen_tok"], fn["nll_gen_child"] / fn["n_gen_tok"]
+
+    # --- v2: content-removed direction at the final layer (task answer position)
+    from geode.arith.formats import true_answer
+
+    U = parent.lm_head.weight.detach().float().cpu()
+    gamma = parent.model.norm.weight.detach().float().cpu()
+    first_tok = lambda x: tokenizer(str(x), add_special_tokens=False)["input_ids"][0]  # noqa: E731
+    correct = torch.tensor([first_tok(true_answer(a, b, op)) for a, b, op in triples])
+    ptop = torch.tensor(fn["parent_top1"])
+    D = acc_ans.matrices()[-1].double()                       # (N, d) final-layer deltas
+    u1 = (U[correct] * gamma).double()
+    u2 = (U[ptop] * gamma).double()
+    u1 = u1 / u1.norm(dim=1, keepdim=True)
+    u2 = u2 - (u2 * u1).sum(1, keepdim=True) * u1
+    u2n = u2.norm(dim=1, keepdim=True)
+    u2 = torch.where(u2n > 1e-8, u2 / u2n.clamp_min(1e-8), torch.zeros_like(u2))
+    proj = (D * u1).sum(1, keepdim=True) * u1 + (D * u2).sum(1, keepdim=True) * u2
+    D_rest = D - proj
+    content_frac = (proj.norm() ** 2 / D.norm().clamp_min(1e-30) ** 2).item()
+    c2m_nc, coh_nc, pc1_nc = direction_stats(D_rest.float())
     mats_t, mats_g = acc_ans.matrices(), acc_gen.matrices()
     pmat_t, pmat_g = acc_ans.parent_matrices(), acc_gen.parent_matrices()
     layers = []
@@ -347,6 +411,21 @@ def cmd_run(args) -> int:
         "ratio_all_over_generic": mean("rel_task_all") / max(mean("rel_generic"), 1e-30),
         "eff_layers_task": participation(inc_t),
         "eff_layers_generic": participation(inc_g),
+        "eff_layers_task_normalised": participation(incr_ans[1:]),
+        "eff_layers_generic_normalised": participation(incr_gen[1:]),
+        "centroid_layer_task_normalised": (incr_ans[1:] / incr_ans[1:].sum() * L).sum().item(),
+        "centroid_layer_generic_normalised": (incr_gen[1:] / incr_gen[1:].sum() * L).sum().item(),
+        "inc_rel_share_task": incr_ans.tolist(),
+        "inc_rel_share_generic": incr_gen.tolist(),
+        # v2 functional shift
+        "kl_task_ans": kl_task, "kl_generic_per_token": kl_gen,
+        "kl_ratio_task_over_generic": kl_task / max(kl_gen, 1e-30),
+        "nll_generic_parent": nll_p, "nll_generic_child": nll_c,
+        "delta_nll_generic": nll_c - nll_p,
+        # v2 content-removed direction (final layer, task answer position)
+        "content_energy_frac_last": content_frac,
+        "cos2mean_task_last_nocontent": c2m_nc, "coherence_task_last_nocontent": coh_nc,
+        "pc1_task_last_nocontent": pc1_nc,
         "centroid_layer_task": (inc_t * L).sum().item(),
         "centroid_layer_generic": (inc_g * L).sum().item(),
         "top3_layers_task": top3,
@@ -401,6 +480,20 @@ def cmd_run(args) -> int:
           f"{s['cos2mean_generic_last']:.3f} (parent {s['cos2mean_parent_generic_last']:.3f}); "
           f"PC1 task {s['pc1_task_last']:.3f} (parent {s['pc1_parent_task_last']:.3f}) vs generic "
           f"{s['pc1_generic_last']:.3f} (parent {s['pc1_parent_generic_last']:.3f})")
+    print(f"[resid] SUMMARY where written, NORMALISED increments: eff. layers task "
+          f"{s['eff_layers_task_normalised']:.1f} (centroid L{s['centroid_layer_task_normalised']:.1f}) "
+          f"vs generic {s['eff_layers_generic_normalised']:.1f} "
+          f"(centroid L{s['centroid_layer_generic_normalised']:.1f}); task shares by layer: "
+          + " ".join(f"L{i}:{v:.2f}" for i, v in enumerate(incr_ans[1:].tolist())))
+    print(f"[resid] SUMMARY functional shift: KL(parent||child) task answer pos {s['kl_task_ans']:.3f} "
+          f"nats vs generic per token {s['kl_generic_per_token']:.4f} -> ratio "
+          f"{s['kl_ratio_task_over_generic']:.1f}; generic NLL parent {s['nll_generic_parent']:.4f} "
+          f"-> child {s['nll_generic_child']:.4f} (delta {s['delta_nll_generic']:+.4f} nats/token)")
+    print(f"[resid] SUMMARY content-removed direction (final layer): answer+parent-top1 directions "
+          f"carry {s['content_energy_frac_last']:.1%} of the shift energy; remainder cos-to-mean "
+          f"{s['cos2mean_task_last_nocontent']:.3f}, coherence {s['coherence_task_last_nocontent']:.3f}, "
+          f"PC1 {s['pc1_task_last_nocontent']:.3f} (vs full shift {s['cos2mean_task_last']:.3f} / "
+          f"{s['pc1_task_last']:.3f})")
     print(f"[resid] SUMMARY direction, energy-weighted over layers: cos-to-mean task "
           f"{s['cos2mean_task_wmean']:.3f} vs generic {s['cos2mean_generic_wmean']:.3f}; PC1 task "
           f"{s['pc1_task_wmean']:.3f} vs generic {s['pc1_generic_wmean']:.3f}; "
@@ -438,12 +531,22 @@ def cmd_compare(args) -> int:
             ("pc1_parent_generic_last", "  ref: parent states, generic"),
             ("cos2mean_task_wmean", "cos-to-mean task (E-weighted)"),
             ("cos2mean_generic_wmean", "cos-to-mean generic (E-weighted)"),
-            ("cos_task_generic_last", "cos(task dir, generic dir) final")]
-    head = f"{'metric':<30}" + "".join(f"{lab:>16}" for lab, _ in runs)
+            ("cos_task_generic_last", "cos(task dir, generic dir) final"),
+            ("eff_layers_task_normalised", "eff. layers, normalised (task)"),
+            ("centroid_layer_task_normalised", "centroid, normalised (task)"),
+            ("kl_task_ans", "KL(parent||child) task, nats"),
+            ("kl_generic_per_token", "KL(parent||child) generic/token"),
+            ("kl_ratio_task_over_generic", "KL RATIO task/generic"),
+            ("delta_nll_generic", "generic NLL child - parent"),
+            ("content_energy_frac_last", "answer-content energy frac (final)"),
+            ("pc1_task_last_nocontent", "PC1 after removing content"),
+            ("cos2mean_task_last_nocontent", "cos-to-mean after removing content")]
+    head = f"{'metric':<34}" + "".join(f"{lab:>16}" for lab, _ in runs)
     print("[resid] " + head)
     for k, name in keys:
-        vals = "".join(f"{r['summary'][k]:>16.3f}" for _, r in runs)
-        print(f"[resid] {name:<30}{vals}")
+        vals = "".join(f"{r['summary'][k]:>16.3f}" if k in r["summary"] else f"{'--':>16}"
+                       for _, r in runs)
+        print(f"[resid] {name:<34}{vals}")
     if args.plot:
         import matplotlib
 
