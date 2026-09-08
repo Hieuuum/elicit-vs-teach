@@ -140,26 +140,42 @@ class MixTaps:
 
 
 def learn_role(model, taps, pairs, device, lam, steps, lr):
-    """Optimise mask logits; return (attn_mask (L,H), mlp_mask (L,), stats)."""
-    clean = torch.tensor([p[0] for p in pairs], device=device)
-    cf = torch.tensor([p[1] for p in pairs], device=device)
-    xt = torch.tensor([p[3] for p in pairs], device=device)
-    ct = torch.tensor([p[2] for p in pairs], device=device)
+    """Optimise mask logits; return (attn_mask (L,H), mlp_mask (L,), stats).
 
-    taps.mode = "capture"
-    with torch.no_grad():
-        model(cf)
-    taps.mode = "off"
+    Pairs are length-matched within a pair but not across pairs, so they are
+    processed in same-length groups; the counterfactual activations of each
+    group are captured once and cached, and every optimisation step sums the
+    task loss over all groups before one Adam update."""
+    groups: dict[int, list] = {}
+    for pr in pairs:
+        groups.setdefault(len(pr[0]), []).append(pr)
+    batches = []
+    for g in groups.values():
+        clean = torch.tensor([p[0] for p in g], device=device)
+        cf = torch.tensor([p[1] for p in g], device=device)
+        ct = torch.tensor([p[2] for p in g], device=device)
+        xt = torch.tensor([p[3] for p in g], device=device)
+        taps.cf = {}
+        taps.mode = "capture"
+        with torch.no_grad():
+            model(cf)
+        taps.mode = "off"
+        batches.append((clean, cf, ct, xt, dict(taps.cf)))
+    n_total = sum(len(b[0]) for b in batches)
 
     la = torch.full((taps.L, taps.H), -3.0, device=device, requires_grad=True)
     lm = torch.full((taps.L,), -3.0, device=device, requires_grad=True)
     opt = torch.optim.Adam([la, lm], lr=lr)
     for step in range(steps):
         taps.mask_attn, taps.mask_mlp = torch.sigmoid(la), torch.sigmoid(lm)
-        taps.mode = "mix"
-        logits = model(clean).logits[:, -1].float()
-        taps.mode = "off"
-        task = F.cross_entropy(logits, xt)
+        task = 0.0
+        for clean, _cf, _ct, xt, cf_acts in batches:
+            taps.cf = cf_acts
+            taps.mode = "mix"
+            logits = model(clean).logits[:, -1].float()
+            taps.mode = "off"
+            task = task + F.cross_entropy(logits, xt, reduction="sum")
+        task = task / n_total
         sparsity = torch.sigmoid(la).sum() + torch.sigmoid(lm).sum()
         loss = task + lam * sparsity
         opt.zero_grad()
@@ -173,17 +189,19 @@ def learn_role(model, taps, pairs, device, lam, steps, lr):
     with torch.no_grad():
         ha, hm = (torch.sigmoid(la) > 0.5).float(), (torch.sigmoid(lm) > 0.5).float()
         taps.mask_attn, taps.mask_mlp = ha, hm
-        taps.mode = "mix"
-        pred = model(clean).logits[:, -1].argmax(-1)
-        taps.mode = "off"
-        cf_acc = (pred == xt).float().mean().item()      # role set flips to cf answer
-        base_pred = model(clean).logits[:, -1].argmax(-1)
-        clean_acc = (base_pred == ct).float().mean().item()
-        full_pred = model(cf).logits[:, -1].argmax(-1)
-        cf_ceiling = (full_pred == xt).float().mean().item()
-    return ha.cpu(), hm.cpu(), {"cf_flip_acc": cf_acc, "clean_acc": clean_acc,
-                                "cf_ceiling_acc": cf_ceiling,
-                                "n_attn": int(ha.sum()), "n_mlp": int(hm.sum())}
+        hit_cf = hit_clean = hit_ceiling = 0
+        for clean, cf, ct, xt, cf_acts in batches:
+            taps.cf = cf_acts
+            taps.mode = "mix"
+            hit_cf += (model(clean).logits[:, -1].argmax(-1) == xt).sum().item()
+            taps.mode = "off"
+            hit_clean += (model(clean).logits[:, -1].argmax(-1) == ct).sum().item()
+            hit_ceiling += (model(cf).logits[:, -1].argmax(-1) == xt).sum().item()
+    return ha.cpu(), hm.cpu(), {"cf_flip_acc": hit_cf / n_total,
+                                "clean_acc": hit_clean / n_total,
+                                "cf_ceiling_acc": hit_ceiling / n_total,
+                                "n_attn": int(ha.sum()), "n_mlp": int(hm.sum()),
+                                "n_length_groups": len(batches)}
 
 
 def cmd_learn(args) -> int:
