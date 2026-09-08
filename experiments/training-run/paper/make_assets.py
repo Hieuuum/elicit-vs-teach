@@ -306,6 +306,26 @@ TS teach (blank parent) & 0.212 & 5.2 & 0.034 & 0.167 \\
           "\\emph{not} (both energy-concentrated, $\\sim$5--12 of 512) - energy "
           "concentration is not functional rank. decisions.md 2026-09-08.")
 
+    table("weight_travel", r"""\begin{tabular}{lcc}
+\hline
+ & Elicit (TS1B-latent) & Teach (blank) \\
+\hline
+steps to convergence & 11{,}500 & 23{,}496 \\
+peak writing speed (per step) & 0.218 & 0.306 \\
+final writing speed & 0.018 & 0.022 \\
+total weight travel $\|\Delta W\|_F$ & 120 & 457 \\
+final exact match & 0.981 & 0.093 \\
+capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
+\hline
+\end{tabular}""",
+          "Weight-travel summary of the two 1M fine-tunes (from adapter "
+          "snapshots). The temporal profile is shared (both burst-then-decay; "
+          "see Fig.~fig\_weight\_travel) and does not discriminate the "
+          "regimes; the scalars do: teaching writes 3.8$\times$ more over "
+          "2$\times$ as many steps, yet buys $\sim$40$\times$ less capability "
+          "per unit of weight written. decisions.md 2026-09-08/09 (incl.\ the "
+          "shape-claim correction).")
+
     table("premise_program", r"""\begin{tabular}{lcc}
 \hline
 Measurement (TS1B-latent construction) & value & control \\

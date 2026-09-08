@@ -1,0 +1,17 @@
+\begin{table}[t]
+\centering
+\begin{tabular}{lcc}
+\hline
+ & Elicit (TS1B-latent) & Teach (blank) \\
+\hline
+steps to convergence & 11{,}500 & 23{,}496 \\
+peak writing speed (per step) & 0.218 & 0.306 \\
+final writing speed & 0.018 & 0.022 \\
+total weight travel $\|\Delta W\|_F$ & 120 & 457 \\
+final exact match & 0.981 & 0.093 \\
+capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
+\hline
+\end{tabular}
+\caption{Weight-travel summary of the two 1M fine-tunes (from adapter snapshots). The temporal profile is shared (both burst-then-decay; see Fig.~fig\_weight\_travel) and does not discriminate the regimes; the scalars do: teaching writes 3.8$	imes$ more over 2$	imes$ as many steps, yet buys $\sim$40$	imes$ less capability per unit of weight written. decisions.md 2026-09-08/09 (incl.\ the shape-claim correction).}
+\label{tab:weight_travel}
+\end{table}
