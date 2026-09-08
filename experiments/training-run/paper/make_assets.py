@@ -43,6 +43,11 @@ TS_TE_FORM = [(1, .25), (75, .24), (303, .26), (1327, .267), (5358, .422), (2349
 WTRAJ_TE = {"step": [1, 4, 18, 75, 303, 1327, 5358, 23496],
             "travel": [0.093, 0.477, 4.595, 9.554, 17.097, 54.967, 169.573, 457.213],
             "speed": [None, 0.135, 0.306, 0.112, 0.053, 0.049, 0.038, 0.022]}
+WTRAJ_EL = {"step": [1, 2, 5, 12, 28, 65, 154, 273, 643, 1516, 3575, 8429],
+            "travel": [0.093, 0.183, 0.625, 1.987, 4.245, 7.944, 18.866, 24.018,
+                       32.269, 45.290, 72.940, 120.470],
+            "speed": [None, 0.097, 0.160, 0.218, 0.164, 0.146, 0.172, 0.099,
+                      0.049, 0.032, 0.025, 0.018]}
 
 LADDER_LLAMA = [("direct", 0.0), ("mean vector", 0.039), ("per-prompt state", 0.449),
                 ("full fine-tune", 0.99)]
@@ -160,26 +165,31 @@ def fig_formation_llama():
 
 def fig_weight_travel():
     f, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.6))
-    a1.plot(WTRAJ_TE["step"], WTRAJ_TE["travel"], "o-", color=TE, label="teach")
+    for data, c, lbl in ((WTRAJ_TE, TE, "teach (blank twin)"),
+                         (WTRAJ_EL, EL, "elicit (TS1B-latent twin)")):
+        a1.plot(data["step"], data["travel"], "o-", color=c, label=lbl)
+        pts = [(x, v) for x, v in zip(data["step"], data["speed"]) if v]
+        a2.plot([x for x, _ in pts], [v for _, v in pts], "o-", color=c, label=lbl)
     a1.set_xscale("log")
     a1.set_yscale("log")
     a1.set_xlabel("training step")
     a1.set_ylabel(r"$\|\Delta W_t\|_F$ (travel)")
     a1.grid(alpha=.3)
-    a1.legend()
-    s = [(x, v) for x, v in zip(WTRAJ_TE["step"], WTRAJ_TE["speed"]) if v]
-    a2.plot([x for x, _ in s], [v for _, v in s], "o-", color=TE)
+    a1.legend(fontsize=8)
     a2.set_xscale("log")
+    a2.set_yscale("log")
     a2.set_xlabel("training step")
     a2.set_ylabel("speed per step")
     a2.grid(alpha=.3)
-    save(f, "fig_weight_travel_teach",
-         "Weight travel of the taught 1M fine-tune from adapter snapshots: total "
-         "distance grows near-linearly to 457 over 23.5K steps and per-step speed "
-         "stays at a sustained 0.02-0.05 - continuous writing of new structure "
-         "(the measurable form of 'gradient strength' under AdamW). Elicit "
-         "counterpart pending the snapshot rerun. wtraj_evt-ts1b-fig2ts-noinst-"
-         "n1000000; decisions.md 2026-09-08.")
+    save(f, "fig_weight_travel",
+         "Weight travel of the two 1M fine-tunes from adapter snapshots (the "
+         "measurable form of 'gradient strength' under AdamW). Elicit (gold): a "
+         "writing burst over steps ~12-154 - coinciding with the circuit "
+         "formation transient - then a ~12x monotone speed decay; total travel "
+         "120. Teach (teal): sustained speed (still 0.022/step at 23.5K, "
+         "exceeding elicit's final speed three times deeper into training) and "
+         "~3.8x more total writing (457). wtraj_evt-ts1b-{mix-nl-n1000000s2,"
+         "fig2ts-noinst-n1000000}; decisions.md 2026-09-08/09.")
 
 
 def fig_ladder():

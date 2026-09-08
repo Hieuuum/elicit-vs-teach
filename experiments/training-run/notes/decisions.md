@@ -6513,3 +6513,23 @@ of new edges from recruited writers, reading into engine MLPs 11/13/14/0)
 but noise-dominated — qualitative only. Bridge node maps: pre ld 6.5
 PERFORMING, J@32 pre/post 0.524 — reuse replicates on the NL-bearing
 surface.
+
+## 2026-09-09 (metric 8 complete) — elicit weight travel: burst by step ~154, then ~12x speed decay; teach sustains higher speed 2x longer and writes ~3.8x more total
+
+wtraj_evt-ts1b-mix-nl-n1000000s2 (12 snapshots): speed/step peaks 0.22 at
+step 12, holds 0.15-0.17 through 28-154 (the interface-construction window
+= the formation transient), then decays monotonically to 0.018 by 8.4K
+(~12x off peak). Travel 18.9@154 -> 45@1.5K -> 120@8.4K. erank(PR): 190
+(init noise) -> 3.4 mid -> 6.0 late.
+
+vs teach (23.5K steps): total travel 457 (~3.8x elicit), speed still 0.022
+at step 23.5K — the taught run's LAST speed exceeds the elicit run's, three
+times deeper into training. At matched mid-training steps teach writes
+1.5-2x faster.
+
+Verdicts: burst-then-taper (elicit) vs sustained-writing (teach) ✓ — and
+the elicit burst window (steps ~12-154) coincides with the circuit
+formation transient, its decay with the lock (~1.5K). Nuance kept honest:
+elicit speed tapers ~12x but does not hit zero (slow drift continues);
+erank-over-time again fails to separate the regimes (both collapse to ~3.5
+then rise mildly). Snapshots may now be deleted.
