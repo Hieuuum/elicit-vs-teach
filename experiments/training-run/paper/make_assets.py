@@ -52,6 +52,16 @@ WTRAJ_EL = {"step": [1, 2, 5, 12, 28, 65, 154, 273, 643, 1516, 3575, 8429],
             "speed": [None, 0.097, 0.160, 0.218, 0.164, 0.146, 0.172, 0.099,
                       0.049, 0.032, 0.025, 0.018]}
 
+# top-16 attribution nodes per model (decisions.md 2026-09-01 compare output)
+TOP16 = {
+    "installed engine (TS1B-latent, op surface)": {
+        "mlp": [15, 14, 13, 12, 0, 7, 8, 9, 11, 6, 5, 1], "attn": [7, 7, 7, 1]},
+    "elicited child (1M)": {
+        "mlp": [15, 14, 13, 12, 8, 0, 11, 7, 10, 5, 9, 6], "attn": [7, 7, 7, 5]},
+    "taught child (1M, blank parent)": {
+        "mlp": [15, 13, 14, 0, 7, 6, 10], "attn": [0, 0, 0, 0, 0, 0, 0, 0, 15]},
+}
+
 LADDER_LLAMA = [("direct", 0.0), ("mean vector", 0.039), ("per-prompt state", 0.449),
                 ("full fine-tune", 0.99)]
 LADDER_TS = [("direct", 0.0), ("mean vector", 0.0), ("per-prompt state", 0.125),
@@ -233,6 +243,32 @@ def circuits():
          "circuit is final almost immediately; compare the teach twin's 1.3K-5.4K "
          "construction window. traj_evt-llama-fig2nl3s-noinst-n1000000; "
          "decisions.md 2026-08-26.")
+
+    f, axes = plt.subplots(3, 1, figsize=(8, 4.6), sharex=True)
+    colors = (EL, EL, TE)
+    for ax, (name, nodes), c in zip(axes, TOP16.items(), colors):
+        mlp = [nodes["mlp"].count(i) for i in range(16)]
+        att = [nodes["attn"].count(i) for i in range(16)]
+        ax.bar(range(16), mlp, color=c, label="MLP nodes")
+        ax.bar(range(16), att, bottom=mlp, color=c, alpha=0.45, hatch="//",
+               label="attention heads")
+        ax.set_ylabel(name.split(" (")[0], fontsize=8)
+        ax.set_yticks([0, 4, 8])
+        ax.grid(axis="y", alpha=.3)
+    axes[0].legend(fontsize=7, loc="upper left")
+    axes[-1].set_xlabel("layer")
+    axes[-1].set_xticks(range(16))
+    save(S, f, "fig_layer_profile_ts",
+         "Where the circuits live: layer histogram of each model's top-16 "
+         "attribution nodes (solid = MLP outputs, hatched = attention heads). "
+         "Elicit vs. teach: the elicited child's profile is the installed "
+         "engine's profile - the same mid/late MLP backbone plus the layer-7 "
+         "attention trio (reuse, J@32 0.455-0.524, top-4 identical) - while the "
+         "taught child, built from a parent with no circuit at all, runs a "
+         "layer-0 attention army over raw digit tokens feeding a few late MLPs: "
+         "same task, same pretrained substrate, different machine (J 0.231, "
+         "score Spearman -0.11). Node lists from circuit_compare outputs; "
+         "decisions.md 2026-09-01.")
 
     table(S, "circuit_overlap", r"""\begin{tabular}{lccc}
 \hline
