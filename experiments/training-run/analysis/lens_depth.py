@@ -199,6 +199,7 @@ def average_jacobians(model, taps, story_ids, device, k_batch, mode, log=True):
 # ----------------------------------------------------------------- metrics
 @torch.no_grad()
 def score(logits: torch.Tensor, correct: torch.Tensor, distract: torch.Tensor) -> dict:
+    correct, distract = correct.to(logits.device), distract.to(logits.device)
     lp = F.log_softmax(logits.float(), dim=-1)
     lp_c = lp.gather(1, correct[:, None]).squeeze(1)
     top1 = logits.argmax(-1) == correct
@@ -305,6 +306,15 @@ def cmd_run(args) -> int:
                "own_first_token_acc": own_acc,
                "own_logit_diff": sum(own["logit_diff"]) / len(prompts), "positions": {},
                "jacobian_info": {}}
+    logit_scores = {}
+    if "logit" in args.lenses:
+        with torch.no_grad():
+            for pos in args.positions:
+                logit_scores[pos] = [score(decode(model, H[pos][li].to(device)), correct, distract)
+                                     for li in range(n_layers)]
+                acc_l = logit_scores[pos][-1]["top1"]
+                print(f"[lens] logit lens scored (pos {pos}); last layer acc "
+                      f"{sum(acc_l) / len(acc_l):.3f} == own {own_acc:.3f}")
 
     # --- average Jacobians (J-lens: gradient; R-lens: LRP backward)
     mats = {}
@@ -338,10 +348,9 @@ def cmd_run(args) -> int:
 
     for pos in args.positions:
         per = {}
+        if pos in logit_scores:
+            per["logit"] = logit_scores[pos]
         with torch.no_grad():
-            if "logit" in args.lenses:
-                per["logit"] = [score(decode(model, H[pos][li].to(device)), correct, distract)
-                                for li in range(n_layers)]
             for ln, J in mats.items():
                 per[ln] = [score(decode(model, (H[pos][li] @ J[li].T).to(device)), correct,
                                  distract) for li in range(n_layers)]
@@ -448,7 +457,8 @@ def main() -> int:
                    help="cotangents per batched backward (1 = plain loop)")
     r.add_argument("--sdpa", action="store_true",
                    help="keep sdpa attention (default: eager, so batched backward works)")
-    r.add_argument("--save-jacobians", action="store_true")
+    r.add_argument("--no-save-jacobians", dest="save_jacobians", action="store_false",
+                   help="skip writing <out>_{jlens,rlens}_J.pt (fp16, ~140 MB each)")
     r.add_argument("--no-tf32", dest="tf32", action="store_false",
                    help="keep full fp32 matmuls in the Jacobian phase (~8x slower)")
     r.add_argument("--tokenizer", default=TOKENIZER)
