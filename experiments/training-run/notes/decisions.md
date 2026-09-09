@@ -6691,3 +6691,68 @@ channel (14x vs 1.7x final-layer relative shift); (b) elicitation's shift
 is per-problem content, not a reusable vector (PC1 0.06), consistent with
 the steering ladder. (5) folds into the latent-state result. JSONs on the
 cluster: resid_{elicit_1m,elicit_3162,teach_1m,construct}.json.
+
+## 2026-09-10 (lens depth: logit lens, J-lens, R-lens) — the latent parent already carries the answer in its verbalizable space (J-rank 2.6K@L12 -> 174 at the read-out while it emits a rewrite); the blank base carries nothing (chance rank, logit-diff 0.00 at every layer). Elicitation forms the answer at the engine's own depth (L13-14, trajectory identical to the parent's op-surface trajectory); teaching forms it only at the last layer (J-rank 20K@L14 -> 8@L15). A sign-token artefact retracted: the taught child's apparent layer-5 formation was a comparison circuit predicting '-'.
+
+Instrument: analysis/lens_depth.py. Residual after every layer at the answer
+position of 256 problems, decoded with (i) the logit lens, (ii) the J-lens
+(Anthropic 2026 global-workspace paper): J_l = E[d h_final,t'/d h_l,t] over
+24 held-out TinyStories x 128 tokens, source positions t, target positions
+t' >= t, formed EXPLICITLY (d x d per layer) by batched reverse-mode
+cotangents (one backward per output coordinate gives that row for every
+layer), TF32, identity at the last layer exact (4e-16); (iii) the R-lens
+(LessWrong 2026): same transport with an LRP backward (RMSNorm denominator
+detached, SiLU gradient -> sigmoid, gated product split half/half;
+attention and linear maps untouched). ||R-J||/||J|| 0.04-0.21 across
+layers, 0 at the last. Scored token = first DIGIT chunk (Llama-3 3-digit
+chunks); for the 60 negative answers the sign token is appended to the
+prompt and the magnitude token scored. Mismatched-problem distractor for
+the logit-diff. Jacobians saved (fp16) and reused.
+
+J-lens median rank of the answer token (chance = 64K of 128K) and logit-diff:
+| model / surface | own acc | rank L8 | L12 | L14 | read-out | first layer ld>1 | settled median |
+| latent parent / NL | 0.047 | 7,668 | 2,606 | 510 | 174 | L13 | L14 (n=12) |
+| elicited child / NL | 0.957 | 7,801 | 139 | 1 | 1 | L8 | L14 |
+| blank base / NL | 0.000 | 72,568 | 80,840 | 77,320 | 75,441 | never | -- |
+| taught child / NL | 0.109 | 60,160 | 41,677 | 19,933 | 8 | L12 | L14 (n=28) |
+| latent parent / op | 0.836 | 5,913 | 122 | 1 | 1 | L8 | L14 |
+| elicited child / op | 0.855 | 5,613 | 131 | 1 | 1 | L8 | L14 |
+
+1. J-SPACE BEFORE TRAINING (the J-lens question). Latent parent on the NL
+   target: the answer's J-rank falls from ~8K at L8 to 2.6K at L12, 1.5K at
+   L13, 510 at L14 and 174 in the actual output distribution (top 0.1%),
+   logit-diff rising from L8 to +2.1 — while the model emits a rewrite, not
+   a number. Blank base: 55-80K at every layer, logit-diff 0.00 at every
+   layer, in all three lenses. Elicitation-side prediction ("already in
+   J-space") holds in the graded sense (top 0.1-2%, not top-10);
+   teaching-side prediction ("nothing at any layer") holds exactly.
+2. THE TRAJECTORY BARELY MOVES. Op surface, parent vs elicited child,
+   J-rank by layer: 5913/5613 (L8), 1317/1187 (L10), 122/131 (L12), 6/9
+   (L13), 1/1 (L14) — identical. NL surface: same onset (L8: 7668 vs
+   7801), the child then amplifies the same rising signal in L10-14 (2606
+   -> 139 at L12; 510 -> 1 at L14). Elicitation did not move where the
+   answer forms; it amplified the late-layer read-out of the parent's
+   signal — consistent with the residual shift being written in L13-15.
+3. FORMATION DEPTH. Elicited child: settled median L14 (q25 L13), rank<=10
+   at L13, top-1 0.27@L13 -> 0.73@L14 -> 0.96@L15 — the SAME depth as the
+   parent's engine on symbols (0.25/0.63/0.84). Taught child: rank 39K@L13,
+   20K@L14, 8@L15; top-1 0.02/0.08/0.11 — the answer exists only at the
+   last layer. Owner's prediction: "teach = final layers only" ✓; "elicit =
+   middle layers" ✗ in the literal sense (L13-14 of 16), ✓ relative to
+   teaching (onset L8 vs L12, settled one layer earlier, rank<=10 two
+   layers earlier). Depth is inherited from the engine under elicitation
+   and pinned to the last layer under teaching.
+4. Lenses agree. Logit, J and R lenses give the same conclusions; the
+   J-lens shows presence 1-2 layers earlier than the logit lens (elicited
+   L12 rank 139 vs 1584), the R-lens sits between (464). Rank at L0-L5 in
+   J-space (~7-20K for models that have seen arithmetic, ~55-60K for the
+   blank/taught) is a "a number comes next" prior, not answer-specific
+   (logit-diff ~0 there) — use the logit-diff for specificity.
+5. RETRACTED artefact (first pass, scoring tokenizer(str(ans))[0]): the
+   taught child scored 0.312 first-token accuracy with 48 problems
+   "settled" at L5-6 — all subtractions with a < b, whose first token is
+   '-'. A layer-5 comparison circuit predicts the sign; it is not
+   arithmetic. Scoring the first digit: 0.109, settled L14, no early route.
+   The elicited child and both parents were unaffected (they resolve the
+   sign late, with everything else). lens_breakdown.py (copy / carry-free /
+   negative / op / length crosstabs) found it.

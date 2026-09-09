@@ -70,7 +70,7 @@ snapshots.
 \noindent\textbf{Reading guide.} The results answer four questions in order: does the
 \emph{behavior} of learning differ (R1); is the resulting \emph{machinery} the same (R2--R4);
 how does that machinery \emph{come into being} during training (R5--R8); and what does the
-latent state \emph{mean and permit} before any target training (R9--R10).
+latent state \emph{mean and permit} before any target training (R9--R11).
 
 % =====================================================================
 \section*{A. Behavior: the learning-curve signature}
@@ -309,7 +309,7 @@ shared direction; teach PC1 $0.35$ --- the larger common component.}
 write into the final residual stream, for a model 10$\times$ worse: a new, large-norm output
 channel. The elicited child differs from its parent by a \emph{per-problem} vector --- the answer
 routed to the output --- not by a reusable ``answer-mode'' switch; that is exactly why the
-mean-vector patch in R10 yields format only while per-prompt states unlock the task. Elicit vs.\
+mean-vector patch in R11 yields format only while per-prompt states unlock the task. Elicit vs.\
 teach: elicitation adds content to an existing state; teaching adds a loud channel. (The
 proposed surgical-vs-diffuse reading of this metric did not hold; see the non-discriminators.)}
 \begin{figure}[h]\centering
@@ -359,6 +359,56 @@ and $0.98$ --- problem-blind.}
 activates the arithmetic MLPs of the elicit parent, while the teach parent has no arithmetic
 MLPs to activate. It also confirms the binding dose installed an access route, not the task.}
 
+\item \textbf{The latent parent already holds the answer in its verbalizable space; the blank base
+holds nothing. Elicitation forms the answer where the engine forms it; teaching forms it only at
+the last layer.}
+\metric{Logit lens, Jacobian lens (J-lens: the residual at layer $\ell$ transported to the
+final-layer basis by the corpus-average Jacobian $J_\ell=\mathbb{E}[\partial h_{\mathrm{final}}/
+\partial h_\ell]$ over held-out stories, then unembedded) and R-lens (the J-lens with a
+relevance-propagation backward pass), at the answer position of 256 problems. Scored token $=$
+first digit chunk of the answer (sign appended to the prompt for negative answers). Read-outs:
+median rank of the answer token (chance $64$K of $128$K), logit-diff against a mismatched
+problem's answer, settled depth (first layer from which the token stays top-1).}
+\result{Figure~\ref{fig:lens}, Table~\ref{tab:lens}. Latent parent on the NL target, J-space
+rank of the answer: $2{,}606$ at layer 12, $510$ at layer 14, $174$ in the output distribution
+--- while it emits a rewrite; logit-diff rising from layer 8. Blank base: $55$--$80$K at every
+layer, logit-diff $0.00$ everywhere, in all three lenses. Elicited child: rank $139$ / $6$ / $1$
+at layers 12 / 13 / 14, settled median layer 14 --- the same trajectory as the parent's engine
+on symbols ($122$ / $6$ / $1$) and the same onset as the parent on NL (layer 8). Taught child:
+rank $41{,}677$ / $19{,}933$ / $8$ at layers 12 / 14 / 15; top-1 $0.02\to0.08\to0.11$ over the
+last three layers.}
+\interp{``Latent'' in the workspace sense: the answer is present and rising in the parent's
+verbalizable space before any target training, and elicitation amplifies that late read-out
+without moving it --- parent and child lens trajectories coincide layer by layer on the engine's
+own surface. Teaching has no signal to amplify: its answer exists nowhere in the stack until the
+last layer writes it (the loud final write of R8). Elicit vs.\ teach: depth is inherited from the
+engine under elicitation and pinned to the last layer under teaching. The ``middle layers'' form
+of the prediction does not hold --- formation is at layers 13--14 of 16 in parent and elicited
+child alike.}
+\begin{figure}[h]\centering
+\includegraphics[width=0.95\textwidth]{06_lens/fig_lens_depth.png}
+\caption{J-lens read-out of the answer token by layer: median rank (left, chance 64K) and
+logit-diff (right). Squares = parents, circles = 1M children; dotted = symbol surface.}
+\label{fig:lens}
+\end{figure}
+\begin{table}[h]\centering\small
+\begin{tabular}{llcccccc}
+\toprule
+model & surface & own acc & rank L8 & rank L12 & rank L14 & read-out & first layer ld$>$1 \\
+\midrule
+TS1B-latent (parent) & NL & 0.047 & 7{,}668 & \textbf{2{,}606} & 510 & \textbf{174} & 13 \\
+elicited child & NL & 0.957 & 7{,}801 & 139 & 1 & 1 & 8 \\
+blank base & NL & 0.000 & 72{,}568 & \textbf{80{,}840} & 77{,}320 & \textbf{75{,}441} & never \\
+taught child & NL & 0.109 & 60{,}160 & 41{,}677 & 19{,}933 & 8 & 12 \\
+TS1B-latent (parent) & symbols & 0.836 & 5{,}913 & 122 & 1 & 1 & 8 \\
+elicited child & symbols & 0.855 & 5{,}613 & 131 & 1 & 1 & 8 \\
+\bottomrule
+\end{tabular}
+\caption{J-lens depth of the answer's first digit token (median rank among 128K entries; ``own
+acc'' = the model's own first-digit-token accuracy; ld = lens logit-diff).}
+\label{tab:lens}
+\end{table}
+
 \item \textbf{The latent capability can be reached with frozen weights; the absent one cannot.}
 \metric{Exact match on the target task under zero-training interventions: (a) self-chain ---
 the model rewrites the question itself, then computes its own rewrite; (b) donor patching ---
@@ -397,13 +447,18 @@ blank + taught donor & every condition & 0.000 & 0.000 \\
 
 \end{enumerate}
 
-\section*{Validation results (not regime differences, but what licenses R2--R10)}
+\section*{Validation results (not regime differences, but what licenses R2--R11)}
 
 \begin{itemize}[nosep]
   \item \textbf{Both circuits are real and load-bearing.} True activation patching: elicited child
     top-8 of 528 nodes $=0.997$ sufficient / $0.998$ necessary (top-32: $0.999$ / $1.000$);
     taught child top-8 necessity $0.986$, top-32 $\sim$0.999. Every overlap above compares
     provably load-bearing sets.
+  \item \textbf{Lens depth is scored on the first digit token.} Scoring the raw first token
+    credited the taught child with layer-5 formation on 48 problems --- all subtractions with a
+    negative answer, whose first token is the minus sign, produced by a comparison circuit. With
+    the sign appended to the prompt the effect vanishes (first-token accuracy 0.31 $\to$ 0.11; no
+    early route); the other three models were unaffected.
   \item \textbf{Construction controls.} Identical doses on the blank twin change nothing on the
     target (0.000 in every probe); a sum-only binding dose leaves ``difference'' unbound (per-word
     binding); the composition law chain $=$ parse $\times$ compute held on four variants.

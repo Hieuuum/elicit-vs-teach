@@ -115,6 +115,38 @@ RESID = {
 }
 
 
+# lens depth (decisions.md 2026-09-10): J-lens median rank of the answer's first
+# digit token (chance 64K of 128K) and J-lens logit-diff, by layer 0..15, answer
+# position, 256 problems; "op" = symbol surface.
+LENS_RANK = {
+    "latent NL": [7574, 5558, 7989, 12418, 14727, 13632, 13205, 10892, 7668, 6400, 4730, 3501,
+                  2606, 1453, 510, 174],
+    "elicited NL": [13462, 15630, 18050, 21233, 22075, 18882, 19312, 14321, 7801, 4161, 1716,
+                    604, 139, 6, 1, 1],
+    "blank NL": [59980, 55088, 58546, 62141, 65456, 64877, 67372, 71855, 72568, 71373, 74177,
+                 75432, 80840, 78792, 77320, 75441],
+    "taught NL": [53177, 52210, 52662, 58236, 65460, 71200, 66826, 61701, 60160, 54055, 52401,
+                  39667, 41677, 39007, 19933, 8],
+    "latent op": [18926, 14565, 15360, 17984, 17770, 15333, 13951, 10605, 5913, 3330, 1317, 583,
+                  122, 6, 1, 1],
+    "elicited op": [24781, 14882, 14724, 17310, 17753, 14050, 14243, 10414, 5613, 2978, 1187, 441,
+                    131, 9, 1, 1],
+}
+LENS_LD = {
+    "latent NL": [0, 0, 0, 0, 0, 0, .1, .2, .4, .5, .7, .8, .9, 1.2, 1.6, 2.1],
+    "elicited NL": [0, 0, 0, 0, .1, .2, .3, .8, 1.2, 1.8, 2.4, 3.2, 4.6, 6.8, 10.3, 16.5],
+    "blank NL": [0] * 16,
+    "taught NL": [0, 0, 0, 0, 0, 0, 0, .2, .2, .3, .4, .6, 1.0, 1.6, 3.0, 6.8],
+    "latent op": [0, 0, 0, 0, 0, .2, .3, .8, 1.3, 1.9, 2.4, 3.2, 4.5, 6.7, 9.8, 15.1],
+    "elicited op": [0, 0, 0, .1, .1, .2, .3, .8, 1.3, 1.8, 2.4, 3.2, 4.5, 6.6, 9.8, 15.5],
+}
+LENS_STYLE = {  # colour, linestyle, marker
+    "latent NL": (EL, "-", "s"), "elicited NL": (EL, "-", "o"),
+    "blank NL": (TE, "-", "s"), "taught NL": (TE, "-", "o"),
+    "latent op": (EL, ":", "s"), "elicited op": (EL, ":", "o"),
+}
+
+
 # ------------------------------------------------------------- plumbing ---
 def outdir(section: str) -> Path:
     d = HERE / section
@@ -575,6 +607,57 @@ final exact match & 0.981 & 0.541 & 0.093 & -- \\
 
 
 
+def lens():
+    S = "06_lens"
+    L = list(range(16))
+    f, (a1, a2) = plt.subplots(1, 2, figsize=(10.5, 3.8))
+    for name, (c, ls, mk) in LENS_STYLE.items():
+        alpha = 0.55 if name.startswith(("latent", "blank")) else 1.0
+        a1.plot(L, LENS_RANK[name], ls, marker=mk, ms=3.5, color=c, alpha=alpha, label=name)
+        a2.plot(L, LENS_LD[name], ls, marker=mk, ms=3.5, color=c, alpha=alpha, label=name)
+    a1.axhline(64128, color="k", lw=0.6, ls="--")
+    a1.text(0.2, 64128 * 1.25, "chance", fontsize=7)
+    a1.set_yscale("log")
+    a1.set_xlabel("layer")
+    a1.set_ylabel("J-lens median rank of the answer token")
+    a1.set_title("is the answer in J-space?", fontsize=10)
+    a1.grid(alpha=.3)
+    a1.legend(fontsize=7, ncol=2)
+    a2.set_xlabel("layer")
+    a2.set_ylabel("J-lens logit-diff (answer − mismatched)")
+    a2.set_title("answer-specific signal by depth", fontsize=10)
+    a2.set_yscale("symlog", linthresh=1.0)
+    a2.grid(alpha=.3)
+    a2.legend(fontsize=7, ncol=2)
+    save(S, f, "fig_lens_depth",
+         "Jacobian-lens read-out of the answer's first digit token at the answer "
+         "position, by layer (256 problems; gold = TS1B-latent lineage, teal = blank "
+         "lineage; squares = parents, circles = 1M children; dotted = symbol surface). "
+         "Left: median rank of the answer token among 128K vocabulary entries (chance "
+         "64K). Right: logit-diff against a mismatched problem's answer. Elicit vs. "
+         "teach: the latent parent already holds the answer in its verbalizable space "
+         "(rank 2.6K at layer 12, 174 in its output distribution) while emitting a "
+         "rewrite, and the elicited child amplifies that same trajectory without "
+         "moving it (identical to the parent's engine on symbols, layer by layer); the "
+         "blank base is at chance at every layer, and the taught child's answer exists "
+         "only at the last layer (rank 20K at layer 14, 8 at layer 15). Logit and R "
+         "lenses agree. lens_depth.py; decisions.md 2026-09-10.")
+
+    table(S, "lens_depth", r"""\begin{tabular}{llcccccc}
+\hline
+model & surface & own acc & rank L8 & rank L12 & rank L14 & read-out & first layer ld$>$1 \\
+\hline
+TS1B-latent (parent) & NL & 0.047 & 7{,}668 & 2{,}606 & 510 & 174 & 13 \\
+elicited child & NL & 0.957 & 7{,}801 & 139 & 1 & 1 & 8 \\
+blank base & NL & 0.000 & 72{,}568 & 80{,}840 & 77{,}320 & 75{,}441 & never \\
+taught child & NL & 0.109 & 60{,}160 & 41{,}677 & 19{,}933 & 8 & 12 \\
+TS1B-latent (parent) & symbols & 0.836 & 5{,}913 & 122 & 1 & 1 & 8 \\
+elicited child & symbols & 0.855 & 5{,}613 & 131 & 1 & 1 & 8 \\
+\hline
+\end{tabular}""",
+          r"J-lens depth of the answer's first digit token at the answer position (median rank among 128K entries, chance 64K; ``own acc'' = the model's own first-digit-token accuracy; ld = lens logit-diff against a mismatched problem). Elicit vs.\ teach: the answer is present and rising in the latent parent's J-space before any target training and absent from the blank base at every layer; under elicitation the parent$\to$child trajectory is unchanged on the engine's surface and amplified late on the target, settling at layer 14 in both; under teaching the answer appears only at the last layer. decisions.md 2026-09-10.")
+
+
 def main() -> int:
     setup_tables()
     fig_signature_flip()
@@ -582,6 +665,7 @@ def main() -> int:
     interventions()
     weights()
     residual()
+    lens()
     (HERE / "README.md").write_text("""# Paper assets
 
 Generated by `make_assets.py` from the numbers in `../notes/decisions.md`
@@ -595,6 +679,7 @@ caption ends with an explicit "Elicit vs. teach:" sentence.
 | `03_circuits/` | fig_formation_ts, fig_formation_llama, circuit_overlap.tex, faithfulness.tex, delta_s.tex |
 | `04_interventions/` | fig_intervention_ladder, steering.tex |
 | `05_weights/` | fig_weight_travel, fig_grad_strength, fig_resid_shift, weight_travel.tex, grad_strength.tex, weight_shift.tex, resid_shift.tex |
+| `06_lens/` | fig_lens_depth, lens_depth.tex (logit / J / R lens depth of the answer token) |
 
 Figures: PNG + PDF + `.caption.txt`. Tables: self-contained LaTeX with
 `\\caption` and `\\label`. Regenerate on the cluster (GEODE_STORE set) to pull

@@ -11,6 +11,7 @@ caption ends with an explicit "Elicit vs. teach:" sentence.
 | `03_circuits/` | fig_formation_ts, fig_formation_llama, circuit_overlap.tex, faithfulness.tex, delta_s.tex |
 | `04_interventions/` | fig_intervention_ladder, steering.tex |
 | `05_weights/` | fig_weight_travel, fig_grad_strength, fig_resid_shift, weight_travel.tex, grad_strength.tex, weight_shift.tex, resid_shift.tex |
+| `06_lens/` | fig_lens_depth, lens_depth.tex (logit / J / R lens depth of the answer token) |
 
 Figures: PNG + PDF + `.caption.txt`. Tables: self-contained LaTeX with
 `\caption` and `\label`. Regenerate on the cluster (GEODE_STORE set) to pull
