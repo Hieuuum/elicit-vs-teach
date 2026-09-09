@@ -392,20 +392,19 @@ logit-diff (right). Squares = parents, circles = 1M children; dotted = symbol su
 \label{fig:lens}
 \end{figure}
 \begin{table}[h]\centering\small
-\begin{tabular}{llcccccc}
+\begin{tabular}{llcccc}
 \toprule
-model & surface & own acc & rank L8 & rank L12 & rank L14 & read-out & first layer ld$>$1 \\
-\midrule
-TS1B-latent (parent) & NL & 0.047 & 7{,}668 & \textbf{2{,}606} & 510 & \textbf{174} & 13 \\
-elicited child & NL & 0.957 & 7{,}801 & 139 & 1 & 1 & 8 \\
-blank base & NL & 0.000 & 72{,}568 & \textbf{80{,}840} & 77{,}320 & \textbf{75{,}441} & never \\
-taught child & NL & 0.109 & 60{,}160 & 41{,}677 & 19{,}933 & 8 & 12 \\
-TS1B-latent (parent) & symbols & 0.836 & 5{,}913 & 122 & 1 & 1 & 8 \\
-elicited child & symbols & 0.855 & 5{,}613 & 131 & 1 & 1 & 8 \\
+model & surface & own acc & rank L12 (logit / J / R) & rank L14 (logit / J / R) & read-out \\
+\hline
+TS1B-latent (parent) & NL & 0.047 & 5{,}704 / 2{,}606 / 2{,}730 & 436 / 510 / 424 & 174 \\
+elicited child & NL & 0.957 & 1{,}584 / 139 / 464 & 1 / 1 / 1 & 1 \\
+blank base & NL & 0.000 & 76{,}049 / 80{,}840 / 78{,}243 & 77{,}707 / 77{,}320 / 79{,}116 & 75{,}441 \\
+taught child & NL & 0.109 & 51{,}167 / 41{,}677 / 44{,}335 & 35{,}620 / 19{,}933 / 21{,}156 & 8 \\
+TS1B-latent (parent) & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 & 1 \\
+elicited child & symbols & 0.855 & 1{,}360 / 131 / 399 & 1 / 1 / 1 & 1 \\
 \bottomrule
 \end{tabular}
-\caption{J-lens depth of the answer's first digit token (median rank among 128K entries; ``own
-acc'' = the model's own first-digit-token accuracy; ld = lens logit-diff).}
+\caption{Lens depth of the answer's first digit token: median rank among 128K entries (chance 64K) under the logit lens / J-lens / R-lens; ``own acc'' = the model's own first-digit-token accuracy on the 256 held-out problems; read-out = last layer, where all lenses coincide with the model's output.}
 \label{tab:lens}
 \end{table}
 

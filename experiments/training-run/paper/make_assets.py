@@ -643,19 +643,19 @@ def lens():
          "only at the last layer (rank 20K at layer 14, 8 at layer 15). Logit and R "
          "lenses agree. lens_depth.py; decisions.md 2026-09-10.")
 
-    table(S, "lens_depth", r"""\begin{tabular}{llcccccc}
+    table(S, "lens_depth", r"""\begin{tabular}{llcccc}
 \hline
-model & surface & own acc & rank L8 & rank L12 & rank L14 & read-out & first layer ld$>$1 \\
+model & surface & own acc & rank L12 (logit / J / R) & rank L14 (logit / J / R) & read-out \\
 \hline
-TS1B-latent (parent) & NL & 0.047 & 7{,}668 & 2{,}606 & 510 & 174 & 13 \\
-elicited child & NL & 0.957 & 7{,}801 & 139 & 1 & 1 & 8 \\
-blank base & NL & 0.000 & 72{,}568 & 80{,}840 & 77{,}320 & 75{,}441 & never \\
-taught child & NL & 0.109 & 60{,}160 & 41{,}677 & 19{,}933 & 8 & 12 \\
-TS1B-latent (parent) & symbols & 0.836 & 5{,}913 & 122 & 1 & 1 & 8 \\
-elicited child & symbols & 0.855 & 5{,}613 & 131 & 1 & 1 & 8 \\
+TS1B-latent (parent) & NL & 0.047 & 5{,}704 / 2{,}606 / 2{,}730 & 436 / 510 / 424 & 174 \\
+elicited child & NL & 0.957 & 1{,}584 / 139 / 464 & 1 / 1 / 1 & 1 \\
+blank base & NL & 0.000 & 76{,}049 / 80{,}840 / 78{,}243 & 77{,}707 / 77{,}320 / 79{,}116 & 75{,}441 \\
+taught child & NL & 0.109 & 51{,}167 / 41{,}677 / 44{,}335 & 35{,}620 / 19{,}933 / 21{,}156 & 8 \\
+TS1B-latent (parent) & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 & 1 \\
+elicited child & symbols & 0.855 & 1{,}360 / 131 / 399 & 1 / 1 / 1 & 1 \\
 \hline
 \end{tabular}""",
-          r"J-lens depth of the answer's first digit token at the answer position (median rank among 128K entries, chance 64K; ``own acc'' = the model's own first-digit-token accuracy; ld = lens logit-diff against a mismatched problem). Elicit vs.\ teach: the answer is present and rising in the latent parent's J-space before any target training and absent from the blank base at every layer; under elicitation the parent$\to$child trajectory is unchanged on the engine's surface and amplified late on the target, settling at layer 14 in both; under teaching the answer appears only at the last layer. decisions.md 2026-09-10.")
+          r"Lens depth of the answer's first digit token at the answer position: median rank among 128K entries (chance 64K) under the logit lens / J-lens / R-lens; ``own acc'' = the model's own first-digit-token accuracy on the 256 held-out problems; read-out = the last layer, where all lenses coincide with the model's output. Elicit vs.\ teach: the answer is present and rising in the latent parent's J-space before any target training and absent from the blank base at every layer; under elicitation the parent$\to$child trajectory is unchanged on the engine's surface and amplified late on the target, settling at layer 14 in both; under teaching the answer appears only at the last layer. decisions.md 2026-09-10.")
 
 
 def main() -> int:
