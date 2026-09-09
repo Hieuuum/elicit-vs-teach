@@ -57,6 +57,16 @@ before fine-tuning. Everything below is about what differs inside and what that 
 \label{tab:premise}
 \end{table}
 
+\noindent\textbf{Endpoint caveat.} The elicit twin's 1M endpoint solves $0.981$ of held-out
+problems; the teach twin's 1M endpoint solves $\mathbf{0.093}$. It stopped on the protocol's
+validation-loss convergence rule after 3.2 passes over its data while still on the back side of
+its teaching hump --- the same place the paper's Figure~2 puts the TinyStories base at 1M
+examples (1--2 nats per label token), and the paper itself notes that this base ``stalls
+\ldots at lower accuracy'' under matched compute. Every teach-side mechanistic number below is
+therefore measured on a model that has not finished learning. A 4M-unique-example teach
+endpoint (the paper's single-epoch recipe) is being trained to check which teach-side
+conclusions survive a performing taught model; results marked as such will be updated.
+
 \noindent\textbf{Measurement vocabulary.}
 \emph{Circuit} = top-32 of 528 nodes (512 attention heads + 16 MLP outputs) by attribution
 score (gradient of the clean/corrupt logit-diff $\times$ activation delta, 128--256 pairs);
