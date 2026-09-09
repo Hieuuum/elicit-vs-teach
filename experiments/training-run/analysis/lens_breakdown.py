@@ -37,15 +37,24 @@ def first_chunk(x: int) -> str:
 
 
 def main() -> int:
+    import argparse
+
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("paths", nargs="+")
+    ap.add_argument("--early", type=int, default=None,
+                    help="list every problem whose logit-lens settled depth is <= this layer")
+    ap.add_argument("--lens", default="logit")
+    args = ap.parse_args()
     df = pd.read_parquet(EVAL_PARQUET)
-    for path in sys.argv[1:]:
+    for path in args.paths:
         r = json.loads(Path(path).read_text())
         n = r["n"]
         rows = df.iloc[DEFAULT_ROW_OFFSET : DEFAULT_ROW_OFFSET + n]
-        copy_f, carry_f = [], []
+        copy_f, carry_f, probs = [], [], []
         for row in rows.itertuples():
             a, b, op = int(row.a), int(row.b), str(row.op)
             ans = true_answer(a, b, op)
+            probs.append((a, b, op, ans))
             copy_f.append(first_chunk(ans) in (first_chunk(a), first_chunk(b)))
             k = max(0, len(str(abs(ans))) - 3)          # digits below the first chunk
             top = {"+": lambda x, y: x + y, "-": lambda x, y: x - y,
@@ -53,13 +62,29 @@ def main() -> int:
             carry_f.append(top == abs(ans) // 10**k)
         print(f"[breakdown] {path}: {r['run_id']} / {r['surface']}  copyable {sum(copy_f)}/{n}  "
               f"carry-free {sum(carry_f)}/{n}")
-        groups = (("copyable", copy_f, True), ("non-copyable", copy_f, False),
-                  ("carry-free", carry_f, True), ("carry-in", carry_f, False))
+        groups = [("copyable", copy_f, True), ("non-copyable", copy_f, False),
+                  ("carry-free", carry_f, True), ("carry-in", carry_f, False)]
+        # structural groups: operation, answer length, operand lengths
+        for op_ in sorted({p_[2] for p_ in probs}):
+            groups.append((f"op {op_}", [p_[2] == op_ for p_ in probs], True))
+        for L in sorted({len(str(abs(p_[3]))) for p_ in probs}):
+            groups.append((f"ans {L} digits", [len(str(abs(p_[3]))) == L for p_ in probs], True))
+        for L in sorted({(len(str(p_[0])), len(str(p_[1]))) for p_ in probs}):
+            groups.append((f"lens {L[0]}+{L[1]}",
+                           [(len(str(p_[0])), len(str(p_[1]))) == L for p_ in probs], True))
         for pos, lenses in r["positions"].items():
             for ln, s in lenses.items():
                 sd = s["settled_depth_all"]
+                if args.early is not None and ln == args.lens:
+                    print(f"[breakdown]   problems settled at <= L{args.early} ({ln}):")
+                    for (a, b, op, ans), d, cf in zip(probs, sd, carry_f):
+                        if d is not None and d <= args.early:
+                            print(f"[breakdown]     {a} {op} {b} = {ans}   first '{first_chunk(ans)}'"
+                                  f"   settled L{d}   {'carry-free' if cf else 'carry-in'}")
                 for name, flags, keep in groups:
                     sub = [d for d, f in zip(sd, flags) if f == keep]
+                    if not sub:
+                        continue
                     ok = [d for d in sub if d is not None]
                     hist = Counter(ok)
                     med = sorted(ok)[len(ok) // 2] if ok else None
