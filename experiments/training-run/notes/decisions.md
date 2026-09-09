@@ -6794,3 +6794,27 @@ weight travel, plus the R1 point (EDL/tok, G5 EM). Checklist with the
 current teach-side numbers: notes/teach4m_plan.md. Elicit-side numbers come
 from unchanged checkpoints and are not rerun. Results_ts.tex carries an
 "Endpoint caveat" paragraph in Setup until the 4M results land.
+
+## 2026-09-10 (teach-4M stage 1 result) — 4x unique data does NOT fix the teach arm under LoRA: evt-ts1b-fig2ts-noinst-n4000000 converged at step 39,500 (1.3 passes) with EDL/tok 0.930, val 1.42 nats, EM 0.139 (1M: 1.40 / 0.093). The paper's Fig. 2 shape exactly. Full-FT teach endpoint added (stage 4).
+
+- Stopped by the protocol's eps/k rule 8,250 steps into pass 2; 515 min at
+  1.28 steps/s; 16-shot EM 0.000 (brittleness as before). The taught
+  circuit's split-half ceiling J@32 0.524 / J@64 0.662 (same reliability as
+  the elicited maps); top nodes = late MLPs (15, 14, 12, 13) + layer-0
+  heads + mlp:0 — the 1M taught profile.
+- Reading: with four times the unique problems the blank twin is still on
+  the back side of its hump, 40x the elicited child's loss. This is not a
+  data-volume artefact and it matches the paper (Fig. 2: TS base ~1
+  nat/token at 4M; App. I.3.2/J.4 "stalls ... at lower accuracy"). Under
+  the LoRA protocol the teach arm does not reach a performing model; the
+  4M endpoint is the fair "teach at convergence" comparator the protocol
+  produces, and the battery on it (stage 3) is the honest replication.
+- Decision (owner: "run the first script; can you prepare second?"): a
+  full-FT teach endpoint, evt-ts1b-teach-ft-n4000000 (configs/
+  ts1b_teach_ft.yaml, train_sft.py, lr 2e-5 = the symbol-install recipe
+  that reached 0.67-0.73 EM; same 4M file, batch, seed, one-pass minimum,
+  two-pass ceiling). One change vs the LoRA-4M run: adapter -> full FT.
+  The paper says teaching, unlike elicitation, is method/capacity
+  sensitive (§6.2, Table 6), so both taught models go in the write-up.
+  No gradstats / snapshots from that trainer: gradient strength,
+  formation curve and weight travel are LoRA-only results.

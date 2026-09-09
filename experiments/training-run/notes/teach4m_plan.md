@@ -48,6 +48,11 @@ with the `geode` conda env, `GEODE_STORE` exported, and (unless `--no-stream`)
 | 2 behaviour | `dataset_size_sweep.py --family ts` with the 19 noinst points + the 4M point | CPU |
 | 3 battery | circuit map + split-half + compares (vs elicited, vs taught-1M, vs base), faithfulness (suff/nec), DCM roles + compares, steering donor (mean, per-prompt), weight shift, gradient strength, residual shift v2 + compare, lens depth + compare + breakdown, formation curve, weight travel — all with the flags used for the 1M endpoint; log in `analysis/teach4m_battery.log` | ~2–3 h GPU |
 
+| 4 train-ft | `train_sft.py --config ts1b_teach_ft.yaml --init-from runs/evt-ts1b-base/model` → `evt-ts1b-teach-ft-n4000000`: the blank twin FULLY fine-tuned (lr 2e-5, the symbol-install recipe) on the same 4M file, one pass minimum, two-pass ceiling; G5. Never pruned. Not concurrent with stage 3 on a 40 GB card (~25 GB). | ~10–19 h GPU |
+| 5 battery-ft | the same battery on the full-FT endpoint; gradient strength, formation curve and weight travel are skipped (train_sft.py logs no gradstats and takes no snapshots); weight shift from the checkpoint diff; extra compare: FT circuit vs the LoRA-4M circuit | ~2–3 h GPU |
+
+**Stage 1 result (2026-09-10):** `evt-ts1b-fig2ts-noinst-n4000000` converged at step 39,500 (1.3 passes), EDL/tok 0.930 (1M: 1.40), best val 1.42 nats, G5 EM 0.139 0-shot / 0.000 16-shot. More unique data did NOT produce a performing taught model under the LoRA protocol — the paper's Fig. 2 shape (TS base still ~1 nat/token at 4M). Hence stage 4: the one teach recipe that has worked here is full FT (symbol install 0.67–0.73).
+
 Comparator artifacts (the elicited child's circuit map, the taught-1M map,
 the base 16-shot map, the DCM JSONs) are auto-discovered from the JSON
 sidecars in `analysis/` by their recorded `model` (and `surface`); override

@@ -16,6 +16,14 @@
 #   3  battery   circuits (map, split-half, faithfulness, compares), DCM roles,
 #                steering donor, weight shift/travel, gradient strength, residual
 #                shift, lens depth, formation curve  [GPU, ~2-3 h]
+#   4  train-ft  evt-ts1b-teach-ft-n4000000: the blank twin FULLY fine-tuned on the
+#                same 4M file (configs/ts1b_teach_ft.yaml; train_sft.py, lr 2e-5),
+#                G5. Never pruned (no adapter). ~25 GB GPU, ~10-19 h.
+#   5  battery-ft the same battery on the full-FT endpoint (no snapshots /
+#                gradstats there: formation curve, weight travel and gradient
+#                strength are skipped; weight shift uses the checkpoint diff)
+#
+# Run stages 3 and 4 one after the other, not concurrently, on a 40 GB card.
 #
 # Usage:  bash launch_teach4m.sh --confirm-cost [--stage N] [--no-stream] [--no-prune]
 #   env:  GEODE_STORE (store root), HF_WRITE_TOKEN/HF_TOKEN (write scope; only
@@ -52,6 +60,8 @@ if ((STREAM)); then
 fi
 
 RID=evt-ts1b-fig2ts-noinst-n4000000
+RID_FT=evt-ts1b-teach-ft-n4000000
+CFG_FT=../configs/ts1b_teach_ft.yaml
 RID_1M=evt-ts1b-fig2ts-noinst-n1000000
 BASE=evt-ts1b-base
 LATENT=evt-ts1b-op-bridge-mix
@@ -209,50 +219,92 @@ step() {  # step <done-marker-file> <cmd...>: skip if marker exists; log; mark o
   { "$@" 2>&1 | tee -a "$LOG"; } && [[ ${PIPESTATUS[0]} == 0 ]] || fail "step failed: $* (see $LOG)"
   [[ -f $marker ]] || touch "$marker"
 }
-if want 3; then
+battery() {
+  local rid=$1 sfx=$2 lora=$3
   cd "$A" || fail "no analysis dir"
-  echo "=== teach4m battery $(date -Is) run=$RID ===" >> "$LOG"
-  MAP4=circ_ts_ft4m
+  echo "=== teach4m battery $(date -Is) run=$rid ===" >> "$LOG"
+  local MAP4=circ_ts_$sfx
   # (a) attribution circuit + split-half ceiling
-  step $MAP4.json          python3 circuit_nodes.py --run-id "$RID" --out $MAP4 --n-pairs 256
-  step ${MAP4}_a.json      python3 circuit_nodes.py --run-id "$RID" --out ${MAP4}_a --half a --n-pairs 256
-  step ${MAP4}_b.json      python3 circuit_nodes.py --run-id "$RID" --out ${MAP4}_b --half b --n-pairs 256
-  step done_cmp_halves_4m.log  python3 circuit_compare.py ${MAP4}_a ${MAP4}_b
+  step $MAP4.json          python3 circuit_nodes.py --run-id "$rid" --out $MAP4 --n-pairs 256
+  step ${MAP4}_a.json      python3 circuit_nodes.py --run-id "$rid" --out ${MAP4}_a --half a --n-pairs 256
+  step ${MAP4}_b.json      python3 circuit_nodes.py --run-id "$rid" --out ${MAP4}_b --half b --n-pairs 256
+  step done_cmp_halves_$sfx.log  python3 circuit_compare.py ${MAP4}_a ${MAP4}_b
   MAP_ELICITED=${MAP_ELICITED:-$(find_json nodes "$ELICITED")}
   MAP_TAUGHT1M=${MAP_TAUGHT1M:-$(find_json nodes "$RID_1M")}
   MAP_BASE16=${MAP_BASE16:-$(find_json nodes "$GEODE_STORE/runs/$BASE/model")}
   milestone "comparators: elicited=${MAP_ELICITED:-NONE} taught1m=${MAP_TAUGHT1M:-NONE} base16=${MAP_BASE16:-NONE}"
-  [[ -n $MAP_ELICITED ]] && step done_cmp_elicited_4m.log python3 circuit_compare.py $MAP4 "$MAP_ELICITED"
-  [[ -n $MAP_TAUGHT1M ]] && step done_cmp_taught1m_4m.log python3 circuit_compare.py $MAP4 "$MAP_TAUGHT1M"
-  [[ -n $MAP_BASE16 ]]   && step done_cmp_base16_4m.log   python3 circuit_compare.py $MAP4 "$MAP_BASE16"
+  [[ -n $MAP_ELICITED ]] && step done_cmp_elicited_$sfx.log python3 circuit_compare.py $MAP4 "$MAP_ELICITED"
+  [[ -n $MAP_TAUGHT1M ]] && step done_cmp_taught1m_$sfx.log python3 circuit_compare.py $MAP4 "$MAP_TAUGHT1M"
+  [[ -n $MAP_BASE16 ]]   && step done_cmp_base16_$sfx.log   python3 circuit_compare.py $MAP4 "$MAP_BASE16"
+  [[ $sfx != ft4m && -f circ_ts_ft4m.json ]] && step done_cmp_lora4m_$sfx.log python3 circuit_compare.py $MAP4 circ_ts_ft4m
   # (b) true activation patching
-  step done_faith_suff_4m.log python3 circuit_faithfulness.py --map $MAP4 --run-id "$RID" --ks 8 16 32 64 128 528 --n-pairs 128 --mode sufficiency
-  step done_faith_nec_4m.log  python3 circuit_faithfulness.py --map $MAP4 --run-id "$RID" --ks 8 16 32 64 128 528 --n-pairs 128 --mode necessity
+  step done_faith_suff_$sfx.log python3 circuit_faithfulness.py --map $MAP4 --run-id "$rid" --ks 8 16 32 64 128 528 --n-pairs 128 --mode sufficiency
+  step done_faith_nec_$sfx.log  python3 circuit_faithfulness.py --map $MAP4 --run-id "$rid" --ks 8 16 32 64 128 528 --n-pairs 128 --mode necessity
   # (c) DCM roles (heads only, the v2 protocol)
-  step dcm_taught4m_nl.json python3 dcm_roles.py learn --run-id "$RID" --surface bare_nl --out dcm_taught4m_nl --roles operand_a operand_b --n-pairs 128 --lam 0.02 --components heads --steps 200
+  step dcm_taught${sfx}_nl.json python3 dcm_roles.py learn --run-id "$rid" --surface bare_nl --out dcm_taught${sfx}_nl --roles operand_a operand_b --n-pairs 128 --lam 0.02 --components heads --steps 200
   DCM_ELICITED_NL=${DCM_ELICITED_NL:-$(find_json dcm "$ELICITED" bare_nl)}
   DCM_PARENT_OP=${DCM_PARENT_OP:-$(find_json dcm "$LATENT" bare_op)}
   milestone "DCM comparators: elicited_nl=${DCM_ELICITED_NL:-NONE} parent_op=${DCM_PARENT_OP:-NONE}"
-  [[ -n $DCM_ELICITED_NL ]] && step done_dcm_cmp_elicited_4m.log python3 dcm_roles.py compare dcm_taught4m_nl "$DCM_ELICITED_NL"
-  [[ -n $DCM_PARENT_OP ]]   && step done_dcm_cmp_parent_4m.log   python3 dcm_roles.py compare dcm_taught4m_nl "$DCM_PARENT_OP"
+  [[ -n $DCM_ELICITED_NL ]] && step done_dcm_cmp_elicited_$sfx.log python3 dcm_roles.py compare dcm_taught${sfx}_nl "$DCM_ELICITED_NL"
+  [[ -n $DCM_PARENT_OP ]]   && step done_dcm_cmp_parent_$sfx.log   python3 dcm_roles.py compare dcm_taught${sfx}_nl "$DCM_PARENT_OP"
   # (d) steering: the taught donor into the blank twin (mean vector, per-prompt states)
-  step done_steer_mean_4m.log python3 steer_unlock.py --base "$BASE" --donor-run "$RID" --map $MAP4 --k 32 --prefill-only --n-calib 64 --n-eval 256 --seed 316
-  step done_steer_pp_4m.log   python3 steer_unlock.py --base "$BASE" --donor-run "$RID" --map $MAP4 --k 32 --prefill-only --vectors per-prompt --n-eval 256 --seed 316
+  step done_steer_mean_$sfx.log python3 steer_unlock.py --base "$BASE" --donor-run "$rid" --map $MAP4 --k 32 --prefill-only --n-calib 64 --n-eval 256 --seed 316
+  step done_steer_pp_$sfx.log   python3 steer_unlock.py --base "$BASE" --donor-run "$rid" --map $MAP4 --k 32 --prefill-only --vectors per-prompt --n-eval 256 --seed 316
   # (e) weights and gradients
-  step ws_teach_4m.parquet     python3 weight_shift.py --base-run "$BASE" --ft-run "$RID" --k 64 --out ws_teach_4m
-  step done_grad_4m.log        python3 grad_strength.py --run-id "$ELICITED" "$RID" --labels elicit teach4m --out grad_strength_4m
+  step ws_teach_$sfx.parquet   python3 weight_shift.py --base-run "$BASE" --ft-run "$rid" --k 64 --out ws_teach_$sfx
+  if ((lora)); then
+    step done_grad_$sfx.log    python3 grad_strength.py --run-id "$ELICITED" "$rid" --labels elicit teach$sfx --out grad_strength_$sfx
+  else
+    milestone "skip gradient strength for $rid (train_sft.py logs no gradstats)"
+  fi
   # (f) residual shift (v2) + compare with the existing JSONs when present
-  step resid_teach_4m.json     python3 resid_shift.py run --parent "$BASE" --child "$RID" --out resid_teach_4m --n 256
-  cmp=(); for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_construct; do [[ -f $f.json ]] && cmp+=("${f#resid_}=$f.json"); done
-  step done_resid_cmp_4m.log   python3 resid_shift.py compare "${cmp[@]}" teach_4m=resid_teach_4m.json --plot resid_shift_4m.png
+  step resid_teach_$sfx.json   python3 resid_shift.py run --parent "$BASE" --child "$rid" --out resid_teach_$sfx --n 256
+  local cmp=(); local f
+  for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_construct resid_teach_ft4m resid_teach_4m; do
+    [[ -f $f.json && $f != resid_teach_$sfx ]] && cmp+=("${f#resid_}=$f.json")
+  done
+  step done_resid_cmp_$sfx.log python3 resid_shift.py compare "${cmp[@]}" teach_$sfx=resid_teach_$sfx.json --plot resid_shift_$sfx.png
   # (g) lens depth (logit / J / R) + compare + breakdown
-  step lens_taught4m_nl.json   python3 lens_depth.py run --run-id "$RID" --surface bare_nl --out lens_taught4m_nl
-  cmp=(); for f in lens_latent_nl2 lens_elicited_nl2 lens_blank_nl2 lens_taught_nl2; do [[ -f $f.json ]] && cmp+=("${f#lens_}=$f.json"); done
-  step done_lens_cmp_4m.log    python3 lens_depth.py compare "${cmp[@]}" taught4m=lens_taught4m_nl.json --plot lens_nl_4m.png
-  step done_lens_bd_4m.log     python3 lens_breakdown.py lens_taught4m_nl.json
-  # (h) formation curve + weight travel from the endpoint snapshots (HF or local)
-  step traj_ts_ft4m.parquet    python3 circuit_trajectory.py --run-id "$RID" --final-map $MAP4 --repo-id "$HF_NAMESPACE/$RID" --n-snapshots 8 --n-pairs 128 --out traj_ts_ft4m
-  step wt_teach_4m.parquet     python3 weight_traj.py --run-id "$RID" --repo-id "$HF_NAMESPACE/$RID" --n-snapshots 12 --out wt_teach_4m
-  milestone "battery complete — paste $LOG (or its SUMMARY / RESULT lines) back for the write-up update"
+  step lens_taught${sfx}_nl.json python3 lens_depth.py run --run-id "$rid" --surface bare_nl --out lens_taught${sfx}_nl
+  cmp=()
+  for f in lens_latent_nl2 lens_elicited_nl2 lens_blank_nl2 lens_taught_nl2 lens_taughtft4m_nl lens_taught4m_nl; do
+    [[ -f $f.json && $f != lens_taught${sfx}_nl ]] && cmp+=("${f#lens_}=$f.json")
+  done
+  step done_lens_cmp_$sfx.log  python3 lens_depth.py compare "${cmp[@]}" taught$sfx=lens_taught${sfx}_nl.json --plot lens_nl_$sfx.png
+  step done_lens_bd_$sfx.log   python3 lens_breakdown.py lens_taught${sfx}_nl.json
+  # (h) formation curve + weight travel from the endpoint snapshots (LoRA runs only)
+  if ((lora)); then
+    step traj_ts_$sfx.parquet  python3 circuit_trajectory.py --run-id "$rid" --final-map $MAP4 --repo-id "$HF_NAMESPACE/$rid" --n-snapshots 8 --n-pairs 128 --out traj_ts_$sfx
+    step wt_teach_$sfx.parquet python3 weight_traj.py --run-id "$rid" --repo-id "$HF_NAMESPACE/$rid" --n-snapshots 12 --out wt_teach_$sfx
+  else
+    milestone "skip formation curve / weight travel for $rid (full FT: no adapter snapshots)"
+  fi
+  milestone "battery complete for $rid — paste $LOG (or its SUMMARY / RESULT lines) back for the write-up update"
+  cd "$OLDPWD" || true
+}
+if want 3; then battery "$RID" 4m 1; fi
+
+# ------------------------------------------------------- stage 4: full-FT teach
+if want 4; then
+  [[ -d $GEODE_STORE/runs/$BASE/model ]] || fail "parent checkpoint $GEODE_STORE/runs/$BASE/model missing"
+  train_or_skip "$RID_FT" \
+    python3 train_sft.py --config "$CFG_FT" --init-from "$GEODE_STORE/runs/$BASE/model" --confirm-cost
+  record_g5 "$RID_FT"
+  python3 - "$RID_FT" <<'PY'
+import json, os, sys
+from pathlib import Path
+m = json.loads((Path(os.environ["GEODE_STORE"]) / "runs" / sys.argv[1] / "manifest.json").read_text())
+e = m["experiment"]; r = e.get("sft_result", {}); g = e.get("gates", {}).get("G5", {})
+print(f"[teach4m] RESULT {sys.argv[1]}: steps {r.get('final_step')} stop={r.get('stop_reason')} "
+      f"best_val {r.get('best_val_nats')}  G5 EM 0-shot {g.get('zero_shot_accuracy')} "
+      f"16-shot {g.get('sixteen_shot_accuracy')} test_loss {g.get('test_loss_nats')}")
+PY
+  milestone "train-ft done (model.safetensors kept on purpose: no adapter sidecar exists for a full-FT run)"
+fi
+
+# --------------------------------------------------- stage 5: battery on the FT run
+if want 5; then
+  [[ $(status_of "$RID_FT") == complete ]] || fail "$RID_FT is not complete — run stage 4 first"
+  battery "$RID_FT" ft4m 0
 fi
 milestone "done stage=$STAGE"
