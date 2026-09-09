@@ -167,21 +167,38 @@ if want 2; then
 fi
 
 # ------------------------------------------------------------ stage 3: battery
-# find_json <run-id> [surface] -> stem of a JSON sidecar in analysis/ whose
-# "model" is that run (and whose "surface" matches, if given)
+# find_json <kind> <run-id> [surface] -> stem of an artifact in analysis/ whose
+# recorded "model" is that run. kind=nodes: a circuit_nodes map (its parquet has
+# a node_type column; edge maps are excluded; op-surface maps are skipped when a
+# target-surface map exists). kind=dcm: a dcm_roles JSON (has "roles"), surface
+# must match. Prints every candidate on stderr, picks the last by name.
 find_json() {
-  python3 - "$A" "$1" "${2:-}" <<'PY'
+  python3 - "$A" "$1" "$2" "${3:-}" <<'PY'
 import json, sys
 from pathlib import Path
-root, rid, surf = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+import pyarrow.parquet as pq
+root, kind, rid, surf = Path(sys.argv[1]), sys.argv[2], sys.argv[3], sys.argv[4]
 hits = []
 for p in sorted(root.glob("*.json")):
     try:
         d = json.loads(p.read_text())
     except Exception:
         continue
-    if isinstance(d, dict) and d.get("model") == rid and (not surf or d.get("surface") == surf):
-        hits.append(p.stem)
+    if not isinstance(d, dict) or d.get("model") != rid:
+        continue
+    if kind == "nodes":
+        pf = p.with_suffix(".parquet")
+        if not pf.is_file() or "node_type" not in pq.read_schema(pf).names:
+            continue
+        if d.get("half"):
+            continue
+    elif kind == "dcm":
+        if "roles" not in d or (surf and d.get("surface") != surf):
+            continue
+    hits.append(p.stem)
+if kind == "nodes" and any("_op" not in h for h in hits):
+    hits = [h for h in hits if "_op" not in h]
+print(f"[teach4m] find_json {kind} {rid} {surf}: candidates {hits}", file=sys.stderr)
 print(hits[-1] if hits else "")
 PY
 }
@@ -201,9 +218,9 @@ if want 3; then
   step ${MAP4}_a.json      python3 circuit_nodes.py --run-id "$RID" --out ${MAP4}_a --half a --n-pairs 256
   step ${MAP4}_b.json      python3 circuit_nodes.py --run-id "$RID" --out ${MAP4}_b --half b --n-pairs 256
   step done_cmp_halves_4m.log  python3 circuit_compare.py ${MAP4}_a ${MAP4}_b
-  MAP_ELICITED=${MAP_ELICITED:-$(find_json "$ELICITED")}
-  MAP_TAUGHT1M=${MAP_TAUGHT1M:-$(find_json "$RID_1M")}
-  MAP_BASE16=${MAP_BASE16:-$(find_json "$GEODE_STORE/runs/$BASE/model")}
+  MAP_ELICITED=${MAP_ELICITED:-$(find_json nodes "$ELICITED")}
+  MAP_TAUGHT1M=${MAP_TAUGHT1M:-$(find_json nodes "$RID_1M")}
+  MAP_BASE16=${MAP_BASE16:-$(find_json nodes "$GEODE_STORE/runs/$BASE/model")}
   milestone "comparators: elicited=${MAP_ELICITED:-NONE} taught1m=${MAP_TAUGHT1M:-NONE} base16=${MAP_BASE16:-NONE}"
   [[ -n $MAP_ELICITED ]] && step done_cmp_elicited_4m.log python3 circuit_compare.py $MAP4 "$MAP_ELICITED"
   [[ -n $MAP_TAUGHT1M ]] && step done_cmp_taught1m_4m.log python3 circuit_compare.py $MAP4 "$MAP_TAUGHT1M"
@@ -213,8 +230,8 @@ if want 3; then
   step done_faith_nec_4m.log  python3 circuit_faithfulness.py --map $MAP4 --run-id "$RID" --ks 8 16 32 64 128 528 --n-pairs 128 --mode necessity
   # (c) DCM roles (heads only, the v2 protocol)
   step dcm_taught4m_nl.json python3 dcm_roles.py learn --run-id "$RID" --surface bare_nl --out dcm_taught4m_nl --roles operand_a operand_b --n-pairs 128 --lam 0.02 --components heads --steps 200
-  DCM_ELICITED_NL=${DCM_ELICITED_NL:-$(find_json "$ELICITED" bare_nl)}
-  DCM_PARENT_OP=${DCM_PARENT_OP:-$(find_json "$LATENT" bare_op)}
+  DCM_ELICITED_NL=${DCM_ELICITED_NL:-$(find_json dcm "$ELICITED" bare_nl)}
+  DCM_PARENT_OP=${DCM_PARENT_OP:-$(find_json dcm "$LATENT" bare_op)}
   milestone "DCM comparators: elicited_nl=${DCM_ELICITED_NL:-NONE} parent_op=${DCM_PARENT_OP:-NONE}"
   [[ -n $DCM_ELICITED_NL ]] && step done_dcm_cmp_elicited_4m.log python3 dcm_roles.py compare dcm_taught4m_nl "$DCM_ELICITED_NL"
   [[ -n $DCM_PARENT_OP ]]   && step done_dcm_cmp_parent_4m.log   python3 dcm_roles.py compare dcm_taught4m_nl "$DCM_PARENT_OP"
