@@ -1,9 +1,13 @@
-"""Break a lens_depth.py result down by whether the first answer token could be
-COPIED from an operand (Llama-3 tokenises digits in 3-digit chunks from the
-left, so the first token of the answer is its first three digits; when those
-equal an operand's first three digits, a copy head can "form" the answer early
-without arithmetic). Prints, per run and lens, the settled-depth distribution
-for copyable vs non-copyable problems. CPU, seconds.
+"""Break a lens_depth.py result down by two shortcut flags on the FIRST answer
+token (Llama-3 tokenises digit runs left-to-right in chunks of up to 3, so the
+first token is the answer's first three digits):
+
+  copyable    the chunk equals an operand's first chunk (a copy head suffices)
+  carry-free  the chunk equals op(a_top, b_top) on the operands' leading parts,
+              i.e. the lower digits do not carry/borrow into it — a shallow
+              digit-wise route with no carry logic gets it right
+
+Prints, per run and lens, the settled-depth distribution by flag. CPU, seconds.
 
 Usage:
     python3 lens_breakdown.py lens_taught_nl.json lens_elicited_nl.json [...]
@@ -38,17 +42,23 @@ def main() -> int:
         r = json.loads(Path(path).read_text())
         n = r["n"]
         rows = df.iloc[DEFAULT_ROW_OFFSET : DEFAULT_ROW_OFFSET + n]
-        flags = []
+        copy_f, carry_f = [], []
         for row in rows.itertuples():
             a, b, op = int(row.a), int(row.b), str(row.op)
             ans = true_answer(a, b, op)
-            flags.append(first_chunk(ans) in (first_chunk(a), first_chunk(b)))
-        print(f"[breakdown] {path}: {r['run_id']} / {r['surface']}  copyable first token: "
-              f"{sum(flags)}/{n}")
+            copy_f.append(first_chunk(ans) in (first_chunk(a), first_chunk(b)))
+            k = max(0, len(str(abs(ans))) - 3)          # digits below the first chunk
+            top = {"+": lambda x, y: x + y, "-": lambda x, y: x - y,
+                   "*": lambda x, y: x * y}[op](a // 10**k, b // 10**k)
+            carry_f.append(top == abs(ans) // 10**k)
+        print(f"[breakdown] {path}: {r['run_id']} / {r['surface']}  copyable {sum(copy_f)}/{n}  "
+              f"carry-free {sum(carry_f)}/{n}")
+        groups = (("copyable", copy_f, True), ("non-copyable", copy_f, False),
+                  ("carry-free", carry_f, True), ("carry-in", carry_f, False))
         for pos, lenses in r["positions"].items():
             for ln, s in lenses.items():
                 sd = s["settled_depth_all"]
-                for name, keep in (("copyable", True), ("non-copyable", False)):
+                for name, flags, keep in groups:
                     sub = [d for d, f in zip(sd, flags) if f == keep]
                     ok = [d for d in sub if d is not None]
                     hist = Counter(ok)
