@@ -49,12 +49,14 @@ def main() -> int:
     for path in args.paths:
         r = json.loads(Path(path).read_text())
         n = r["n"]
-        rows = df.iloc[DEFAULT_ROW_OFFSET : DEFAULT_ROW_OFFSET + n]
-        copy_f, carry_f, probs = [], [], []
-        for row in rows.itertuples():
-            a, b, op = int(row.a), int(row.b), str(row.op)
-            ans = true_answer(a, b, op)
-            probs.append((a, b, op, ans))
+        if "problems" in r:  # new-format JSON: problems stored (respects --negatives skip)
+            probs = [tuple(x) for x in r["problems"]]
+        else:
+            rows = df.iloc[DEFAULT_ROW_OFFSET : DEFAULT_ROW_OFFSET + n]
+            probs = [(int(rw.a), int(rw.b), str(rw.op), true_answer(int(rw.a), int(rw.b), str(rw.op)))
+                     for rw in rows.itertuples()]
+        copy_f, carry_f = [], []
+        for a, b, op, ans in probs:
             copy_f.append(first_chunk(ans) in (first_chunk(a), first_chunk(b)))
             k = max(0, len(str(abs(ans))) - 3)          # digits below the first chunk
             top = {"+": lambda x, y: x + y, "-": lambda x, y: x - y,
@@ -62,7 +64,9 @@ def main() -> int:
             carry_f.append(top == abs(ans) // 10**k)
         print(f"[breakdown] {path}: {r['run_id']} / {r['surface']}  copyable {sum(copy_f)}/{n}  "
               f"carry-free {sum(carry_f)}/{n}")
-        groups = [("copyable", copy_f, True), ("non-copyable", copy_f, False),
+        neg_f = [p_[3] < 0 for p_ in probs]
+        groups = [("negative ans", neg_f, True), ("non-negative", neg_f, False),
+                  ("copyable", copy_f, True), ("non-copyable", copy_f, False),
                   ("carry-free", carry_f, True), ("carry-in", carry_f, False)]
         # structural groups: operation, answer length, operand lengths
         for op_ in sorted({p_[2] for p_ in probs}):

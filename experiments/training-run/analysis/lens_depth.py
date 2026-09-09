@@ -33,6 +33,12 @@ a mismatched problem — positive = the answer is present even when the model
 never emits it). Formation depth per example = first layer from which the
 correct token is top-1 through to the end ("settled").
 
+The scored token is the first DIGIT chunk of the answer. For negative answers
+(a < b subtractions) the sign token is appended to the prompt and the state
+after it is decoded, so the sign — trivially predictable from "is a < b?" —
+never counts as the answer (2026-09-10: the taught child's apparent layer-5
+formation was exactly that sign predictor). --negatives skip drops them.
+
 Owner's predictions (2026-09-09):
 - Elicitation: the answer forms in the MIDDLE layers (pre-existing engine
   works early); in the pre-elicit parent it is already present in J-space
@@ -262,17 +268,36 @@ def cmd_run(args) -> int:
     triples = [(int(r.a), int(r.b), str(r.op)) for r in rows.itertuples()]
     prompts = [render_probe(args.surface, a, b, op, 0)[0] for a, b, op in triples]
     answers = [true_answer(a, b, op) for a, b, op in triples]
-    first_tok = lambda x: tokenizer(str(x), add_special_tokens=False)["input_ids"][0]  # noqa: E731
-    correct = torch.tensor([first_tok(a) for a in answers])
+    enc_ids = lambda t: tokenizer(t, add_special_tokens=False)["input_ids"]  # noqa: E731
+    # scored token = first DIGIT chunk; for negative answers the sign token is
+    # appended to the prompt and the next token (the magnitude) is scored
+    if args.negatives == "skip":
+        keep = [i for i, a in enumerate(answers) if a >= 0]
+        triples, prompts, answers = ([x[i] for i in keep] for x in (triples, prompts, answers))
+    input_ids, targets, negative = [], [], []
+    for pr, a in zip(prompts, answers):
+        ids, a_ids = enc_ids(pr), enc_ids(str(a))
+        if a < 0:
+            assert tokenizer.decode(a_ids[:1]).strip() == "-", a_ids
+            ids, tgt = ids + a_ids[:1], a_ids[1]
+        else:
+            tgt = a_ids[0]
+        assert tokenizer.decode([tgt]).strip().isdigit(), (a, tokenizer.decode([tgt]))
+        input_ids.append(ids)
+        targets.append(tgt)
+        negative.append(a < 0)
+    correct = torch.tensor(targets)
     dis = []
-    for i in range(len(answers)):  # mismatched-problem distractor with a different first token
+    for i in range(len(targets)):  # mismatched-problem distractor with a different digit token
         k = 1
-        while first_tok(answers[(i + k) % len(answers)]) == correct[i].item() and k < len(answers):
+        while targets[(i + k) % len(targets)] == targets[i] and k < len(targets):
             k += 1
-        dis.append(first_tok(answers[(i + k) % len(answers)]))
+        dis.append(targets[(i + k) % len(targets)])
     distract = torch.tensor(dis)
+    n_neg = sum(negative)
     print(f"[lens] {args.run_id}: surface {args.surface} x{len(prompts)}  e.g. {prompts[0]!r} "
-          f"-> {answers[0]} (first token {tokenizer.decode([correct[0].item()])!r})")
+          f"-> {answers[0]} (scored token {tokenizer.decode([correct[0].item()])!r}); "
+          f"{n_neg} negative answers ({'sign appended to prompt' if n_neg else 'none'})")
 
     model = load_fp32(args.run_id, args.device)
     for prm in model.parameters():
@@ -284,15 +309,16 @@ def cmd_run(args) -> int:
     n_layers = len(model.model.layers) + 1
 
     # --- task states at the requested positions + the model's own logits
-    tokenizer.padding_side = "left"
+    pad = tokenizer.pad_token_id
     H = {pos: [[] for _ in range(n_layers)] for pos in args.positions}
     own_logits = []
     with torch.no_grad():
         for s in range(0, len(prompts), args.batch_size):
-            enc = tokenizer(prompts[s : s + args.batch_size], return_tensors="pt", padding=True,
-                            add_special_tokens=False)
-            out = model(input_ids=enc["input_ids"].to(device),
-                        attention_mask=enc["attention_mask"].to(device))
+            chunk = input_ids[s : s + args.batch_size]
+            T = max(len(x) for x in chunk)
+            ids = torch.tensor([[pad] * (T - len(x)) + x for x in chunk])
+            am = torch.tensor([[0] * (T - len(x)) + [1] * len(x) for x in chunk])
+            out = model(input_ids=ids.to(device), attention_mask=am.to(device))
             own_logits.append(out.logits[:, -1].float().cpu())
             for pos in args.positions:
                 for li in range(n_layers):
@@ -300,9 +326,11 @@ def cmd_run(args) -> int:
     H = {pos: [torch.cat(x, 0) for x in H[pos]] for pos in args.positions}
     own = score(torch.cat(own_logits, 0), correct, distract)
     own_acc = sum(own["top1"]) / len(prompts)
-    print(f"[lens] model's own first-token accuracy: {own_acc:.3f}  "
+    print(f"[lens] model's own first-digit-token accuracy: {own_acc:.3f}  "
           f"logit-diff {sum(own['logit_diff']) / len(prompts):+.2f}")
     results = {"run_id": args.run_id, "surface": args.surface, "n": len(prompts),
+               "negatives": args.negatives, "negative_all": negative,
+               "problems": [list(t) + [a] for t, a in zip(triples, answers)],
                "own_first_token_acc": own_acc,
                "own_logit_diff": sum(own["logit_diff"]) / len(prompts), "positions": {},
                "jacobian_info": {}}
@@ -319,6 +347,14 @@ def cmd_run(args) -> int:
     # --- average Jacobians (J-lens: gradient; R-lens: LRP backward)
     mats = {}
     need = [ln for ln in ("jlens", "rlens") if ln in args.lenses]
+    if need and args.jacobians_from:
+        for ln in list(need):
+            f = Path(f"{args.jacobians_from}_{ln}_J.pt")
+            if f.is_file():
+                mats[ln] = torch.load(f).float()
+                results["jacobian_info"][ln] = {"loaded_from": str(f)}
+                print(f"[lens] {ln}: loaded saved Jacobians from {f}")
+                need.remove(ln)
     if need:
         story_ids, path = generic_ids(tokenizer, args.generic_text, args.jac_prompts, args.story_len)
         print(f"[lens] Jacobian corpus: {story_ids.shape[0]} stories x {args.story_len} tokens "
@@ -360,6 +396,8 @@ def cmd_run(args) -> int:
                 dev = max(abs(x - y) for x, y in zip(a, b))
                 print(f"[lens] check: {ln} at last layer vs logit lens, max |d logit-diff| {dev:.2e}")
         summ = {ln: summarize_layers(v) for ln, v in per.items()}
+        for ln, v in per.items():  # per-example rank trajectory (L+1 x N) for breakdowns
+            summ[ln]["rank_all"] = [d["rank"] for d in v]
         results["positions"][str(pos)] = summ
         print(f"[lens] position {pos}:")
         print("[lens] layer | " + " | ".join(f"{ln}: acc   ld    rank" for ln in summ))
@@ -457,6 +495,12 @@ def main() -> int:
                    help="cotangents per batched backward (1 = plain loop)")
     r.add_argument("--sdpa", action="store_true",
                    help="keep sdpa attention (default: eager, so batched backward works)")
+    r.add_argument("--negatives", choices=("sign", "skip"), default="sign",
+                   help="negative answers: append the sign token and score the magnitude "
+                        "(default) or drop those problems")
+    r.add_argument("--jacobians-from", default=None,
+                   help="stem of a previous run's <stem>_{jlens,rlens}_J.pt to reuse "
+                        "(same model, same corpus): skips the backward phase")
     r.add_argument("--no-save-jacobians", dest="save_jacobians", action="store_false",
                    help="skip writing <out>_{jlens,rlens}_J.pt (fp16, ~140 MB each)")
     r.add_argument("--no-tf32", dest="tf32", action="store_false",
