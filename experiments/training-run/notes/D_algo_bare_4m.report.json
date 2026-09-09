@@ -1,0 +1,78 @@
+{
+  "final": "D_algo_bare_4m.parquet",
+  "n_rows": 4000000,
+  "n_unique": 4000000,
+  "order_hash": "b05a65dfe217a9018997f61b31e2982a883ebd46b1789c8a8a1e2b6382fd98ff",
+  "prefix": {
+    "stem": "D_algo_bare",
+    "rows": 1000000,
+    "order_hash": "946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace"
+  },
+  "extension": {
+    "spec": "D_algo_ext",
+    "fmt": "bare_nl",
+    "n": 3000000,
+    "seed": 20260717,
+    "exclusion": [
+      "D_algo",
+      "D_algo_eval",
+      "probe"
+    ],
+    "exclusion_size": 1101024,
+    "allocation": {
+      "1x1": 0,
+      "1x2": 0,
+      "1x3": 0,
+      "1x4": 57097,
+      "2x1": 0,
+      "2x2": 0,
+      "2x3": 57097,
+      "2x4": 461935,
+      "3x1": 0,
+      "3x2": 57098,
+      "3x3": 461935,
+      "3x4": 461935,
+      "4x1": 57098,
+      "4x2": 461935,
+      "4x3": 461935,
+      "4x4": 461935
+    },
+    "cell_counts": {
+      "1x4": 57097,
+      "2x3": 57097,
+      "2x4": 461935,
+      "3x2": 57098,
+      "3x3": 461935,
+      "3x4": 461935,
+      "4x1": 57098,
+      "4x2": 461935,
+      "4x3": 461935,
+      "4x4": 461935
+    },
+    "validation": {
+      "n": 3000000,
+      "leakage": 0,
+      "all_unique": true,
+      "cell_counts": {
+        "4x4": 461935,
+        "2x4": 461935,
+        "3x4": 461935,
+        "4x2": 461935,
+        "4x3": 461935,
+        "3x3": 461935,
+        "4x1": 57098,
+        "2x3": 57097,
+        "1x4": 57097,
+        "3x2": 57098
+      },
+      "order_hash": "5c848d44e6b9e3793a768370299be007efc0b5887e58c0dd966f8c3b354dbb7e"
+    }
+  },
+  "checks": {
+    "prefix_hash_matches_pin": true,
+    "all_unique": true,
+    "extension_disjoint_from_eval": true,
+    "idx_contiguous": true
+  },
+  "deviation": "rows 1M..4M are water-filled over the capacity left after excluding D_algo, D_algo_eval and the probe; six small cells contribute nothing and four contribute ~57K each, so the extension's digit mix is skewed toward 3-4 digit operands relative to the 1M prefix"
+}

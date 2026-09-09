@@ -6756,3 +6756,41 @@ J-lens median rank of the answer token (chance = 64K of 128K) and logit-diff:
    The elicited child and both parents were unaffected (they resolve the
    sign late, with everything else). lens_breakdown.py (copy / carry-free /
    negative / op / length crosstabs) found it.
+
+## 2026-09-10 (teach-4M program OPENED) — the taught 1M endpoint solves 0.093 (stopped on validation convergence mid-hump, where the paper's Fig. 2 puts the TS base at 1M); every teach-side mechanistic number so far is measured on a model that has not finished learning. Fix: the paper's recipe — one pass over 4M UNIQUE examples — then rerun every teach-side result with the same scripts.
+
+Owner's question (2026-09-10): "so you are saying that in the teaching arc
+the final accuracy is 10%??? is that the case in the paper?" — yes and yes
+in the sense available: the paper never tabulates the TinyStories base's
+accuracy at 1M, but its Fig. 2 has that base at 1-2 nats/token at 1M (hump
+peak ~300K, Table 5) declining toward ~1 only by 4M, and App. I.3.2/J.4 say
+the base "stalls before discovering efficient algorithms ... hits capacity
+limits at lower accuracy" under matched compute. Our teach curve is the same
+shape at lower amplitude (peak 2.0 nats @215K, 1.40 @1M, EM 0.093). The 1M
+run stopped by the protocol's own eps/k rule after 25K steps = 3.2 passes,
+gradients still large (R6).
+
+Decision: build `evt-ts1b-fig2ts-noinst-n4000000` — blank base, LoRA
+r=512, same lr/batch/seed, on D_algo_bare_4m (rows 0..1M = D_algo_bare
+verbatim; rows 1M..4M = 3M new unique problems disjoint from
+D_algo ∪ D_algo_eval ∪ probe, built with the family's streaming writer and
+seed 20260717), min_steps = one full epoch (31,250), max 2 epochs, 128
+snapshots streamed. Pin b05a65dfe217a9018997f61b31e2982a883ebd46b1789c8a8a1e2b6382fd98ff
+(deterministic; first-1M-rows hash == D_algo_bare pin; 4,000,000 unique;
+extension ∩ eval = ∅). Not more epochs over the same 1M: that is the
+memorising regime the plateau rule already caught.
+
+KNOWN DEVIATION: the exclusion exhausts six small operand-length cells and
+leaves ~57K in four more, so the extension is ~92% from the six largest
+cells (2x4, 3x3, 3x4, 4x2, 4x3, 4x4) vs 57% in the 1M prefix. Task, eval
+set and protocol unchanged; recorded in the overlay header, the builder's
+docstring and D_algo_bare_4m.report.json.
+
+Replication battery (scripts/launch_teach4m.sh stage 3, same flags as the
+1M endpoint): circuit map + split-half + compares, faithfulness, DCM roles,
+steering donor (mean + per-prompt), weight shift, gradient strength,
+residual shift v2, lens depth (logit/J/R) + breakdown, formation curve,
+weight travel, plus the R1 point (EDL/tok, G5 EM). Checklist with the
+current teach-side numbers: notes/teach4m_plan.md. Elicit-side numbers come
+from unchanged checkpoints and are not rerun. Results_ts.tex carries an
+"Endpoint caveat" paragraph in Setup until the 4M results land.
