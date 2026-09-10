@@ -198,9 +198,10 @@ ceiling in every set: operand-$a$ $0.879$, operand-$b$ $0.900$, operation $0.750
 roles are essentially the whole of layer-0 attention. The fully fine-tuned elicited child keeps
 the same roles ($0.811$ / $0.833$ vs the LoRA child; $0.694$ / $0.857$ vs the parent). The fully
 fine-tuned taught child (EM 0.77) also has compact fetcher sets at the ceiling, overlapping the
-elicited child's at $0.587$ / $0.763$ and the parent's at $0.763$ / $0.684$. Both LoRA-taught
-children (EM 0.09 / 0.14) have no compact set: cf-flip $0.008$--$0.04$ against ceilings of
-$0.14$--$0.20$, overlaps $\le0.13$.}
+elicited child's at $0.587$ / $0.763$ and the parent's at $0.763$ / $0.684$; the two fully
+fine-tuned children overlap each other at $0.700$ / $0.632$. Both LoRA-taught children (EM 0.09 /
+0.14) have no compact set: cf-flip $0.008$--$0.04$ against ceilings of $0.14$--$0.20$, overlaps
+$\le0.13$.}
 \interp{Operand reading is a layer-0 function of the substrate, so every model that solves the
 task uses largely the same fetcher heads. What the regime changes is how completely: elicitation
 keeps the parent's roles at $0.8$--$0.9$, independent teaching reconverges on them at
@@ -218,6 +219,7 @@ elicited (full FT) $\leftrightarrow$ elicited (LoRA), NL & 31 / 25 & 36 / 30 & 0
 elicited (full FT) $\leftrightarrow$ parent & 31 / 25 & 30 / 27 & 0.694 / 0.857 & -- \\
 taught (full FT) $\leftrightarrow$ elicited (LoRA), NL & 37 / 37 & 36 / 30 & 0.587 / 0.763 & 0.81 / 0.79 (ceiling 0.81 / 0.80) \\
 taught (full FT) $\leftrightarrow$ parent & 37 / 37 & 30 / 27 & 0.763 / 0.684 & -- \\
+taught (full FT) $\leftrightarrow$ elicited (full FT), NL & 37 / 37 & 31 / 25 & 0.700 / 0.632 & -- \\
 taught (LoRA 4M) $\leftrightarrow$ elicited (LoRA), NL & 12 / 21 & 36 / 30 & 0.043 / 0.041 & 0.01 / 0.03 (ceiling 0.20 / 0.14) \\
 taught (LoRA 1M) $\leftrightarrow$ elicited (LoRA), NL & 9 / 21 & 36 / 30 & 0.125 / 0.085 & 0.02 / 0.04 (ceiling 0.15) \\
 \bottomrule
@@ -374,8 +376,7 @@ already sits in a problem-specific state (R9); the taught child's shift is domin
 shared component because the blank parent's answer-position state is problem-blind and the mode
 itself has to be moved before any content can. That is why the mean-vector patch in R11 yields
 format only on the elicit side. Norm-based ``loud write'' and generic-displacement readings
-depend on the method and are not regime signatures; the proposed surgical-vs-diffuse reading of
-this metric did not hold (see the non-discriminators).}
+depend on the method and are not regime signatures.}
 \begin{figure}[h]\centering
 \includegraphics[width=0.95\textwidth]{05_weights/fig_resid_shift.png}
 \caption{Matched full-FT pair. Left: relative residual shift by layer at the answer position
@@ -542,6 +543,7 @@ circuit J@32 vs the other member (ceilings 0.56 / 0.42) & \multicolumn{2}{c}{0.3
 circuit J@32 vs the LoRA-elicited child & 0.641 & 0.306 & R2, R4 \\
 top-8 nodes sufficient / necessary & 0.923 / 0.943 & 0.950 / 0.966 & validation \\
 DCM operand roles vs the parent's engine (J, $a$ / $b$) & 0.694 / 0.857 & 0.763 / 0.684 & R3 \\
+DCM operand roles vs the other member (J, $a$ / $b$) & \multicolumn{2}{c}{0.700 / 0.632} & R3 \\
 relative weight write $\|\Delta W\|/\|W\|$ & 0.050 & 0.094 & R7 \\
 effective rank of $\Delta W$ (of 2048) & 554 & 571 & non-discr. \\
 final-layer residual shift at the answer position & 1.92 & 1.42 & R8 \\
@@ -552,10 +554,10 @@ J-space rank of the answer at layers 12 / 13 / 14 & 338 / 8 / 1 & 4{,}196 / 1{,}
 donor states into own parent, per-prompt (mean vector) & 0.121 (format only) & 0.000 (0.000) & R11 \\
 \bottomrule
 \end{tabular}
-\caption{The matched full-FT pair. Rows that discriminate the regimes under this method: exact
-match and convergence, circuit identity, write magnitude, shift direction, settled depth, donor
-patching. Rows that do not: effective rank, story-loss displacement, and (within this pair)
-DCM role overlap with the parent.}
+\caption{The matched full-FT pair. The rows that discriminate the regimes under one method:
+exact match and convergence, circuit identity, write magnitude, shift direction, settled depth,
+donor patching. Effective rank, story-loss displacement and DCM overlap are listed for
+completeness and do not.}
 \label{tab:ftpair}
 \end{table}
 
@@ -581,34 +583,6 @@ DCM role overlap with the parent.}
   \item \textbf{Construction controls.} Identical doses on the blank twin change nothing on the
     target (0.000 in every probe); a sum-only binding dose leaves ``difference'' unbound (per-word
     binding); the composition law chain $=$ parse $\times$ compute held on four variants.
-\end{itemize}
-
-\section*{Informative non-discriminators (measured, reported for completeness)}
-
-\begin{itemize}[nosep]
-  \item Effective rank of $\Delta W$: LoRA pair 7.1 vs 5.2 of 512, full-FT pair 554 vs 571 of 2048
-    --- the statistic follows the method, not the regime. Alignment of $\Delta W$ with the base's
-    top-64 singular directions is near the 0.058 baseline for every endpoint.
-  \item Temporal profile of weight travel: burst-then-decay in both LoRA arms (R7) --- an effect of
-    AdamW normalisation; the underlying gradient dynamics do discriminate (R6).
-  \item Generic-text displacement and depth of the residual write (R8): within full FT both regimes
-    damage story loss equally ($+1.0$--$1.1$ nats/token) and write over the same layers; within
-    LoRA the taught child displaces stories $5$--$9\times$ more and writes only at the last layer.
-    Method-dependent, so not a regime signature.
-  \item The ``loud'' final-layer write ($14$--$29\times$ the parent's norm) is a property of the
-    LoRA-taught endpoints, not of teaching: the full-FT taught model writes $1.4\times$.
-  \item The task/generic ratio of the residual shift runs against the surgical-vs-diffuse
-    prediction: elicit $5.4$ vs teach $12.7$ under LoRA, $2.3$ vs $1.4$ under full FT. It is
-    driven by the numerator (how far the parent's answer-position state was from the child's),
-    not by generic displacement, so it carries no regime information.
-  \item The full-FT construction itself (blank $\to$ TS1B-latent) displaced generic text by $1.12$
-    relative norm and $+0.66$ nats/token of story loss --- more than any child. Building the
-    engine is where representations were displaced, but the run confounds method with regime
-    and is an anchor only.
-  \item Prompt brittleness (16-shot collapse) is a property of this lineage's training-sequence
-    structure, not of the regime: all five endpoints score $\sim$0 at 16 shots.
-  \item Edge-level $\Delta S$ within the elicit arm: the edge instrument's split-half noise
-    floor (0.61--0.62) exceeds the measured churn on both eval surfaces --- a sensitivity limit.
 \end{itemize}
 
 \end{document}

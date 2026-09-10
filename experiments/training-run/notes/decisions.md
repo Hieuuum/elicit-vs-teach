@@ -6939,3 +6939,5 @@ teach-1M 94; construction dNLL +0.66). results_ts.tex rewritten: Endpoints
 table in Setup, R1-R4, R6-R8, R10-R11, validation and non-discriminators;
 paper assets (resid figure = FT pair, lens figure + FT pair, dcm/resid/lens
 tables) regenerated.
+
+## 2026-09-10 (FT-pair DCM + document scope) — full-FT elicit vs full-FT teach operand roles J 0.700 / 0.632 (28/31 and 24/25 of the elicited sets inside the taught ones; the taught sets add layer-0 heads 4,5,6,7,13,15 and layer-7/8 heads). Owner: skip negatives in the paper — the "Informative non-discriminators" section is removed from results_ts.tex (the record stays here: erank, travel profile, generic displacement/depth, loud write, reversed ratio, construction anchor, prompt brittleness, edge dS). Section E (matched FT pair at a glance) added. Stage-3 trajectory step hit a CUDA-init error on the box (no device visible); rerun when the GPU is back.
