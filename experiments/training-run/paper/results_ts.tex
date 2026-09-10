@@ -524,6 +524,41 @@ blank + taught donor (LoRA 1M / LoRA 4M / full FT) & every condition & $\le$0.02
 
 \end{enumerate}
 
+\section*{E. The matched full-fine-tune pair at a glance}
+
+Both regimes under one method: the blank twin and the latent twin, each fully fine-tuned with the
+identical recipe on the identical 4M file. The one difference is the parent. Every row is a
+result above, restricted to this pair.
+
+\begin{table}[h]\centering\small
+\begin{tabular}{lccl}
+\toprule
+ & elicit FT & teach FT & result \\
+\midrule
+exact match (0-shot) & 0.986 & 0.771 & R1 \\
+steps to stop (passes) & 21{,}500 (0.7), converged & 62{,}500 (2.0), ceiling & R1 \\
+held-out test loss (nats/token) & 0.015 & 0.204 & R1 \\
+circuit J@32 vs the other member (ceilings 0.56 / 0.42) & \multicolumn{2}{c}{0.333, Spearman 0.16} & R4 \\
+circuit J@32 vs the LoRA-elicited child & 0.641 & 0.306 & R2, R4 \\
+top-8 nodes sufficient / necessary & 0.923 / 0.943 & 0.950 / 0.966 & validation \\
+DCM operand roles vs the parent's engine (J, $a$ / $b$) & 0.694 / 0.857 & 0.763 / 0.684 & R3 \\
+relative weight write $\|\Delta W\|/\|W\|$ & 0.050 & 0.094 & R7 \\
+effective rank of $\Delta W$ (of 2048) & 554 & 571 & non-discr. \\
+final-layer residual shift at the answer position & 1.92 & 1.42 & R8 \\
+PC1 of the shift at the read-out (after removing answer content) & 0.056 (0.061) & 0.521 (0.520) & R8 \\
+story loss, child $-$ parent (nats/token) & $+1.04$ & $+1.13$ & non-discr. \\
+answer settled depth, median (quartiles) & L14 (14--14) & L15 (15--15) & R10 \\
+J-space rank of the answer at layers 12 / 13 / 14 & 338 / 8 / 1 & 4{,}196 / 1{,}916 / 79 & R10 \\
+donor states into own parent, per-prompt (mean vector) & 0.121 (format only) & 0.000 (0.000) & R11 \\
+\bottomrule
+\end{tabular}
+\caption{The matched full-FT pair. Rows that discriminate the regimes under this method: exact
+match and convergence, circuit identity, write magnitude, shift direction, settled depth, donor
+patching. Rows that do not: effective rank, story-loss displacement, and (within this pair)
+DCM role overlap with the parent.}
+\label{tab:ftpair}
+\end{table}
+
 \section*{Validation results (not regime differences, but what licenses R2--R11)}
 
 \begin{itemize}[nosep]
@@ -562,6 +597,14 @@ blank + taught donor (LoRA 1M / LoRA 4M / full FT) & every condition & $\le$0.02
     Method-dependent, so not a regime signature.
   \item The ``loud'' final-layer write ($14$--$29\times$ the parent's norm) is a property of the
     LoRA-taught endpoints, not of teaching: the full-FT taught model writes $1.4\times$.
+  \item The task/generic ratio of the residual shift runs against the surgical-vs-diffuse
+    prediction: elicit $5.4$ vs teach $12.7$ under LoRA, $2.3$ vs $1.4$ under full FT. It is
+    driven by the numerator (how far the parent's answer-position state was from the child's),
+    not by generic displacement, so it carries no regime information.
+  \item The full-FT construction itself (blank $\to$ TS1B-latent) displaced generic text by $1.12$
+    relative norm and $+0.66$ nats/token of story loss --- more than any child. Building the
+    engine is where representations were displaced, but the run confounds method with regime
+    and is an anchor only.
   \item Prompt brittleness (16-shot collapse) is a property of this lineage's training-sequence
     structure, not of the regime: all five endpoints score $\sim$0 at 16 shots.
   \item Edge-level $\Delta S$ within the elicit arm: the edge instrument's split-half noise
