@@ -19,9 +19,10 @@
 #   4  train-ft  evt-ts1b-teach-ft-n4000000: the blank twin FULLY fine-tuned on the
 #                same 4M file (configs/ts1b_teach_ft.yaml; train_sft.py, lr 2e-5),
 #                G5. Never pruned (no adapter). ~25 GB GPU, ~10-19 h.
-#   5  battery-ft the same battery on the full-FT endpoint (no snapshots /
-#                gradstats there: formation curve, weight travel and gradient
-#                strength are skipped; weight shift uses the checkpoint diff)
+#   5  battery-ft the same battery on the full-FT endpoint (no adapter snapshots
+#                there: formation curve and weight travel are skipped; gradient
+#                strength reads the pre-clip norm from train_log.jsonl, global
+#                only; weight shift uses the checkpoint diff)
 #   6  train-elft evt-ts1b-elicit-ft-n4000000: the LATENT parent fully fine-tuned
 #                on the same file (method control: both regimes under both
 #                methods). ~1 h. Explicit --stage 6 only (not part of `all`).
@@ -282,8 +283,11 @@ battery() {  # battery <rid> <suffix> <lora 0|1> <parent-run-id>
   step ws_teach_$sfx.parquet   python3 weight_shift.py --base-run "$parent" --ft-run "$rid" --k 64 --out ws_teach_$sfx
   if ((lora)); then
     step done_grad_$sfx.log    python3 grad_strength.py --run-id "$ELICITED" "$rid" --labels elicit teach$sfx --out grad_strength_$sfx
+  elif [[ $(status_of "$RID_ELFT") == complete && $(status_of "$RID_FT") == complete ]]; then
+    # full-FT runs: the pre-clip global norm is in train_log.jsonl (no per-class split)
+    step done_grad_ftpair.log  python3 grad_strength.py --run-id "$RID_ELFT" "$RID_FT" --labels elicit_ft teach_ft --out grad_strength_ft
   else
-    milestone "skip gradient strength for $rid (train_sft.py logs no gradstats)"
+    milestone "gradient strength for the FT pair waits until both FT endpoints are complete"
   fi
   # (f) residual shift (v2) + compare with the existing JSONs when present
   step resid_teach_$sfx.json   python3 resid_shift.py run --parent "$parent" --child "$rid" --out resid_teach_$sfx --n 256
