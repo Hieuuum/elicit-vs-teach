@@ -6941,3 +6941,16 @@ paper assets (resid figure = FT pair, lens figure + FT pair, dcm/resid/lens
 tables) regenerated.
 
 ## 2026-09-10 (FT-pair DCM + document scope) — full-FT elicit vs full-FT teach operand roles J 0.700 / 0.632 (28/31 and 24/25 of the elicited sets inside the taught ones; the taught sets add layer-0 heads 4,5,6,7,13,15 and layer-7/8 heads). Owner: skip negatives in the paper — the "Informative non-discriminators" section is removed from results_ts.tex (the record stays here: erank, travel profile, generic displacement/depth, loud write, reversed ratio, construction anchor, prompt brittleness, edge dS). Section E (matched FT pair at a glance) added. Stage-3 trajectory step hit a CUDA-init error on the box (no device visible); rerun when the GPU is back.
+
+## 2026-09-10 (format-installed teach comparator OPENED) — owner's question: was the format-install ("pre-teach format") twin ever the teach parent? No: only in R1's third learning curve. Every mechanistic teach-side number starts from the blank base. Stage 9/10 added: evt-ts1b-teach-ft-fmt-n4000000 = evt-ts1b-fig2ts-installer (random-label bare-format dose; format validity 1.000, accuracy 0.000) fully fine-tuned with the teach-FT recipe; battery with the installer as the reference parent; the installer's own lens depth.
+
+Why it matters: the elicit parent has produced number outputs during its
+construction (symbol install answers, rewriting dose); the blank base never
+has. So the teach side's "shared shift direction" (R8, PC1 0.52) may be
+partly format learning ("output a number here") rather than algorithm
+learning. The paper's Table 5 uses the pre-teach-format model to isolate
+exactly this. Predictions: the format-installed parent's answer-position
+states stay problem-blind (PC1 ~0.98) and its J-space empty; the taught
+child from it should show a SMALLER shared component than the blank-base
+taught child if the shared direction is format, and the same 0.52 if it is
+the algorithm's mode. Circuit / lens / donor results expected unchanged.

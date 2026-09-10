@@ -30,6 +30,11 @@
 #                the latent parent). Explicit only.
 #   8  resid-v2   residual shift v2 for the four original cells + one combined
 #                compare over every cell. Explicit only.
+#   9  train-ftfmt evt-ts1b-teach-ft-fmt-n4000000: the FORMAT-INSTALLED twin
+#                (evt-ts1b-fig2ts-installer, the paper's "pre-teach format") fully
+#                fine-tuned with the teach-FT recipe. ~4 h. Explicit only.
+#  10  battery-ftfmt the battery on it (reference parent = the installer) + the
+#                installer's own lens depth. Explicit only.
 #
 # Run GPU stages one after the other, not concurrently, on a 40 GB card.
 #
@@ -72,6 +77,9 @@ RID_FT=evt-ts1b-teach-ft-n4000000
 CFG_FT=../configs/ts1b_teach_ft.yaml
 RID_ELFT=evt-ts1b-elicit-ft-n4000000
 CFG_ELFT=../configs/ts1b_elicit_ft.yaml
+RID_FMT=evt-ts1b-fig2ts-installer                  # format-installed twin (paper: pre-teach format)
+RID_FTFMT=evt-ts1b-teach-ft-fmt-n4000000
+CFG_FTFMT=../configs/ts1b_teach_ft_fmt.yaml
 RID_1M=evt-ts1b-fig2ts-noinst-n1000000
 BASE=evt-ts1b-base
 LATENT=evt-ts1b-op-bridge-mix
@@ -263,7 +271,7 @@ battery() {  # battery <rid> <suffix> <lora 0|1> <parent-run-id>
   [[ -n $MAP_BASE16 ]]   && step done_cmp_base16_$sfx.log   python3 circuit_compare.py $MAP4 "$MAP_BASE16"
   # cross-endpoint compares: LoRA-4M teach, FT teach, FT elicit (whichever exist and are not this run)
   local other
-  for other in circ_ts_4m circ_ts_ft4m circ_ts_elft4m; do
+  for other in circ_ts_4m circ_ts_ft4m circ_ts_elft4m circ_ts_ftfmt4m; do
     [[ $other != "$MAP4" && -f $other.json ]] && step done_cmp_${other#circ_ts_}_$sfx.log python3 circuit_compare.py $MAP4 $other
   done
   # (b) true activation patching
@@ -285,21 +293,25 @@ battery() {  # battery <rid> <suffix> <lora 0|1> <parent-run-id>
     step done_grad_$sfx.log    python3 grad_strength.py --run-id "$ELICITED" "$rid" --labels elicit teach$sfx --out grad_strength_$sfx
   elif [[ $(status_of "$RID_ELFT") == complete && $(status_of "$RID_FT") == complete ]]; then
     # full-FT runs: the pre-clip global norm is in train_log.jsonl (no per-class split)
-    step done_grad_ftpair.log  python3 grad_strength.py --run-id "$RID_ELFT" "$RID_FT" --labels elicit_ft teach_ft --out grad_strength_ft
+    local ft_ids=("$RID_ELFT" "$RID_FT") ft_labels=(elicit_ft teach_ft) ft_marker=done_grad_ftpair.log
+    if [[ $(status_of "$RID_FTFMT") == complete ]]; then
+      ft_ids+=("$RID_FTFMT"); ft_labels+=(teach_ft_fmt); ft_marker=done_grad_fttrio.log
+    fi
+    step $ft_marker python3 grad_strength.py --run-id "${ft_ids[@]}" --labels "${ft_labels[@]}" --out grad_strength_ft
   else
     milestone "gradient strength for the FT pair waits until both FT endpoints are complete"
   fi
   # (f) residual shift (v2) + compare with the existing JSONs when present
   step resid_teach_$sfx.json   python3 resid_shift.py run --parent "$parent" --child "$rid" --out resid_teach_$sfx --n 256
   local cmp=(); local f
-  for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_construct resid_teach_4m resid_teach_ft4m resid_teach_elft4m; do
+  for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_construct resid_teach_4m resid_teach_ft4m resid_teach_elft4m resid_teach_ftfmt4m; do
     [[ -f $f.json && $f != resid_teach_$sfx ]] && cmp+=("${f#resid_}=$f.json")
   done
   step done_resid_cmp_$sfx.log python3 resid_shift.py compare "${cmp[@]}" teach_$sfx=resid_teach_$sfx.json --plot resid_shift_$sfx.png
   # (g) lens depth (logit / J / R) + compare + breakdown
   step lens_taught${sfx}_nl.json python3 lens_depth.py run --run-id "$rid" --surface bare_nl --out lens_taught${sfx}_nl
   cmp=()
-  for f in lens_latent_nl2 lens_elicited_nl2 lens_blank_nl2 lens_taught_nl2 lens_taught4m_nl lens_taughtft4m_nl lens_taughtelft4m_nl; do
+  for f in lens_latent_nl2 lens_elicited_nl2 lens_blank_nl2 lens_taught_nl2 lens_taught4m_nl lens_taughtft4m_nl lens_taughtelft4m_nl lens_taughtftfmt4m_nl; do
     [[ -f $f.json && $f != lens_taught${sfx}_nl ]] && cmp+=("${f#lens_}=$f.json")
   done
   step done_lens_cmp_$sfx.log  python3 lens_depth.py compare "${cmp[@]}" taught$sfx=lens_taught${sfx}_nl.json --plot lens_nl_$sfx.png
@@ -377,6 +389,31 @@ if want 8; then
   cmp=(); for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_teach_4m resid_teach_ft4m resid_teach_elft4m resid_construct; do [[ -f $f.json ]] && cmp+=("${f#resid_}=$f.json"); done
   rm -f done_resid_cmp_all.log
   step done_resid_cmp_all.log python3 resid_shift.py compare "${cmp[@]}" --plot resid_shift_all.png
+  cd "$OLDPWD" || true
+fi
+# ------------------- stage 9: full-FT teach from the FORMAT-INSTALLED parent
+if want 9; then
+  [[ -d $GEODE_STORE/runs/$RID_FMT/model ]] || fail "format-installed parent $GEODE_STORE/runs/$RID_FMT/model missing"
+  train_or_skip "$RID_FTFMT" \
+    python3 train_sft.py --config "$CFG_FTFMT" --init-from "$GEODE_STORE/runs/$RID_FMT/model" --confirm-cost
+  record_g5 "$RID_FTFMT"
+  python3 - "$RID_FTFMT" <<'PY'
+import json, os, sys
+from pathlib import Path
+m = json.loads((Path(os.environ["GEODE_STORE"]) / "runs" / sys.argv[1] / "manifest.json").read_text())
+e = m["experiment"]; r = e.get("sft_result", {}); g = e.get("gates", {}).get("G5", {})
+print(f"[teach4m] RESULT {sys.argv[1]}: steps {r.get('final_step')} stop={r.get('stop_reason')} "
+      f"best_val {r.get('best_val_nats')}  G5 EM 0-shot {g.get('zero_shot_accuracy')} "
+      f"16-shot {g.get('sixteen_shot_accuracy')} test_loss {g.get('test_loss_nats')}")
+PY
+fi
+if want 10; then
+  [[ $(status_of "$RID_FTFMT") == complete ]] || fail "$RID_FTFMT is not complete — run stage 9 first"
+  # the format-installed parent is the reference for steering / weights / residual shift
+  battery "$RID_FTFMT" ftfmt4m 0 "$RID_FMT"
+  # the parent itself: lens depth (is anything in its J-space?) and its circuit on the target (noise expected)
+  cd "$A" || fail "no analysis dir"
+  step lens_fmtparent_nl.json python3 lens_depth.py run --run-id "$RID_FMT" --surface bare_nl --out lens_fmtparent_nl
   cd "$OLDPWD" || true
 fi
 milestone "done stage=$STAGE"
