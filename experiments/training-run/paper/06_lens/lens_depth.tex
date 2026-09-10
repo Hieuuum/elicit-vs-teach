@@ -7,11 +7,14 @@ model & surface & own acc & rank L12 (logit / J / R) & rank L14 (logit / J / R) 
 TS1B-latent (parent) & NL & 0.047 & 5{,}704 / 2{,}606 / 2{,}730 & 436 / 510 / 424 & 174 \\
 elicited child & NL & 0.957 & 1{,}584 / 139 / 464 & 1 / 1 / 1 & 1 \\
 blank base & NL & 0.000 & 76{,}049 / 80{,}840 / 78{,}243 & 77{,}707 / 77{,}320 / 79{,}116 & 75{,}441 \\
-taught child & NL & 0.109 & 51{,}167 / 41{,}677 / 44{,}335 & 35{,}620 / 19{,}933 / 21{,}156 & 8 \\
+taught child (LoRA 1M) & NL & 0.109 & 51{,}167 / 41{,}677 / 44{,}335 & 35{,}620 / 19{,}933 / 21{,}156 & 8 \\
+taught child (LoRA 4M) & NL & 0.117 & 54{,}896 / 41{,}722 / 41{,}666 & 40{,}496 / 17{,}183 / 21{,}998 & 6 \\
+taught child (full FT) & NL & 0.797 & 18{,}502 / 4{,}196 / 9{,}429 & 141 / 79 / 377 & 1 \\
+elicited child (full FT) & NL & 0.988 & 1{,}797 / 338 / 492 & 1 / 1 / 1 & 1 \\
 TS1B-latent (parent) & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 & 1 \\
 elicited child & symbols & 0.855 & 1{,}360 / 131 / 399 & 1 / 1 / 1 & 1 \\
 \hline
 \end{tabular}
-\caption{Lens depth of the answer's first digit token at the answer position: median rank among 128K entries (chance 64K) under the logit lens / J-lens / R-lens; ``own acc'' = the model's own first-digit-token accuracy on the 256 held-out problems; read-out = the last layer, where all lenses coincide with the model's output. Elicit vs.\ teach: the answer is present and rising in the latent parent's J-space before any target training and absent from the blank base at every layer; under elicitation the parent$\to$child trajectory is unchanged on the engine's surface and amplified late on the target, settling at layer 14 in both; under teaching the answer appears only at the last layer. decisions.md 2026-09-10.}
+\caption{Lens depth of the answer's first digit token at the answer position: median rank among 128K entries (chance 64K) under the logit lens / J-lens / R-lens; ``own acc'' = the model's own first-digit-token accuracy on the 256 held-out problems; read-out = the last layer, where all lenses coincide with the model's output. Elicit vs.\ teach: the answer is present and rising in the latent parent's J-space before any target training and absent from the blank base at every layer; under elicitation the parent$\to$child trajectory is unchanged on the engine's surface and amplified late on the target, settling at layer 14 in both; under teaching the answer appears only at the last layer --- for the LoRA-taught children and for the full-FT taught model that solves the task (settled layer 15 vs the full-FT elicited child's layer 14). decisions.md 2026-09-10.}
 \label{tab:lens_depth}
 \end{table}

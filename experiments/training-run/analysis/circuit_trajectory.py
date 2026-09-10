@@ -85,6 +85,33 @@ def jaccard_and_rho(map_a: dict, map_b: dict, k: int):
     return jacc, rho
 
 
+
+def wrapped_from_snapshots(run_id: str, store: Path, step: int, device: str):
+    """The LoRA-wrapped module tree for a run whose final checkpoint was pruned:
+    config from model/ (config.json survives pruning), tensors from
+    snapshots/base/model.safetensors (every non-trainable tensor) plus one
+    fetched adapter — the same union load_snapshot performs per step."""
+    from safetensors.torch import load_file
+    from transformers import AutoConfig, AutoModelForCausalLM
+
+    from geode.train.lora import reapply_lora
+    from geode.zoo import load_run
+
+    lora = load_run(run_id, store=store).data["training"]["lora"]
+    config = AutoConfig.from_pretrained(store / "runs" / run_id / "model")
+    model = AutoModelForCausalLM.from_config(config)
+    snaps = store / "runs" / run_id / "snapshots"
+    state = load_file(str(snaps / "base" / "model.safetensors")) | load_file(
+        str(snaps / f"step_{step}" / "adapter.safetensors"))
+    if config.tie_word_embeddings and "lm_head.weight" not in state:
+        state["lm_head.weight"] = state["model.embed_tokens.weight"]
+    reapply_lora(model, state, rank=lora["rank"], alpha=lora["alpha"],
+                 target_modules=tuple(lora["target_modules"]))
+    print(f"[traj] {run_id}: final checkpoint pruned — wrapped tree rebuilt from snapshots/base "
+          f"+ step_{step} adapter")
+    return model.to(device)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run-id", required=True)
@@ -138,7 +165,10 @@ def main() -> int:
     from geode.edl import load_snapshot
     from geode.zoo import load_model as zoo_load_model
 
-    model = zoo_load_model(args.run_id, store=store, device=args.device)
+    if (store / "runs" / args.run_id / "model" / "model.safetensors").is_file():
+        model = zoo_load_model(args.run_id, store=store, device=args.device)
+    else:
+        model = wrapped_from_snapshots(args.run_id, store, picked[0], args.device)
     model.eval()
 
     rows = []

@@ -1,16 +1,19 @@
 \begin{table}[t]
 \centering
-\begin{tabular}{lcccccc}
+\begin{tabular}{lcccc}
 \hline
-Role (counterfactual variable) & $|$parent$|$ & $|$child$|$ & shared & Jaccard & chance & layers \\
+Comparison (operand $a$ / operand $b$) & $|A|$ & $|B|$ & Jaccard & cf-flip / ceiling \\
 \hline
-operand $a$ & 30 & 32 & 29 & \textbf{0.879} & 0.055 & 0 \\
-operand $b$ & 27 & 30 & 27 & \textbf{0.900} & 0.051 & 0 \\
-operation ($+\leftrightarrow-$) & 25 & 24 & 21 & \textbf{0.750} & 0.041 & 0--5 \\
-\hline
-elicited child vs taught child (NL): operand $a$ / $b$ & 36 / 30 & 9 / 21 & 5 / 4 & 0.125 / 0.085 & 0.02 & -- \\
+parent $\leftrightarrow$ elicited (LoRA), op surface & 30 / 27 & 32 / 30 & \textbf{0.879 / 0.900} & at ceiling \\
+parent $\leftrightarrow$ elicited (LoRA), operation role & 25 & 24 & \textbf{0.750} & at ceiling \\
+elicited (full FT) $\leftrightarrow$ elicited (LoRA), NL & 31 / 25 & 36 / 30 & 0.811 / 0.833 & 0.98 / 0.98 \\
+elicited (full FT) $\leftrightarrow$ parent & 31 / 25 & 30 / 27 & 0.694 / 0.857 & -- \\
+taught (full FT) $\leftrightarrow$ elicited (LoRA), NL & 37 / 37 & 36 / 30 & 0.587 / 0.763 & 0.81 / 0.79 (ceiling 0.81 / 0.80) \\
+taught (full FT) $\leftrightarrow$ parent & 37 / 37 & 30 / 27 & 0.763 / 0.684 & -- \\
+taught (LoRA 4M) $\leftrightarrow$ elicited (LoRA), NL & 12 / 21 & 36 / 30 & 0.043 / 0.041 & 0.01 / 0.03 (ceiling 0.20 / 0.14) \\
+taught (LoRA 1M) $\leftrightarrow$ elicited (LoRA), NL & 9 / 21 & 36 / 30 & 0.125 / 0.085 & 0.02 / 0.04 (ceiling 0.15) \\
 \hline
 \end{tabular}
-\caption{Desiderata Component Masking (heads-only, Prakash et al.\ 2024): for each functional variable, the sparse set of attention heads whose counterfactual activations flip the answer (cf-flip accuracy equals the full-counterfactual ceiling in every elicit-side set). Elicit vs.\ teach: the installed engine's operand-fetcher and operation-detector heads are carried over essentially unchanged into the elicited child (J 0.75--0.90, $\sim$15$\times$ chance --- roles are even more stable than circuit membership, 0.455), whereas the taught child's operand information is not carried by those heads (J 0.09--0.15) and no compact flipping set is recoverable in it (cf-flip 0.02--0.04 vs ceiling 0.15; low-confidence, its NL first-token ceiling is 0.15). decisions.md 2026-09-09.}
+\caption{Desiderata Component Masking head roles (heads only, 64--128 counterfactual pairs; Jaccard between role sets, chance $\approx$0.05). Elicit vs.\ teach: operand reading is a layer-0 function of the substrate, so every model that solves the task uses largely the same fetcher heads; elicitation keeps the parent's roles at 0.8--0.9, a performing taught model (full FT, EM 0.77) reconverges on them at 0.6--0.76 --- a graded difference --- and taught models that have not learned the task (LoRA, EM 0.09--0.14) have no compact fetcher set at all. decisions.md 2026-09-09/10.}
 \label{tab:dcm_roles}
 \end{table}

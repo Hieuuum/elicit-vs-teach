@@ -6877,3 +6877,65 @@ stage 5 redo of map-dependent items, stage 6/7 FT-elicit control
 (configs/ts1b_elicit_ft.yaml: latent parent, full FT, min_steps 0), stage 8
 residual v2 for the four original cells. Then the write-up is revised
 against BOTH taught endpoints; R3 and R8 already need rewording.
+
+## 2026-09-10 (teach-4M program COMPLETE: the 2x2 regime x method) — elicit-FT converges at 21,500 steps / EM 0.986 (test loss 0.015) vs teach-FT at the 62,500-step ceiling / 0.771 (0.204); with two performing taught models the teach-side results sort into REPLICATES (R1, R2, R6, R7 magnitude, R8 direction, R10, R11) and REVISED (R3 roles, R4 "total", R8 "loud write"); write-up rewritten against both matched pairs.
+
+Endpoints: elicit LoRA 1M 0.981 | teach LoRA 1M 0.093 | teach LoRA 4M 0.139
+| teach FT 4M 0.771 (ceiling, still improving) | elicit FT 4M 0.986 (converged
+at 0.7 pass). Every endpoint ~0 at 16 shots.
+
+REPLICATES (method-independent):
+- R2 reuse: elicit-FT vs elicit-LoRA circuit J@32 0.641 (ceilings 0.56 /
+  0.68) — the elicited circuit is the same machine under both methods.
+- R4 machine difference, now graded: matched FT pair J@32 0.333 (ceilings
+  0.56 / 0.42, Spearman 0.16); LoRA-4M pair 0.391 (0.68 / 0.52); LoRA-1M
+  0.231; taught-vs-taught across methods 0.391. Shared: the late-MLP engine
+  (mlp 15, 14, 12/13, 7). Different: taught adds mlp 0/10/11 and its own
+  attention (LoRA: eight layer-0 heads; FT: heads in layers 5-7 and 15);
+  elicited uses mlp 8/9 + the layer-7 trio. ~60% of the ceiling vs 100% for
+  elicit-vs-elicit. The "layer-0 army" was a LoRA-teach feature.
+- R6 gradients (LoRA only): teach-4M peak 22.0 @36,931, last-10% 7.78,
+  mass 220,685 = 282x elicit; VO share 0.93.
+- R7 write magnitude: FT pair rel 0.094 vs 0.050 (1.9x); LoRA 4M teach
+  0.264 vs 0.095 (2.8x). erank follows the method (FT 571 vs 554 of 2048;
+  LoRA 5-7 of 512) — non-discriminator in both.
+- R8 direction: PC1 at the read-out elicit 0.063 (LoRA) / 0.056 (FT) vs
+  teach 0.528 (LoRA 4M) / 0.521 (FT) / 0.351 (LoRA 1M); unchanged after
+  removing the answer-token directions (0.07 / 0.06 vs 0.52 / 0.52). The
+  elicited shift is per-problem content; the taught shift is half a shared
+  direction (the blank parent's answer-position state is problem-blind, so
+  the mode itself must move). Robust under both methods.
+- R10 lens: FT pair — elicit settled L14 (q25-q75 L14), rank 338/8/1 at
+  L12/13/14, top-1 0.80 @L14; teach settled L15 (q25 L15), rank
+  4,196/1,916/79, top-1 0.12 @L14 -> 0.80 @L15; onset ld>1 at L8-9 for
+  both. LoRA-4M taught: 41.7K/43.4K/17.2K -> 6, settled L15. Teaching
+  computes the answer one layer later than the engine, under either method.
+- R11 ladder: elicit-FT donor into the latent parent: per-prompt 0.121
+  (format 0.387), mean vector format only (0.105); teach-FT donor into the
+  blank: 0.000 every condition; teach LoRA-4M donor: 0.000.
+- Faithfulness: teach-FT top-8 0.950/0.966, elicit-FT 0.923/0.943, teach-4M
+  0.976/0.987 (top-32 >= 0.997 everywhere).
+
+REVISED:
+- R3 DCM: performing taught model (FT) has compact fetcher sets at the
+  ceiling; J vs elicited 0.587/0.763, vs parent 0.763/0.684; elicit-FT
+  keeps 0.811/0.833 (vs elicit-LoRA), 0.694/0.857 (vs parent); LoRA-taught
+  (1M, 4M): no compact set (cf-flip 0.008-0.04 vs ceilings 0.14-0.20).
+  Roles are substrate-level; elicitation preserves them more completely
+  (0.8-0.9 vs 0.6-0.76). Categorical "roles created" retracted.
+- R8 magnitude: the 14x (1M) / 28.6x (4M) final-layer write is LoRA-teach
+  specific; the FT-taught write is 1.42x (elicit 1.7-1.9x). Generic
+  displacement: LoRA teach 5-9x more (KL 0.33 vs 0.07; dNLL +0.32 vs
+  +0.04); FT: equal (+1.13 vs +1.04) — the method dominates. Both moved to
+  the non-discriminators.
+- R4 wording: "total" -> "partial, method-independent".
+
+Bookkeeping: the first stage-5 pass reused the LoRA-4M map for the FT
+model (stem collision; stale guard added, redone); the LoRA-4M formation
+curve / weight travel still pending (circuit_trajectory now rebuilds the
+wrapped tree from snapshots/base + adapter for pruned runs); resid v2 for
+the four original cells done (elicit-1M KL ratio 215, elicit-3162 369,
+teach-1M 94; construction dNLL +0.66). results_ts.tex rewritten: Endpoints
+table in Setup, R1-R4, R6-R8, R10-R11, validation and non-discriminators;
+paper assets (resid figure = FT pair, lens figure + FT pair, dcm/resid/lens
+tables) regenerated.

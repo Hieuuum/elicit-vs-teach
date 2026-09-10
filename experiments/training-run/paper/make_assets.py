@@ -112,6 +112,35 @@ RESID = {
         "gen": [2.2160, 2.0174, 1.7462, 1.5302, 1.3385, 1.1802, 1.0482, 0.9504, 0.8763, 0.8271,
                 0.7881, 0.7520, 0.7189, 0.6834, 0.6426, 0.5784],
     },
+    # 2026-09-10: the matched full-FT pair (teach-FT EM 0.771, elicit-FT EM 0.986) and LoRA-4M teach
+    "teach_ft": {
+        "ans": [0.4625, 0.4401, 0.4452, 0.4532, 0.4743, 0.4989, 0.5227, 0.5749, 0.6054, 0.6403,
+                0.6739, 0.7046, 0.7647, 0.9108, 1.1590, 1.4189],
+        "gen": [0.8094, 0.7319, 0.6247, 0.5479, 0.4853, 0.4392, 0.4061, 0.3876, 0.3748, 0.3699,
+                0.3691, 0.3689, 0.3698, 0.3719, 0.3761, 0.3842],
+        "pc1": [0.919, 0.944, 0.936, 0.920, 0.900, 0.865, 0.822, 0.686, 0.644, 0.608, 0.589,
+                0.593, 0.593, 0.575, 0.529, 0.521],
+        "pc1_parent": [0.99, 0.99, 0.99, 0.99, 0.99, 0.99, 0.98, 0.98, 0.98, 0.98, 0.98, 0.98,
+                       0.98, 0.98, 0.98, 0.98],
+    },
+    "elicit_ft": {
+        "ans": [0.6443, 0.5575, 0.5339, 0.5271, 0.5271, 0.5545, 0.5881, 0.6477, 0.6853, 0.7386,
+                0.8132, 0.9732, 1.2250, 1.5940, 1.8739, 1.9178],
+        "gen": [0.5109, 0.4561, 0.4430, 0.4298, 0.4184, 0.4091, 0.3984, 0.3891, 0.3798, 0.3726,
+                0.3671, 0.3615, 0.3562, 0.3518, 0.3449, 0.3418],
+        "pc1": [0.940, 0.931, 0.911, 0.877, 0.807, 0.654, 0.563, 0.459, 0.393, 0.337, 0.285,
+                0.217, 0.151, 0.109, 0.071, 0.056],
+        "pc1_parent": [0.98, 0.98, 0.98, 0.97, 0.97, 0.96, 0.96, 0.94, 0.91, 0.89, 0.86, 0.82,
+                       0.74, 0.60, 0.38, 0.23],
+    },
+    "teach_4m": {
+        "ans": [0.4713, 0.4563, 0.4440, 0.4495, 0.4705, 0.4818, 0.5070, 0.6308, 0.6812, 0.7674,
+                0.8182, 0.8632, 1.4071, 4.5356, 6.4867, 28.5727],
+        "gen": [0.1471, 0.1561, 0.1716, 0.1983, 0.2169, 0.2237, 0.2253, 0.2300, 0.2307, 0.2328,
+                0.2371, 0.2410, 0.2543, 0.2705, 0.2954, 0.4486],
+        "pc1": [0.945, 0.944, 0.926, 0.892, 0.865, 0.818, 0.774, 0.564, 0.510, 0.451, 0.424,
+                0.396, 0.411, 0.702, 0.302, 0.528],
+    },
 }
 
 
@@ -131,6 +160,10 @@ LENS_RANK = {
                   122, 6, 1, 1],
     "elicited op": [24781, 14882, 14724, 17310, 17753, 14050, 14243, 10414, 5613, 2978, 1187, 441,
                     131, 9, 1, 1],
+    "teach FT NL": [634, 590, 1213, 4495, 18121, 61941, 114868, 64299, 48075, 32634, 19081, 8170,
+                    4196, 1916, 79, 1],
+    "elicit FT NL": [28194, 30801, 31491, 31613, 30105, 27969, 26611, 21947, 14908, 8201, 3139,
+                     1238, 338, 8, 1, 1],
 }
 LENS_LD = {
     "latent NL": [0, 0, 0, 0, 0, 0, .1, .2, .4, .5, .7, .8, .9, 1.2, 1.6, 2.1],
@@ -139,11 +172,14 @@ LENS_LD = {
     "taught NL": [0, 0, 0, 0, 0, 0, 0, .2, .2, .3, .4, .6, 1.0, 1.6, 3.0, 6.8],
     "latent op": [0, 0, 0, 0, 0, .2, .3, .8, 1.3, 1.9, 2.4, 3.2, 4.5, 6.7, 9.8, 15.1],
     "elicited op": [0, 0, 0, .1, .1, .2, .3, .8, 1.3, 1.8, 2.4, 3.2, 4.5, 6.6, 9.8, 15.5],
+    "teach FT NL": [0, 0, .1, .1, .1, .1, .2, .8, 1.3, 1.7, 2.2, 2.8, 3.5, 4.7, 6.8, 15.2],
+    "elicit FT NL": [0, 0, 0, 0, 0, .1, .2, .6, 1.1, 1.7, 2.4, 3.4, 4.9, 7.2, 11.2, 18.7],
 }
 LENS_STYLE = {  # colour, linestyle, marker
     "latent NL": (EL, "-", "s"), "elicited NL": (EL, "-", "o"),
     "blank NL": (TE, "-", "s"), "taught NL": (TE, "-", "o"),
     "latent op": (EL, ":", "s"), "elicited op": (EL, ":", "o"),
+    "teach FT NL": (TE, "-", "D"), "elicit FT NL": (EL, "-", "D"),
 }
 
 
@@ -363,18 +399,21 @@ TS elicited-1M $\leftrightarrow$ TS taught-1M (same base) & 0.231\textsuperscrip
 \end{tabular}""",
           r"Circuit-membership overlap (attribution top-32 Jaccard, all maps performing-regime-guarded). \textsuperscript{a}J@64, score Spearman $-0.43$. \textsuperscript{b}score Spearman $-0.11$. Elicit vs.\ teach: in both arcs the elicited circuit is the parent's own circuit re-weighted (0.455--0.524, $\approx$70\% of the measurement ceiling; a million examples move it less than changing the prompt regime does, 0.391), whereas the taught circuit matches nothing upstream (the blank parent has no measurable circuit) and is anti-correlated with the elicited one even inside the same pretrained substrate --- same behavior, different mechanism. decisions.md 2026-08-24..2026-09-07.")
 
-    table(S, "dcm_roles", r"""\begin{tabular}{lcccccc}
+    table(S, "dcm_roles", r"""\begin{tabular}{lcccc}
 \hline
-Role (counterfactual variable) & $|$parent$|$ & $|$child$|$ & shared & Jaccard & chance & layers \\
+Comparison (operand $a$ / operand $b$) & $|A|$ & $|B|$ & Jaccard & cf-flip / ceiling \\
 \hline
-operand $a$ & 30 & 32 & 29 & \textbf{0.879} & 0.055 & 0 \\
-operand $b$ & 27 & 30 & 27 & \textbf{0.900} & 0.051 & 0 \\
-operation ($+\leftrightarrow-$) & 25 & 24 & 21 & \textbf{0.750} & 0.041 & 0--5 \\
-\hline
-elicited child vs taught child (NL): operand $a$ / $b$ & 36 / 30 & 9 / 21 & 5 / 4 & 0.125 / 0.085 & 0.02 & -- \\
+parent $\leftrightarrow$ elicited (LoRA), op surface & 30 / 27 & 32 / 30 & \textbf{0.879 / 0.900} & at ceiling \\
+parent $\leftrightarrow$ elicited (LoRA), operation role & 25 & 24 & \textbf{0.750} & at ceiling \\
+elicited (full FT) $\leftrightarrow$ elicited (LoRA), NL & 31 / 25 & 36 / 30 & 0.811 / 0.833 & 0.98 / 0.98 \\
+elicited (full FT) $\leftrightarrow$ parent & 31 / 25 & 30 / 27 & 0.694 / 0.857 & -- \\
+taught (full FT) $\leftrightarrow$ elicited (LoRA), NL & 37 / 37 & 36 / 30 & 0.587 / 0.763 & 0.81 / 0.79 (ceiling 0.81 / 0.80) \\
+taught (full FT) $\leftrightarrow$ parent & 37 / 37 & 30 / 27 & 0.763 / 0.684 & -- \\
+taught (LoRA 4M) $\leftrightarrow$ elicited (LoRA), NL & 12 / 21 & 36 / 30 & 0.043 / 0.041 & 0.01 / 0.03 (ceiling 0.20 / 0.14) \\
+taught (LoRA 1M) $\leftrightarrow$ elicited (LoRA), NL & 9 / 21 & 36 / 30 & 0.125 / 0.085 & 0.02 / 0.04 (ceiling 0.15) \\
 \hline
 \end{tabular}""",
-          r"Desiderata Component Masking (heads-only, Prakash et al.\ 2024): for each functional variable, the sparse set of attention heads whose counterfactual activations flip the answer (cf-flip accuracy equals the full-counterfactual ceiling in every elicit-side set). Elicit vs.\ teach: the installed engine's operand-fetcher and operation-detector heads are carried over essentially unchanged into the elicited child (J 0.75--0.90, $\sim$15$\times$ chance --- roles are even more stable than circuit membership, 0.455), whereas the taught child's operand information is not carried by those heads (J 0.09--0.15) and no compact flipping set is recoverable in it (cf-flip 0.02--0.04 vs ceiling 0.15; low-confidence, its NL first-token ceiling is 0.15). decisions.md 2026-09-09.")
+          r"Desiderata Component Masking head roles (heads only, 64--128 counterfactual pairs; Jaccard between role sets, chance $\approx$0.05). Elicit vs.\ teach: operand reading is a layer-0 function of the substrate, so every model that solves the task uses largely the same fetcher heads; elicitation keeps the parent's roles at 0.8--0.9, a performing taught model (full FT, EM 0.77) reconverges on them at 0.6--0.76 --- a graded difference --- and taught models that have not learned the task (LoRA, EM 0.09--0.14) have no compact fetcher set at all. decisions.md 2026-09-09/10.")
 
     table(S, "faithfulness", r"""\begin{tabular}{lcccc}
 \hline
@@ -549,61 +588,57 @@ def residual():
     S = "05_weights"
     L = list(range(16))
     f, (a1, a2) = plt.subplots(1, 2, figsize=(10.5, 3.8))
-    a1.plot(L, RESID["teach_1m"]["ans"], "o-", color=TE, label="teach 1M: task (answer pos.)")
-    a1.plot(L, RESID["teach_1m"]["gen"], "--", color=TE, label="teach 1M: generic text")
-    a1.plot(L, RESID["elicit_1m"]["ans"], "o-", color=EL, label="elicit 1M: task (answer pos.)")
-    a1.plot(L, RESID["elicit_1m"]["gen"], "--", color=EL, label="elicit 1M: generic text")
-    a1.plot(L, RESID["elicit_3162"]["ans"], "-", color=EL, lw=1, alpha=.5,
-            label="elicit 3162: task")
-    a1.plot(L, RESID["elicit_3162"]["gen"], ":", color=EL, lw=1, alpha=.5,
-            label="elicit 3162: generic")
+    for key, c, lbl in (("teach_ft", TE, "teach, full FT"), ("elicit_ft", EL, "elicit, full FT")):
+        a1.plot(L, RESID[key]["ans"], "o-", color=c, label=f"{lbl}: task (answer pos.)")
+        a1.plot(L, RESID[key]["gen"], "--", color=c, label=f"{lbl}: generic text")
+        a2.plot(L, RESID[key]["pc1"], "o-", color=c, label=f"{lbl}: shift")
+        a2.plot(L, RESID[key]["pc1_parent"], ":", color=c, label=f"{lbl}: parent's own states")
+    a1.plot(L, RESID["elicit_1m"]["ans"], "-", color=EL, lw=1, alpha=.45, label="elicit, LoRA: task")
+    a1.plot(L, RESID["teach_4m"]["ans"], "-", color=TE, lw=1, alpha=.45, label="teach, LoRA 4M: task")
+    a2.plot(L, RESID["elicit_1m"]["pc1"], "-", color=EL, lw=1, alpha=.45, label="elicit, LoRA: shift")
+    a2.plot(L, RESID["teach_4m"]["pc1"], "-", color=TE, lw=1, alpha=.45, label="teach, LoRA 4M: shift")
     a1.set_yscale("log")
     a1.set_xlabel("layer")
     a1.set_ylabel(r"$\|h_{child}-h_{parent}\| / \|h_{parent}\|$")
     a1.set_title("relative residual shift", fontsize=10)
     a1.grid(alpha=.3)
-    a1.legend(fontsize=7)
-    a2.plot(L, RESID["teach_1m"]["pc1"], "o-", color=TE, label="teach 1M: shift")
-    a2.plot(L, RESID["teach_1m"]["pc1_parent"], ":", color=TE, label="blank base: own states")
-    a2.plot(L, RESID["elicit_1m"]["pc1"], "o-", color=EL, label="elicit 1M: shift")
-    a2.plot(L, RESID["elicit_1m"]["pc1_parent"], ":", color=EL,
-            label="TS1B-latent: own states")
+    a1.legend(fontsize=6.5, ncol=2)
     a2.set_xlabel("layer")
     a2.set_ylabel("PC1 energy fraction (1 = one vector)")
     a2.set_title("is the task shift one direction?", fontsize=10)
     a2.set_ylim(0, 1.02)
     a2.grid(alpha=.3)
-    a2.legend(fontsize=7)
+    a2.legend(fontsize=6.5, ncol=2)
     save(S, f, "fig_resid_shift",
-         "Residual-stream shift between each 1M child and its own parent on identical "
-         "inputs (fp32), by layer. Left: relative shift at the answer position of 256 "
-         "NL problems (solid) and on 256 held-out TinyStories passages (dashed). "
-         "Right: energy fraction of the top singular direction across the 256 "
-         "per-problem shift vectors (PC1), with the same statistic on the parent's "
-         "own states dotted (the anisotropy reference). Elicit vs. teach: generic "
-         "text moves by the same amount in both arms (0.16) - the surgical-vs-diffuse "
-         "prediction does not hold - but the taught child's final-layer write at the "
-         "answer position is 14x the parent's norm against 1.7x for the elicited "
-         "child (a loud new output channel for a model 10x worse), and the elicited "
-         "shift has no dominant shared direction at the read-out (PC1 0.06, below "
-         "its parent's own 0.23): it is the per-problem answer, not a reusable mode "
-         "vector - which is why mean-vector patching gives format only. "
-         "resid_shift.py; decisions.md 2026-09-09.")
+         "Residual-stream shift between each child and its own parent on identical inputs "
+         "(fp32), by layer, for the matched full-fine-tune pair (thick) with the LoRA "
+         "endpoints thin. Left: relative shift at the answer position of 256 NL problems "
+         "(solid) and on 256 held-out TinyStories passages (dashed). Right: energy fraction "
+         "of the top singular direction across the 256 per-problem shift vectors (PC1), with "
+         "the same statistic on the parent's own states dotted (anisotropy reference). Elicit "
+         "vs. teach: the direction statistic is method-independent - the elicited shift has no "
+         "dominant shared direction (PC1 0.06 under LoRA and under full FT; the parent's own "
+         "states 0.23), the taught shift is half one direction (0.53 / 0.52), unchanged when "
+         "the answer-token directions are removed; magnitude and generic displacement follow "
+         "the method (LoRA-taught final write 14-29x, full-FT 1.4x; story loss +1.0-1.1 "
+         "nats/token under full FT for both regimes). resid_shift.py; decisions.md 2026-09-10.")
 
     table(S, "resid_shift", r"""\begin{tabular}{lcccc}
 \hline
- & elicit 1M & elicit 3162 & teach 1M & construction (full FT) \\
+ & elicit LoRA 1M & teach LoRA 4M & elicit FT & teach FT \\
 \hline
-shift at answer position, final layer & 1.72 & 1.50 & \textbf{14.13} & 1.10 \\
-shift at answer position, layer mean & 0.87 & 0.78 & 1.93 & 0.61 \\
-shift over all prompt positions, final layer & 0.96 & 0.82 & 5.55 & 0.88 \\
-shift on generic text, layer mean & 0.160 & 0.089 & 0.156 & 1.118 \\
-PC1 of shift, final layer (parent states) & \textbf{0.063} (0.23) & 0.093 (0.23) & 0.351 (0.98) & 0.603 (0.98) \\
-cosine-to-mean, final layer (parent states) & 0.26 (0.51) & 0.32 (0.51) & 0.33 (0.99) & 0.79 (0.99) \\
-final exact match & 0.981 & 0.541 & 0.093 & -- \\
+final exact match & 0.981 & 0.139 & 0.986 & 0.771 \\
+shift at answer position, final layer & 1.72 & 28.6 & 1.92 & 1.42 \\
+shift on generic text, layer mean & 0.160 & 0.236 & 0.396 & 0.464 \\
+KL(parent$\|$child) at answer position (nats) & 14.3 & 14.0 & 16.4 & 22.2 \\
+KL(parent$\|$child) on stories (nats/token) & 0.067 & 0.326 & 0.721 & 1.147 \\
+story loss, child $-$ parent (nats/token) & $+0.035$ & $+0.315$ & $+1.038$ & $+1.133$ \\
+PC1 of shift, final layer (parent states) & \textbf{0.063} (0.23) & \textbf{0.528} (0.98) & \textbf{0.056} (0.23) & \textbf{0.521} (0.98) \\
+PC1 after removing answer-token directions & 0.072 & 0.520 & 0.061 & 0.520 \\
+cosine-to-mean, final layer & 0.26 & 0.26 & 0.23 & 0.74 \\
 \hline
 \end{tabular}""",
-          r"Residual-stream shift parent$\to$child ($N{=}256$ NL problems; generic text $=$ 256 held-out TinyStories passages of 64 tokens; both models fp32). ``Construction'' is the full fine-tune that built TS1B-latent from the blank base, an anchor for what building an engine does to generic text (7$\times$ the displacement of either LoRA child). Elicit vs.\ teach: generic displacement and depth do not separate the regimes; the size of the final write does (14$\times$ vs 1.7$\times$), and so does what the shift carries --- per-problem content with no shared direction (elicit) vs a large common component (teach). decisions.md 2026-09-09.")
+          r"Residual-stream shift parent$\to$child ($N{=}256$ NL problems; generic text $=$ 256 held-out TinyStories passages of 64 tokens; both models fp32) for the LoRA endpoints and the matched full-FT pair. Elicit vs.\ teach: the regime signature is what the shift carries --- per-problem content with no shared direction under elicitation (PC1 0.06, below the parent's own 0.23) vs a dominant shared component under teaching (0.52--0.53, unchanged after removing the answer content) --- under both methods; norm-based ``loud write'' and generic-displacement readings follow the method (LoRA-taught final write 14--29$\times$, full-FT 1.4$\times$; both full-FT regimes cost stories $+1.0$--$1.1$ nats/token) and are not regime signatures. decisions.md 2026-09-10.")
 
 
 
@@ -632,16 +667,19 @@ def lens():
     save(S, f, "fig_lens_depth",
          "Jacobian-lens read-out of the answer's first digit token at the answer "
          "position, by layer (256 problems; gold = TS1B-latent lineage, teal = blank "
-         "lineage; squares = parents, circles = 1M children; dotted = symbol surface). "
+         "lineage; squares = parents, circles = LoRA children, diamonds = the matched "
+         "full-FT pair; dotted = symbol surface). "
          "Left: median rank of the answer token among 128K vocabulary entries (chance "
          "64K). Right: logit-diff against a mismatched problem's answer. Elicit vs. "
          "teach: the latent parent already holds the answer in its verbalizable space "
          "(rank 2.6K at layer 12, 174 in its output distribution) while emitting a "
          "rewrite, and the elicited child amplifies that same trajectory without "
          "moving it (identical to the parent's engine on symbols, layer by layer); the "
-         "blank base is at chance at every layer, and the taught child's answer exists "
-         "only at the last layer (rank 20K at layer 14, 8 at layer 15). Logit and R "
-         "lenses agree. lens_depth.py; decisions.md 2026-09-10.")
+         "blank base is at chance at every layer, and the taught children's answer exists "
+         "only at the last layer (LoRA: rank 17-20K at layer 14, 6-8 at layer 15; full FT, "
+         "EM 0.77: rank 79 at layer 14, top-1 0.12 -> 0.80 at layer 15, while the full-FT "
+         "elicited child settles at layer 14 like the engine). Logit and R lenses agree. "
+         "lens_depth.py; decisions.md 2026-09-10.")
 
     table(S, "lens_depth", r"""\begin{tabular}{llcccc}
 \hline
@@ -650,12 +688,15 @@ model & surface & own acc & rank L12 (logit / J / R) & rank L14 (logit / J / R) 
 TS1B-latent (parent) & NL & 0.047 & 5{,}704 / 2{,}606 / 2{,}730 & 436 / 510 / 424 & 174 \\
 elicited child & NL & 0.957 & 1{,}584 / 139 / 464 & 1 / 1 / 1 & 1 \\
 blank base & NL & 0.000 & 76{,}049 / 80{,}840 / 78{,}243 & 77{,}707 / 77{,}320 / 79{,}116 & 75{,}441 \\
-taught child & NL & 0.109 & 51{,}167 / 41{,}677 / 44{,}335 & 35{,}620 / 19{,}933 / 21{,}156 & 8 \\
+taught child (LoRA 1M) & NL & 0.109 & 51{,}167 / 41{,}677 / 44{,}335 & 35{,}620 / 19{,}933 / 21{,}156 & 8 \\
+taught child (LoRA 4M) & NL & 0.117 & 54{,}896 / 41{,}722 / 41{,}666 & 40{,}496 / 17{,}183 / 21{,}998 & 6 \\
+taught child (full FT) & NL & 0.797 & 18{,}502 / 4{,}196 / 9{,}429 & 141 / 79 / 377 & 1 \\
+elicited child (full FT) & NL & 0.988 & 1{,}797 / 338 / 492 & 1 / 1 / 1 & 1 \\
 TS1B-latent (parent) & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 & 1 \\
 elicited child & symbols & 0.855 & 1{,}360 / 131 / 399 & 1 / 1 / 1 & 1 \\
 \hline
 \end{tabular}""",
-          r"Lens depth of the answer's first digit token at the answer position: median rank among 128K entries (chance 64K) under the logit lens / J-lens / R-lens; ``own acc'' = the model's own first-digit-token accuracy on the 256 held-out problems; read-out = the last layer, where all lenses coincide with the model's output. Elicit vs.\ teach: the answer is present and rising in the latent parent's J-space before any target training and absent from the blank base at every layer; under elicitation the parent$\to$child trajectory is unchanged on the engine's surface and amplified late on the target, settling at layer 14 in both; under teaching the answer appears only at the last layer. decisions.md 2026-09-10.")
+          r"Lens depth of the answer's first digit token at the answer position: median rank among 128K entries (chance 64K) under the logit lens / J-lens / R-lens; ``own acc'' = the model's own first-digit-token accuracy on the 256 held-out problems; read-out = the last layer, where all lenses coincide with the model's output. Elicit vs.\ teach: the answer is present and rising in the latent parent's J-space before any target training and absent from the blank base at every layer; under elicitation the parent$\to$child trajectory is unchanged on the engine's surface and amplified late on the target, settling at layer 14 in both; under teaching the answer appears only at the last layer --- for the LoRA-taught children and for the full-FT taught model that solves the task (settled layer 15 vs the full-FT elicited child's layer 14). decisions.md 2026-09-10.")
 
 
 def main() -> int:

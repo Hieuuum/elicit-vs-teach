@@ -2,17 +2,19 @@
 \centering
 \begin{tabular}{lcccc}
 \hline
- & elicit 1M & elicit 3162 & teach 1M & construction (full FT) \\
+ & elicit LoRA 1M & teach LoRA 4M & elicit FT & teach FT \\
 \hline
-shift at answer position, final layer & 1.72 & 1.50 & \textbf{14.13} & 1.10 \\
-shift at answer position, layer mean & 0.87 & 0.78 & 1.93 & 0.61 \\
-shift over all prompt positions, final layer & 0.96 & 0.82 & 5.55 & 0.88 \\
-shift on generic text, layer mean & 0.160 & 0.089 & 0.156 & 1.118 \\
-PC1 of shift, final layer (parent states) & \textbf{0.063} (0.23) & 0.093 (0.23) & 0.351 (0.98) & 0.603 (0.98) \\
-cosine-to-mean, final layer (parent states) & 0.26 (0.51) & 0.32 (0.51) & 0.33 (0.99) & 0.79 (0.99) \\
-final exact match & 0.981 & 0.541 & 0.093 & -- \\
+final exact match & 0.981 & 0.139 & 0.986 & 0.771 \\
+shift at answer position, final layer & 1.72 & 28.6 & 1.92 & 1.42 \\
+shift on generic text, layer mean & 0.160 & 0.236 & 0.396 & 0.464 \\
+KL(parent$\|$child) at answer position (nats) & 14.3 & 14.0 & 16.4 & 22.2 \\
+KL(parent$\|$child) on stories (nats/token) & 0.067 & 0.326 & 0.721 & 1.147 \\
+story loss, child $-$ parent (nats/token) & $+0.035$ & $+0.315$ & $+1.038$ & $+1.133$ \\
+PC1 of shift, final layer (parent states) & \textbf{0.063} (0.23) & \textbf{0.528} (0.98) & \textbf{0.056} (0.23) & \textbf{0.521} (0.98) \\
+PC1 after removing answer-token directions & 0.072 & 0.520 & 0.061 & 0.520 \\
+cosine-to-mean, final layer & 0.26 & 0.26 & 0.23 & 0.74 \\
 \hline
 \end{tabular}
-\caption{Residual-stream shift parent$\to$child ($N{=}256$ NL problems; generic text $=$ 256 held-out TinyStories passages of 64 tokens; both models fp32). ``Construction'' is the full fine-tune that built TS1B-latent from the blank base, an anchor for what building an engine does to generic text (7$\times$ the displacement of either LoRA child). Elicit vs.\ teach: generic displacement and depth do not separate the regimes; the size of the final write does (14$\times$ vs 1.7$\times$), and so does what the shift carries --- per-problem content with no shared direction (elicit) vs a large common component (teach). decisions.md 2026-09-09.}
+\caption{Residual-stream shift parent$\to$child ($N{=}256$ NL problems; generic text $=$ 256 held-out TinyStories passages of 64 tokens; both models fp32) for the LoRA endpoints and the matched full-FT pair. Elicit vs.\ teach: the regime signature is what the shift carries --- per-problem content with no shared direction under elicitation (PC1 0.06, below the parent's own 0.23) vs a dominant shared component under teaching (0.52--0.53, unchanged after removing the answer content) --- under both methods; norm-based ``loud write'' and generic-displacement readings follow the method (LoRA-taught final write 14--29$\times$, full-FT 1.4$\times$; both full-FT regimes cost stories $+1.0$--$1.1$ nats/token) and are not regime signatures. decisions.md 2026-09-10.}
 \label{tab:resid_shift}
 \end{table}

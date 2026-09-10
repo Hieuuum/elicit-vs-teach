@@ -81,3 +81,12 @@ with content removed 0.52), lens depth (settled L15, q25 L15; J-rank
 0.094, erank 571 of 2048), steering nulls (0.000 all conditions). Circuit map,
 compares, faithfulness and steering-with-own-map are being redone: the stage-5
 map stem collided with the LoRA-4M map (stale guard added).
+
+## Verdicts (2026-09-10) — see decisions.md entry "teach-4M program COMPLETE"
+
+Replicates with performing taught models: R1, R2, R4 (graded), R6, R7
+(magnitude), R8 (direction), R10, R11, faithfulness. Revised: R3 (roles are
+substrate-level; graded 0.8–0.9 vs 0.6–0.76), R4 wording ("partial"), R8
+magnitude ("loud write" = LoRA-teach artefact; generic displacement
+method-dependent). Pending: LoRA-4M formation curve + weight travel (stage 3
+resume after the trajectory-loader fix).
