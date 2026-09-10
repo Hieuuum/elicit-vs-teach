@@ -70,8 +70,8 @@ times as many unique examples --- which is where the paper's own Figure~2 puts t
 fine-tuning: the recipe that installed the symbol engine gives a taught model at $0.771$. The
 elicit twin was fully fine-tuned with the identical recipe as the control ($0.986$). Teach-side
 results are reported on the \emph{matched full-fine-tune pair} wherever the instrument allows,
-with the LoRA pair alongside; three instruments need adapters (gradient logs, adapter
-snapshots) and exist only for the LoRA runs.
+with the LoRA pair alongside; two instruments need adapter snapshots (formation curve, weight
+travel) and exist only for the LoRA runs.
 
 \begin{table}[h]\centering\small
 \begin{tabular}{llllccc}
@@ -300,10 +300,12 @@ exactly while the learning cost is rising.}
 \end{figure}
 
 \item \textbf{Elicitation's gradient dies out; teaching's keeps growing.}
-\metric{The global gradient norm before clipping, logged at every update of the LoRA runs: its
-peak, its mean over the first 1\%, the middle and the last 10\% of steps, the cumulative
-gradient mass $\sum_t\|g_t\|$, and how that mass splits across attention query/key weights (QK),
-attention value/output weights (VO) and MLP weights.}
+\metric{The global gradient norm before clipping, logged at every update: its peak, its mean
+over the first 1\%, the middle and the last 10\% of steps, and the cumulative gradient mass
+$\sum_t\|g_t\|$. For the LoRA runs also how that mass splits across attention query/key weights
+(QK), attention value/output weights (VO) and MLP weights; the full-FT trainer logs the global
+norm only. Norms are comparable within a method, not across methods (different parameter
+sets).}
 \result{Table~\ref{tab:grad}, Figure~\ref{fig:grad}. Both arms start at the same scale
 (first-1\% mean $0.18$ vs $0.17$). Elicit decays $3.3\times$ to a floor of $0.056$ (peak $0.44$ at
 step 96). Teach grows $40$--$50\times$: last-10\% mean $6.8$ at 1M and $7.8$ at 4M, peaks of
@@ -311,24 +313,31 @@ $17.4$ and $22.0$ near the end of training. Cumulative mass $783$ (elicit) vs $1
 1M) and $220{,}685$ (teach 4M): $150$--$280\times$. Across the sweep the arms are
 indistinguishable up to $n{=}10$K and diverge from $31.6$K ($7\times\to55\times\to95\times\to
 150\times$). Teach's gradient mass moves out of the MLPs (share $0.47\to0.01$) into attention
-(VO share $0.87$ at 1M, $0.93$ at 4M).}
-\interp{Elicitation converges and its gradient dies; teaching generates gradient pressure that
-grows with the structure being built and is aimed at attention weights --- the operand-fetching
-heads of R4 being written.}
+(VO share $0.87$ at 1M, $0.93$ at 4M). Full-FT pair: elicit peaks at step 1 ($34.0$) and decays
+$3.4\times$ to a floor of $1.4$; teach starts lower ($2.3$), rises to its peak at step 3,844
+($32.0$), holds $5.3$ mid-run and ends at $3.4$ --- $1.5\times$ its starting level; cumulative
+mass $44{,}021$ vs $353{,}277$ ($8\times$; $2.8\times$ per step over $2.9\times$ the steps).}
+\interp{Elicitation converges and its gradient dies (decaying $3.3$--$3.4\times$ under either
+method); teaching generates gradient pressure that grows with the structure being built ---
+$40$--$50\times$ under LoRA, $1.5\times$ under full FT --- accumulating $8\times$ to $280\times$ the
+gradient mass, and under LoRA aimed at attention weights, the operand-fetching heads of R4 being
+written.}
 \begin{table}[h]\centering\small
-\begin{tabular}{lccc}
+\begin{tabular}{lccccc}
 \toprule
-LoRA fine-tune & elicit 1M & teach 1M & teach 4M \\
+ & elicit LoRA 1M & teach LoRA 1M & teach LoRA 4M & elicit FT & teach FT \\
 \midrule
-peak gradient norm (step) & 0.441 (96) & 17.4 (23{,}657) & 22.0 (36{,}931) \\
-mean norm: first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 & 0.160 / 6.61 / 7.78 \\
-first 1\% $\div$ last 10\% & $\times$3.3 (decays) & $\times$0.02 (grows $\sim$40$\times$) & $\times$0.02 (grows $\sim$50$\times$) \\
-cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 & 220{,}685 \\
-gradient mass per step & 0.068 & 4.68 & 5.59 \\
-mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 & .05 / .93 / .01 \\
+steps & 11{,}500 & 25{,}000 & 39{,}500 & 21{,}500 & 62{,}500 \\
+peak gradient norm (step) & 0.441 (96) & 17.4 (23{,}657) & 22.0 (36{,}931) & 34.0 (1) & 32.0 (3{,}844) \\
+mean norm: first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 & 0.160 / 6.61 / 7.78 & 4.80 / 1.85 / 1.39 & 2.30 / 5.31 / 3.43 \\
+first 1\% $\div$ last 10\% & $\times$3.3 (decays) & $\times$0.02 (grows $\sim$40$\times$) & $\times$0.02 (grows $\sim$50$\times$) & $\times$3.4 (decays) & $\times$0.7 (grows 1.5$\times$) \\
+cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 & 220{,}685 & 44{,}021 & 353{,}277 \\
+gradient mass per step & 0.068 & 4.68 & 5.59 & 2.05 & 5.65 \\
+mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 & .05 / .93 / .01 & -- & -- \\
 \bottomrule
 \end{tabular}
-\caption{Raw gradient strength of the LoRA fine-tunes (pre-clip global norm at every update).}
+\caption{Raw gradient strength (pre-clip global norm at every update). LoRA and full-FT norms are
+on different parameter sets and are compared within a method only.}
 \label{tab:grad}
 \end{table}
 \begin{figure}[h]\centering
@@ -556,6 +565,8 @@ circuit overlap with the LoRA-elicited child & 0.641 & 0.306 & R2, R4 \\
 top-8 nodes sufficient / necessary & 0.923 / 0.943 & 0.950 / 0.966 & validation \\
 operand-reading heads vs the parent's (first / second) & 0.694 / 0.857 & 0.763 / 0.684 & R3 \\
 operand-reading heads vs the other member & \multicolumn{2}{c}{0.700 / 0.632} & R3 \\
+gradient norm, first 1\% $\to$ last 10\% of steps & 4.80 $\to$ 1.39 (decays 3.4$\times$) & 2.30 $\to$ 3.43 (grows 1.5$\times$) & R6 \\
+cumulative gradient mass $\sum_t\|g_t\|$ & 44{,}021 & 353{,}277 & R6 \\
 relative weight write $\|\Delta W\|/\|W\|$ & 0.050 & 0.094 & R7 \\
 PC1 of the state shift (after removing answer content) & 0.056 (0.061) & 0.521 (0.520) & R8 \\
 answer settled depth, median (quartiles) & layer 14 (14--14) & layer 15 (15--15) & R10 \\

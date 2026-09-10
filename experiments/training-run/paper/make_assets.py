@@ -557,17 +557,17 @@ capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
          "written. runs/*/logs/gradstats.jsonl via grad_strength.py; decisions.md "
          "2026-09-09.")
 
-    table(S, "grad_strength", r"""\begin{tabular}{lcc}
+    table(S, "grad_strength", r"""\begin{tabular}{lccccc}
 \hline
-1M fine-tune & elicit (TS1B-latent) & teach (blank) \\
+ & elicit LoRA 1M & teach LoRA 1M & teach LoRA 4M & elicit FT & teach FT \\
 \hline
-steps & 11{,}500 & 25{,}000 \\
-peak grad norm (step) & 0.441 (96) & 17.4 (23{,}657) \\
-mean norm, first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 \\
-decay (first 1\% $\div$ last 10\%) & $\times$3.3 & $\times$0.02 (grows $\sim$40$\times$) \\
-cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 \\
-gradient mass per step & 0.068 & 4.68 \\
-gradient-mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 \\
+steps & 11{,}500 & 25{,}000 & 39{,}500 & 21{,}500 & 62{,}500 \\
+peak grad norm (step) & 0.441 (96) & 17.4 (23{,}657) & 22.0 (36{,}931) & 34.0 (1) & 32.0 (3{,}844) \\
+mean norm, first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 & 0.160 / 6.61 / 7.78 & 4.80 / 1.85 / 1.39 & 2.30 / 5.31 / 3.43 \\
+decay (first 1\% $\div$ last 10\%) & $\times$3.3 & $\times$0.02 (grows $\sim$40$\times$) & $\times$0.02 (grows $\sim$50$\times$) & $\times$3.4 & $\times$0.7 (grows 1.5$\times$) \\
+cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 & 220{,}685 & 44{,}021 & 353{,}277 \\
+gradient mass per step & 0.068 & 4.68 & 5.59 & 2.05 & 5.65 \\
+gradient-mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 & .05 / .93 / .01 & -- & -- \\
 \hline
 \end{tabular}""",
           r"Raw gradient strength of the two 1M fine-tunes (pre-clip global norm at every update, from the runs' gradstats logs). Elicit vs.\ teach: both start at the same scale ($\approx$0.18), then the elicit gradient decays to a low floor (converging on a 0.03-nat loss; nothing left to change) while the teach gradient grows $\sim$40$\times$ and is still rising when the run stops --- $\sim$150$\times$ the accumulated gradient mass, concentrated in attention rather than MLPs (the layer-0 army under construction). This is the owner's metric 8 in its raw form; the weight-travel curves shared a shape only because AdamW normalises step size by $\sqrt{v}$. decisions.md 2026-09-09.")

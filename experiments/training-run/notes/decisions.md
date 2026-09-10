@@ -6954,3 +6954,5 @@ states stay problem-blind (PC1 ~0.98) and its J-space empty; the taught
 child from it should show a SMALLER shared component than the blank-base
 taught child if the shared direction is format, and the same 0.52 if it is
 the algorithm's mode. Circuit / lens / donor results expected unchanged.
+
+## 2026-09-10 (R6 under full FT) — the full-FT trainer logs the pre-clip global norm per step in train_log.jsonl (clip_grad_norm_'s return value); grad_strength.py reads it as a fallback (no per-class split). FT pair: elicit peak 34.0 @ step 1, first-1% 4.80 -> mid 1.85 -> last-10% 1.39 (decays x3.4), mass 44,021 (2.05/step, 21,500 steps); teach first-1% 2.30 -> peak 32.0 @ 3,844 -> mid 5.31 -> last-10% 3.43 (grows x1.5), mass 353,277 (5.65/step, 62,500 steps) = 8x. Direction replicates (elicit decays by the same x3.3-3.4 under both methods; teach rises and stays high); the size of the gap is method-dependent (150-280x under LoRA, 8x total / 2.8x per step under full FT). Norms not comparable across methods (different parameter sets). results_ts.tex R6 + section E updated.
