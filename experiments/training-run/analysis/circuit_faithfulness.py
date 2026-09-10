@@ -120,10 +120,15 @@ def main() -> int:
     if (args.model is None) == (args.run_id is None):
         raise SystemExit("[faith] pass exactly one of --model / --run-id")
     if args.run_id is not None:
+        from circuit_nodes import load_sidecar_merged
+
         from geode.zoo import load_model as zoo_load_model
 
         store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
-        model = zoo_load_model(args.run_id, store=store, device=args.device)
+        if (store / "runs" / args.run_id / "model" / "model.safetensors").is_file():
+            model = zoo_load_model(args.run_id, store=store, device=args.device)
+        else:  # pruned LoRA run: parent + adapter sidecar (same rule as circuit_nodes)
+            model = load_sidecar_merged(args.run_id, store, args.device)
         name = args.run_id
     else:
         model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)

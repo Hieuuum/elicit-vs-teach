@@ -67,3 +67,17 @@ more (1x4, 2x3, 3x2, 4x1). The 3M extension is therefore water-filled as
 57,097–57,098 in those four and 461,935 in each of the six largest cells
 (2x4, 3x3, 3x4, 4x2, 4x3, 4x4) — ~92% from the six largest cells, versus 57%
 in the 1M prefix. Task, evaluation set and protocol are unchanged.
+
+## Stage 4/5 interim (2026-09-10)
+
+`evt-ts1b-teach-ft-n4000000` (full FT): max_steps at 62,500 (2 passes, still
+improving), val 0.244, test loss 0.204, **G5 EM 0.771** (16-shot 0.001). The
+first performing taught model. Valid stage-5 outputs so far (map-independent):
+DCM roles (operand_a/b 37 heads, cf-flip at ceiling; J vs elicited 0.587 /
+0.763, vs parent-op 0.763 / 0.684), residual shift (final-layer 1.42x, generic
+0.464, KL task 22.2 vs generic 1.15 nats/token, generic NLL +1.13, PC1 0.52
+with content removed 0.52), lens depth (settled L15, q25 L15; J-rank
+4,196 / 1,916 / 79 at L12 / 13 / 14; onset ld>1 at L8), weight shift (rel
+0.094, erank 571 of 2048), steering nulls (0.000 all conditions). Circuit map,
+compares, faithfulness and steering-with-own-map are being redone: the stage-5
+map stem collided with the LoRA-4M map (stale guard added).

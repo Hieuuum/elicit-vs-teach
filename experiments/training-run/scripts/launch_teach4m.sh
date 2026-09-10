@@ -22,8 +22,15 @@
 #   5  battery-ft the same battery on the full-FT endpoint (no snapshots /
 #                gradstats there: formation curve, weight travel and gradient
 #                strength are skipped; weight shift uses the checkpoint diff)
+#   6  train-elft evt-ts1b-elicit-ft-n4000000: the LATENT parent fully fine-tuned
+#                on the same file (method control: both regimes under both
+#                methods). ~1 h. Explicit --stage 6 only (not part of `all`).
+#   7  battery-elft the battery on it (steering base / weight & residual parent =
+#                the latent parent). Explicit only.
+#   8  resid-v2   residual shift v2 for the four original cells + one combined
+#                compare over every cell. Explicit only.
 #
-# Run stages 3 and 4 one after the other, not concurrently, on a 40 GB card.
+# Run GPU stages one after the other, not concurrently, on a 40 GB card.
 #
 # Usage:  bash launch_teach4m.sh --confirm-cost [--stage N] [--no-stream] [--no-prune]
 #   env:  GEODE_STORE (store root), HF_WRITE_TOKEN/HF_TOKEN (write scope; only
@@ -48,7 +55,7 @@ for ((i = 1; i <= $#; i++)); do
     --no-prune) PRUNE=0 ;;
   esac
 done
-want() { [[ $STAGE == all || $STAGE == "$1" ]]; }
+want() { [[ $STAGE == "$1" || ( $STAGE == all && $1 -le 5 ) ]]; }  # 6-8 are explicit only
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
 export REPO_ROOT
@@ -62,6 +69,8 @@ fi
 RID=evt-ts1b-fig2ts-noinst-n4000000
 RID_FT=evt-ts1b-teach-ft-n4000000
 CFG_FT=../configs/ts1b_teach_ft.yaml
+RID_ELFT=evt-ts1b-elicit-ft-n4000000
+CFG_ELFT=../configs/ts1b_elicit_ft.yaml
 RID_1M=evt-ts1b-fig2ts-noinst-n1000000
 BASE=evt-ts1b-base
 LATENT=evt-ts1b-op-bridge-mix
@@ -205,11 +214,14 @@ for p in sorted(root.glob("*.json")):
     elif kind == "dcm":
         if "roles" not in d or (surf and d.get("surface") != surf):
             continue
-    hits.append(p.stem)
-if kind == "nodes" and any("_op" not in h for h in hits):
-    hits = [h for h in hits if "_op" not in h]
-print(f"[teach4m] find_json {kind} {rid} {surf}: candidates {hits}", file=sys.stderr)
-print(hits[-1] if hits else "")
+    hits.append((p.stem, d))
+if kind == "nodes" and any("_op" not in h for h, _ in hits):
+    hits = [(h, d) for h, d in hits if "_op" not in h]
+if kind == "nodes":  # a performing, 0-shot map beats a noise / few-shot one
+    hits.sort(key=lambda hd: (bool(hd[1].get("performing_regime", True)),
+                              int(hd[1].get("shots", 0) or 0) == 0, hd[0]))
+print(f"[teach4m] find_json {kind} {rid} {surf}: candidates {[h for h, _ in hits]}", file=sys.stderr)
+print(hits[-1][0] if hits else "")
 PY
 }
 step() {  # step <done-marker-file> <cmd...>: skip if marker exists; log; mark on success
@@ -219,11 +231,23 @@ step() {  # step <done-marker-file> <cmd...>: skip if marker exists; log; mark o
   { "$@" 2>&1 | tee -a "$LOG"; } && [[ ${PIPESTATUS[0]} == 0 ]] || fail "step failed: $* (see $LOG)"
   [[ -f $marker ]] || touch "$marker"
 }
-battery() {
-  local rid=$1 sfx=$2 lora=$3
+battery() {  # battery <rid> <suffix> <lora 0|1> <parent-run-id>
+  local rid=$1 sfx=$2 lora=$3 parent=$4
   cd "$A" || fail "no analysis dir"
-  echo "=== teach4m battery $(date -Is) run=$rid ===" >> "$LOG"
+  echo "=== teach4m battery $(date -Is) run=$rid parent=$parent ===" >> "$LOG"
   local MAP4=circ_ts_$sfx
+  # stale guard: a map under this stem that belongs to ANOTHER model (stage-5 collision of
+  # 2026-09-10) is moved aside together with everything derived from it
+  if [[ -f $MAP4.json ]]; then
+    local owner
+    owner=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('model',''))" "$MAP4.json")
+    if [[ $owner != "$rid" ]]; then
+      mkdir -p stale
+      milestone "STALE: $MAP4 belongs to '$owner', not $rid — moving map-derived outputs to $A/stale/"
+      mv -f ${MAP4}*.json ${MAP4}*.parquet stale/ 2>/dev/null
+      mv -f done_cmp_*_"$sfx".log done_faith_*_"$sfx".log done_steer_*_"$sfx".log steer_${MAP4}*.json stale/ 2>/dev/null
+    fi
+  fi
   # (a) attribution circuit + split-half ceiling
   step $MAP4.json          python3 circuit_nodes.py --run-id "$rid" --out $MAP4 --n-pairs 256
   step ${MAP4}_a.json      python3 circuit_nodes.py --run-id "$rid" --out ${MAP4}_a --half a --n-pairs 256
@@ -236,7 +260,11 @@ battery() {
   [[ -n $MAP_ELICITED ]] && step done_cmp_elicited_$sfx.log python3 circuit_compare.py $MAP4 "$MAP_ELICITED"
   [[ -n $MAP_TAUGHT1M ]] && step done_cmp_taught1m_$sfx.log python3 circuit_compare.py $MAP4 "$MAP_TAUGHT1M"
   [[ -n $MAP_BASE16 ]]   && step done_cmp_base16_$sfx.log   python3 circuit_compare.py $MAP4 "$MAP_BASE16"
-  [[ $sfx != ft4m && -f circ_ts_ft4m.json ]] && step done_cmp_lora4m_$sfx.log python3 circuit_compare.py $MAP4 circ_ts_ft4m
+  # cross-endpoint compares: LoRA-4M teach, FT teach, FT elicit (whichever exist and are not this run)
+  local other
+  for other in circ_ts_4m circ_ts_ft4m circ_ts_elft4m; do
+    [[ $other != "$MAP4" && -f $other.json ]] && step done_cmp_${other#circ_ts_}_$sfx.log python3 circuit_compare.py $MAP4 $other
+  done
   # (b) true activation patching
   step done_faith_suff_$sfx.log python3 circuit_faithfulness.py --map $MAP4 --run-id "$rid" --ks 8 16 32 64 128 528 --n-pairs 128 --mode sufficiency
   step done_faith_nec_$sfx.log  python3 circuit_faithfulness.py --map $MAP4 --run-id "$rid" --ks 8 16 32 64 128 528 --n-pairs 128 --mode necessity
@@ -248,26 +276,26 @@ battery() {
   [[ -n $DCM_ELICITED_NL ]] && step done_dcm_cmp_elicited_$sfx.log python3 dcm_roles.py compare dcm_taught${sfx}_nl "$DCM_ELICITED_NL"
   [[ -n $DCM_PARENT_OP ]]   && step done_dcm_cmp_parent_$sfx.log   python3 dcm_roles.py compare dcm_taught${sfx}_nl "$DCM_PARENT_OP"
   # (d) steering: the taught donor into the blank twin (mean vector, per-prompt states)
-  step done_steer_mean_$sfx.log python3 steer_unlock.py --base "$BASE" --donor-run "$rid" --map $MAP4 --k 32 --prefill-only --n-calib 64 --n-eval 256 --seed 316
-  step done_steer_pp_$sfx.log   python3 steer_unlock.py --base "$BASE" --donor-run "$rid" --map $MAP4 --k 32 --prefill-only --vectors per-prompt --n-eval 256 --seed 316
+  step done_steer_mean_$sfx.log python3 steer_unlock.py --base "$parent" --donor-run "$rid" --map $MAP4 --k 32 --prefill-only --n-calib 64 --n-eval 256 --seed 316
+  step done_steer_pp_$sfx.log   python3 steer_unlock.py --base "$parent" --donor-run "$rid" --map $MAP4 --k 32 --prefill-only --vectors per-prompt --n-eval 256 --seed 316
   # (e) weights and gradients
-  step ws_teach_$sfx.parquet   python3 weight_shift.py --base-run "$BASE" --ft-run "$rid" --k 64 --out ws_teach_$sfx
+  step ws_teach_$sfx.parquet   python3 weight_shift.py --base-run "$parent" --ft-run "$rid" --k 64 --out ws_teach_$sfx
   if ((lora)); then
     step done_grad_$sfx.log    python3 grad_strength.py --run-id "$ELICITED" "$rid" --labels elicit teach$sfx --out grad_strength_$sfx
   else
     milestone "skip gradient strength for $rid (train_sft.py logs no gradstats)"
   fi
   # (f) residual shift (v2) + compare with the existing JSONs when present
-  step resid_teach_$sfx.json   python3 resid_shift.py run --parent "$BASE" --child "$rid" --out resid_teach_$sfx --n 256
+  step resid_teach_$sfx.json   python3 resid_shift.py run --parent "$parent" --child "$rid" --out resid_teach_$sfx --n 256
   local cmp=(); local f
-  for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_construct resid_teach_ft4m resid_teach_4m; do
+  for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_construct resid_teach_4m resid_teach_ft4m resid_teach_elft4m; do
     [[ -f $f.json && $f != resid_teach_$sfx ]] && cmp+=("${f#resid_}=$f.json")
   done
   step done_resid_cmp_$sfx.log python3 resid_shift.py compare "${cmp[@]}" teach_$sfx=resid_teach_$sfx.json --plot resid_shift_$sfx.png
   # (g) lens depth (logit / J / R) + compare + breakdown
   step lens_taught${sfx}_nl.json python3 lens_depth.py run --run-id "$rid" --surface bare_nl --out lens_taught${sfx}_nl
   cmp=()
-  for f in lens_latent_nl2 lens_elicited_nl2 lens_blank_nl2 lens_taught_nl2 lens_taughtft4m_nl lens_taught4m_nl; do
+  for f in lens_latent_nl2 lens_elicited_nl2 lens_blank_nl2 lens_taught_nl2 lens_taught4m_nl lens_taughtft4m_nl lens_taughtelft4m_nl; do
     [[ -f $f.json && $f != lens_taught${sfx}_nl ]] && cmp+=("${f#lens_}=$f.json")
   done
   step done_lens_cmp_$sfx.log  python3 lens_depth.py compare "${cmp[@]}" taught$sfx=lens_taught${sfx}_nl.json --plot lens_nl_$sfx.png
@@ -282,7 +310,7 @@ battery() {
   milestone "battery complete for $rid — paste $LOG (or its SUMMARY / RESULT lines) back for the write-up update"
   cd "$OLDPWD" || true
 }
-if want 3; then battery "$RID" 4m 1; fi
+if want 3; then battery "$RID" 4m 1 "$BASE"; fi
 
 # ------------------------------------------------------- stage 4: full-FT teach
 if want 4; then
@@ -305,6 +333,46 @@ fi
 # --------------------------------------------------- stage 5: battery on the FT run
 if want 5; then
   [[ $(status_of "$RID_FT") == complete ]] || fail "$RID_FT is not complete — run stage 4 first"
-  battery "$RID_FT" ft4m 0
+  battery "$RID_FT" ft4m 0 "$BASE"
+fi
+# ------------------------------------ stage 6: full-FT ELICIT (the method control)
+# The FT teach endpoint changes LoRA -> full FT on the teach side only. Stage 6
+# fully fine-tunes the LATENT parent on the same 4M file (min_steps 0: it
+# converges in a fraction of a pass) so both regimes exist under both methods.
+if want 6; then
+  [[ -d $GEODE_STORE/runs/$LATENT/model ]] || fail "latent parent checkpoint $GEODE_STORE/runs/$LATENT/model missing"
+  train_or_skip "$RID_ELFT" \
+    python3 train_sft.py --config "$CFG_ELFT" --init-from "$GEODE_STORE/runs/$LATENT/model" --confirm-cost
+  record_g5 "$RID_ELFT"
+  python3 - "$RID_ELFT" <<'PY'
+import json, os, sys
+from pathlib import Path
+m = json.loads((Path(os.environ["GEODE_STORE"]) / "runs" / sys.argv[1] / "manifest.json").read_text())
+e = m["experiment"]; r = e.get("sft_result", {}); g = e.get("gates", {}).get("G5", {})
+print(f"[teach4m] RESULT {sys.argv[1]}: steps {r.get('final_step')} stop={r.get('stop_reason')} "
+      f"best_val {r.get('best_val_nats')}  G5 EM 0-shot {g.get('zero_shot_accuracy')} "
+      f"16-shot {g.get('sixteen_shot_accuracy')} test_loss {g.get('test_loss_nats')}")
+PY
+fi
+if want 7; then
+  [[ $(status_of "$RID_ELFT") == complete ]] || fail "$RID_ELFT is not complete — run stage 6 first"
+  battery "$RID_ELFT" elft4m 0 "$LATENT"
+fi
+
+# ---------------------- stage 8: residual-shift v2 for the four original cells
+if want 8; then
+  cd "$A" || fail "no analysis dir"
+  mkdir -p stale
+  for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_construct; do
+    [[ -f $f.json ]] && ! grep -q kl_task_ans $f.json && mv -f $f.json stale/$f.v1.json
+  done
+  step resid_elicit_1m.json   python3 resid_shift.py run --parent "$LATENT" --child "$ELICITED" --out resid_elicit_1m --n 256
+  step resid_elicit_3162.json python3 resid_shift.py run --parent "$LATENT" --child evt-ts1b-mix-nl-n3162 --out resid_elicit_3162 --n 256
+  step resid_teach_1m.json    python3 resid_shift.py run --parent "$BASE" --child "$RID_1M" --out resid_teach_1m --n 256
+  step resid_construct.json   python3 resid_shift.py run --parent "$BASE" --child "$LATENT" --out resid_construct --n 256
+  cmp=(); for f in resid_elicit_1m resid_elicit_3162 resid_teach_1m resid_teach_4m resid_teach_ft4m resid_teach_elft4m resid_construct; do [[ -f $f.json ]] && cmp+=("${f#resid_}=$f.json"); done
+  rm -f done_resid_cmp_all.log
+  step done_resid_cmp_all.log python3 resid_shift.py compare "${cmp[@]}" --plot resid_shift_all.png
+  cd "$OLDPWD" || true
 fi
 milestone "done stage=$STAGE"

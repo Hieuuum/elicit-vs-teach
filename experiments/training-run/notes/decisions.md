@@ -6818,3 +6818,62 @@ from unchanged checkpoints and are not rerun. Results_ts.tex carries an
   sensitive (§6.2, Table 6), so both taught models go in the write-up.
   No gradstats / snapshots from that trainer: gradient strength,
   formation curve and weight travel are LoRA-only results.
+
+## 2026-09-10 (teach-FT endpoint: THE FIRST PERFORMING TAUGHT MODEL) — evt-ts1b-teach-ft-n4000000 (blank twin, full FT lr 2e-5, 4M unique, 2 passes) reaches G5 EM 0.771 (val 0.244, test loss 0.204; still improving at the 62,500-step ceiling; 16-shot 0.001; 242 min at 4.3 steps/s). LoRA teach endpoints: 0.093 (1M) / 0.139 (4M). Teaching on this base needs full FT; several teach-side conclusions change.
+
+Interim battery on it (map-INDEPENDENT items; the circuit map / compares /
+faithfulness / steering-with-own-map of the first stage-5 pass used the
+LoRA-4M map by a stem collision and are being redone — stale guard added):
+
+- DCM roles (heads only, NL surface, 128 pairs): operand_a 37 heads (layers
+  0, 7, 8), operand_b 37 heads (layers 0, 5, 7), cf-flip 0.805 / 0.789 AT
+  the ceilings (0.805 / 0.797) — a compact fetcher set IS recoverable in a
+  taught model that works. Overlap with the elicited child's NL roles J
+  0.587 / 0.763 and with the latent parent's op-surface roles 0.763 /
+  0.684 (chance ~0.055). REVISES R3: "no compact set / roles do not
+  overlap (J 0.09-0.15)" was a property of the non-performing 1M taught
+  child. Operand reading is a layer-0 substrate function shared by every
+  performing model; elicitation preserves the parent's roles better (0.88 /
+  0.90) than independent teaching reproduces them (0.59-0.76) — a graded,
+  not categorical, difference.
+- Residual shift (base -> teach-FT): final-layer shift at the answer
+  position 1.42x (LoRA-1M teach: 14.1x; elicit 1.7x) — the "loud final
+  write" of R8 was the LoRA-1M model's, NOT a teach property. Generic-text
+  shift 0.464 (LoRA children 0.16; full-FT construction 1.12). v2
+  functional numbers: KL(parent||child) 22.2 nats at the answer position vs
+  1.15 nats/token on stories (ratio 19); story NLL 1.02 -> 2.15 nats/token
+  (+1.13): the full-FT taught model displaced the language capability. PC1
+  of the final-layer shift 0.521 (parent states 0.983), unchanged after
+  removing answer content (0.520): a large SHARED direction — teaching
+  installs a common "answer-mode" component that elicitation's shift (PC1
+  0.063) lacks. Both of these are confounded with FT-vs-LoRA until the
+  FT-elicit control (stage 6) exists.
+- Lens depth (first digit token): settled median L15 (q25 L15!), acc 0.12
+  @L14 -> 0.80 @L15; J-rank 4,196 / 1,916 / 79 at L12 / 13 / 14 (elicited:
+  139 / 6 / 1); onset ld>1 at L8-9 (same as elicited). With a PERFORMING
+  taught model the "teach = final layer" prediction holds cleanly: the
+  taught model computes the answer one layer later than the engine (L15
+  vs L14), with 0.12 vs 0.73 top-1 at L14. Breakdown: no shortcut subset
+  (all groups settle at L15).
+- Steering (taught-FT donor into the blank twin, k=32; map to be redone):
+  0.000 EM in every condition, mean and per-prompt (format 0.008) — the
+  teach-side null of R11 replicates with a performing donor.
+- Weight shift (full-FT diff): rel 0.094 (LoRA-1M teach 0.212, LoRA elicit
+  0.095), erank(PR) 571 of 2048 — the rank statistic now reflects FT vs
+  LoRA, not regime; alignment near baseline (0.067 / 0.127).
+- Cross-check that fell out of the collision: the LoRA-4M model's node
+  ranking is 0.968 sufficient / 0.979 necessary at top-8 IN the FT model —
+  the two taught models share their top nodes (late MLPs 15,14,13,12 +
+  layer-0 heads + mlp:0).
+- LoRA-4M battery (stage 3, partial): split-half J@32 0.524; vs elicited
+  child J@32 0.391 (1M taught child: 0.231) — the taught circuit converges
+  toward the elicited one's MLP set as it learns (shared: mlp 15,14,13,12,
+  10,8,7,6,0); its attention side stays layer-0 (elicited: layers 5-7).
+  (The first pass compared against the 16-shot NOISE map of the 1M child
+  by a discovery bug; fixed to prefer performing 0-shot maps.)
+
+Next: stage 3 resume (faithfulness now loads pruned runs via sidecar),
+stage 5 redo of map-dependent items, stage 6/7 FT-elicit control
+(configs/ts1b_elicit_ft.yaml: latent parent, full FT, min_steps 0), stage 8
+residual v2 for the four original cells. Then the write-up is revised
+against BOTH taught endpoints; R3 and R8 already need rewording.
