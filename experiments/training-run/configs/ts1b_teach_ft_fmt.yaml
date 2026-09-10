@@ -4,7 +4,10 @@
 # number on every prompt, format validity 1.000, accuracy 0.000) fully
 # fine-tuned on the NL add/sub target with exactly the teach-FT recipe
 # (configs/ts1b_teach_ft.yaml): same 4M file, lr 2e-5, batch 128, seed 316,
-# one full pass minimum, two-pass ceiling.
+# one full pass minimum. Ceiling SIX passes (~12 h): the blank-base teach-FT
+# run hit its 2-pass ceiling with the convergence rule never firing; this run
+# is the MAIN-RESULT teach endpoint (owner 2026-09-10: main result = elicit
+# vs format-installed-then-fully-fine-tuned teach) and must converge.
 #
 # Why: this is the paper's own teach comparator ("pre-teach format", Table 5:
 # isolates learning the algorithm from learning the output format). The elicit
@@ -46,14 +49,14 @@ train:
   lr: 2.0e-5                     # paper Table 3 full-FT pin (same as the symbol install)
   batch_size: 128
   eval_every: 500
-  max_steps: 62500               # 2 passes over 3,996,000 rows (31,218 steps each)
+  max_steps: 187500              # 6-pass ceiling: this run must CONVERGE (main-result endpoint)
   stopping:                      # val-loss eps/k convergence, only after one full pass
     eps_nats: 0.002
     k: 5
     min_steps: 31250
   precision: bf16
   seed: 316
-  epochs_total_planned: 2
+  epochs_total_planned: 6
 
 cost:
-  assumed_epochs_for_estimate: 2
+  assumed_epochs_for_estimate: 6

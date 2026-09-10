@@ -90,3 +90,21 @@ substrate-level; graded 0.8–0.9 vs 0.6–0.76), R4 wording ("partial"), R8
 magnitude ("loud write" = LoRA-teach artefact; generic displacement
 method-dependent). Pending: LoRA-4M formation curve + weight travel (stage 3
 resume after the trajectory-loader fix).
+
+## Main result redefined (owner, 2026-09-10)
+
+The headline pair is **elicit-FT** (TS1B-latent, full FT, converged at 21,500
+steps, EM 0.986) vs **teach-FT-fmt** (the format-installed twin
+`evt-ts1b-fig2ts-installer`, full FT with the identical recipe, to
+convergence — stage 9, ceiling raised to six passes). This is the paper's own
+causal-intervention design (pre-elicit vs pre-teach-format): both parents are
+the blank base plus a full-FT dose, both already output numbers, only one has
+the algorithm — so no teach-side number carries a format-learning confound.
+The blank-base FT teach endpoint (and its continuation, stages 11/12) and the
+LoRA endpoints become robustness rows. R1's headline pair becomes the two LoRA
+sweeps from the same two parents: elicit (mix-nl) vs format-installed
+(fig2ts-inst) — the inst family's per-rung EDL/EM must be pulled from the
+sweep parquet (`dataset_size_sweep.py --family ts`, both arms).
+
+Order on the cluster: stage 9 (train, ≤12 h) → 10 (battery) → 3 (LoRA-4M
+formation curve) → 11/12 (blank-base teach-FT continuation, optional now).
