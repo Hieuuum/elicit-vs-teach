@@ -116,8 +116,15 @@ def resume(directory: Path, max_wall_seconds: float, confirm_cost: bool):
     budget = RunBudget(max_wall_seconds, args.hourly_rate, confirm_cost)
     source = verify_data(args.data)
     plan = load_plan(args.plan, args, source)
-    if plan["fingerprint"] != metadata["plan_fingerprint"]:
+    # The original runner persists its metadata fingerprint only on exit; a
+    # stopped worker can still have the initial metadata plus its frozen plan.
+    original_plan = load_plan(directory / "frozen_plan.json", args, source)
+    if plan["fingerprint"] != original_plan["fingerprint"] or metadata.get(
+        "plan_fingerprint", original_plan["fingerprint"]
+    ) != plan["fingerprint"]:
         raise ValueError("Resume plan differs from original run")
+    metadata["plan_fingerprint"] = plan["fingerprint"]
+    del original_plan
     examples = [example_from_dict(row) for row in plan["payload"]["behavior"]]
     pipeline_path = directory.parent / "pipeline_status.json"
     pipeline = json.loads(pipeline_path.read_text())
