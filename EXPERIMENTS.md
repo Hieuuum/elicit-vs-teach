@@ -2,6 +2,14 @@
 
 ## Authorized OLMo resume (2026-09-11)
 
+Latest scope amendment: **no further probe activation saving or linear-probe fitting**.
+Continue accuracy, answer scores, circuit top nodes and interventions. The original
+worker was stopped and replaced by `resume_without_probes.py` (source `58469ae`),
+which reuses completed results and retains the original frozen plan and caps.
+The first five checkpoints completed all components; RLVR1 completed behavior and
+circuits before interruption. RLVR2 requires the remaining inference. The final
+audit/report explicitly records intentionally skipped probes.
+
 Full evaluation is now running on instance50602969 after both pilots passed.
 All448 cap-pilot outcomes were preserved at192/384; full probe pilot completed
 in778.54s. Projected evaluation7.99h,10.39h with30% allowance. Live records:
