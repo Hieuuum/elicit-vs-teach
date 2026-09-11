@@ -2,6 +2,38 @@
 
 ## Latest instruction and current goal
 
+Active full run (2026-09-11): instance50602969, RTX6000 Ada48GB, approximately
+$0.722222/hour,100GBdisk. Do not rent or start a duplicate run. Source commit
+`a46ca264a8dcb23ed06460afb55ec2d7e22f7253` was pushed and pulled on the host.
+Full evaluation started at2026-09-11T15:19:32Z. Inspect live state in
+`geode-store/olmo2-authorized-20260911/` and remote
+`/workspace/olmo2-resume/results/full/` before taking any action.
+
+Both pilots passed. All448 saved checkpoint/example evaluations retained their
+correctness outcomes at coding192/math384; trained parse-failure counts were
+unchanged. Generated tokens fell155,032→40,728; cap pilot elapsed135.38s.
+The full-sized RLVR2 pilot passed all eight probe audits and behavior/circuit
+smokes in778.54s. Full projection:7.99h/$5.77, or10.39h/$7.50 with a30% allowance,
+excluding final reporting/backup overhead. This is an estimate, not a bound.
+The full controller reuses that audited pilot; its remaining evaluation guard
+is$22.6034, with$2 reserved for subsequent rental overhead and a$25 rental watchdog.
+
+Unattended local automation is running: incremental rsync backup, completion
+monitor, and rental watchdog. `/tmp/olmo2-authorized-finish-local.py` waits for
+full completion, runs the committed CPU finalizer on the host, verifies every
+local backup hash, then STOPS the GPU while preserving disk. It sends urgent
+failure notifications to the user-authorized ntfy topic stored in that local
+script. Script copies and records are under the local artifact directory.
+`completion_supervisor.json`, `backup_status.json`, `completion_stopped.json`
+and `cleanup_complete.json` distinguish running, failed and stopped states.
+
+Automatic approval review rejected a combined HF-upload/destruction monitor.
+The active safer monitor performs NEITHER HF upload NOR instance destruction.
+The user explicitly authorized Vast.ai artifact transfer; do not ask that again.
+Separate HF publishing and final disk deletion remain pending. Storage billing
+continues after stopping until the instance is destroyed. The prior instruction
+below to destroy automatically is superseded by this active monitor policy.
+
 Resume authorization (2026-09-11): the user explicitly authorized transferring
 experiment files to Vast.ai and instructed: "Next time just commit push and pull
 from the instance." Use the experiment Git branch for source deployment; transfer

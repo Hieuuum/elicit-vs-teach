@@ -2,6 +2,14 @@
 
 ## Authorized OLMo resume (2026-09-11)
 
+Full evaluation is now running on instance50602969 after both pilots passed.
+All448 cap-pilot outcomes were preserved at192/384; full probe pilot completed
+in778.54s. Projected evaluation7.99h,10.39h with30% allowance. Live records:
+`geode-store/olmo2-authorized-20260911/`. Source commit for this run is
+`a46ca264a8dcb23ed06460afb55ec2d7e22f7253`. Completion automation audits/reports,
+backs up and hash-verifies, then stops the GPU preserving its disk. HF upload
+and destruction were blocked by automatic review and are not automated.
+
 The user authorized resuming compute and explicitly approved transferring the
 experiment files to Vast.ai. Deploy source by commit/push/pull on branch
 `olmo2-circuit-overlap`; transfer ignored artifacts separately. CRUXEval caps are
