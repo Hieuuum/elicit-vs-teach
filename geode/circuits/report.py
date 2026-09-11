@@ -1108,11 +1108,18 @@ def generate_report(run_dir: str | Path, n_bootstrap: int = 2000, seed: int = 0)
     stages = [cp.stage for cp in CHECKPOINTS if (root / cp.stage / "behavior.jsonl").exists()]
     if not stages:
         raise ValueError("No saved checkpoint behavior.jsonl artifacts found")
+    run_metadata_path = root / "run_metadata.json"
+    probe_policy = (
+        json.loads(run_metadata_path.read_text()).get("probe_policy_by_stage", {})
+        if run_metadata_path.exists()
+        else {}
+    )
     records = {stage: read_jsonl(root / stage / "behavior.jsonl") for stage in stages}
     if any(not rows for rows in records.values()):
         raise ValueError("A saved checkpoint has no behavioral records")
     summary: dict[str, Any] = {
         "schema_version": 1,
+        "probe_policy_by_stage": probe_policy,
         "analysis_provenance": {
             "report_module_sha256": sha256_file(Path(__file__)),
             "statistics_module_sha256": sha256_file(Path(__file__).with_name("statistics.py")),
@@ -1371,6 +1378,16 @@ def generate_report(run_dir: str | Path, n_bootstrap: int = 2000, seed: int = 0)
         "Intervals resample independent source groups, not training runs. Control variants stay grouped. Native ETHICS group scoring is preserved.",
         "",
     ]
+    skipped = [stage for stage, policy in probe_policy.items() if policy == "skipped"]
+    if skipped:
+        lines.extend(
+            [
+                "Probe scope: further activation extraction and linear-probe fitting were stopped by user request for "
+                + ", ".join(skipped)
+                + ". Any already completed probe results are retained; missing probe results are intentional. Accuracy, answer scores, circuit top nodes and interventions retain their full scope.",
+                "",
+            ]
+        )
     for plot in summary["plots"]:
         lines.extend(
             [plot["takeaway"], "", f"![{plot['caption']}]({plot['path']})", "", plot["caption"], ""]

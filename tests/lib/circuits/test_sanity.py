@@ -140,6 +140,22 @@ def test_complete_saved_run_passes_without_capability_threshold(tmp_path):
     assert set(result["checkpoints"]) == {"a", "b"}
 
 
+def test_skipped_probes_are_explicit_and_do_not_relax_circuit_audit(tmp_path):
+    make_run(tmp_path)
+    (tmp_path / "b/probes/toy.json").unlink()
+    (tmp_path / "b/probes/toy.npz").unlink()
+    assert audit_run(tmp_path, expected_stages=["a", "b"])["status"] == "failed"
+    path = tmp_path / "run_metadata.json"
+    metadata = json.loads(path.read_text())
+    metadata["probe_policy_by_stage"] = {"a": "complete", "b": "skipped"}
+    write_json(path, metadata)
+    result = audit_run(tmp_path, expected_stages=["a", "b"])
+    assert result["status"] == "passed" and not result["warnings"]
+    assert result["checkpoints"]["b"]["tasks"]["toy"]["probe_status"] == "skipped by user request"
+    (tmp_path / "b/circuits/toy_interventions.json").unlink()
+    assert audit_run(tmp_path, expected_stages=["a", "b"])["status"] == "failed"
+
+
 @pytest.mark.parametrize("fault", ["stage", "revision", "behavior", "nan", "protocol"])
 def test_end_to_end_audit_detects_artifact_mismatch(tmp_path, fault):
     make_run(tmp_path)

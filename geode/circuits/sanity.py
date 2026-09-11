@@ -87,6 +87,11 @@ def audit_run(
     if [cp["stage"] for cp in metadata["config"]["checkpoints"]] != stages:
         failures.append("configured checkpoint scope differs from expected stages")
     tasks = metadata["config"]["tasks"]
+    probe_policy = metadata.get("probe_policy_by_stage", {})
+    if set(probe_policy) - set(stages) or any(
+        v not in {"complete", "skipped"} for v in probe_policy.values()
+    ):
+        failures.append("invalid probe policy")
     configured = {cp["stage"]: cp for cp in metadata["config"]["checkpoints"]}
     for stage in stages:
         try:
@@ -137,6 +142,16 @@ def audit_run(
                 if not interventions:
                     raise ValueError(f"{task}: no intervention examples")
                 validate_interventions(interventions, circuit, require_typed=require_typed)
+                if (
+                    probe_policy.get(stage) == "skipped"
+                    and not (base / "probes" / (task + ".json")).exists()
+                ):
+                    stage_info["tasks"][task] = {
+                        "attribution_rows": len(scores),
+                        "intervention_rows": len(interventions),
+                        "probe_status": "skipped by user request",
+                    }
+                    continue
                 probe = _read(base / "probes" / (task + ".json"))
                 with np.load(base / "probes" / (task + ".npz")) as saved:
                     features, labels, groups = saved["features"], saved["labels"], saved["groups"]
@@ -164,5 +179,6 @@ def audit_run(
         "failures": failures,
         "warnings": warnings,
         "checkpoints": details,
+        "probe_policy_by_stage": probe_policy,
         "interpretation": "Technical integrity only; truncation, weak accuracy and noisy probes remain scientific limitations.",
     }

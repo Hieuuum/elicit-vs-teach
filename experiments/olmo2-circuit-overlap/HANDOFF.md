@@ -2,6 +2,18 @@
 
 ## Latest instruction and current goal
 
+Scope amendment (2026-09-11): the user explicitly requested **no further probe
+activation saving and no further linear-probe fitting**. Keep full accuracy,
+answer scores, circuit top nodes and interventions. The first five checkpoints
+finished all components; RLVR1 finished behavior and circuits before interruption,
+plus three probe tasks. Preserve those artifacts. Resume with
+`resume_without_probes.py`, which validates and reuses completed behavior/circuits
+and records `probe_policy_by_stage` in metadata. The original sampling plan and
+runner remain unchanged. The final audit and report recognize intentionally
+skipped probes while still requiring complete behavior/circuits/interventions.
+Inspect live status before acting; do not restart the original all-components
+controller. RLVR2 is the remaining checkpoint requiring inference.
+
 Active full run (2026-09-11): instance50602969, RTX6000 Ada48GB, approximately
 $0.722222/hour,100GBdisk. Do not rent or start a duplicate run. Source commit
 `a46ca264a8dcb23ed06460afb55ec2d7e22f7253` was pushed and pulled on the host.
