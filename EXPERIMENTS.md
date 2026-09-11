@@ -1,5 +1,260 @@
 # EXPERIMENTS.md — live experiment plan
 
+## Authorized OLMo resume (2026-09-11)
+
+The user authorized resuming compute and explicitly approved transferring the
+experiment files to Vast.ai. Deploy source by commit/push/pull on branch
+`olmo2-circuit-overlap`; transfer ignored artifacts separately. CRUXEval caps are
+192, GSM-Symbolic384, ETHICS1;357 CPU tests pass. The rebuilt full plan preserves
+all original samples. Run seven-stage cap validation, full-sized probe pilot,
+then gated full evaluation within the$25 budget with backups and cleanup.
+Current details: `experiments/olmo2-circuit-overlap/HANDOFF.md`.
+The earlier stopped/blocked records below are historical.
+
+## OLMo 2 1B circuit overlap (2026-09-10; sanity complete, cap review/handoff)
+
+Latest request: **stop everything, save everything and terminate the GPU box**.
+All work is stopped. Instance50543356 was destroyed and verified absent at
+2026-09-11T03:12:44Z; no instances remain. This supersedes the earlier keep-running
+instruction. Approximate total rental cost:$0.68 (not invoice).
+
+The full experiment, full-size probe GPU pilot, and shorter-cap GPU pilot have
+NOT run. The shorter-cap script/tests were only copied to the host before the
+stop request. Continue only from a new user instruction. Fresh-session state:
+`experiments/olmo2-circuit-overlap/HANDOFF.md`.
+
+Seven-checkpoint sanity completed in 2,381.29 seconds (39.7 minutes), approximately
+$0.403 evaluation compute. All seven cached weight hashes/load reports passed,
+with zero missing/unexpected/mismatched keys. The technical artifact audit passed
+without warnings. Local SHA256 backup verified 327 files / 1,507,524,187 bytes.
+299 circuit tests passed before rental and 299 on the remote CPU environment;
+the known full-repository baseline sweep-count failure is unchanged.
+Report: `geode-store/olmo2-sanity-20260910/report.md` (six plots, examples,
+2,000 source-group bootstrap draws). Summary: `experiments/olmo2-circuit-overlap/SANITY.md`.
+
+Actual native references support testing ETHICS 1 token, CRUX 128, GSM 256:
+CRUX required assertion completions max101 tokens across800 functions/direction;
+GSM worked references max192 across5,000 problems. Trained sanity CRUX output max61;
+GSM max192 except one incorrect 2,048-token run-on. GSM prompts explicitly request
+step-by-step reasoning; final-number-only would be a different prompt protocol.
+Evidence: `geode-store/olmo2-sanity-20260910/token_budget/`.
+
+Sanity frozen-plan fingerprint:
+`48f51beedfdf0eebea98775c12d72cf80a09224be9bf2aabc0e47f66b0fcc81a`.
+Full native-protocol CPU plan is prepared and validated at
+`geode-store/olmo2-full-preflight/full-plan.json`, fingerprint
+`cadc9ef9cbca6ce2b6c7de6402f1a353c37905fb39cbae9bdd33ba17cebce853`.
+Preparation took236.35s; realized workload matches prior counts exactly.
+The old 2,048-token full-run projection is21.74h/$13.24; it must be revised after
+short-cap calibration. `pilot_full_plan.py` and `next_stage.py` are locally tested
+next-stage scripts; no full-sized GPU probe pilot or full evaluation has run.
+The controller's $25 evaluation guard covers pilot+full subprocess wall time;
+it does not itself end instance billing.
+
+Branch: `olmo2-circuit-overlap`, created from `fig2nl2` at
+`08ba917bee6459ec19c87739b58a69a7e2f0ca02`.
+
+Question: at which major training boundaries do ethical judgment, math,
+and code-execution performance improve, and are those improvements
+accompanied by reuse or changes in task-relevant nodes? This is an
+observational comparison of released checkpoints, not a new training run.
+ETHICS measures ethical judgments, not alignment behavior in general.
+
+Implementation lives in `geode/circuits/`, with commands documented in
+`experiments/olmo2-circuit-overlap/README.md`. Local validation: **240 circuit
+tests pass**, including attribution, data/scoring, probes, statistics, reporting,
+planning and upload checks; Ruff passes. The full repository
+suite retains one confirmed pre-existing `fig2nl2` failure: its sweep guard
+expects 38 `ts1b_fig2ts` YAMLs but the branch contains 41. Real-data preflight:
+all 1,600 CRUX reference answers pass, 500 ETHICS originals and 4,000 label
+controls pass actual tokenizer checks, and both pilot tokenizers match.
+
+Pilot instance `50537723` was rented only after local checks, RTX 6000 Ada
+48 GB, 100 GB disk, approximately $0.61444/hour. The container's 214 circuit
+CPU tests also pass (planning tests remain local); one PyTorch 2.6 boolean
+indexing compatibility issue was caught and fixed before model evaluation.
+Private artifact repository: `https://huggingface.co/datasets/mhieuuu/olmo2-circuit-overlap`.
+The Stage-2/RLVR-2 pilot completed in 612.9 seconds. All 103 original
+artifacts (429.6 MB) passed SHA256 backup verification. The instance was
+destroyed and verified absent; total rental duration was about 22.3 minutes,
+approximately $0.23 including setup, calibration and backup (estimate, not
+invoice). Outbound transfer was listed at $0.004/TB. No full run was launched.
+
+Pilot math accuracy rose from 11/32 to 20/32 (16 source templates); coding
+changes are uncertain and ETHICS is strongly label-sensitive. Top-16 sets
+contain many whole MLPs; all nine task/domain overlaps fall inside a null
+that preserves MLP/head counts. Thus this pilot does not establish acquisition
+or task-specific reuse. See `experiments/olmo2-circuit-overlap/PILOT.md` and
+`geode-store/olmo2-pilot-20260910/report.md`.
+
+Batch calibration at a 2,048-token cap found batch 32 faster for RLVR-2 math
+but slower for Stage 2, with BF16-dependent answer changes. Retain batch 8
+as the comparison reference. Full-workload extrapolation at the measured
+host rate is 9.5–21.0 hours ($5.86–$12.88), before unmeasured initialization
+behavior, longer-generation tails, and larger-probe fitting overhead. This
+is a sensitivity range, not a confidence interval or guaranteed budget.
+
+Implementation refinements: eight ETHICS controls are repeated on each frozen
+source pair and clustered together; utilitarian corruption swaps actual
+scenario positions. Full ETHICS source-pair quota is 512 across the five
+tasks, not 512 each. Full scoring reserves 20% of source groups for independent
+interventions. Repeated GSM instance pairs stay within fixed template
+partnerships, so 512 rows never imply 512 independent templates. CRUX-I pairs
+must remain executable and wrong under corruption, with validation before
+consuming pair quotas. Pilot CRUX-I pairing searches all 800 functions.
+Math/code probes use reciprocal candidates matched on type and exact token
+length, with candidate frequencies balanced within held-out source-pair groups.
+Their likelihood diagnostics score the unknown answer only, with no target
+gold reasoning or known assertion boilerplate. ETHICS inference shares one
+forward pass across answer choices; attribution projects scored positions only.
+
+### Checkpoints
+
+All repositories below belong to `allenai`. Resolve models by the immutable
+commit, including tokenizer/config files. Public Hugging Face metadata was
+queried on 2026-09-10. The released `main` endpoints are used where the
+official recipe uses them to initialize the next stage.
+
+| Phase | Repository | Published reference | Pinned commit |
+|---|---|---|---|
+| Initialization | OLMo-2-0425-1B | stage1-step0-tokens0B | dd91cb507d2b36a0fd265d89a488be8c9b36f3a6 |
+| Stage 1 | OLMo-2-0425-1B | stage1-step1907359-tokens4001B | 9d3e43659f00c17e6da23cf32333afd1fc39fa1a |
+| Stage 2 | OLMo-2-0425-1B | main | a1847dff35000b4271fa70afc5db10fd29fedbdf |
+| SFT | OLMo-2-0425-1B-SFT | main | 0d85a3d037876ce6ac7d4311d994400fc66ac27f |
+| DPO | OLMo-2-0425-1B-DPO | main | c4b0485961ab24c2433b090f3b922f0913a9290f |
+| RLVR-1 | OLMo-2-0425-1B-RLVR1 | main | 12cb33498d26b411c38ac3ca9df27180a1d291b8 |
+| RLVR-2 | OLMo-2-0425-1B-Instruct | main | 48d788eca847d4d7548f375ad03d3c9312f6139e |
+
+Stage 2 uses the seed-42 endpoint after roughly 50B additional tokens.
+Its named reference is `stage2-ingredient3-step23852-tokens51B`
+(`f83cd641d4f00954eb25c781e0ac360debb3239e`). RLVR-1 uses
+GSM8K/MATH/instruction-following rewards; RLVR-2 continues on MATH.
+The latest numbered RL snapshots in both repositories are `step_2600`.
+Their file hashes differ from `main`, as do the Stage-2 named and main
+weight files. File hashes alone do not establish numerical differences.
+Before execution, verify endpoint provenance and tensor equivalence where
+needed; do not silently substitute numbered snapshots for released parents.
+
+Sources: [pretraining endpoints](https://github.com/allenai/OLMo#pretraining),
+[post-training recipe](https://github.com/allenai/open-instruct/blob/main/docs/olmo2.md),
+[RLVR-2 model card](https://huggingface.co/allenai/OLMo-2-0425-1B-Instruct).
+
+### Evaluation and sampling
+
+- ETHICS: all five original tasks, full standard test splits with their
+  native task/group scoring; report task results and an equally weighted
+  macro average. Hard splits are a separate robustness result. Include the
+  original format and eight balanced control renderings crossing answer
+  position, semantic-label mapping, and two tokenizer-verified single-token
+  label vocabularies. Preserve the original judgments and ranking/group
+  structure; record semantic answers separately from output labels.
+- GSM-Symbolic: the standard released variant, all 5,000 problems
+  (100 templates, 50 instances), official eight-shot reasoning prompt,
+  greedy generation and numeric final-answer scoring. P1/P2 are outside
+  the initial run. Group all statistical splits by source template.
+- CRUXEval: all 800 functions, both input and output prediction, published
+  prompts and execution-based evaluators. Primary result is greedy pass@1;
+  it is not a reproduction of sampled leaderboard pass@k. Accept any valid
+  input under the official verifier, not only the reference input string.
+- Use one fixed benchmark prompt protocol across checkpoints for primary
+  stage comparisons. Test native chat wrapping as a separate sensitivity
+  analysis on the attribution sample. Keep demonstrations fixed and outside
+  query groups. Record context overflow, parse failure, and generation
+  truncation rates; never silently drop difficult examples.
+- Behavioral evaluation covers the full sets. Start circuit scoring with
+  512 disjoint clean/corrupt pairs per domain, balanced over ETHICS tasks
+  and math templates; CRUXEval uses 400 pairs per direction. Pair identities
+  and corruption rules are frozen across checkpoints. Use pilot seeds
+  0, 1, 2 for sampling/control sensitivity, not as training-seed replicates.
+
+Sources: [ETHICS](https://github.com/hendrycks/ethics),
+[GSM-Symbolic protocol](https://github.com/apple/ml-gsm-symbolic),
+[CRUXEval](https://github.com/facebookresearch/cruxeval).
+
+### Measurements and interpretation
+
+Reuse attention-head plus whole-MLP-block nodes, scored by gradient times
+activation difference (attribution patching). Adapt OLMo-2 hooks and
+token-aligned clean/corrupt inputs; verify hook locations against the
+architecture before running. Rank the absolute mean signed score, matching
+the existing method; retain signed per-example scores for resampling and
+interpretation. Pool ETHICS tasks equally for the domain map and retain
+per-task maps. Keep CRUXEval-I and CRUXEval-O separate.
+
+ETHICS uses correct-versus-incorrect label logit margins. Math and code use
+length-normalized full-answer log probabilities under teacher forcing,
+with clean/corrupt contrasts for attribution. These are auxiliary
+reference-answer diagnostics, distinct from generated-answer accuracy;
+reference-input likelihood is incomplete for CRUXEval-I's multiple valid
+inputs. Do not transplant the arithmetic script's first-token metric.
+Do not supply the target's gold reasoning as context for an answer probe.
+
+Layerwise linear probes use frozen residual activations and regularized
+linear classifiers. ETHICS predicts semantic judgments independently of
+the randomized surface labels. Math/code probes discriminate valid from
+matched invalid candidate answers, verified numerically or by execution;
+these diagnostic candidates do not turn the behavioral benchmarks into
+MCQ. Match candidate length/type and answer-frequency distributions, split
+by original template/function/group, and include shuffled-label and
+answer-only controls. Use 60/20/20 grouped train/validation/test splits on
+the diagnostic pool (official ETHICS training data where available),
+last candidate-token activations for answer-validity probes and final
+prompt-token activations for ETHICS. Report held-out probe accuracy and
+sample counts; probe success alone does not establish latent generation.
+
+Report adjacent-stage Jaccard@16 and an all-stage overlap matrix. Compute
+the random baseline from independent uniform 16-node samples over the
+actual node universe (100,000 draws). Estimate within-checkpoint stability
+with 20 grouped split-half repetitions. This is a reliability reference,
+not a mathematical upper bound on cross-checkpoint overlap. Report 95%
+paired/grouped bootstrap intervals (2,000 resamples); recompute top-16
+membership within each circuit bootstrap, preserving label variants and
+related task items within their sampling unit. Distinguish dataset
+uncertainty from variability across independently trained models, which
+this single training lineage cannot estimate.
+
+Validate attribution with actual top-node patching/ablation versus
+size-matched random-node interventions on a disjoint 128-example diagnostic
+sample where available. Interpret increased performance plus reliable
+shared causal nodes as evidence consistent with reuse/elicitation.
+Changed reliable nodes plus improved behavior can support acquisition or
+reorganization, but cannot prove a wholly new circuit. Weak performance
+or unstable rankings yield an inconclusive mechanistic comparison,
+including initialization. Endpoint comparisons localize changes to a
+training phase, not to a precise moment within that phase.
+
+### Compute, reproducibility, and results
+
+Planning recommendation: one NVIDIA RTX A6000 (48 GB VRAM), 16 vCPUs,
+128 GB host RAM, 200 GB free SSD, BF16 execution, one checkpoint at a time,
+and streamed activation summaries. A 24 GB GPU may work with smaller
+microbatches; the 48 GB recommendation provides room for backward-pass
+activations and long benchmark prompts, not a measured minimum. Pilot
+memory and throughput before estimating full-run cost. Hardware specification:
+[NVIDIA RTX A6000](https://www.nvidia.com/en-us/products/workstations/rtx-a6000/).
+
+Earlier provisioning: instance `50535818` was deleted at the user's request
+before implementation. Its preliminary 24–72-hour estimate was unmeasured and
+is superseded by the pilot above. The user authorizes subagents; future rentals
+should begin only when local implementation and tests are ready.
+
+Record model/tokenizer commits and weight hashes, dataset revisions and
+hashes, item IDs, complete prompts and label mappings, split assignments,
+seeds, decoding settings, pair alignment/corruption rules, node definitions,
+probe training settings, intervention details, environment/package versions,
+hardware, per-example generations/scores, and resampling configuration.
+
+Results start with exactly three TLDR lines. For each plot, include one
+takeaway, a one-sentence caption, a real identified data example alongside
+the aggregate, and an explanation of confusing behavior or uncertainty.
+Primary plots: adjacent-stage overlap with random/stability references;
+behavior and answer confidence across stages; layerwise probe accuracy.
+Example selection follows a recorded rule and is not presented as typical
+unless its frequency is also reported. The two-checkpoint pilot is complete;
+phase-by-phase conclusions await the full evaluation.
+
+---
+
 Status: **executing** (updated 2026-07-28). This is the current state
 and remaining work of the elicit-vs-teach training-run experiment.
 `specs/02-training-run.md` is the detailed design source;
