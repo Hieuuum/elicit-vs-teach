@@ -36,6 +36,19 @@ def validate_pilot_gate(path: Path, full_plan_fingerprint: str) -> dict:
     return gate
 
 
+def validate_completed_pilot(directory: Path, args: argparse.Namespace, fingerprint: str) -> dict:
+    """Reuse measured full-size probes only under the same frozen plan and caps."""
+    gate = validate_pilot_gate(directory / "pilot_status.json", fingerprint)
+    provenance = json.loads((directory / "provenance.json").read_text())
+    config = provenance["configuration"]
+    for field in ("max_new_tokens", "coding_max_new_tokens", "math_max_new_tokens"):
+        if config.get(field) != getattr(args, field, None):
+            raise ValueError(f"Completed pilot has different {field}")
+    if config.get("batch_size") != 8 or config.get("max_context") != 4096:
+        raise ValueError("Completed pilot uses a different batch/context protocol")
+    return gate
+
+
 def run_bounded(command: list[str], log: Path, timeout_seconds: float) -> None:
     """Terminate the entire evaluation process group if its deadline expires."""
     if timeout_seconds <= 0:
@@ -135,6 +148,9 @@ def execute(args: argparse.Namespace) -> dict:
     # This controller also prevents accidentally passing a pilot-mode plan.
     if plan["binding"]["settings"]["mode"] != "full":
         raise ValueError("Next-stage pipeline requires a full-mode frozen plan")
+    completed_pilot = getattr(args, "completed_pilot", None)
+    if completed_pilot is not None:
+        validate_completed_pilot(completed_pilot, args, plan["fingerprint"])
     args.output.mkdir(parents=True, exist_ok=False)
     started = time.monotonic()
     status = {
@@ -152,6 +168,7 @@ def execute(args: argparse.Namespace) -> dict:
         "max_evaluation_seconds": allowed,
         "budget_scope": "Pilot plus full evaluation wall time; instance billing is separate.",
         "instance_action": "No instance deletion or stop is performed by this script.",
+        "completed_pilot": str(completed_pilot) if completed_pilot is not None else None,
     }
     path = args.output / "pipeline_status.json"
     write_json(path, status)
@@ -176,8 +193,13 @@ def execute(args: argparse.Namespace) -> dict:
             "--confirm-cost",
         ]
         pilot.extend(task_caps)
-        run_bounded(pilot, args.output / "pilot.log", min(args.pilot_max_seconds, allowed))
-        gate = validate_pilot_gate(args.output / "pilot" / "pilot_status.json", plan["fingerprint"])
+        if completed_pilot is None:
+            run_bounded(pilot, args.output / "pilot.log", min(args.pilot_max_seconds, allowed))
+            gate = validate_pilot_gate(
+                args.output / "pilot" / "pilot_status.json", plan["fingerprint"]
+            )
+        else:
+            gate = validate_completed_pilot(completed_pilot, args, plan["fingerprint"])
         status.update(
             phase="full_evaluation", pilot_status=gate["status"], pilot_finished_utc=utc_now()
         )
@@ -215,6 +237,11 @@ if __name__ == "__main__":
     parser.add_argument("--coding-max-new-tokens", type=int)
     parser.add_argument("--math-max-new-tokens", type=int)
     parser.add_argument("--pilot-max-seconds", type=float, default=7200)
+    parser.add_argument(
+        "--completed-pilot",
+        type=Path,
+        help="Reuse an audited pilot after reviewing its measured runtime",
+    )
     parser.add_argument("--confirm-cost", action="store_true")
     args = parser.parse_args()
     args.plan, args.data, args.output = (p.resolve() for p in (args.plan, args.data, args.output))

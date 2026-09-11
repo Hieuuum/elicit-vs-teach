@@ -92,3 +92,35 @@ def test_subprocess_failure_is_loud_and_logs_are_never_overwritten(controller, t
         controller.run_bounded([sys.executable, "-c", "raise SystemExit(3)"], log, 5)
     with pytest.raises(FileExistsError):
         controller.run_bounded([sys.executable, "-c", "pass"], log, 5)
+
+
+@pytest.mark.parametrize("defect", [None, "cap", "plan", "status", "batch", "context"])
+def test_completed_pilot_reuse_checks_plan_status_and_generation_protocol(
+    controller, tmp_path, defect
+):
+    gate = {"status": "passed", "full_plan_fingerprint": "expected"}
+    config = dict(
+        max_new_tokens=384,
+        coding_max_new_tokens=192,
+        math_max_new_tokens=384,
+        batch_size=8,
+        max_context=4096,
+    )
+    args = argparse.Namespace(**config)
+    if defect == "cap":
+        config["coding_max_new_tokens"] = 128
+    elif defect == "plan":
+        gate["full_plan_fingerprint"] = "other"
+    elif defect == "status":
+        gate["status"] = "failed"
+    elif defect == "batch":
+        config["batch_size"] = 16
+    elif defect == "context":
+        config["max_context"] = 2048
+    (tmp_path / "pilot_status.json").write_text(json.dumps(gate))
+    (tmp_path / "provenance.json").write_text(json.dumps({"configuration": config}))
+    if defect:
+        with pytest.raises(ValueError):
+            controller.validate_completed_pilot(tmp_path, args, "expected")
+    else:
+        assert controller.validate_completed_pilot(tmp_path, args, "expected") == gate
