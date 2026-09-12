@@ -2,6 +2,29 @@
 
 ## Latest instruction and current goal
 
+**Closed 2026-09-12:** all results uploaded to private HF `mhieuuu/olmo2-circuit-overlap`
+(`full/20260911-seven-checkpoints` 306 files/9.00 GB, `pilots/20260911-full-plan-rlvr2`
+47 files/1.16 GB, `full/20260911-seven-checkpoints-records` 38 files), every file
+verified on the hub by path and size against `upload_manifest.json`. Instance
+50602969 was then DESTROYED and the account verified empty
+(`geode-store/olmo2-authorized-20260911/instance_destroyed.json`). Nothing is
+rented. The debrief noted the heatmap lacks the planned random baseline
+(0.031) and split-half ceiling (0.2–0.6), and ETHICS accuracy panels should use
+the eight-control mean (50% at every stage).
+
+Evaluation completed at **2026-09-11T23:32:23Z** across all seven checkpoints.
+The local saved-artifact audit passed without failures or warnings. Completion
+monitor hit a stale-status/exit-code race and stopped the instance before
+reporting; its saved automation copy now re-reads status after observing exit.
+Instance50602969 remains stopped with its disk preserved. A requested restart
+was unavailable and was cancelled; no additional model inference was run.
+Reporting is performed locally by `plot_results.py` in
+`geode-store/olmo2-authorized-20260911/report/`. Raw results: 378 files,
+10,161,006,026 bytes; local SHA-256 inventory: `saved_results_manifest.json`.
+Cross-host final hash comparison was unavailable. All local required artifact
+coverage, paired identities, finite scores, intervention controls and available
+probe splits passed their technical audits. Do not restart evaluation.
+
 Scope amendment (2026-09-11): the user explicitly requested **no further probe
 activation saving and no further linear-probe fitting**. Keep full accuracy,
 answer scores, circuit top nodes and interventions. The first five checkpoints

@@ -2,6 +2,22 @@
 
 ## Authorized OLMo resume (2026-09-11)
 
+**Closed 2026-09-12:** all results uploaded to private HF `mhieuuu/olmo2-circuit-overlap`
+(`full/20260911-seven-checkpoints` 306 files/9.00 GB, `pilots/20260911-full-plan-rlvr2`
+47 files/1.16 GB, `full/20260911-seven-checkpoints-records` 38 files), every file
+verified on the hub by path and size against `upload_manifest.json`. Instance
+50602969 was then DESTROYED and the account verified empty
+(`geode-store/olmo2-authorized-20260911/instance_destroyed.json`). Nothing is
+rented. The debrief noted the heatmap lacks the planned random baseline
+(0.031) and split-half ceiling (0.2–0.6), and ETHICS accuracy panels should use
+the eight-control mean (50% at every stage).
+
+**Evaluation complete** at 2026-09-11T23:32:23Z. All seven checkpoint artifacts
+passed the local technical audit. Requested plots/report are generated locally
+under `geode-store/olmo2-authorized-20260911/report/`; the instance is stopped
+and its disk preserved. No further inference or probe fitting is authorized by
+this reporting task. See HANDOFF.md for the completion-monitor recovery record.
+
 Latest scope amendment: **no further probe activation saving or linear-probe fitting**.
 Continue accuracy, answer scores, circuit top nodes and interventions. The original
 worker was stopped and replaced by `resume_without_probes.py` (source `58469ae`),
