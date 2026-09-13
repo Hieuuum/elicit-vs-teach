@@ -36,6 +36,19 @@ MIX_EDL = [4.533, 4.208, 3.579, 3.168, 2.444, 1.137, 0.467, 0.215, 0.092]
 MIX_EM = [0.0225, 0.0381, 0.1553, 0.5410, 0.7432, 0.8672, 0.9150, 0.9658, 0.9814]
 BLANK_ANCHOR_N = [100, 316, 1000, 14678, 215443, 1000000]
 BLANK_ANCHOR_EDL = [6.511, 6.387, 4.88, 0.78, 2.02, 1.40]
+# 2026-09-13: both LoRA teach arms per rung, from results/dataset_size_sweep_ts.parquet
+# (38/38 runs converged). noinst = blank base; inst = format-installed base (the
+# paper's pre-teach-format parent, evt-ts1b-fig2ts-installer).
+SWEEP_N = [1000, 1468, 2154, 3162, 4642, 6813, 10000, 14678, 21544, 31623, 46416, 68129,
+           100000, 146780, 215443, 316228, 464159, 681292, 1000000]
+NOINST_EDL = [4.8819, 3.8445, 2.9357, 2.2212, 1.6939, 1.2949, 0.9563, 0.7751, 0.9086, 1.2276,
+              1.6313, 1.6945, 1.8235, 1.7790, 2.0222, 1.8491, 1.7564, 1.5169, 1.3990]
+NOINST_EM = [0.0010, 0.0010, 0.0020, 0.0010, 0.0010, 0.0010, 0.0000, 0.0020, 0.0020, 0.0156,
+             0.0273, 0.0322, 0.0283, 0.0361, 0.0615, 0.0664, 0.0830, 0.0557, 0.0928]
+INST_EDL = [4.0866, 3.2976, 2.4119, 1.7201, 1.2339, 0.9361, 0.6411, 0.7084, 0.8269, 0.9680,
+            1.1308, 1.0744, 1.3332, 1.0283, 1.2791, 1.2848, 1.0849, 0.9348, 0.8804]
+INST_EM = [0.0010, 0.0010, 0.0000, 0.0000, 0.0010, 0.0029, 0.0010, 0.0049, 0.0088, 0.0156,
+           0.0166, 0.0322, 0.0371, 0.0117, 0.0352, 0.0654, 0.0371, 0.0469, 0.0791]
 
 LLAMA_FORM = [(1, .333), (4, .455), (13, .600), (50, .600), (185, .684),
               (634, .684), (2358, .684), (8770, .730)]
@@ -297,11 +310,10 @@ def fig_signature_flip():
     ns, edl, em = read_sweep("evt-ts1b-mix-nl-n")
     if not ns:
         ns, edl, em = SIZES, MIX_EDL, MIX_EM
-    bn, bedl, bem = read_sweep("evt-ts1b-fig2ts-noinst-n")
-    if not bn:
-        bn, bedl, bem = BLANK_ANCHOR_N, BLANK_ANCHOR_EDL, [None] * 6
+    bn, bedl, bem = SWEEP_N, NOINST_EDL, NOINST_EM   # the sweep parquet (2026-09-13)
     f, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.8))
     a1.plot(bn, bedl, "o-", color=TE, label="blank TS (teach)")
+    a1.plot(SWEEP_N, INST_EDL, "v--", color=TE, alpha=.7, label="format-installed TS (teach)")
     a1.plot(ns, edl, "o-", color=EL, label="TS1B-latent (elicit)")
     a1.set_xscale("log")
     a1.set_xlabel("$n$ (fine-tuning examples)")
@@ -310,6 +322,7 @@ def fig_signature_flip():
     a1.grid(alpha=.3)
     a1.set_title("Learning-curve signature")
     a2.plot(bn, [e if e is not None else float("nan") for e in bem], "o-", color=TE)
+    a2.plot(SWEEP_N, INST_EM, "v--", color=TE, alpha=.7)
     a2.plot(ns, [e if e is not None else float("nan") for e in em], "o-", color=EL)
     a2.set_xscale("log")
     a2.set_xlabel("$n$")
@@ -323,10 +336,11 @@ def fig_signature_flip():
          "rising to a peak near n=215K while a capability is built from scratch; "
          "9.3% EM even at 1M), whereas the elicit twin (gold) is strictly monotone "
          "(4.53->0.092 nats) because each example only connects an existing "
-         "capability - EM 54% at n=3,162, an EM-0.5 threshold shift >300x. A "
-         "third measured arm (blank + format-only dose) keeps its hump: formatting "
-         "does not explain the flip. Manifests evt-ts1b-mix-nl-n*, "
-         "evt-ts1b-fig2ts-noinst-n*; decisions.md 2026-09-01.")
+         "capability - EM 54% at n=3,162, an EM-0.5 threshold shift >300x. The "
+         "third arm (dashed teal: the format-installed twin, the paper's pre-teach-"
+         "format parent) keeps the hump (min 0.64 at 10K, peak 1.33 at 100K, 0.88 "
+         "at 1M; EM 0.079) - formatting does not explain the flip. "
+         "results/dataset_size_sweep_ts.parquet; decisions.md 2026-09-01, 2026-09-13.")
 
     table(S, "same_base_sweep", r"""\begin{tabular}{rcccc}
 \hline
@@ -596,15 +610,15 @@ capability per unit travel & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
 
     table(S, "grad_strength", r"""\begin{tabular}{lccccc}
 \hline
- & elicit LoRA 1M & teach LoRA 1M & teach LoRA 4M & elicit FT & teach FT (blank; + continuation) \\
+ & elicit LoRA 1M & teach LoRA 1M & teach LoRA 4M & elicit FT & teach FT (blank; + continuation) & teach FT (format-installed) \\
 \hline
-steps & 11{,}500 & 25{,}000 & 39{,}500 & 21{,}500 & 62{,}500 (+ 9{,}500) \\
-peak grad norm (step) & 0.441 (96) & 17.4 (23{,}657) & 22.0 (36{,}931) & 34.0 (1) & 32.0 (3{,}844) \\
-mean norm, first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 & 0.160 / 6.61 / 7.78 & 4.80 / 1.85 / 1.39 & 2.30 / 5.31 / 3.43 \\
-decay (first 1\% $\div$ last 10\%) & $\times$3.3 & $\times$0.02 (grows $\sim$40$\times$) & $\times$0.02 (grows $\sim$50$\times$) & $\times$3.4 & $\times$0.7 (grows 1.5$\times$) \\
-cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 & 220{,}685 & 44{,}021 & 353{,}277 (+ 30{,}954) \\
-gradient mass per step & 0.068 & 4.68 & 5.59 & 2.05 & 5.65 (3.26) \\
-gradient-mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 & .05 / .93 / .01 & -- & -- \\
+steps & 11{,}500 & 25{,}000 & 39{,}500 & 21{,}500 & 62{,}500 (+ 9{,}500) & 58{,}500 \\
+peak grad norm (step) & 0.441 (96) & 17.4 (23{,}657) & 22.0 (36{,}931) & 34.0 (1) & 32.0 (3{,}844) & 70.9 (50{,}860) \\
+mean norm, first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 & 0.160 / 6.61 / 7.78 & 4.80 / 1.85 / 1.39 & 2.30 / 5.31 / 3.43 & 2.69 / 4.86 / 3.77 \\
+decay (first 1\% $\div$ last 10\%) & $\times$3.3 & $\times$0.02 (grows $\sim$40$\times$) & $\times$0.02 (grows $\sim$50$\times$) & $\times$3.4 & $\times$0.7 (grows 1.5$\times$) & $\times$0.7 (grows 1.4$\times$) \\
+cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 & 220{,}685 & 44{,}021 & 353{,}277 (+ 30{,}954) & 378{,}170 \\
+gradient mass per step & 0.068 & 4.68 & 5.59 & 2.05 & 5.65 (3.26) & 6.46 \\
+gradient-mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 & .05 / .93 / .01 & -- & -- & -- \\
 \hline
 \end{tabular}""",
           r"Raw gradient strength of the two 1M fine-tunes (pre-clip global norm at every update, from the runs' gradstats logs). Elicit vs.\ teach: both start at the same scale ($\approx$0.18), then the elicit gradient decays to a low floor (converging on a 0.03-nat loss; nothing left to change) while the teach gradient grows $\sim$40$\times$ and is still rising when the run stops --- $\sim$150$\times$ the accumulated gradient mass, concentrated in attention rather than MLPs (the layer-0 army under construction). This is the owner's metric 8 in its raw form; the weight-travel curves shared a shape only because AdamW normalises step size by $\sqrt{v}$. decisions.md 2026-09-09.")

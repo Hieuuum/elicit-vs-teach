@@ -145,9 +145,11 @@ are getting more informative because structure is being built (teaching). Measur
 $n=100\ldots10^6$ with identical protocol, plus 0-shot exact match on 1,024 held-out problems.}
 \result{Figure~\ref{fig:flip}, Table~\ref{tab:sweep}. Elicit twin: EDL/token strictly monotone
 decreasing, $4.53\to0.092$; exact match $0.54$ already at $n{=}3{,}162$, $0.98$ at 1M. Teach
-twin: down--up--down with the hump peaking near $n{=}215$K; exact match $0.093$ at 1M and
-$0.139$ at 4M. The dataset size at which exact match crosses 0.5 differs by more than
-$300\times$. A third arm (blank twin + a format-only dose) keeps its hump. Under full
+twin (blank base): down--up--down, minimum $0.78$ at $n{=}14.7$K, hump peaking at $2.02$ at
+$n{=}215$K, $1.40$ at 1M; exact match $0.093$ at 1M and $0.139$ at 4M. The design-matched teach
+twin (format-installed base, the paper's pre-teach-format parent) keeps the hump with the format
+cost removed: minimum $0.64$ at 10K, peak $1.33$ at 100K, $0.88$ at 1M, exact match $0.079$. The
+dataset size at which exact match crosses 0.5 differs by more than $300\times$. Under full
 fine-tuning, without a sweep: the elicit twin converges in 21,500 steps (0.7 of a pass, test
 loss $0.015$, exact match $0.986$); the blank teach twin runs to the two-pass ceiling (62,500
 steps, $0.771$) and converges 9,500 steps later at $0.819$ (test loss $0.154$); the
@@ -158,30 +160,34 @@ the cost rises mid-run and the model converges lower --- $0.82$ from the blank b
 the format-installed base --- after three times the steps.}
 \begin{figure}[h]\centering
 \includegraphics[width=\textwidth]{02_learning_curves/fig_signature_flip.png}
-\caption{EDL/token (left) and 0-shot exact match (right) vs $n$; teal = teach twin, gold = elicit twin.}
+\caption{EDL/token (left) and 0-shot exact match (right) vs $n$; teal = teach twin from the blank base, dashed teal = teach twin from the format-installed base, gold = elicit twin.}
 \label{fig:flip}
 \end{figure}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{rcccc}
+\begin{tabular}{rcccccc}
 \toprule
-$n$ & \multicolumn{2}{c}{elicit} & \multicolumn{2}{c}{teach} \\
- & EDL/tok & EM & EDL/tok & EM \\
+$n$ & \multicolumn{2}{c}{elicit (TS1B-latent)} & \multicolumn{2}{c}{teach (blank)} & \multicolumn{2}{c}{teach (format-installed)} \\
+ & EDL/tok & EM & EDL/tok & EM & EDL/tok & EM \\
 \midrule
-100 & 4.533 & 0.023 & 6.511 & 0.007 \\
-316 & 4.208 & 0.038 & 6.387 & 0.033 \\
-1{,}000 & 3.579 & 0.155 & $\sim$4.9 & $\sim$0 \\
-3{,}162 & 3.168 & \textbf{0.541} & $\downarrow$ & $\sim$0 \\
-10{,}000 & 2.444 & 0.743 & min $\sim$0.8 & $\sim$0 \\
-31{,}623 & 1.137 & 0.867 & $\uparrow$ & $\sim$0 \\
-100{,}000 & 0.467 & 0.915 & $\uparrow$ & $\sim$0 \\
-316{,}228 & 0.215 & 0.966 & peak $\sim$2.0 @215K & $\sim$0 \\
-1{,}000{,}000 & \textbf{0.092} & \textbf{0.981} & 1.40 & 0.093 \\
-4{,}000{,}000 & -- & -- & 0.93 & 0.139 \\
+100 & 4.533 & 0.023 & 6.511 & 0.007 & -- & -- \\
+316 & 4.208 & 0.038 & 6.387 & 0.033 & -- & -- \\
+1{,}000 & 3.579 & 0.155 & 4.882 & 0.001 & 4.087 & 0.001 \\
+3{,}162 & 3.168 & \textbf{0.541} & 2.221 & 0.001 & 1.720 & 0.000 \\
+10{,}000 & 2.444 & 0.743 & 0.956 & 0.000 & \emph{0.641} (min) & 0.001 \\
+14{,}678 & -- & -- & \emph{0.775} (min) & 0.002 & 0.708 & 0.005 \\
+31{,}623 & 1.137 & 0.867 & 1.228 & 0.016 & 0.968 & 0.016 \\
+100{,}000 & 0.467 & 0.915 & 1.824 & 0.028 & \emph{1.333} (peak) & 0.037 \\
+215{,}443 & -- & -- & \emph{2.022} (peak) & 0.062 & 1.279 & 0.035 \\
+316{,}228 & 0.215 & 0.966 & 1.849 & 0.066 & 1.285 & 0.065 \\
+1{,}000{,}000 & \textbf{0.092} & \textbf{0.981} & 1.399 & 0.093 & 0.880 & 0.079 \\
+4{,}000{,}000 & -- & -- & 0.930 & 0.139 & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{Per-rung values, LoRA protocol (EDL in nats per answer token; EM $=$ exact match).}
+\caption{Per-rung values, LoRA protocol (EDL in nats per answer token; EM $=$ exact match; 19
+rungs per teach arm, all converged; rungs shared with the elicit sweep shown plus each arm's
+minimum and peak).}
 \label{tab:sweep}
 \end{table}
 
@@ -350,7 +356,9 @@ $3.4\times$ to a floor of $1.4$; teach starts lower ($2.3$), rises to its peak a
 ($32.0$), holds $5.3$ mid-run and ends at $3.4$ --- $1.5\times$ its starting level; cumulative
 mass $44{,}021$ vs $353{,}277$ ($8\times$; $2.8\times$ per step over $2.9\times$ the steps);
 the continuation to convergence adds 9,500 steps at a flat norm (first-to-last ratio $1.1$,
-$30{,}954$ more mass).}
+$30{,}954$ more mass). From the format-installed parent: $2.69$ at the start, peak $70.9$ at
+step 50,860 (the largest single update anywhere), $4.86$ mid-run, $3.77$ at the end ($1.4\times$
+its start); mass $378{,}170$ ($6.46$ per step, $8.6\times$ elicit).}
 \interp{Elicitation converges and its gradient dies (decaying $3.3$--$3.4\times$ under either
 method); teaching generates gradient pressure that grows with the structure being built ---
 $40$--$50\times$ under LoRA, $1.5\times$ under full FT --- accumulating $8\times$ to $280\times$ the
@@ -358,17 +366,17 @@ gradient mass, and under LoRA aimed at attention weights, the operand-fetching h
 written.}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{lccccc}
+\begin{tabular}{lcccccc}
 \toprule
- & elicit LoRA 1M & teach LoRA 1M & teach LoRA 4M & elicit FT & teach FT \\
+ & elicit LoRA 1M & teach LoRA 1M & teach LoRA 4M & elicit FT & teach FT, blank (+ cont.) & teach FT, format-inst. \\
 \midrule
-steps & 11{,}500 & 25{,}000 & 39{,}500 & 21{,}500 & 62{,}500 \\
-peak gradient norm (step) & 0.441 (96) & 17.4 (23{,}657) & 22.0 (36{,}931) & 34.0 (1) & 32.0 (3{,}844) \\
-mean norm: first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 & 0.160 / 6.61 / 7.78 & 4.80 / 1.85 / 1.39 & 2.30 / 5.31 / 3.43 \\
-first 1\% $\div$ last 10\% & $\times$3.3 (decays) & $\times$0.02 (grows $\sim$40$\times$) & $\times$0.02 (grows $\sim$50$\times$) & $\times$3.4 (decays) & $\times$0.7 (grows 1.5$\times$) \\
-cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 & 220{,}685 & 44{,}021 & 353{,}277 \\
-gradient mass per step & 0.068 & 4.68 & 5.59 & 2.05 & 5.65 \\
-mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 & .05 / .93 / .01 & -- & -- \\
+steps & 11{,}500 & 25{,}000 & 39{,}500 & 21{,}500 & 62{,}500 (+ 9{,}500) & 58{,}500 \\
+peak gradient norm (step) & 0.441 (96) & 17.4 (23{,}657) & 22.0 (36{,}931) & 34.0 (1) & 32.0 (3{,}844) & 70.9 (50{,}860) \\
+mean norm: first 1\% / middle / last 10\% & 0.183 / 0.060 / 0.056 & 0.169 / 5.21 / 6.80 & 0.160 / 6.61 / 7.78 & 4.80 / 1.85 / 1.39 & 2.30 / 5.31 / 3.43 & 2.69 / 4.86 / 3.77 \\
+first 1\% $\div$ last 10\% & $\times$3.3 (decays) & $\times$0.02 (grows $\sim$40$\times$) & $\times$0.02 (grows $\sim$50$\times$) & $\times$3.4 (decays) & $\times$0.7 (grows 1.5$\times$) & $\times$0.7 (grows 1.4$\times$) \\
+cumulative gradient mass $\sum_t\|g_t\|$ & 783 & 116{,}877 & 220{,}685 & 44{,}021 & 353{,}277 (+ 30{,}954) & 378{,}170 \\
+gradient mass per step & 0.068 & 4.68 & 5.59 & 2.05 & 5.65 (3.26) & 6.46 \\
+mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 & .05 / .93 / .01 & -- & -- & -- \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
@@ -628,7 +636,8 @@ circuit overlap with the elicit-FT circuit & -- & 0.306 & 0.333 & R4 \\
 circuit overlap with the LoRA-elicited child & 0.641 & 0.333 & 0.333 & R2, R4 \\
 top-8 nodes sufficient / necessary & 0.923 / 0.943 & 0.983 / 0.988 & 0.950 / 0.965 & validation \\
 operand-reading heads vs the parent's engine (first / second) & 0.694 / 0.857 & 0.879 / 0.659 & 0.763 / 0.658 & R3 \\
-gradient norm, first 1\% $\to$ last 10\% of steps & 4.80 $\to$ 1.39 (decays 3.4$\times$) & -- & 2.30 $\to$ 3.43 (grows 1.5$\times$) & R6 \\
+gradient norm, first 1\% $\to$ last 10\% of steps & 4.80 $\to$ 1.39 (decays 3.4$\times$) & 2.69 $\to$ 3.77 (grows 1.4$\times$) & 2.30 $\to$ 3.43 (grows 1.5$\times$) & R6 \\
+cumulative gradient mass & 44{,}021 & 378{,}170 & 353{,}277 (+ 30{,}954) & R6 \\
 relative weight write $\|\Delta W\|/\|W\|$ & 0.050 & 0.086 & 0.102 & R7 \\
 PC1 of the state shift (after removing answer content) & 0.056 (0.061) & 0.567 (0.561) & 0.526 (0.528) & R8 \\
 answer settled depth, median (quartiles) & layer 14 (14--14) & layer 15 (15--15) & layer 15 (15--15) & R10 \\
@@ -637,8 +646,7 @@ child's states patched into its own parent, per-prompt (mean) & 0.121 (format on
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{The full-FT endpoints, one row per instrument. Gradient logs for the format-installed
-run are pending.}
+\caption{The full-FT endpoints, one row per instrument.}
 \label{tab:ftpair}
 \end{table}
 
