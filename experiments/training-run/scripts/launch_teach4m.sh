@@ -39,6 +39,9 @@
 #                the convergence rule fires (ceiling 4 more passes, ~2 h each).
 #  12  battery-ftcont the battery on the converged teach-FT endpoint (reference
 #                parent = the blank base). Explicit only.
+#  13  fill      the FT gradient comparison with all four full-FT runs (the
+#                stage-12 marker was written with three) + the sweep table per
+#                rung for both LoRA arms (R1 headline pair). CPU, minutes.
 #
 # Run GPU stages one after the other, not concurrently, on a 40 GB card.
 #
@@ -444,5 +447,33 @@ fi
 if want 12; then
   [[ $(status_of "$RID_FTCONT") == complete ]] || fail "$RID_FTCONT is not complete — run stage 11 first"
   battery "$RID_FTCONT" ftcont4m 0 "$BASE"   # lineage parent = the blank base
+fi
+
+# ------------------------------------------- stage 13: fill the two pending cells
+# (a) the FT gradient comparison with ALL four full-FT runs — the stage-12 run
+#     wrote done_grad_ftall.log with only three ids (fmt was not yet complete in
+#     that shell), so the marker is removed and the step redone;
+# (b) the R1 headline pair on the two LoRA sweeps from the same two parents:
+#     print the sweep parquet per rung for both arms (noinst = blank base,
+#     inst = format-installed base) — the sweep script only writes the file.
+if want 13; then
+  for r in "$RID_ELFT" "$RID_FT" "$RID_FTFMT" "$RID_FTCONT"; do
+    [[ $(status_of "$r") == complete ]] || fail "$r is not complete"
+  done
+  rm -f "$A/done_grad_ftall.log" "$A/done_grad_fttrio.log" "$A/done_grad_ftpair.log"
+  step done_grad_ftall.log python3 grad_strength.py --run-id "$RID_ELFT" "$RID_FT" "$RID_FTFMT" "$RID_FTCONT" \
+    --labels elicit_ft teach_ft teach_ft_fmt teach_ft_cont --out grad_strength_ft
+  milestone "sweep table (both arms) from $GEODE_STORE/results/dataset_size_sweep_ts.parquet"
+  (cd "$A" && python3 - "$GEODE_STORE/results/dataset_size_sweep_ts.parquet" <<'PY') 2>&1 | tee -a "$LOG"
+import sys, pandas as pd
+d = pd.read_parquet(sys.argv[1])
+d["metric_value"] = d["metric_value"].astype(float)
+t = d.pivot_table(index=["condition", "dataset_size", "run_id", "stop_reason"], columns="metric_name",
+                  values="metric_value", aggfunc="first").reset_index()
+pd.set_option("display.width", 250); pd.set_option("display.max_columns", 30); pd.set_option("display.max_rows", 200)
+for cond, g in t.groupby("condition"):
+    print(f"[sweep] condition={cond}")
+    print(g.drop(columns="condition").sort_values("dataset_size").to_string(index=False, float_format=lambda v: f"{v:.4f}"))
+PY
 fi
 milestone "done stage=$STAGE"
