@@ -108,3 +108,14 @@ sweep parquet (`dataset_size_sweep.py --family ts`, both arms).
 
 Order on the cluster: stage 9 (train, ≤12 h) → 10 (battery) → 3 (LoRA-4M
 formation curve) → 11/12 (blank-base teach-FT continuation, optional now).
+
+## Stages 3, 9–12 result (2026-09-13) — see decisions.md
+
+teach-FT-fmt converged at 58,500 steps, EM **0.424** (val 0.700, test 0.639);
+teach-FT-cont converged at +9,500 steps, EM **0.819** (val 0.173, test 0.154).
+Both taught FT endpoints agree on every mechanism (R2–R4, R7, R8, R10, R11);
+R8's format prediction falsified (fmt child PC1 0.567 ≥ blank child 0.526 —
+the shared direction is the algorithm, not the format). The design-matched
+pair's taught member performs worst (0.42): the random-label dose has to be
+unlearned. Remaining: fmt gradient log (grad_strength.py with all four FT
+ids), R1 per-rung inst numbers from the sweep parquet.

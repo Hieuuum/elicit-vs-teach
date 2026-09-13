@@ -10,10 +10,14 @@ elicited (full FT) $\leftrightarrow$ elicited (LoRA), NL & 31 / 25 & 36 / 30 & 0
 elicited (full FT) $\leftrightarrow$ parent & 31 / 25 & 30 / 27 & 0.694 / 0.857 & -- \\
 taught (full FT) $\leftrightarrow$ elicited (LoRA), NL & 37 / 37 & 36 / 30 & 0.587 / 0.763 & 0.81 / 0.79 (ceiling 0.81 / 0.80) \\
 taught (full FT) $\leftrightarrow$ parent & 37 / 37 & 30 / 27 & 0.763 / 0.684 & -- \\
+taught (FT, format-installed) $\leftrightarrow$ elicited (LoRA), NL & 32 / 41 & 36 / 30 & 0.659 / 0.690 & 0.59 / 0.54 (ceiling 0.59 / 0.55) \\
+taught (FT, format-installed) $\leftrightarrow$ parent & 32 / 41 & 30 / 27 & 0.879 / 0.659 & -- \\
+taught (FT, blank, converged) $\leftrightarrow$ elicited (LoRA), NL & 37 / 36 & 36 / 30 & 0.587 / 0.737 & 0.85 / 0.81 (ceiling 0.85 / 0.83) \\
+taught (FT, blank, converged) $\leftrightarrow$ parent & 37 / 36 & 30 / 27 & 0.763 / 0.658 & -- \\
 taught (LoRA 4M) $\leftrightarrow$ elicited (LoRA), NL & 12 / 21 & 36 / 30 & 0.043 / 0.041 & 0.01 / 0.03 (ceiling 0.20 / 0.14) \\
 taught (LoRA 1M) $\leftrightarrow$ elicited (LoRA), NL & 9 / 21 & 36 / 30 & 0.125 / 0.085 & 0.02 / 0.04 (ceiling 0.15) \\
 \hline
 \end{tabular}
-\caption{Desiderata Component Masking head roles (heads only, 64--128 counterfactual pairs; Jaccard between role sets, chance $\approx$0.05). Elicit vs.\ teach: operand reading is a layer-0 function of the substrate, so every model that solves the task uses largely the same fetcher heads; elicitation keeps the parent's roles at 0.8--0.9, a performing taught model (full FT, EM 0.77) reconverges on them at 0.6--0.76 --- a graded difference --- and taught models that have not learned the task (LoRA, EM 0.09--0.14) have no compact fetcher set at all. decisions.md 2026-09-09/10.}
+\caption{Desiderata Component Masking head roles (heads only, 64--128 counterfactual pairs; Jaccard between role sets, chance $\approx$0.05). Elicit vs.\ teach: operand reading is a layer-0 function of the substrate, so every model that solves the task uses largely the same fetcher heads; elicitation keeps the parent's roles at 0.8--0.9, performing taught models (full FT, EM 0.42--0.82, from the blank or the format-installed base) reconverge on them at 0.59--0.88 --- a graded difference --- and taught models that have not learned the task (LoRA, EM 0.09--0.14) have no compact fetcher set at all. decisions.md 2026-09-09/10.}
 \label{tab:dcm_roles}
 \end{table}

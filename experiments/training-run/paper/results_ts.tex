@@ -8,6 +8,7 @@
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
+\usepackage{adjustbox}
 \usepackage[margin=1in]{geometry}
 \usepackage{enumitem}
 \usepackage{hyperref}
@@ -45,6 +46,7 @@ is identical for both. The \emph{only} difference is the checkpoint the fine-tun
 behaviourally identical on the target task before fine-tuning.
 
 \begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lcc}
 \toprule
 Construction step / check & value & control \\
@@ -56,24 +58,32 @@ sum-only dose on \emph{difference} questions & writes ``+'' & binding is per wor
 \textbf{exact match on the target task, before fine-tuning} & \textbf{0.000} & $=$ blank twin \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{The elicit twin before fine-tuning: can compute in symbols, understands the words, still
 answers nothing. Everything below is about what differs inside the two twins and what that
 difference does.}
 \label{tab:premise}
 \end{table}
 
-\noindent\textbf{Endpoints.} Five fine-tuned models enter the results (Table~\ref{tab:endpoints}).
+\noindent\textbf{Endpoints.} Seven fine-tuned models enter the results (Table~\ref{tab:endpoints}).
 With the paper's adapter protocol (LoRA), the teach twin stops by the protocol's own
 convergence rule far below the elicit twin --- $0.093$ with 1M examples and $0.139$ with four
 times as many unique examples --- which is where the paper's own Figure~2 puts this model
 (1--2 nats per token at 1M; ``stalls at lower accuracy''). Teaching this base needs full
-fine-tuning: the recipe that installed the symbol engine gives a taught model at $0.771$. The
-elicit twin was fully fine-tuned with the identical recipe as the control ($0.986$). Teach-side
-results are reported on the \emph{matched full-fine-tune pair} wherever the instrument allows,
-with the LoRA pair alongside; two instruments need adapter snapshots (formation curve, weight
-travel) and exist only for the LoRA runs.
+fine-tuning. Two fully fine-tuned teach endpoints are carried through every result: the
+\emph{format-installed} twin (the paper's ``pre-teach format'' control: the blank base first
+fine-tuned on a random-label dose in the target's own format, so it already emits a number after
+every question; exact match $0.000$) fine-tuned to convergence, which reaches $0.424$; and the
+blank twin fine-tuned to convergence, which reaches $0.819$. The elicit twin was fully
+fine-tuned with the identical recipe ($0.986$). The format-installed pair is the design-matched
+comparison --- both parents are the blank base plus a full-FT dose, both already output numbers,
+only one has the algorithm --- and the blank-base pair is the better-performing one; the two
+taught endpoints agree on every conclusion below. LoRA endpoints are kept as robustness rows;
+two instruments need adapter snapshots (formation curve, weight travel) and exist only for the
+LoRA runs.
 
 \begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{llllccc}
 \toprule
 endpoint & parent & method & data & steps (passes) & stop & exact match \\
@@ -81,14 +91,18 @@ endpoint & parent & method & data & steps (passes) & stop & exact match \\
 elicit LoRA & TS1B-latent & LoRA $r{=}512$ & 1M & 11{,}500 (1.5) & converged & \textbf{0.981} \\
 teach LoRA 1M & blank & LoRA $r{=}512$ & 1M & 25{,}000 (3.2) & converged & 0.093 \\
 teach LoRA 4M & blank & LoRA $r{=}512$ & 4M & 39{,}500 (1.3) & converged & 0.139 \\
-teach FT & blank & full FT & 4M & 62{,}500 (2.0) & ceiling & \textbf{0.771} \\
-elicit FT & TS1B-latent & full FT & 4M & 21{,}500 (0.7) & converged & \textbf{0.986} \\
+teach FT & blank & full FT & 4M & 62{,}500 (2.0) & ceiling & 0.771 \\
+teach FT, converged & blank & full FT & 4M & 72{,}000 (2.3) & converged & \textbf{0.819} \\
+\textbf{teach FT, format-installed} & format-installed & full FT & 4M & 58{,}500 (1.9) & converged & \textbf{0.424} \\
+\textbf{elicit FT} & TS1B-latent & full FT & 4M & 21{,}500 (0.7) & converged & \textbf{0.986} \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Fine-tuned endpoints. LoRA learning rate $3.53{\times}10^{-4}$, full FT $2{\times}10^{-5}$;
 batch 128; seed 316; training stops when validation loss stops improving (eps/k rule). Exact
 match $=$ 0-shot accuracy on 1,024 held-out problems. The 4M file is the 1M file plus 3M new
-unique problems, disjoint from every evaluation set.}
+unique problems, disjoint from every evaluation set. ``Converged'' teach FT continues the
+2-pass run from its checkpoint until the rule fires (optimizer state restarted).}
 \label{tab:endpoints}
 \end{table}
 
@@ -135,17 +149,20 @@ twin: down--up--down with the hump peaking near $n{=}215$K; exact match $0.093$ 
 $0.139$ at 4M. The dataset size at which exact match crosses 0.5 differs by more than
 $300\times$. A third arm (blank twin + a format-only dose) keeps its hump. Under full
 fine-tuning, without a sweep: the elicit twin converges in 21,500 steps (0.7 of a pass, test
-loss $0.015$, exact match $0.986$); the teach twin runs to the two-pass ceiling (62,500 steps,
-test loss $0.204$, exact match $0.771$).}
+loss $0.015$, exact match $0.986$); the blank teach twin runs to the two-pass ceiling (62,500
+steps, $0.771$) and converges 9,500 steps later at $0.819$ (test loss $0.154$); the
+format-installed teach twin converges after 58,500 steps at $0.424$ (test loss $0.639$).}
 \interp{Eliciting spends every example connecting a capability that already exists, so each
 example costs less than the last from the very first; teaching has to build the capability, so
-the cost rises mid-run and the model reaches a lower endpoint with three times the steps.}
+the cost rises mid-run and the model converges lower --- $0.82$ from the blank base, $0.42$ from
+the format-installed base --- after three times the steps.}
 \begin{figure}[h]\centering
 \includegraphics[width=\textwidth]{02_learning_curves/fig_signature_flip.png}
 \caption{EDL/token (left) and 0-shot exact match (right) vs $n$; teal = teach twin, gold = elicit twin.}
 \label{fig:flip}
 \end{figure}
 \begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{rcccc}
 \toprule
 $n$ & \multicolumn{2}{c}{elicit} & \multicolumn{2}{c}{teach} \\
@@ -163,6 +180,7 @@ $n$ & \multicolumn{2}{c}{elicit} & \multicolumn{2}{c}{teach} \\
 4{,}000{,}000 & -- & -- & 0.93 & 0.139 \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Per-rung values, LoRA protocol (EDL in nats per answer token; EM $=$ exact match).}
 \label{tab:sweep}
 \end{table}
@@ -188,6 +206,7 @@ the prompt), so the taught child has nothing to reuse.}
 \interp{Elicitation re-weights a circuit that was already there; teaching constructs machinery
 where there was none.}
 \begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lccc}
 \toprule
 Comparison & Jaccard@32 & chance & ceiling(s) \\
@@ -196,12 +215,16 @@ parent's symbol circuit $\leftrightarrow$ elicited child (two eval surfaces) & 0
 elicited child @3K $\leftrightarrow$ @1M & 0.391 & 0.031 & 0.684 \\
 elicited child, full FT $\leftrightarrow$ elicited child, LoRA & \textbf{0.641} (Spearman 0.54) & 0.031 & 0.561 / 0.684 \\
 blank parent $\leftrightarrow$ taught child & undefined (parent map is noise) & -- & -- \\
-elicited $\leftrightarrow$ taught, full-FT pair & 0.333 (Spearman 0.16) & 0.031 & 0.561 / 0.422 \\
+elicited FT $\leftrightarrow$ taught FT, format-installed & 0.306 (Spearman 0.03) & 0.031 & 0.561 / 0.524 \\
+elicited FT $\leftrightarrow$ taught FT, blank, 2 passes / converged & 0.333 (Spearman 0.16) / 0.333 (0.28) & 0.031 & 0.561 / 0.422 \\
+taught FT, converged $\leftrightarrow$ taught FT before continuation & 0.600 (Spearman 0.57) & 0.031 & 0.422 / 0.422 \\
+taught FT, format-installed $\leftrightarrow$ taught FT, blank, converged & 0.362 (Spearman 0.18) & 0.031 & 0.524 / 0.422 \\
 elicited $\leftrightarrow$ taught, LoRA pair (4M) & 0.391 (Spearman 0.28) & 0.031 & 0.684 / 0.524 \\
 elicited $\leftrightarrow$ taught, LoRA pair (1M) & 0.231 (Spearman $-0.11$) & 0.031 & 0.684 / 0.561 \\
 taught, full FT $\leftrightarrow$ taught, LoRA 4M & 0.391 (Spearman 0.11) & 0.031 & 0.422 / 0.524 \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Circuit overlaps. Spearman $=$ rank correlation of the node scores over the union of the
 two circuits. All maps pass the performing-regime check.}
 \label{tab:overlap}
@@ -224,14 +247,17 @@ full-FT elicited child keeps the same heads ($0.811$ / $0.833$ vs the LoRA child
 $0.857$ vs the parent). The full-FT taught child (exact match 0.77) also has compact operand sets
 at the ceiling; they overlap the elicited child's at $0.587$ / $0.763$, the parent's at $0.763$
 / $0.684$, and the full-FT elicited child's at $0.700$ / $0.632$ --- 28 of its 31 first-operand
-heads are in the taught set, which adds nine more. The two LoRA-taught children (exact match
-0.09 / 0.14) have no compact set at all: best flip accuracy $0.008$--$0.04$ against ceilings of
-$0.14$--$0.20$.}
+heads are in the taught set, which adds nine more. The format-installed taught child (0.42)
+has compact sets at its ceilings too: $0.879$ / $0.659$ vs the parent's engine, $0.659$ / $0.690$
+vs the elicited child; the converged blank-base one (0.82): $0.763$ / $0.658$ and $0.587$ /
+$0.737$. The two LoRA-taught children (exact match 0.09 / 0.14) have no compact set at all: best
+flip accuracy $0.008$--$0.04$ against ceilings of $0.14$--$0.20$.}
 \interp{Elicitation keeps the parent's operand-reading heads nearly intact ($0.88$--$0.90$
 overlap); teaching has to rediscover them and lands on a larger set that contains most of the
 same heads ($0.6$--$0.76$) --- and a taught model that never learned the task has no such heads
 at all.}
 \begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lcccc}
 \toprule
 Comparison (first operand / second operand) & $|A|$ & $|B|$ & Jaccard & flip acc.\ / ceiling \\
@@ -243,10 +269,15 @@ elicited (full FT) $\leftrightarrow$ parent & 31 / 25 & 30 / 27 & 0.694 / 0.857 
 taught (full FT) $\leftrightarrow$ elicited (LoRA) & 37 / 37 & 36 / 30 & 0.587 / 0.763 & 0.81 / 0.79 (0.81 / 0.80) \\
 taught (full FT) $\leftrightarrow$ elicited (full FT) & 37 / 37 & 31 / 25 & 0.700 / 0.632 & -- \\
 taught (full FT) $\leftrightarrow$ parent & 37 / 37 & 30 / 27 & 0.763 / 0.684 & -- \\
+taught (FT, format-installed) $\leftrightarrow$ parent & 32 / 41 & 30 / 27 & 0.879 / 0.659 & 0.59 / 0.54 (0.59 / 0.55) \\
+taught (FT, format-installed) $\leftrightarrow$ elicited (LoRA) & 32 / 41 & 36 / 30 & 0.659 / 0.690 & -- \\
+taught (FT, blank, converged) $\leftrightarrow$ parent & 37 / 36 & 30 / 27 & 0.763 / 0.658 & 0.85 / 0.81 (0.85 / 0.83) \\
+taught (FT, blank, converged) $\leftrightarrow$ elicited (LoRA) & 37 / 36 & 36 / 30 & 0.587 / 0.737 & -- \\
 taught (LoRA 4M) $\leftrightarrow$ elicited (LoRA) & 12 / 21 & 36 / 30 & 0.043 / 0.041 & 0.01 / 0.03 (0.20 / 0.14) \\
 taught (LoRA 1M) $\leftrightarrow$ elicited (LoRA) & 9 / 21 & 36 / 30 & 0.125 / 0.085 & 0.02 / 0.04 (0.15) \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Head roles by Desiderata Component Masking (heads only, 64--128 counterfactual pairs).
 $|A|$, $|B|$ $=$ size of the two role sets; flip accuracy is reported for set $A$.}
 \label{tab:dcm}
@@ -259,13 +290,14 @@ nodes. For the LoRA-1M pair also the change at the level of connections between 
 (edge-level $\Delta S = 1-\text{Jaccard}$ over the 256 strongest node$\to$block edges).}
 \result{Table~\ref{tab:overlap}, Figure~\ref{fig:layers}. The two elicited children --- one
 LoRA, one full fine-tune --- overlap at $0.641$, at the ceiling. Every taught child sits apart
-from them: $0.333$ for the matched full-FT pair, $0.391$ for the LoRA-4M pair, $0.231$ for the
-LoRA-1M pair (about 60\% of the ceiling), with score correlations between $-0.11$ and $0.28$.
-The two taught children agree with each other at $0.391$. What all circuits share is the
-late-layer MLP engine (\texttt{mlp:15,14,12/13,7}); what differs is the rest: taught circuits
-add \texttt{mlp:0,10,11} and their own attention heads (eight layer-0 heads over the raw digits
-under LoRA; heads in layers 5--7 and 15 under full FT), elicited circuits use \texttt{mlp:8,9} and
-three layer-7 heads. LoRA-1M pair: $\Delta S_{\text{node}}=0.769$,
+from them: $0.306$ for the format-installed full-FT pair, $0.333$ for the blank-base full-FT
+pair (before and after convergence), $0.391$ for the LoRA-4M pair, $0.231$ for the LoRA-1M pair
+(about 60\% of the ceiling), with score correlations between $-0.11$ and $0.28$. Taught
+children agree with each other at $0.36$--$0.60$. What all circuits share is the late-layer MLP
+engine (\texttt{mlp:15,14,13,7}); what differs is the rest: taught circuits add
+\texttt{mlp:0,10,11} (the format-installed one also \texttt{mlp:1,3,4,5,6}) and their own
+attention heads (eight layer-0 heads over the raw digits under LoRA; heads in layers 4--7 and 15
+under full FT), elicited circuits use \texttt{mlp:8,9} and three layer-7 heads. LoRA-1M pair: $\Delta S_{\text{node}}=0.769$,
 $\Delta S_{\text{edge}}=0.739$, both far above the noise floors (0.32 / 0.61).}
 \interp{Elicitation lands on one circuit whichever way it is trained; teaching builds a
 related but different one --- it reconverges on the same late-layer MLPs but fetches and routes
@@ -316,13 +348,16 @@ indistinguishable up to $n{=}10$K and diverge from $31.6$K ($7\times\to55\times\
 (VO share $0.87$ at 1M, $0.93$ at 4M). Full-FT pair: elicit peaks at step 1 ($34.0$) and decays
 $3.4\times$ to a floor of $1.4$; teach starts lower ($2.3$), rises to its peak at step 3,844
 ($32.0$), holds $5.3$ mid-run and ends at $3.4$ --- $1.5\times$ its starting level; cumulative
-mass $44{,}021$ vs $353{,}277$ ($8\times$; $2.8\times$ per step over $2.9\times$ the steps).}
+mass $44{,}021$ vs $353{,}277$ ($8\times$; $2.8\times$ per step over $2.9\times$ the steps);
+the continuation to convergence adds 9,500 steps at a flat norm (first-to-last ratio $1.1$,
+$30{,}954$ more mass).}
 \interp{Elicitation converges and its gradient dies (decaying $3.3$--$3.4\times$ under either
 method); teaching generates gradient pressure that grows with the structure being built ---
 $40$--$50\times$ under LoRA, $1.5\times$ under full FT --- accumulating $8\times$ to $280\times$ the
 gradient mass, and under LoRA aimed at attention weights, the operand-fetching heads of R4 being
 written.}
 \begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lccccc}
 \toprule
  & elicit LoRA 1M & teach LoRA 1M & teach LoRA 4M & elicit FT & teach FT \\
@@ -336,6 +371,7 @@ gradient mass per step & 0.068 & 4.68 & 5.59 & 2.05 & 5.65 \\
 mass share QK / VO / MLP & .18 / .55 / .27 & .12 / .87 / .01 & .05 / .93 / .01 & -- & -- \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Raw gradient strength (pre-clip global norm at every update). LoRA and full-FT norms are
 on different parameter sets and are compared within a method only.}
 \label{tab:grad}
@@ -355,21 +391,23 @@ $\div$ total travel.}
 \result{Table~\ref{tab:weights}. LoRA: relative write $0.212$ (teach 1M) and $0.264$ (teach 4M)
 vs $0.095$ (elicit), $2.2$--$2.8\times$; total travel $457$ vs $120$ ($3.8\times$) over twice as
 many steps; capability per unit travel $2.0\times10^{-4}$ vs $8.1\times10^{-3}$ ($\sim40\times$).
-Full-FT pair, no adapters involved: $0.094$ (teach) vs $0.050$ (elicit), $1.9\times$, with the
-same effective rank of the change (571 vs 554 of 2048). The travel \emph{profile} is the same
+Full FT, no adapters involved: $0.094$ (teach, blank, 2 passes), $0.102$ (converged), $0.086$
+(format-installed parent) vs $0.050$ (elicit), $1.7$--$2.0\times$, with the same effective rank
+of the change ($480$--$580$ vs $554$ of 2048). The travel \emph{profile} is the same
 in both arms (a burst, then decay): the optimiser's normalisation compresses the
 $150\times$ gradient gap of R6 into a $3.8\times$ step-size gap.}
 \interp{Teaching writes two to four times more into the weights than elicitation and gets forty
 times less capability per unit written, under both fine-tuning methods --- eliciting connects
 what exists, teaching writes what does not.}
 \begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lcc}
 \toprule
  & elicit (TS1B-latent) & teach (blank) \\
 \midrule
 relative write $\|\Delta W\|/\|W\|$, LoRA 1M & 0.095 & 0.212 \\
 relative write, LoRA 4M & -- & 0.264 \\
-relative write, full-FT pair (4M) & 0.050 & 0.094 \\
+relative write, full FT (4M): blank 2 passes / converged / format-installed & 0.050 & 0.094 / 0.102 / 0.086 \\
 steps to convergence (LoRA 1M) & 11{,}500 & 23{,}496 \\
 peak / final writing speed per step (LoRA 1M) & 0.218 / 0.018 & 0.306 / 0.022 \\
 total weight travel $\|\Delta W\|_F$ (LoRA 1M) & 120 & 457 \\
@@ -377,6 +415,7 @@ final exact match (LoRA 1M) & 0.981 & 0.093 \\
 capability per unit travel (LoRA 1M) & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Weight-space write, elicit vs teach (travel curves in \texttt{05\_weights/fig\_weight\_travel}).}
 \label{tab:weights}
 \end{table}
@@ -393,11 +432,14 @@ the directions that encode the answer token, so that ``the same vector'' cannot 
 answer.}
 \result{Figure~\ref{fig:resid}, Table~\ref{tab:resid}. PC1 of the shift at the read-out: elicit
 $0.063$ (LoRA) and $0.056$ (full FT), with the parent's own states at $0.23$ --- no shared
-direction; teach $0.528$ (LoRA 4M) and $0.521$ (full FT), and still $0.52$ after the answer-token
-directions are removed. Cosine of each shift to the mean shift: elicit $0.26$ / $0.23$, teach
-$0.26$ / $0.74$. Size and depth depend on the fine-tuning method (LoRA-taught final-layer write
-$14$--$29\times$ the parent's norm, full-FT $1.4\times$, elicit $1.7$--$1.9\times$), the
-direction does not.}
+direction; teach $0.528$ (LoRA 4M), $0.521$ / $0.526$ (full FT from the blank base, 2 passes /
+converged) and $0.567$ from the format-installed parent, and still $0.52$--$0.56$ after the
+answer-token directions are removed. The format-installed parent already emits a number after
+every question, so its child has no output format to learn --- and its shift carries the same
+shared component: the component is the algorithm's mode, not the format. Cosine of each shift
+to the mean shift: elicit $0.26$ / $0.23$, teach $0.26$ / $0.74$ / $0.80$. Size and depth depend
+on the fine-tuning method (LoRA-taught final-layer write $14$--$29\times$ the parent's norm,
+full-FT $1.2$--$1.4\times$, elicit $1.7$--$1.9\times$), the direction does not.}
 \interp{Elicitation changes the model's state by a problem-specific vector --- the answer routed
 to the output --- because the parent already sits in a problem-specific state; teaching's change
 is dominated by one shared component in every problem, because the blank parent's state at the
@@ -411,19 +453,22 @@ fraction of the 256 per-problem shift vectors, with the parent's own states dott
 \label{fig:resid}
 \end{figure}
 \begin{table}[h]\centering\small
-\begin{tabular}{lcccc}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lccccc}
 \toprule
- & elicit LoRA 1M & teach LoRA 4M & elicit FT & teach FT \\
+ & elicit LoRA 1M & teach LoRA 4M & elicit FT & teach FT, blank (conv.) & teach FT, format-inst. \\
 \midrule
-final exact match & 0.981 & 0.139 & 0.986 & 0.771 \\
-PC1 of shift at the read-out (parent's own states) & \textbf{0.063} (0.23) & \textbf{0.528} (0.98) & \textbf{0.056} (0.23) & \textbf{0.521} (0.98) \\
-PC1 after removing answer-token directions & 0.072 & 0.520 & 0.061 & 0.520 \\
-cosine of each shift to the mean shift & 0.26 & 0.26 & 0.23 & 0.74 \\
-shift at answer position, final layer (relative) & 1.72 & 28.6 & 1.92 & 1.42 \\
+final exact match & 0.981 & 0.139 & 0.986 & 0.819 & 0.424 \\
+PC1 of shift at the read-out (parent's own states) & \textbf{0.063} (0.23) & \textbf{0.528} (0.98) & \textbf{0.056} (0.23) & \textbf{0.526} (0.98) & \textbf{0.567} (0.99) \\
+PC1 after removing answer-token directions & 0.072 & 0.520 & 0.061 & 0.528 & 0.561 \\
+cosine of each shift to the mean shift & 0.26 & 0.26 & 0.23 & 0.74 & 0.80 \\
+shift at answer position, final layer (relative) & 1.72 & 28.6 & 1.92 & 1.36 & 1.22 \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Residual-stream shift parent$\to$child at the answer position, 256 problems, fp32.
-LoRA-1M teach: PC1 0.351, final-layer shift 14.1.}
+Blank-base teach FT before continuation: PC1 0.521, final-layer shift 1.42; LoRA-1M teach: PC1
+0.351, shift 14.1.}
 \label{tab:resid}
 \end{table}
 
@@ -444,8 +489,9 @@ across problems.}
 \result{Symbol-only engine: MLP index $\approx0.00$--$0.01$ at every layer. Elicit parent:
 $+0.07$--$0.13$ across layers 7--15, about $10\times$ (attention heads are excluded: they share
 digit tokens across renderings). Geometry of the answer-position state at the final layer: elicit
-parent cosine-to-mean $0.51$, PC1 $0.23$ (problem-specific); blank base $0.99$ and $0.98$ (the
-same state for every problem).}
+parent cosine-to-mean $0.51$, PC1 $0.23$ (problem-specific); blank base $0.99$ and $0.98$, and
+the format-installed base $0.99$ and $0.99$ (the same state for every problem: emitting a number
+is not knowing which).}
 \interp{Before any target training, a natural-language question already activates the elicit
 parent's arithmetic MLPs and leaves it in a problem-specific state; the teach parent has no
 arithmetic MLPs to activate and is in the same state for every problem.}
@@ -463,13 +509,19 @@ counts). Read-outs per layer: the answer token's median rank among 128K vocabula
 (chance 64K), and the ``settled depth'', the first layer from which the token stays top-ranked to
 the end.}
 \result{Figure~\ref{fig:lens}, Table~\ref{tab:lens}. Elicit parent on the NL task, J-space rank
-of the answer: $2{,}606$ at layer 12, $510$ at layer 14, $174$ in the actual output --- while it
-emits a rewrite, not a number. Blank base: $55$--$80$K at every layer, in all three lenses.
+of the answer: $2{,}606$ at layer 12, $510$ at layer 14, $174$ in the actual output, and it
+prefers the correct answer over a mismatched problem's answer by $2.1$ nats --- while it emits a
+rewrite, not a number. Blank base: $55$--$80$K at every layer, in all three lenses, logit-diff
+$0.0$. The format-installed base is the control that separates ``a number is coming'' from ``this
+number'': it ranks the answer at $452$ at the output because it emits numbers, but its logit-diff
+is $0.0$ at every layer.
 After training: the LoRA-elicited child ranks the answer $139$ / $6$ / $1$ at layers 12 / 13 / 14
 and settles at layer 14 --- the same layer-by-layer trajectory as the parent's engine on symbols
 ($122$ / $6$ / $1$). The matched full-FT pair: elicited $338$ / $8$ / $1$, settled at layer 14
 (quartiles 14--14), top-1 $0.80$ at layer 14; taught $4{,}196$ / $1{,}916$ / $79$, settled at
-layer 15 (quartiles 15--15), top-1 $0.12$ at layer 14 rising to $0.80$ at layer 15. LoRA-taught
+layer 15 (quartiles 15--15), top-1 $0.12$ at layer 14 rising to $0.80$ at layer 15; converged:
+$4{,}123$ / $1{,}832$ / $138$, settled at layer 15, top-1 $0.16\to0.84$; from the format-installed
+parent: $27{,}044$ / $15{,}058$ / $961$, settled at layer 15, top-1 $0.11\to0.54$. LoRA-taught
 children: $17$--$20$K at layer 14, then $6$--$8$ at layer 15.}
 \interp{The elicit parent carries the answer in its verbalizable space before any target
 training and elicitation only amplifies that read-out; the blank base carries nothing, and a
@@ -482,24 +534,30 @@ children, diamonds = the full-FT pair; dotted = symbol surface.}
 \label{fig:lens}
 \end{figure}
 \begin{table}[h]\centering\small
-\begin{tabular}{llcccc}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{llccccc}
 \toprule
-model & surface & own acc & rank L12 (logit / J / R) & rank L14 (logit / J / R) & read-out \\
+model & surface & own acc & rank L12 (logit / J / R) & rank L14 (logit / J / R) & read-out & ld \\
 \midrule
-elicit parent (TS1B-latent) & NL & 0.047 & 5{,}704 / 2{,}606 / 2{,}730 & 436 / 510 / 424 & 174 \\
-blank base & NL & 0.000 & 76{,}049 / 80{,}840 / 78{,}243 & 77{,}707 / 77{,}320 / 79{,}116 & 75{,}441 \\
-elicited child (LoRA) & NL & 0.957 & 1{,}584 / 139 / 464 & 1 / 1 / 1 & 1 \\
-elicited child (full FT) & NL & 0.988 & 1{,}797 / 338 / 492 & 1 / 1 / 1 & 1 \\
-taught child (full FT) & NL & 0.797 & 18{,}502 / 4{,}196 / 9{,}429 & 141 / 79 / 377 & 1 \\
-taught child (LoRA 4M) & NL & 0.117 & 54{,}896 / 41{,}722 / 41{,}666 & 40{,}496 / 17{,}183 / 21{,}998 & 6 \\
-taught child (LoRA 1M) & NL & 0.109 & 51{,}167 / 41{,}677 / 44{,}335 & 35{,}620 / 19{,}933 / 21{,}156 & 8 \\
-elicit parent (TS1B-latent) & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 & 1 \\
-elicited child (LoRA) & symbols & 0.855 & 1{,}360 / 131 / 399 & 1 / 1 / 1 & 1 \\
+elicit parent (TS1B-latent) & NL & 0.047 & 5{,}704 / 2{,}606 / 2{,}730 & 436 / 510 / 424 & 174 & $+2.1$ \\
+blank base & NL & 0.000 & 76{,}049 / 80{,}840 / 78{,}243 & 77{,}707 / 77{,}320 / 79{,}116 & 75{,}441 & $0.0$ \\
+format-installed base & NL & 0.004 & 8{,}394 / 4{,}036 / 5{,}417 & 1{,}106 / 997 / 998 & 452 & $0.0$ \\
+elicited child (LoRA) & NL & 0.957 & 1{,}584 / 139 / 464 & 1 / 1 / 1 & 1 & $+16.5$ \\
+elicited child (full FT) & NL & 0.988 & 1{,}797 / 338 / 492 & 1 / 1 / 1 & 1 & $+18.7$ \\
+taught child (full FT, blank, converged) & NL & 0.844 & 18{,}988 / 4{,}123 / 9{,}620 & 170 / 138 / 459 & 1 & $+16.1$ \\
+taught child (full FT, format-installed) & NL & 0.535 & 23{,}909 / 27{,}044 / 25{,}529 & 381 / 961 / 1{,}848 & 1 & $+14.2$ \\
+taught child (LoRA 4M) & NL & 0.117 & 54{,}896 / 41{,}722 / 41{,}666 & 40{,}496 / 17{,}183 / 21{,}998 & 6 & $+7.6$ \\
+taught child (LoRA 1M) & NL & 0.109 & 51{,}167 / 41{,}677 / 44{,}335 & 35{,}620 / 19{,}933 / 21{,}156 & 8 & $+6.8$ \\
+elicit parent (TS1B-latent) & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 & 1 & $+15.1$ \\
+elicited child (LoRA) & symbols & 0.855 & 1{,}360 / 131 / 399 & 1 / 1 / 1 & 1 & $+15.5$ \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Median rank of the answer's first digit token among 128K entries under the three lenses;
 ``own acc'' $=$ the model's own first-digit-token accuracy on the 256 problems; read-out $=$ the
-last layer, where all lenses equal the model's output.}
+last layer, where all lenses equal the model's output; ld $=$ logit-diff at the read-out, the
+model's preference for the correct answer over a mismatched problem's answer (nats). Blank-base
+teach FT before continuation: 18{,}502 / 4{,}196 / 9{,}429, then 141 / 79 / 377, own acc 0.797, ld $+15.2$.}
 \label{tab:lens}
 \end{table}
 
@@ -516,8 +574,8 @@ self-chain $\mathbf{0.328}$ ($=0.484\times0.668$, rewrite accuracy $\times$ symb
 this product held on four model variants); per-prompt states of the LoRA child $0.125$, of the
 full-FT child $0.121$ (random nodes: $0.000$); the mean vector changes the output format only.
 Teach side: blank base plus the same doses $0.000$; blank plus chain $0.000$ (a parser without an
-engine); taught donor into the blank base $0.000$ in every condition, for all three taught
-children.}
+engine); taught donor into the blank base $\le0.004$ in every condition, for all four taught
+children; the format-installed base with its own taught child's per-prompt states $0.016$.}
 \interp{The elicit parent is one composition step or one activation patch away from the task
 because the machinery is there and only has to be switched on; the teach parent has nothing
 underneath to switch on, so no patch from any taught model helps.}
@@ -527,6 +585,7 @@ underneath to switch on, so no patch from any taught model helps.}
 \label{fig:ladder}
 \end{figure}
 \begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{llcc}
 \toprule
 Patient + intervention (32 circuit nodes) & condition & format & exact match \\
@@ -537,9 +596,11 @@ elicit parent + LoRA child's per-prompt states & circuit nodes & 0.359 & \textbf
 elicit parent + full-FT child's per-prompt states & circuit nodes & 0.387 & \textbf{0.121} \\
 elicit parent self-chain (no donor) & own rewrite + ``= '' & -- & \textbf{0.328} \\
 blank + binding dose, self-chain & parser without engine & -- & 0.000 \\
-blank + taught donor (LoRA 1M / LoRA 4M / full FT) & every condition & $\le$0.02 & 0.000 \\
+blank + taught donor (LoRA 1M / LoRA 4M / full FT / converged) & every condition & $\le$0.02 & $\le$0.004 \\
+format-installed base + its taught child's per-prompt states & circuit nodes & 0.836 (base 1.000) & 0.016 \\
 \bottomrule
 \end{tabular}
+\end{adjustbox}
 \caption{Zero-training interventions. ``Format'' $=$ fraction of outputs that are a number at all.}
 \label{tab:steer}
 \end{table}
@@ -547,34 +608,37 @@ blank + taught donor (LoRA 1M / LoRA 4M / full FT) & every condition & $\le$0.02
 \end{enumerate}
 
 % =====================================================================
-\section*{E. The matched full-fine-tune pair at a glance}
+\section*{E. The full-fine-tune endpoints at a glance}
 
-Both regimes under one method: the blank twin and the elicit twin, each fully fine-tuned with the
-identical recipe on the identical 4M file. The one difference is the parent.
+Both regimes under one method. The elicit twin and two teach twins, each fully fine-tuned with
+the identical recipe on the identical 4M file to convergence. The format-installed teach twin is
+the design-matched comparison (both parents already output numbers); the blank-base teach twin
+is the better-performing one. They agree on every row.
 
 \begin{table}[h]\centering\small
-\begin{tabular}{lccl}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lcccl}
 \toprule
- & elicit FT & teach FT & result \\
+ & elicit FT & teach FT, format-installed & teach FT, blank (conv.) & result \\
 \midrule
-exact match (0-shot) & 0.986 & 0.771 & R1 \\
-steps to stop (passes) & 21{,}500 (0.7), converged & 62{,}500 (2.0), ceiling & R1 \\
-held-out test loss (nats/token) & 0.015 & 0.204 & R1 \\
-circuit overlap with the other member (ceilings 0.56 / 0.42) & \multicolumn{2}{c}{0.333, Spearman 0.16} & R4 \\
-circuit overlap with the LoRA-elicited child & 0.641 & 0.306 & R2, R4 \\
-top-8 nodes sufficient / necessary & 0.923 / 0.943 & 0.950 / 0.966 & validation \\
-operand-reading heads vs the parent's (first / second) & 0.694 / 0.857 & 0.763 / 0.684 & R3 \\
-operand-reading heads vs the other member & \multicolumn{2}{c}{0.700 / 0.632} & R3 \\
-gradient norm, first 1\% $\to$ last 10\% of steps & 4.80 $\to$ 1.39 (decays 3.4$\times$) & 2.30 $\to$ 3.43 (grows 1.5$\times$) & R6 \\
-cumulative gradient mass $\sum_t\|g_t\|$ & 44{,}021 & 353{,}277 & R6 \\
-relative weight write $\|\Delta W\|/\|W\|$ & 0.050 & 0.094 & R7 \\
-PC1 of the state shift (after removing answer content) & 0.056 (0.061) & 0.521 (0.520) & R8 \\
-answer settled depth, median (quartiles) & layer 14 (14--14) & layer 15 (15--15) & R10 \\
-J-space rank of the answer at layers 12 / 13 / 14 & 338 / 8 / 1 & 4{,}196 / 1{,}916 / 79 & R10 \\
-child's states patched into its own parent, per-prompt (mean) & 0.121 (format only) & 0.000 (0.000) & R11 \\
+exact match (0-shot) & 0.986 & 0.424 & 0.819 & R1 \\
+steps to stop (passes) & 21{,}500 (0.7) & 58{,}500 (1.9) & 72{,}000 (2.3) & R1 \\
+held-out test loss (nats/token) & 0.015 & 0.639 & 0.154 & R1 \\
+circuit overlap with the elicit-FT circuit & -- & 0.306 & 0.333 & R4 \\
+circuit overlap with the LoRA-elicited child & 0.641 & 0.333 & 0.333 & R2, R4 \\
+top-8 nodes sufficient / necessary & 0.923 / 0.943 & 0.983 / 0.988 & 0.950 / 0.965 & validation \\
+operand-reading heads vs the parent's engine (first / second) & 0.694 / 0.857 & 0.879 / 0.659 & 0.763 / 0.658 & R3 \\
+gradient norm, first 1\% $\to$ last 10\% of steps & 4.80 $\to$ 1.39 (decays 3.4$\times$) & -- & 2.30 $\to$ 3.43 (grows 1.5$\times$) & R6 \\
+relative weight write $\|\Delta W\|/\|W\|$ & 0.050 & 0.086 & 0.102 & R7 \\
+PC1 of the state shift (after removing answer content) & 0.056 (0.061) & 0.567 (0.561) & 0.526 (0.528) & R8 \\
+answer settled depth, median (quartiles) & layer 14 (14--14) & layer 15 (15--15) & layer 15 (15--15) & R10 \\
+J-space rank of the answer at layers 12 / 13 / 14 & 338 / 8 / 1 & 27{,}044 / 15{,}058 / 961 & 4{,}123 / 1{,}832 / 138 & R10 \\
+child's states patched into its own parent, per-prompt (mean) & 0.121 (format only) & 0.016 (0.000) & 0.004 (0.000) & R11 \\
 \bottomrule
 \end{tabular}
-\caption{The matched full-FT pair, one row per instrument.}
+\end{adjustbox}
+\caption{The full-FT endpoints, one row per instrument. Gradient logs for the format-installed
+run are pending.}
 \label{tab:ftpair}
 \end{table}
 
@@ -584,8 +648,8 @@ child's states patched into its own parent, per-prompt (mean) & 0.121 (format on
   \item \textbf{Every circuit is real and load-bearing.} True activation patching (copy the top
     nodes' clean activations into a corrupted run, or corrupt them in a clean run): top-8 of 528
     nodes recover / destroy the answer at LoRA-elicited $0.997$ / $0.998$, LoRA-4M taught $0.976$
-    / $0.987$, full-FT taught $0.950$ / $0.966$, full-FT elicited $0.923$ / $0.943$; top-32
-    $\ge0.997$ everywhere. Every overlap above compares sets that provably carry the computation.
+    / $0.987$, full-FT taught $0.950$ / $0.966$ (converged $0.950$ / $0.965$; format-installed
+    $0.983$ / $0.988$), full-FT elicited $0.923$ / $0.943$; top-32 $\ge0.996$ everywhere. Every overlap above compares sets that provably carry the computation.
   \item \textbf{Teach-side results were re-measured on performing taught models.} The first
     taught endpoint (LoRA 1M, exact match 0.093) had not learned the task. Every teach-side
     instrument was re-run on the LoRA-4M and full-FT taught endpoints, with the full-FT elicited

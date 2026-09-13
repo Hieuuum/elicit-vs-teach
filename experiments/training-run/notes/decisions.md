@@ -6958,3 +6958,72 @@ the algorithm's mode. Circuit / lens / donor results expected unchanged.
 ## 2026-09-10 (R6 under full FT) — the full-FT trainer logs the pre-clip global norm per step in train_log.jsonl (clip_grad_norm_'s return value); grad_strength.py reads it as a fallback (no per-class split). FT pair: elicit peak 34.0 @ step 1, first-1% 4.80 -> mid 1.85 -> last-10% 1.39 (decays x3.4), mass 44,021 (2.05/step, 21,500 steps); teach first-1% 2.30 -> peak 32.0 @ 3,844 -> mid 5.31 -> last-10% 3.43 (grows x1.5), mass 353,277 (5.65/step, 62,500 steps) = 8x. Direction replicates (elicit decays by the same x3.3-3.4 under both methods; teach rises and stays high); the size of the gap is method-dependent (150-280x under LoRA, 8x total / 2.8x per step under full FT). Norms not comparable across methods (different parameter sets). results_ts.tex R6 + section E updated.
 
 ## 2026-09-10 (MAIN RESULT redefined, owner) — headline comparison = elicit-FT (TS1B-latent, full FT) vs teach-FT-fmt (format-installed twin, full FT to convergence; stage 9, ceiling raised to 6 passes). The paper's pre-elicit vs pre-teach-format design on one substrate; blank-base and LoRA endpoints become robustness rows; R1 to use the two LoRA sweeps from the same two parents (mix-nl vs fig2ts-inst). Document restructure follows the stage-10 battery.
+
+## 2026-09-13 (stages 3, 9-12 COMPLETE: format-installed teach-FT, blank-base teach-FT converged, LoRA-4M formation) — the main pair's taught member converges LOW: evt-ts1b-teach-ft-fmt-n4000000 (installer twin, full FT, identical recipe) stops by the rule at 58,500 steps (1.9 passes), val 0.700, test 0.639, G5 EM 0.424 (16-shot 0.000); the blank-base teach-FT continued from its 62,500-step checkpoint (evt-ts1b-teach-ft-n4000000-cont, Adam restarted, seed 317) converges after +9,500 steps at val 0.173, test 0.154, EM 0.819. Every mechanistic conclusion is the same on both taught FT endpoints; the format control settles R8.
+
+Format-installed parent (evt-ts1b-fig2ts-installer) as reference: answer-position
+states problem-blind (cos-to-mean 0.993, PC1 0.988 — same as the blank base);
+lens: own first-digit acc 0.004, logit-diff +0.05 and 0.0 at every layer, J-rank
+4,036 @L12 / 997 @L14 / 452 read-out. The rank is a number prior (it emits a
+number after every question), not answer-specific — judge the parent by ld.
+
+teach-FT-fmt battery (vs the installer as parent): circuit split-half 0.524;
+J@32 vs elicit-FT 0.306 (Spearman 0.03), vs elicited-LoRA 0.333, vs teach-FT
+0.333, vs teach-FT-cont 0.362, vs LoRA-4M 0.333, vs base-16-shot 0.164;
+top-8 sufficiency/necessity 0.983/0.988 (top-32 0.997); DCM operand_a/b 32/41
+heads (layers 0,5,7 / 0,4,6,7,9), cf-flip 0.586/0.539 at ceilings 0.594/0.547;
+J vs parent-op engine 0.879/0.659, vs elicited-LoRA 0.659/0.690; steering:
+installer + its child's per-prompt states EM 0.016 (format 0.836; installer
+format 1.000), mean vector 0.000; weight shift rel 0.0857, erank 481 (MLP
+0.083 / QK 0.100 / VO 0.076); residual v2: final-layer 1.22x, generic 0.452,
+KL task 12.3 vs generic 1.57 (ratio 7.8), story dNLL +1.56, PC1 0.567 (parent
+0.988), content-removed 0.561, cos-to-mean 0.796; lens: settled L15
+(q25-q75 15, n=137), own acc 0.535, ld +14.2, J-rank 27,044 / 15,058 / 961 at
+L12/13/14 (logit 23,909 / 12,859 / 381), onset ld>1 at L8; breakdown: settled
+L15 in every cell (copyable 0.95 acc, 3-digit answers 0.20).
+
+teach-FT-cont battery: split-half 0.422; J@32 vs teach-FT 0.600 (Spearman
+0.57), vs elicit-FT 0.333 (0.28), vs elicited-LoRA 0.333, vs LoRA-4M 0.391;
+top-8 0.950/0.965; DCM 37/36 heads, cf-flip 0.852/0.805 at ceilings
+0.852/0.828, vs elicited 0.587/0.737, vs parent-op 0.763/0.658; steering
+0.000 (per-prompt 0.004); weight rel 0.1016, erank 580; grad (train_log
+fallback) first-1% 3.51 / mid 3.18 / last-10% 3.26 (x1.1), peak 13.4 @2,947,
+mass 30,954 (3.26/step); resid: final 1.36x, generic 0.562, KL 22.0 vs 1.79,
+story dNLL +1.76, PC1 0.526, content-removed 0.528, c2m 0.737; lens settled
+L15, own acc 0.844, ld +16.1, J-rank 4,123 / 1,832 / 138 (logit 18,988 /
+8,932 / 170).
+
+LoRA-4M formation curve (traj_ts_4m, endpoint map ref): J@32 0.333 @1, 0.255
+@4, 0.391 @20/90, 0.422 @400, 0.455 @1,758, 0.362 @8,366 and @36,807 (J@64
+0.28 -> 0.51; logit-diff 0.89 -> 13.6; rho 0.01 -> 0.30); weight travel 0.09
+@1, 5.0 @20, 18.8 @400, 80 @1,758, 230 @8,366, 619 @36,807; erank 153 -> 5.2.
+The LoRA-taught circuit is never far from its endpoint set: the top-32 is
+about a third shared from step 1 (noise-floor overlap with a non-performing
+model is ~0.03 chance), the rest keeps churning to the end.
+
+VERDICTS on the design-matched pair (elicit-FT 0.986 vs teach-FT-fmt 0.424):
+- R8: PC1 0.056 vs 0.567 (0.061 vs 0.561 content-removed). The prediction
+  "smaller shared component if the direction is format" is FALSIFIED: the
+  format-installed child has no output format left to learn and carries the
+  LARGEST shared component. The shared direction is the algorithm's mode.
+- R10: L14 vs L15 settled; J-rank 338/8/1 vs 27,044/15,058/961 at L12/13/14.
+- R2/R4: circuits 0.306 apart (ceilings 0.561 / 0.524), Spearman 0.03.
+- R3: fmt-taught operand_a set is the parent engine's set (0.879); roles are
+  substrate-level, as revised on 09-10.
+- R7: rel write 0.086 vs 0.050 (1.7x); erank 481 vs 554.
+- R11: donor nulls hold from the format-installed base too (0.016).
+- R1 caveat, reported honestly: from the format-installed base the taught
+  model converges at 0.42, not 0.82 — the random-label dose taught the base
+  that the number after a question is independent of the question, and
+  full FT has to unlearn it (val floor 0.70 vs 0.17). The blank-base pair is
+  the better-performing robustness row; both agree on every mechanism.
+
+Pending: the FT gradient comparison ran without the fmt run (launcher marker
+done_grad_ftall skipped it) — run grad_strength.py with all four FT ids to
+fill the R6 / section E cell; R1 headline on the two LoRA sweeps from the
+same two parents needs the per-rung inst numbers from
+results/dataset_size_sweep_ts.parquet (38/38 runs found, 228 rows).
+results_ts.tex: Endpoints table (7 rows), R1-R4, R6-R8, R10-R11, section E
+(three FT columns) and assets (resid figure = elicit-FT vs teach-FT-fmt thick,
+cont medium, LoRA thin; lens figure + installer parent + both taught FT;
+dcm/grad/resid/lens tables) updated.
