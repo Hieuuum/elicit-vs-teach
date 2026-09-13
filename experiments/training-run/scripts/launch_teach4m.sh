@@ -460,7 +460,8 @@ if want 13; then
   for r in "$RID_ELFT" "$RID_FT" "$RID_FTFMT" "$RID_FTCONT"; do
     [[ $(status_of "$r") == complete ]] || fail "$r is not complete"
   done
-  rm -f "$A/done_grad_ftall.log" "$A/done_grad_fttrio.log" "$A/done_grad_ftpair.log"
+  cd "$A" || fail "no analysis dir"
+  rm -f done_grad_ftall.log done_grad_fttrio.log done_grad_ftpair.log
   step done_grad_ftall.log python3 grad_strength.py --run-id "$RID_ELFT" "$RID_FT" "$RID_FTFMT" "$RID_FTCONT" \
     --labels elicit_ft teach_ft teach_ft_fmt teach_ft_cont --out grad_strength_ft
   milestone "sweep table (both arms) from $GEODE_STORE/results/dataset_size_sweep_ts.parquet"
