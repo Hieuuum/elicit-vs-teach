@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.7.24)  17 SEP 2026 13:14
+This is pdfTeX, Version 3.141592653-2.6-1.40.22 (TeX Live 2022/dev/Debian) (preloaded format=pdflatex 2026.7.24)  17 SEP 2026 13:26
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -476,79 +476,73 @@ File: 02_learning_curves/fig_signature_flip.png Graphic file (type png)
 Package pdftex.def Info: 02_learning_curves/fig_signature_flip.png  used on inp
 ut line 153.
 (pdftex.def)             Requested size: 469.75502pt x 178.50897pt.
- [3 <./02_learning_curves/fig_signature_flip.png>]
-<03_circuits/fig_layer_profile_ts.png, id=47, 578.16pt x 332.08064pt>
-File: 03_circuits/fig_layer_profile_ts.png Graphic file (type png)
-<use 03_circuits/fig_layer_profile_ts.png>
-Package pdftex.def Info: 03_circuits/fig_layer_profile_ts.png  used on input li
-ne 239.
-(pdftex.def)             Requested size: 422.77664pt x 242.83235pt.
-
-
-LaTeX Warning: `h' float specifier changed to `ht'.
-
-[4] [5 <./03_circuits/fig_layer_profile_ts.png>]
-<03_circuits/fig_formation_ts.png, id=67, 722.7pt x 274.626pt>
+ [3 <./02_learning_curves/fig_signature_flip.png>] [4] [5]
+<03_circuits/fig_formation_ts.png, id=63, 722.7pt x 274.626pt>
 File: 03_circuits/fig_formation_ts.png Graphic file (type png)
 <use 03_circuits/fig_formation_ts.png>
 Package pdftex.def Info: 03_circuits/fig_formation_ts.png  used on input line 3
-23.
+17.
 (pdftex.def)             Requested size: 469.75502pt x 178.50897pt.
-
-
-LaTeX Warning: `h' float specifier changed to `ht'.
-
-[6]
-<05_weights/fig_grad_strength.png, id=80, 722.7pt x 260.172pt>
+ [6 <./03_circuits/fig_formation_ts.png>]
+<05_weights/fig_grad_strength.png, id=79, 722.7pt x 260.172pt>
 File: 05_weights/fig_grad_strength.png Graphic file (type png)
 <use 05_weights/fig_grad_strength.png>
 Package pdftex.def Info: 05_weights/fig_grad_strength.png  used on input line 3
-65.
+62.
 (pdftex.def)             Requested size: 469.75502pt x 169.11374pt.
-
-
-LaTeX Warning: `h' float specifier changed to `ht'.
-
-[7 <./03_circuits/fig_formation_ts.png>] [8 <./05_weights/fig_grad_strength.png
->]
-<05_weights/fig_resid_shift.png, id=103, 758.835pt x 274.626pt>
+ [7 <./05_weights/fig_grad_strength.png>]
+<05_weights/fig_resid_shift.png, id=92, 758.835pt x 274.626pt>
 File: 05_weights/fig_resid_shift.png Graphic file (type png)
 <use 05_weights/fig_resid_shift.png>
-Package pdftex.def Info: 05_weights/fig_resid_shift.png  used on input line 435
+Package pdftex.def Info: 05_weights/fig_resid_shift.png  used on input line 433
 .
 (pdftex.def)             Requested size: 446.26582pt x 161.50832pt.
- [9 <./05_weights/fig_resid_shift.png>]
-<06_lens/fig_lens_depth.png, id=116, 758.835pt x 274.626pt>
+
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+[8] [9 <./05_weights/fig_resid_shift.png>]
+<06_lens/fig_lens_depth.png, id=112, 758.835pt x 274.626pt>
 File: 06_lens/fig_lens_depth.png Graphic file (type png)
 <use 06_lens/fig_lens_depth.png>
-Package pdftex.def Info: 06_lens/fig_lens_depth.png  used on input line 516.
+Package pdftex.def Info: 06_lens/fig_lens_depth.png  used on input line 513.
 (pdftex.def)             Requested size: 446.26582pt x 161.50832pt.
 
 
 LaTeX Warning: `h' float specifier changed to `ht'.
 
+[10]
 
 LaTeX Warning: `h' float specifier changed to `ht'.
 
-[10] [11 <./06_lens/fig_lens_depth.png>]
-<04_interventions/fig_intervention_ladder.png, id=134, 722.7pt x 260.172pt>
+<04_interventions/fig_intervention_ladder.png, id=122, 722.7pt x 260.172pt>
 File: 04_interventions/fig_intervention_ladder.png Graphic file (type png)
 <use 04_interventions/fig_intervention_ladder.png>
 Package pdftex.def Info: 04_interventions/fig_intervention_ladder.png  used on 
-input line 590.
+input line 586.
 (pdftex.def)             Requested size: 352.31625pt x 126.83432pt.
- [12 <./04_interventions/fig_intervention_ladder.png>] [13] (./results_ts.aux)
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+[11 <./06_lens/fig_lens_depth.png>] [12 <./04_interventions/fig_intervention_la
+dder.png>] [13] (./results_ts.aux)
 Package rerunfilecheck Info: File `results_ts.out' has not changed.
 (rerunfilecheck)             Checksum: D41D8CD98F00B204E9800998ECF8427E;0.
  ) 
 Here is how much of TeX's memory you used:
- 11509 strings out of 480247
- 181829 string characters out of 5896151
- 486613 words of memory out of 5000000
- 29229 multiletter control sequences out of 15000+600000
+ 11500 strings out of 480247
+ 181538 string characters out of 5896151
+ 486251 words of memory out of 5000000
+ 29222 multiletter control sequences out of 15000+600000
  480040 words of font info for 70 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
- 60i,11n,80p,597b,535s stack positions out of 5000i,500n,10000p,200000b,80000s
+ 60i,11n,80p,617b,535s stack positions out of 5000i,500n,10000p,200000b,80000s
  </home/marcinpodhajski/.texlive2021/texmf-var/fonts/pk/ljfour/jknappen/ec/tc
 rm1095.600pk></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx
 10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb
@@ -565,10 +559,10 @@ cmsy10.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy7.
 pfb></usr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb></u
 sr/share/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmti10.pfb></usr/sha
 re/texlive/texmf-dist/fonts/type1/public/amsfonts/cm/cmtt10.pfb>
-Output written on results_ts.pdf (13 pages, 1002621 bytes).
+Output written on results_ts.pdf (13 pages, 893903 bytes).
 PDF statistics:
- 234 PDF objects out of 1000 (max. 8388607)
- 169 compressed objects within 2 object streams
- 50 named destinations out of 1000 (max. 500000)
- 36 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 230 PDF objects out of 1000 (max. 8388607)
+ 167 compressed objects within 2 object streams
+ 49 named destinations out of 1000 (max. 500000)
+ 31 words of extra memory for PDF output out of 10000 (max. 10000000)
 

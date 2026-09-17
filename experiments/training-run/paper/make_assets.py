@@ -219,13 +219,11 @@ LENS_LD = {
     "teach FT (fmt) NL": [0, 0, .1, .1, .2, .2, .4, .9, 1.5, 2.0, 2.4, 2.8, 3.5, 4.6, 6.5, 14.2],
     "teach FT (conv) NL": [0, 0, .1, .1, .1, .1, .2, .8, 1.2, 1.7, 2.2, 2.8, 3.6, 4.9, 6.9, 16.1],
 }
-LENS_STYLE = {  # colour, linestyle, marker
-    "latent NL": (EL, "-", "s"), "elicited NL": (EL, "-", "o"),
-    "blank NL": (TE, "-", "s"), "taught NL": (TE, "-", "o"),
-    "latent op": (EL, ":", "s"), "elicited op": (EL, ":", "o"),
-    "teach FT NL": (TE, "-", "D"), "elicit FT NL": (EL, "-", "D"),
+LENS_STYLE = {  # colour, linestyle, marker — the pair (elicit FT vs teach FT from the
+    # format-installed base), their parents, the engine on symbols and the blank base
+    "latent NL": (EL, "-", "s"), "elicit FT NL": (EL, "-", "D"), "latent op": (EL, ":", "s"),
     "format-installed NL": (TE, "-", "^"), "teach FT (fmt) NL": (TE, "-", "v"),
-    "teach FT (conv) NL": (TE, "--", "D"),
+    "blank NL": ("#8a8a8a", "-", "s"),
 }
 
 
@@ -649,22 +647,18 @@ def residual():
             label="teach, full FT (blank, converged): task")
     a2.plot(L, RESID["teach_ftcont"]["pc1"], "D-", ms=3, color=TE, lw=1.2, alpha=.7,
             label="teach, full FT (blank, converged): shift")
-    a1.plot(L, RESID["elicit_1m"]["ans"], "-", color=EL, lw=1, alpha=.45, label="elicit, LoRA: task")
-    a1.plot(L, RESID["teach_4m"]["ans"], "-", color=TE, lw=1, alpha=.45, label="teach, LoRA 4M: task")
-    a2.plot(L, RESID["elicit_1m"]["pc1"], "-", color=EL, lw=1, alpha=.45, label="elicit, LoRA: shift")
-    a2.plot(L, RESID["teach_4m"]["pc1"], "-", color=TE, lw=1, alpha=.45, label="teach, LoRA 4M: shift")
     a1.set_yscale("log")
     a1.set_xlabel("layer")
     a1.set_ylabel(r"$\|h_{child}-h_{parent}\| / \|h_{parent}\|$")
     a1.set_title("relative residual shift", fontsize=10)
     a1.grid(alpha=.3)
-    a1.legend(fontsize=6.5, ncol=2)
+    a1.legend(fontsize=6.5, ncol=1, loc="upper left")
     a2.set_xlabel("layer")
     a2.set_ylabel("PC1 energy fraction (1 = one vector)")
     a2.set_title("is the task shift one direction?", fontsize=10)
     a2.set_ylim(0, 1.02)
     a2.grid(alpha=.3)
-    a2.legend(fontsize=6.5, ncol=2)
+    a2.legend(fontsize=6.5, ncol=1, loc="upper right")
     save(S, f, "fig_resid_shift",
          "Residual-stream shift between each child and its own parent on identical inputs "
          "(fp32), by layer, for the matched full-fine-tune pair (thick) with the LoRA "
