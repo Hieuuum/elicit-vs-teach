@@ -57,13 +57,15 @@ symbol install: exact match on \texttt{23 + 45 = } & 0.67--0.73 & blank twin: 0.
 corpus census: ``sum'' in 439M words of stories & 21$\times$ & ``equals'' 17, ``minus'' 57 \\
 binding dose: question $\to$ symbols rewrite exact & 0.484 & blank + same dose: 0.000 \\
 sum-only dose on \emph{difference} questions & writes ``+'' & binding is per word \\
+self-chain: rewrite the question, then feed the model its own rewrite & 0.328 ($=0.484\times0.668$) & blank + same doses: 0.000 \\
 \textbf{exact match on the target task, before fine-tuning} & \textbf{0.000} & $=$ blank twin \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
 \caption{The elicit twin before fine-tuning: can compute in symbols, understands the words, still
-answers nothing. Everything below is about what differs inside the two twins and what that
-difference does.}
+answers nothing --- and the two parts compose (self-chain $=$ rewrite accuracy $\times$ symbol
+accuracy, a product that held on four variants). Everything below is
+about what differs inside the two twins and what that difference does.}
 \label{tab:premise}
 \end{table}
 
@@ -402,33 +404,40 @@ capability per unit travel (LoRA 1M) & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \
 \label{tab:weights}
 \end{table}
 
-\metricsec{State-shift direction}{a different vector per problem vs.\ one shared vector}
-\what{Does fine-tuning change the model's internal state by a different vector for every problem
---- the answer, routed to the output (elicit) --- or by the same push on every problem --- moving
-the model into a new mode (teach)?}
-\how{Run the same 256 problems through parent and child (both in fp32) and take the difference
-of their residual streams at the answer position, layer by layer. \emph{Size}: its norm relative
-to the parent's state. \emph{Direction}: stack the 256 difference vectors and compute the
-fraction of their energy in the single best direction (PC1; $1.0$ means every problem's
-difference is the same vector). The reference for ``unrelated vectors'' is the PC1 of the
-parent's own 256 states, given alongside. The same PC1 is recomputed after projecting out the
-directions that encode the answer token and the parent's top-1 token, so that ``the same vector''
-cannot simply be the answer. Also the cosine of each shift to the mean shift, and, as a functional
-counterpart, KL(parent$\|$child) at the answer position vs on generic story text.}
-\numbers{Figure~\ref{fig:resid}, Table~\ref{tab:resid}. PC1 of the shift at the read-out:
-elicit $0.056$ (full FT) and $0.063$ (LoRA), below the parent's own states ($0.23$) --- no shared
-direction; teach $0.567$ (format-installed full FT), $0.526$ (blank full FT), $0.528$ (LoRA 4M),
-unchanged after removing the answer content ($0.56$ / $0.53$ / $0.52$). The child with no format
-left to learn has the largest shared component, so the component is the algorithm's mode, not the
-format. Size follows the method, not the regime. \emph{Reading:} elicitation adds a
-problem-specific vector to a state that is already problem-specific; teaching moves every problem
-by the same push into answering mode first.}
+\metricsec{What fine-tuning changes in the internal state}{a different change per problem vs.\ the same change every time}
+\what{When the child's internal state is compared with the parent's on the same problem, is the
+change different for every problem --- the child has added that problem's answer (elicit) --- or
+is it mostly the same change regardless of the problem --- the child has been moved into a new
+mode (teach)?}
+\how{Take 256 problems. Run each through the parent and through the child (both in fp32) and
+record the residual stream at the answer position: a 2048-number vector per layer, the model's
+internal state at the moment it is about to answer. Subtract: child state minus parent state.
+This is ``the change'' fine-tuning made to the internal state on that problem, one per problem.
+The question is whether the 256 changes look alike. \emph{Shared-direction score}: find the single
+direction that best explains all 256 changes and report the fraction of their total energy that
+lies along it (PC1). $1.0$ would mean the child moved every problem's state by the identical
+amount in the identical direction; a low score means each problem's change is its own. For
+calibration the same score is computed on the parent's own 256 states (how alike they are before
+any change). \emph{Control}: the score is recomputed after removing from each change the
+directions that spell out that problem's answer token, so that ``the same change'' cannot simply
+be ``writing the answer''. Also reported: the size of the change relative to the parent's state,
+and how far the change reaches beyond the task (KL between parent and child on generic story
+text).}
+\numbers{Figure~\ref{fig:resid}, Table~\ref{tab:resid}. Shared-direction score of the changes
+at the last layer: elicit $0.06$ (full FT and LoRA), below even the parent's own states
+($0.23$) --- each problem's change is its own. Teach: $0.57$ (format-installed full FT), $0.53$
+(blank full FT), $0.53$ (LoRA 4M) --- over half of every change is one and the same direction,
+and still $0.52$--$0.56$ after the answer directions are removed. The taught child with no format
+left to learn has the highest score, so the shared change is the algorithm's mode, not
+``output a number''. \emph{Reading:} elicitation adds each problem's answer to a state that was
+already problem-specific; teaching first moves every problem by the same push into a new mode.}
 \begin{figure}[h]\centering
 \includegraphics[width=0.95\textwidth]{05_weights/fig_resid_shift.png}
 \caption{Full-FT endpoints (thick: elicit vs format-installed teach; diamonds: blank-base teach
 converged) with the LoRA endpoints thin. Left: relative residual shift by layer at the answer
-position (solid) and on generic story text (dashed). Right: PC1 energy fraction of the 256
-per-problem shift vectors, with the parent's own states dotted.}
+position (solid) and on generic story text (dashed): the size of the change by layer. Right:
+shared-direction score (PC1) of the 256 per-problem changes by layer, with the parent's own states
+dotted.}
 \label{fig:resid}
 \end{figure}
 \begin{table}[h]\centering\small
@@ -438,18 +447,18 @@ per-problem shift vectors, with the parent's own states dotted.}
  & elicit LoRA 1M & teach LoRA 4M & elicit FT & teach FT, blank (conv.) & teach FT, format-inst. \\
 \midrule
 final exact match & 0.981 & 0.139 & 0.986 & 0.819 & 0.424 \\
-PC1 of shift at the read-out (parent's own states) & \textbf{0.063} (0.23) & \textbf{0.528} (0.98) & \textbf{0.056} (0.23) & \textbf{0.526} (0.98) & \textbf{0.567} (0.99) \\
-PC1 after removing answer-token directions & 0.072 & 0.520 & 0.061 & 0.528 & 0.561 \\
-cosine of each shift to the mean shift & 0.26 & 0.26 & 0.23 & 0.74 & 0.80 \\
-shift at answer position, final layer (relative) & 1.72 & 28.6 & 1.92 & 1.36 & 1.22 \\
+shared-direction score (PC1) of the change, last layer (parent's own states) & \textbf{0.063} (0.23) & \textbf{0.528} (0.98) & \textbf{0.056} (0.23) & \textbf{0.526} (0.98) & \textbf{0.567} (0.99) \\
+same, after removing answer-token directions & 0.072 & 0.520 & 0.061 & 0.528 & 0.561 \\
+cosine of each change to the mean change & 0.26 & 0.26 & 0.23 & 0.74 & 0.80 \\
+size of the change relative to the parent's state, last layer & 1.72 & 28.6 & 1.92 & 1.36 & 1.22 \\
 KL(parent$\|$child) at the answer position (nats) & 14.3 & 14.0 & 16.4 & 22.0 & 12.3 \\
 KL(parent$\|$child) on stories (nats/token) & 0.067 & 0.326 & 0.721 & 1.790 & 1.568 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{Residual-stream shift parent$\to$child at the answer position, 256 problems, fp32.
-Blank-base teach FT before continuation: PC1 0.521, final-layer shift 1.42; LoRA-1M teach: PC1
-0.351, shift 14.1.}
+\caption{Change of the internal state parent$\to$child at the answer position, 256 problems,
+fp32. Blank-base teach FT before continuation: score 0.521, size 1.42; LoRA-1M teach: 0.351,
+14.1.}
 \label{tab:resid}
 \end{table}
 
@@ -539,49 +548,51 @@ acc 0.797, ld $+15.2$.}
 \label{tab:lens}
 \end{table}
 
-\metricsec{Switch-on}{can the capability be turned on without training?}
-\what{Can the task be unlocked in the parent with its weights frozen --- possible only if the
-machinery is already there (elicit) and impossible if it is not (teach)?}
-\how{Exact match on the target task under interventions that train nothing. (a) \emph{Self-chain}:
-let the parent rewrite the question in its own symbols, then feed it its own rewrite. (b)
-\emph{Donor patching}: take the fine-tuned child's activations at the 32 circuit nodes (M2) and
-write them into the parent at the answer position, either as one mean vector over problems or as
-each problem's own activations (``per-prompt states''); the same with 32 random nodes as control.
-``Format'' $=$ the fraction of outputs that are a number at all. Done for the elicit side (child
-into the elicit parent) and the teach side (taught child into its own parent: the blank base, or
-the format-installed base).}
-\numbers{Figure~\ref{fig:ladder}, Table~\ref{tab:steer}. Elicit parent, weights frozen:
-self-chain $\mathbf{0.328}$ ($=$ rewrite accuracy $\times$ symbol accuracy, $0.484\times0.668$);
-its child's per-prompt circuit states patched in $0.12$ (random nodes $0.000$). Teach parents:
-$0.000$ under every dose and chain; taught children's states patched into their own parent
-$\le0.004$ (blank) and $0.016$ (format-installed). \emph{Reading:} the latent capability is one
-composition step or one activation patch from the task; the absent one cannot be switched on
-because there is nothing underneath.}
-\begin{figure}[h]\centering
-\includegraphics[width=0.55\textwidth]{04_interventions/fig_intervention_ladder.png}
-\caption{Intervention ladder on the elicit parent (weights frozen except the last bar).}
-\label{fig:ladder}
-\end{figure}
+\metricsec{Switch-on by patching}{can the capability be turned on without training?}
+\what{With the parent's weights frozen, does writing the fine-tuned child's internal activations
+into the parent make it solve the task --- possible only if the machinery is already there
+(elicit) and impossible if it is not (teach)?}
+\how{Donor patching. Take the fine-tuned child (the donor) and its parent (the patient). For each
+problem, run the child and record its activations at the 32 circuit nodes of M2 at the answer
+position; run the parent on the same problem and overwrite those 32 activations with the child's;
+let the parent finish. Two variants: \emph{per-prompt states} (each problem gets the child's
+activations on that problem) and \emph{mean vector} (every problem gets the child's average
+activation, a single constant shift). Control: the same with 32 random nodes. Read-outs: exact
+match, and ``format'' $=$ the fraction of outputs that are a number at all. Done for the elicit
+side (elicited child into the elicit parent) and the teach side (each taught child into its own
+parent: the blank base, or the format-installed base).}
+\numbers{Table~\ref{tab:steer}, Figure~\ref{fig:ladder}. Elicit parent: the child's per-prompt states patched into 32
+nodes give exact match $0.12$ (LoRA child $0.125$, full-FT child $0.121$; random nodes $0.000$)
+from a parent that scores $0.000$; the mean vector changes only the output format. Teach parents:
+taught children's states patched into their own parent give $\le0.004$ (blank base, all four
+taught children) and $0.016$ (format-installed base). \emph{Reading:} 32 activations from the
+child are enough to switch the latent capability on because the machinery underneath is the
+parent's own; the same patch from a taught child finds nothing underneath in its parent.}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{llcc}
 \toprule
-Patient + intervention (32 circuit nodes) & condition & format & exact match \\
+Patient + donor (32 circuit nodes) & condition & format & exact match \\
 \midrule
 elicit parent + LoRA child's mean vector & circuit nodes & 0.164 & 0.000 \\
 elicit parent + LoRA child's per-prompt states & circuit nodes & 0.359 & \textbf{0.125} \\
  & random-32 nodes & 0.051 & 0.000 \\
 elicit parent + full-FT child's per-prompt states & circuit nodes & 0.387 & \textbf{0.121} \\
-elicit parent self-chain (no donor) & own rewrite + ``= '' & -- & \textbf{0.328} \\
-blank + binding dose, self-chain & parser without engine & -- & 0.000 \\
-blank + taught donor (LoRA 1M / LoRA 4M / full FT / converged) & every condition & $\le$0.02 & $\le$0.004 \\
+blank base + taught child's states (LoRA 1M / LoRA 4M / full FT / converged) & every condition & $\le$0.02 & $\le$0.004 \\
 format-installed base + its taught child's per-prompt states & circuit nodes & 0.836 (base 1.000) & 0.016 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{Zero-training interventions.}
+\caption{Donor patching, weights frozen. The parents score 0.000 unpatched.}
 \label{tab:steer}
 \end{table}
+\begin{figure}[h]\centering
+\includegraphics[width=0.75\textwidth]{04_interventions/fig_intervention_ladder.png}
+\caption{Donor patching on two elicit parents (weights frozen except the last bar): direct, mean
+vector, per-prompt states, and the fine-tuned child for scale; the self-chain bar is the
+construction check of Table~\ref{tab:premise}, not a patch.}
+\label{fig:ladder}
+\end{figure}
 
 \end{enumerate}
 
@@ -609,7 +620,7 @@ operand-reading heads vs the parent's engine (first / second) & 0.694 / 0.857 & 
 gradient norm, first 1\% $\to$ last 10\% of steps & 4.80 $\to$ 1.39 (decays 3.4$\times$) & 2.69 $\to$ 3.77 (grows 1.4$\times$) & 2.30 $\to$ 3.43 (grows 1.5$\times$) & M6 \\
 cumulative gradient mass & 44{,}021 & 378{,}170 & 353{,}277 (+ 30{,}954) & M6 \\
 relative weight write $\|\Delta W\|/\|W\|$ & 0.050 & 0.086 & 0.102 & M7 \\
-PC1 of the state shift (after removing answer content) & 0.056 (0.061) & 0.567 (0.561) & 0.526 (0.528) & M8 \\
+shared-direction score of the state change (after removing answer content) & 0.056 (0.061) & 0.567 (0.561) & 0.526 (0.528) & M8 \\
 answer settled depth, median (quartiles) & layer 14 (14--14) & layer 15 (15--15) & layer 15 (15--15) & M10 \\
 J-space rank of the answer at layers 12 / 13 / 14 & 338 / 8 / 1 & 27{,}044 / 15{,}058 / 961 & 4{,}123 / 1{,}832 / 138 & M10 \\
 child's states patched into its own parent, per-prompt (mean) & 0.121 (format only) & 0.016 (0.000) & 0.004 (0.000) & M11 \\
