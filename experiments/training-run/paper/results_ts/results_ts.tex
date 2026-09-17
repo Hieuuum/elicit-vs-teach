@@ -203,12 +203,13 @@ random circuits overlap at $0.031$. The \emph{ceiling} is the overlap of two cir
 \emph{same} model computed from two disjoint halves of the data --- how repeatable a circuit is
 ($0.42$--$0.68$ here); an overlap at the ceiling means ``the same circuit''. Spearman $=$ rank
 correlation of the node scores over the union. Also which layers and node types each circuit's top nodes come from.}
-\numbers{Table~\ref{tab:overlap}. Elicited vs taught circuit: $0.306$ against ceilings of
-$0.56$ and $0.52$ (score correlation $0.03$). The elicited circuit is the parent's own symbol
-circuit re-weighted: parent $\leftrightarrow$ elicited child $0.46$--$0.52$, the top four nodes
-identical and in the same order (\texttt{mlp:15,14,13,12}); and it is the same circuit whichever
-way it is trained (LoRA $\leftrightarrow$ full FT $0.641$, at the ceiling). The teach parent has
-no circuit to inherit (its map is noise: answer logit-diff $0.0$). What the two children share is
+\numbers{Table~\ref{tab:overlap}. Elicit: parent $\leftrightarrow$ child $0.46$--$0.52$ against
+a ceiling of $0.68$, the top four nodes identical and in the same order
+(\texttt{mlp:15,14,13,12}) --- the child runs the parent's symbol circuit re-weighted, and the
+same circuit whichever way it is trained (LoRA $\leftrightarrow$ full FT $0.641$, at the
+ceiling). Teach: parent $\leftrightarrow$ child undefined --- the parent has no circuit for the
+task (its map is noise, answer logit-diff $0.0$), so the child's circuit ($0.52$ repeatable) is
+new. The two children against each other: $0.306$. What the two children share is
 the late-layer MLP engine (\texttt{mlp:15,14,13,7}); the taught circuit adds early and middle
 MLPs (\texttt{mlp:0,1,3,4,5,6,10,11}) and attention heads in layers 4--7 and 15 of its own, the
 elicited one uses \texttt{mlp:8,9} and three layer-7 heads. \emph{Reading:} elicitation
@@ -219,19 +220,19 @@ re-weights the circuit the parent already had; teaching builds a related but dif
 \toprule
 Comparison & Jaccard@32 & chance & ceiling(s) \\
 \midrule
-\textbf{elicited child (FT) $\leftrightarrow$ taught child (FT)} & \textbf{0.306} (Spearman 0.03) & 0.031 & 0.561 / 0.524 \\
+\textbf{elicit parent (symbol circuit) $\leftrightarrow$ elicited child} & \textbf{0.455--0.524} & 0.031 & 0.684 \\
+\textbf{teach parent $\leftrightarrow$ taught child} & \textbf{undefined}: the parent has no circuit (answer logit-diff 0.0, its map is noise) & -- & 0.524 \\
 \midrule
-elicit parent's symbol circuit $\leftrightarrow$ elicited child & 0.455--0.524 & 0.031 & 0.684 \\
-teach parent $\leftrightarrow$ taught child & undefined (parent map is noise) & -- & -- \\
+elicited child (FT) $\leftrightarrow$ taught child (FT) & 0.306 (Spearman 0.03) & 0.031 & 0.561 / 0.524 \\
 elicited child, full FT $\leftrightarrow$ elicited child, LoRA & 0.641 (Spearman 0.54) & 0.031 & 0.561 / 0.684 \\
 taught child (FT) $\leftrightarrow$ taught child from the blank base (FT) & 0.362 (Spearman 0.18) & 0.031 & 0.524 / 0.422 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{Circuit overlaps: the pair (top) and the references that place it (bottom): what the
-elicited circuit inherits, that the teach parent has nothing to inherit, that the elicited
-circuit is method-independent, and that two taught circuits differ from each other too. All maps
-pass the performing-regime check.}
+\caption{Circuit overlaps. Top: parent $\leftrightarrow$ child in each regime (the elicited
+child measured here is the LoRA one; the full-FT elicited child runs the same circuit, row 4).
+Bottom: the two children against each other, and that two taught circuits differ from each other
+too. All child maps pass the performing-regime check.}
 \label{tab:overlap}
 \end{table}
 

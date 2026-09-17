@@ -42,6 +42,9 @@
 #  13  fill      the FT gradient comparison with all four full-FT runs (the
 #                stage-12 marker was written with three) + the sweep table per
 #                rung for both LoRA arms (R1 headline pair). CPU, minutes.
+#  14  parent<->child circuit overlap for the pair: the latent parent's symbol
+#                circuit (+ split halves) vs the full-FT elicited child; the
+#                format-installed parent's own map vs its taught child. GPU, ~30 min.
 #
 # Run GPU stages one after the other, not concurrently, on a 40 GB card.
 #
@@ -476,5 +479,23 @@ for cond, g in t.groupby("condition"):
     print(f"[sweep] condition={cond}")
     print(g.drop(columns="condition").sort_values("dataset_size").to_string(index=False, float_format=lambda v: f"{v:.4f}"))
 PY
+fi
+# ------------------------------------- stage 14: parent <-> child circuit overlap, the pair
+# The main rows of the M2 table: the elicit parent's symbol circuit vs the FULL-FT elicited
+# child (so far only the LoRA child was compared, 0.455-0.524), and the format-installed teach
+# parent's own map vs its full-FT taught child (so far only the blank base's 16-shot map).
+if want 14; then
+  cd "$A" || fail "no analysis dir"
+  step circ_ts_latent_op.json python3 circuit_nodes.py --run-id "$LATENT" --out circ_ts_latent_op --n-pairs 256 \
+    --eval-config "$REPO_ROOT/experiments/training-run/configs/eval_op_algo_data_ts.yaml"
+  step circ_ts_latent_op_a.json python3 circuit_nodes.py --run-id "$LATENT" --out circ_ts_latent_op_a --half a --n-pairs 256 \
+    --eval-config "$REPO_ROOT/experiments/training-run/configs/eval_op_algo_data_ts.yaml"
+  step circ_ts_latent_op_b.json python3 circuit_nodes.py --run-id "$LATENT" --out circ_ts_latent_op_b --half b --n-pairs 256 \
+    --eval-config "$REPO_ROOT/experiments/training-run/configs/eval_op_algo_data_ts.yaml"
+  step done_cmp_latentop_halves.log python3 circuit_compare.py circ_ts_latent_op_a circ_ts_latent_op_b
+  step done_cmp_latentop_elft4m.log  python3 circuit_compare.py circ_ts_latent_op circ_ts_elft4m
+  step done_cmp_latentop_mixnl.log   python3 circuit_compare.py circ_ts_latent_op circ_ts_mixnl_n1m
+  step circ_ts_fmtparent.json python3 circuit_nodes.py --run-id "$RID_FMT" --out circ_ts_fmtparent --n-pairs 256
+  step done_cmp_fmtparent_ftfmt4m.log python3 circuit_compare.py circ_ts_fmtparent circ_ts_ftfmt4m
 fi
 milestone "done stage=$STAGE"
