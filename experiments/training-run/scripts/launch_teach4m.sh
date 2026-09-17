@@ -45,6 +45,8 @@
 #  14  parent<->child circuit overlap for the pair: the latent parent's symbol
 #                circuit (+ split halves) vs the full-FT elicited child; the
 #                format-installed parent's own map vs its taught child. GPU, ~30 min.
+#  15  the elicit parent's circuit on the NL target itself (+ halves) vs the
+#                full-FT elicited child and vs its own symbol map. GPU, ~20 min.
 #
 # Run GPU stages one after the other, not concurrently, on a 40 GB card.
 #
@@ -497,5 +499,18 @@ if want 14; then
   step done_cmp_latentop_mixnl.log   python3 circuit_compare.py circ_ts_latent_op circ_ts_mixnl_n1m
   step circ_ts_fmtparent.json python3 circuit_nodes.py --run-id "$RID_FMT" --out circ_ts_fmtparent --n-pairs 256
   step done_cmp_fmtparent_ftfmt4m.log python3 circuit_compare.py circ_ts_fmtparent circ_ts_ftfmt4m
+fi
+# ------------- stage 15: the elicit parent's circuit ON THE TARGET TASK (natural language)
+# The parent answers 0.000 of NL questions (it rewrites them), but its answer logit-diff on the
+# NL prompts is +2.1 nats (lens read-out), above the tool's performing threshold (1.0): a weak
+# but defined map. Compared with the full-FT elicited child and with the parent's own symbol map.
+if want 15; then
+  cd "$A" || fail "no analysis dir"
+  step circ_ts_latent_nl.json   python3 circuit_nodes.py --run-id "$LATENT" --out circ_ts_latent_nl   --n-pairs 256
+  step circ_ts_latent_nl_a.json python3 circuit_nodes.py --run-id "$LATENT" --out circ_ts_latent_nl_a --half a --n-pairs 256
+  step circ_ts_latent_nl_b.json python3 circuit_nodes.py --run-id "$LATENT" --out circ_ts_latent_nl_b --half b --n-pairs 256
+  step done_cmp_latentnl_halves.log python3 circuit_compare.py circ_ts_latent_nl_a circ_ts_latent_nl_b
+  step done_cmp_latentnl_elft4m.log python3 circuit_compare.py circ_ts_latent_nl circ_ts_elft4m
+  step done_cmp_latentnl_op.log     python3 circuit_compare.py circ_ts_latent_nl circ_ts_latent_op
 fi
 milestone "done stage=$STAGE"
