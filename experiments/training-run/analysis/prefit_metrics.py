@@ -16,11 +16,11 @@ Metrics
   geometry  problem-specificity of the parent's own answer-position states:
             cos-to-mean and PC1 energy fraction per layer (1.0 = one state for
             every problem).
-  probe     is the ANSWER computed in the frozen state beyond copies of the
-            operands? addition only, layers >= 1; the units digit (a+b) mod 10
-            by 10-way logistic probe and by ridge on its T=10 helix features
-            (Kantamneni & Tegmark 2025), against copy-only baselines fitted on
-            the operands' own features; plus operand decodability.
+  probe     is the answer chunk the model is about to say already in its state,
+            beyond copies of the operands? addition only, layers >= 1, ridge on
+            helix features (Kantamneni & Tegmark 2025) of the first answer chunk,
+            against a copy-only baseline fitted on the operands' own features;
+            plus operand decodability.
   das       causal answer subspace (Distributed Alignment Search, Geiger et al.
             2024): learn a k-dim orthonormal subspace at layer L such that
             swapping it between two problems swaps the model's answer
@@ -239,24 +239,33 @@ def logreg_acc(X_tr, y_tr, X_te, y_te, n_cls, steps=300):
     return acc
 
 
-def metric_probe(model, tokenizer, items, device, bs, seed=316):
-    """Is the ANSWER computed in the frozen state, beyond copies of the operands?
+def ridge_cv_r2(X_tr, Y_tr, X_te, Y_te, lams=(1e-3, 1e-2, 1e-1, 1.0, 10.0), seed=316):
+    """Ridge with the regulariser chosen on a 20% split of the training set."""
+    n = len(X_tr)
+    g = torch.Generator().manual_seed(seed)
+    perm = torch.randperm(n, generator=g).to(X_tr.device)
+    fit, val = perm[: int(0.8 * n)], perm[int(0.8 * n):]
+    best = max(lams, key=lambda l: ridge_r2(X_tr[fit], Y_tr[fit], X_tr[val], Y_tr[val], l).mean().item())
+    return ridge_r2(X_tr, Y_tr, X_te, Y_te, best).mean().item(), best
 
-    v2 (2026-09-18). v1 was confounded twice: (i) negative answers append '-' to
-    the prompt, so the layer-0 state (the last token's embedding) is two-valued
-    and predicts the answer's sign — every model scored the identical R^2 0.156
-    there; (ii) the answer's first digit is largely the larger operand's first
-    digit, so decoding it is copying. v2 therefore uses ADDITION problems only
-    (no sign token), skips layer 0, and targets the UNITS digit of the answer:
-    (a+b) mod 10 is not a linear function of the operands' own features, so a
-    linear probe can read it only if the model has computed it.
-      units_acc      10-way logistic accuracy for (a+b) mod 10 from the state
-      units_r2       ridge R^2 on [cos, sin](2 pi (a+b)/10) from the state
-      copy baselines the same probes fitted on the operands' OWN features
-                     (one-hot units digits of a and b; helix(a), helix(b)) — what
-                     a state that only copies the operands could reach
-      operand_r2     ridge R^2 on helix(a), helix(b) from the state (the inputs
-                     are present at the answer position)
+
+def metric_probe(model, tokenizer, items, device, bs, seed=316):
+    """Is the answer the model is ABOUT TO SAY already in its state, beyond what
+    copies of the operands give?
+
+    v3 (2026-09-18). The target is the first answer chunk — the Llama-3
+    tokenizer writes numbers in chunks of up to three digits from the left
+    (5689 -> "568", "9"), and at the answer position the model is choosing that
+    chunk; the units digit (v2's target) is not due until a later token, so its
+    absence there was uninformative. Addition only (no sign token), layers >= 1,
+    ~2,000 problems (v1/v2 had ~500 for a 2048-dim state and overfitted).
+      chunk_r2          ridge R^2 on helix features of the chunk's value
+      chunk_r2_copy     the same target from the operands' OWN helix features
+                        plus the larger operand's leading-3-digit helix — what a
+                        state that only holds copies of the inputs could reach
+      chunk_r2_excess   chunk_r2 - chunk_r2_copy (the computed part)
+      operand_r2        helix(a), helix(b) from the state (inputs present?)
+    Regulariser chosen on a held-out slice of the training set.
     """
     items = [it for it in items if it[4] == "+"]
     st = states_at_answer(model, tokenizer, [it[0] for it in items], device, bs).double()
@@ -264,35 +273,26 @@ def metric_probe(model, tokenizer, items, device, bs, seed=316):
     g = torch.Generator().manual_seed(seed)
     perm = torch.randperm(n, generator=g)
     tr, te = perm[: int(0.75 * n)].to(device), perm[int(0.75 * n):].to(device)
-    ans = torch.tensor([float(it[5]) for it in items], device=device, dtype=torch.float64)
-    a = torch.tensor([float(it[2]) for it in items], device=device, dtype=torch.float64)
-    b = torch.tensor([float(it[3]) for it in items], device=device, dtype=torch.float64)
-    units = torch.tensor([it[5] % 10 for it in items], device=device)
-    units_feat = torch.stack([torch.cos(2 * math.pi * ans / 10), torch.sin(2 * math.pi * ans / 10)], 1)
-    # copy baselines: probes on the operands' own features
-    oh = lambda v: F.one_hot(torch.tensor([int(t) % 10 for t in v.tolist()], device=device), 10).double()
-    ops_onehot = torch.cat([oh(a), oh(b)], 1)
-    ops_helix = torch.cat([helix(a), helix(b)], 1)
-    copy_acc = logreg_acc(ops_onehot[tr].float(), units[tr], ops_onehot[te].float(), units[te], 10)
-    copy_r2 = ridge_r2(ops_helix[tr], units_feat[tr], ops_helix[te], units_feat[te]).mean().item()
-    majority = torch.bincount(units[te], minlength=10).max().item() / len(te)
+    T = lambda v: torch.tensor(v, device=device, dtype=torch.float64)
+    a, b = T([it[2] for it in items]), T([it[3] for it in items])
+    chunk = T([int(str(it[5])[:3]) for it in items])
+    lead = T([int(str(max(it[2], it[3]))[:3]) for it in items])
+    Y = helix(chunk)
+    ops = torch.cat([helix(a), helix(b), helix(lead)], 1)
+    r2_copy, lam_copy = ridge_cv_r2(ops[tr], Y[tr], ops[te], Y[te])
     out = {"n": n, "surface": "bare_nl, addition only", "train": len(tr), "test": len(te),
-           "units_majority": majority, "units_acc_copy_baseline": copy_acc,
-           "units_r2_copy_baseline": copy_r2,
-           "units_acc_by_layer": [], "units_r2_by_layer": [], "operand_r2_by_layer": []}
-    for l in range(st.shape[0]):
+           "target": "first answer chunk (<=3 digits)", "chunk_r2_copy": r2_copy,
+           "chunk_r2_by_layer": [], "operand_r2_by_layer": []}
+    for l in range(1, st.shape[0]):
         X = st[l]
-        out["units_acc_by_layer"].append(
-            round(logreg_acc(X[tr].float(), units[tr], X[te].float(), units[te], 10), 4))
-        out["units_r2_by_layer"].append(round(ridge_r2(X[tr], units_feat[tr], X[te], units_feat[te]).mean().item(), 4))
-        r2a = ridge_r2(X[tr], helix(a)[tr], X[te], helix(a)[te]).mean().item()
-        r2b = ridge_r2(X[tr], helix(b)[tr], X[te], helix(b)[te]).mean().item()
-        out["operand_r2_by_layer"].append(round((r2a + r2b) / 2, 4))
-    ua, ur, orr = out["units_acc_by_layer"][1:], out["units_r2_by_layer"][1:], out["operand_r2_by_layer"][1:]
-    out["units_acc_best"] = max(ua); out["units_acc_best_layer"] = 1 + ua.index(max(ua))
-    out["units_r2_best"] = max(ur); out["units_r2_best_layer"] = 1 + ur.index(max(ur))
-    out["operand_r2_best"] = max(orr)
-    out["units_acc_excess_over_copy"] = out["units_acc_best"] - copy_acc
+        out["chunk_r2_by_layer"].append(round(ridge_cv_r2(X[tr], Y[tr], X[te], Y[te])[0], 4))
+        ra = ridge_cv_r2(X[tr], helix(a)[tr], X[te], helix(a)[te])[0]
+        rb = ridge_cv_r2(X[tr], helix(b)[tr], X[te], helix(b)[te])[0]
+        out["operand_r2_by_layer"].append(round((ra + rb) / 2, 4))
+    cr = out["chunk_r2_by_layer"]
+    out["chunk_r2_best"] = max(cr); out["chunk_r2_best_layer"] = 1 + cr.index(max(cr))
+    out["chunk_r2_excess"] = out["chunk_r2_best"] - r2_copy
+    out["operand_r2_best"] = max(out["operand_r2_by_layer"])
     return out
 
 
@@ -692,10 +692,9 @@ HEADLINE = [
     ("pref", "logit_diff_mean", "hidden pref (nats)"),
     ("pref", "top1_acc", "top-1"),
     ("geometry", "pc1_last", "state PC1 (last)"),
-    ("probe", "units_acc_best", "probe units-digit acc"),
-    ("probe", "units_acc_copy_baseline", "  copy-only baseline"),
-    ("probe", "units_acc_excess_over_copy", "  excess over copy"),
-    ("probe", "units_r2_best", "probe units-digit R2"),
+    ("probe", "chunk_r2_best", "probe answer-chunk R2"),
+    ("probe", "chunk_r2_copy", "  copy-only baseline"),
+    ("probe", "chunk_r2_excess", "  excess over copy"),
     ("probe", "operand_r2_best", "probe operand R2"),
     ("attn", "max_head_mass", "attn max head->operands"),
     ("attn", "heads_over_0.25", "heads >0.25"),
@@ -836,7 +835,7 @@ def main() -> int:
     ap.add_argument("--out-dir", default=str(Path(__file__).resolve().parent))
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--n", type=int, default=256, help="problems for pref / geometry / attn")
-    ap.add_argument("--n-probe", type=int, default=1024, help="problems for probe / das pairs")
+    ap.add_argument("--n-probe", type=int, default=4096, help="problems for probe / das pairs")
     ap.add_argument("--das-layers", type=int, nargs="+", default=[8, 12, 14, 15])
     ap.add_argument("--das-ks", type=int, nargs="+", default=[1, 4, 16, 64])
     ap.add_argument("--das-train", type=int, default=256)
