@@ -36,11 +36,14 @@ Metrics
             count-sketched to D dims; mean pairwise cosine, coherence
             ||mean g|| / mean ||g||, effective rank of the Gram matrix,
             kernel-target alignment with a first-digit label kernel.
-  hessian   task-loss curvature at the parent: top Hessian eigenvalue (power
-            iteration), Hutchinson trace, gradient sharpness g'Hg/|g|^2, and the
-            one-step gain |g|^4 / (2 g'Hg).
+  hessian   task-loss curvature at the parent: both ends of the Hessian spectrum
+            (power iteration, then shifted power iteration), Hutchinson trace,
+            gradient sharpness g'Hg/|g|^2, and the one-step gain |g|^4 / (2 g'Hg).
   llc       local learning coefficient (Lau et al. 2023; SGLD estimator) of the
-            parent at the task loss — exploratory, hyper-parameters reported.
+            parent at the task loss — NOT VALID HERE: the estimator assumes w0 is
+            a local minimum of the loss; a parent before fine-tuning is not, SGLD
+            descends and the estimate comes out negative (2026-09-18 run: all five
+            parents -0.7e6 .. -2.1e6). Kept for completeness; do not report.
   all       every metric above in that order.
   compare   table across tags.
 
@@ -245,8 +248,8 @@ def metric_probe(model, tokenizer, items, device, bs, seed=316):
     ans = torch.tensor([float(it[5]) for it in items], device=device, dtype=torch.float64)
     a = torch.tensor([float(it[2]) for it in items], device=device, dtype=torch.float64)
     b = torch.tensor([float(it[3]) for it in items], device=device, dtype=torch.float64)
-    first_digit = torch.tensor([int(str(abs(it[5]))[0]) - 1 for it in items], device=device)
-    majority = torch.bincount(first_digit[te], minlength=9).max().item() / len(te)
+    first_digit = torch.tensor([int(str(abs(it[5]))[0]) for it in items], device=device)
+    majority = torch.bincount(first_digit[te], minlength=10).max().item() / len(te)
     out = {"n": n, "train": len(tr), "test": len(te), "first_digit_majority": majority,
            "r2_answer_by_layer": [], "r2_operand_a_by_layer": [], "r2_operand_b_by_layer": [],
            "r2_answer_linear_by_layer": [], "first_digit_acc_by_layer": []}
@@ -259,7 +262,7 @@ def metric_probe(model, tokenizer, items, device, bs, seed=316):
             if key == "r2_answer_by_layer":
                 out["r2_answer_linear_by_layer"].append(round(r2[0].item(), 4))
         out["first_digit_acc_by_layer"].append(
-            round(logreg_acc(X[tr].float(), first_digit[tr], X[te].float(), first_digit[te], 9), 4))
+            round(logreg_acc(X[tr].float(), first_digit[tr], X[te].float(), first_digit[te], 10), 4))
     ra, ro = out["r2_answer_by_layer"], out["r2_operand_a_by_layer"]
     out["best_layer_answer"] = int(max(range(len(ra)), key=lambda i: ra[i]))
     out["r2_answer_best"] = max(ra)
@@ -588,12 +591,21 @@ def metric_hessian(model, tokenizer, items, device, n_ex, power_iters, hutch_pro
         g_ = torch.Generator(device="cpu").manual_seed(seed)
         v = [torch.randn(p.shape, generator=g_).to(device) for p in params]
         nv = math.sqrt(sum((x.double() ** 2).sum() for x in v).item()); v = [x / nv for x in v]
-        lam = float("nan")
-        for _ in range(power_iters):
-            Hv = hvp(v)
-            lam = sum((h.double() * x.double()).sum() for h, x in zip(Hv, v)).item()
-            nv = math.sqrt(sum((h.double() ** 2).sum() for h in Hv).item())
-            v = [h / nv for h in Hv]
+        def power(shift):
+            vv = [torch.randn(p.shape, generator=g_).to(device) for p in params]
+            n0 = math.sqrt(sum((x.double() ** 2).sum() for x in vv).item()); vv = [x / n0 for x in vv]
+            mu = float("nan")
+            for _ in range(power_iters):
+                Hv = hvp(vv)
+                if shift:
+                    Hv = [h - shift * x for h, x in zip(Hv, vv)]
+                mu = sum((h.double() * x.double()).sum() for h, x in zip(Hv, vv)).item()
+                nv = math.sqrt(sum((h.double() ** 2).sum() for h in Hv).item())
+                vv = [h / nv for h in Hv]
+            return mu + shift
+        lam = power(0.0)            # largest |lambda|
+        lam_other = power(lam)      # the opposite end of the spectrum
+        lam_max, lam_min = max(lam, lam_other), min(lam, lam_other)
         # Hutchinson trace
         tr = 0.0
         for i in range(hutch_probes):
@@ -607,7 +619,9 @@ def metric_hessian(model, tokenizer, items, device, n_ex, power_iters, hutch_pro
             p.requires_grad_(False)
     n_par = sum(p.numel() for p in params)
     return {"n": len(batch), "loss": loss.item(), "grad_norm": math.sqrt(gnorm2),
-            "top_eigenvalue": lam, "trace_hutchinson": tr, "trace_over_params": tr / n_par,
+            "top_eigenvalue": lam, "lambda_max": lam_max, "lambda_min": lam_min,
+            "neg_share": (-lam_min / (lam_max - lam_min)) if lam_max > lam_min else float("nan"),
+            "trace_hutchinson": tr, "trace_over_params": tr / n_par,
             "grad_sharpness_gHg_over_g2": gHg_unit, "one_step_gain_nats": one_step_gain,
             "top_eig_share_of_trace": lam / tr if tr else float("nan")}
 
@@ -662,7 +676,8 @@ HEADLINE = [
     ("grad", "coherence_mean_over_mean_norm", "grad coherence"),
     ("grad", "gram_effective_rank", "grad erank"),
     ("grad", "kernel_target_alignment_first_digit", "KTA"),
-    ("hessian", "top_eigenvalue", "H top eig"),
+    ("hessian", "lambda_max", "H lambda max"),
+    ("hessian", "lambda_min", "H lambda min"),
     ("hessian", "grad_sharpness_gHg_over_g2", "gHg/g2"),
     ("hessian", "one_step_gain_nats", "one-step gain"),
     ("llc", "llc_estimate", "LLC"),

@@ -19,7 +19,8 @@
 # Metrics (each appends a block to analysis/prefit_<tag>.json; skip-if-done):
 #   pref geometry probe das dcm attn grad hessian llc   (see the script docstring)
 #
-# Usage:  bash launch_prefit.sh --confirm-cost [--tags "latent fmt"] [--metrics "pref probe"]
+# Usage:  bash launch_prefit.sh --confirm-cost [--tags "latent fmt"] [--metrics "pref probe"] [--redo]
+#         --redo recomputes the listed metrics even when their block exists.
 # Env:    GEODE_STORE (store root); conda env geode.  GPU: fp32 1B, ~20 GB peak.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -28,12 +29,13 @@ export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 A=$REPO_ROOT/experiments/training-run/analysis
 LOG=$A/prefit.log
 
-CONFIRM=0; TAGS="latent fmt blank engine llama"; METRICS="pref geometry attn probe das dcm grad hessian llc"
+CONFIRM=0; REDO=0; TAGS="latent fmt blank engine llama"; METRICS="pref geometry attn probe das dcm grad hessian llc"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --confirm-cost) CONFIRM=1 ;;
     --tags) TAGS=$2; shift ;;
     --metrics) METRICS=$2; shift ;;
+    --redo) REDO=1 ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac; shift
 done
@@ -60,7 +62,7 @@ for tag in $TAGS; do
     milestone "skip $tag: $GEODE_STORE/runs/$model/model missing"; continue
   fi
   for m in $METRICS; do
-    if has_block "$tag" "$m"; then milestone "skip ($tag::$m done)"; continue; fi
+    if [[ $REDO == 0 ]] && has_block "$tag" "$m"; then milestone "skip ($tag::$m done)"; continue; fi
     milestone "run: prefit_metrics.py $m --model $model --tag $tag"
     { python3 prefit_metrics.py "$m" --model "$model" --tag "$tag" 2>&1 | tee -a "$LOG"; } \
       && [[ ${PIPESTATUS[0]} == 0 ]] || milestone "FAILED $tag::$m (continuing; see $LOG)"
