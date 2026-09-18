@@ -16,11 +16,11 @@ Metrics
   geometry  problem-specificity of the parent's own answer-position states:
             cos-to-mean and PC1 energy fraction per layer (1.0 = one state for
             every problem).
-  probe     linear decodability of the ANSWER from the frozen state, per layer:
-            ridge R^2 on helix features [y, cos/sin(2 pi y/T), T in 2,5,10,100]
-            (Kantamneni & Tegmark 2025) for the answer AND for each operand
-            (the control: inputs are copyable, the answer must be computed),
-            plus first-digit logistic-regression accuracy.
+  probe     is the ANSWER computed in the frozen state beyond copies of the
+            operands? addition only, layers >= 1; the units digit (a+b) mod 10
+            by 10-way logistic probe and by ridge on its T=10 helix features
+            (Kantamneni & Tegmark 2025), against copy-only baselines fitted on
+            the operands' own features; plus operand decodability.
   das       causal answer subspace (Distributed Alignment Search, Geiger et al.
             2024): learn a k-dim orthonormal subspace at layer L such that
             swapping it between two problems swaps the model's answer
@@ -240,6 +240,25 @@ def logreg_acc(X_tr, y_tr, X_te, y_te, n_cls, steps=300):
 
 
 def metric_probe(model, tokenizer, items, device, bs, seed=316):
+    """Is the ANSWER computed in the frozen state, beyond copies of the operands?
+
+    v2 (2026-09-18). v1 was confounded twice: (i) negative answers append '-' to
+    the prompt, so the layer-0 state (the last token's embedding) is two-valued
+    and predicts the answer's sign — every model scored the identical R^2 0.156
+    there; (ii) the answer's first digit is largely the larger operand's first
+    digit, so decoding it is copying. v2 therefore uses ADDITION problems only
+    (no sign token), skips layer 0, and targets the UNITS digit of the answer:
+    (a+b) mod 10 is not a linear function of the operands' own features, so a
+    linear probe can read it only if the model has computed it.
+      units_acc      10-way logistic accuracy for (a+b) mod 10 from the state
+      units_r2       ridge R^2 on [cos, sin](2 pi (a+b)/10) from the state
+      copy baselines the same probes fitted on the operands' OWN features
+                     (one-hot units digits of a and b; helix(a), helix(b)) — what
+                     a state that only copies the operands could reach
+      operand_r2     ridge R^2 on helix(a), helix(b) from the state (the inputs
+                     are present at the answer position)
+    """
+    items = [it for it in items if it[4] == "+"]
     st = states_at_answer(model, tokenizer, [it[0] for it in items], device, bs).double()
     n = st.shape[1]
     g = torch.Generator().manual_seed(seed)
@@ -248,26 +267,32 @@ def metric_probe(model, tokenizer, items, device, bs, seed=316):
     ans = torch.tensor([float(it[5]) for it in items], device=device, dtype=torch.float64)
     a = torch.tensor([float(it[2]) for it in items], device=device, dtype=torch.float64)
     b = torch.tensor([float(it[3]) for it in items], device=device, dtype=torch.float64)
-    first_digit = torch.tensor([int(str(abs(it[5]))[0]) for it in items], device=device)
-    majority = torch.bincount(first_digit[te], minlength=10).max().item() / len(te)
-    out = {"n": n, "train": len(tr), "test": len(te), "first_digit_majority": majority,
-           "r2_answer_by_layer": [], "r2_operand_a_by_layer": [], "r2_operand_b_by_layer": [],
-           "r2_answer_linear_by_layer": [], "first_digit_acc_by_layer": []}
+    units = torch.tensor([it[5] % 10 for it in items], device=device)
+    units_feat = torch.stack([torch.cos(2 * math.pi * ans / 10), torch.sin(2 * math.pi * ans / 10)], 1)
+    # copy baselines: probes on the operands' own features
+    oh = lambda v: F.one_hot(torch.tensor([int(t) % 10 for t in v.tolist()], device=device), 10).double()
+    ops_onehot = torch.cat([oh(a), oh(b)], 1)
+    ops_helix = torch.cat([helix(a), helix(b)], 1)
+    copy_acc = logreg_acc(ops_onehot[tr].float(), units[tr], ops_onehot[te].float(), units[te], 10)
+    copy_r2 = ridge_r2(ops_helix[tr], units_feat[tr], ops_helix[te], units_feat[te]).mean().item()
+    majority = torch.bincount(units[te], minlength=10).max().item() / len(te)
+    out = {"n": n, "surface": "bare_nl, addition only", "train": len(tr), "test": len(te),
+           "units_majority": majority, "units_acc_copy_baseline": copy_acc,
+           "units_r2_copy_baseline": copy_r2,
+           "units_acc_by_layer": [], "units_r2_by_layer": [], "operand_r2_by_layer": []}
     for l in range(st.shape[0]):
         X = st[l]
-        for key, y in (("r2_answer_by_layer", ans), ("r2_operand_a_by_layer", a),
-                       ("r2_operand_b_by_layer", b)):
-            r2 = ridge_r2(X[tr], helix(y)[tr], X[te], helix(y)[te])
-            out[key].append(round(r2.mean().item(), 4))
-            if key == "r2_answer_by_layer":
-                out["r2_answer_linear_by_layer"].append(round(r2[0].item(), 4))
-        out["first_digit_acc_by_layer"].append(
-            round(logreg_acc(X[tr].float(), first_digit[tr], X[te].float(), first_digit[te], 10), 4))
-    ra, ro = out["r2_answer_by_layer"], out["r2_operand_a_by_layer"]
-    out["best_layer_answer"] = int(max(range(len(ra)), key=lambda i: ra[i]))
-    out["r2_answer_best"] = max(ra)
-    out["r2_operands_best"] = max(max(ro), max(out["r2_operand_b_by_layer"]))
-    out["first_digit_acc_best"] = max(out["first_digit_acc_by_layer"])
+        out["units_acc_by_layer"].append(
+            round(logreg_acc(X[tr].float(), units[tr], X[te].float(), units[te], 10), 4))
+        out["units_r2_by_layer"].append(round(ridge_r2(X[tr], units_feat[tr], X[te], units_feat[te]).mean().item(), 4))
+        r2a = ridge_r2(X[tr], helix(a)[tr], X[te], helix(a)[te]).mean().item()
+        r2b = ridge_r2(X[tr], helix(b)[tr], X[te], helix(b)[te]).mean().item()
+        out["operand_r2_by_layer"].append(round((r2a + r2b) / 2, 4))
+    ua, ur, orr = out["units_acc_by_layer"][1:], out["units_r2_by_layer"][1:], out["operand_r2_by_layer"][1:]
+    out["units_acc_best"] = max(ua); out["units_acc_best_layer"] = 1 + ua.index(max(ua))
+    out["units_r2_best"] = max(ur); out["units_r2_best_layer"] = 1 + ur.index(max(ur))
+    out["operand_r2_best"] = max(orr)
+    out["units_acc_excess_over_copy"] = out["units_acc_best"] - copy_acc
     return out
 
 
@@ -667,9 +692,11 @@ HEADLINE = [
     ("pref", "logit_diff_mean", "hidden pref (nats)"),
     ("pref", "top1_acc", "top-1"),
     ("geometry", "pc1_last", "state PC1 (last)"),
-    ("probe", "r2_answer_best", "probe R2 answer"),
-    ("probe", "r2_operands_best", "probe R2 operands"),
-    ("probe", "first_digit_acc_best", "probe 1st-digit acc"),
+    ("probe", "units_acc_best", "probe units-digit acc"),
+    ("probe", "units_acc_copy_baseline", "  copy-only baseline"),
+    ("probe", "units_acc_excess_over_copy", "  excess over copy"),
+    ("probe", "units_r2_best", "probe units-digit R2"),
+    ("probe", "operand_r2_best", "probe operand R2"),
     ("attn", "max_head_mass", "attn max head->operands"),
     ("attn", "heads_over_0.25", "heads >0.25"),
     ("grad", "pairwise_cos_mean", "grad cos"),
@@ -678,6 +705,7 @@ HEADLINE = [
     ("grad", "kernel_target_alignment_first_digit", "KTA"),
     ("hessian", "lambda_max", "H lambda max"),
     ("hessian", "lambda_min", "H lambda min"),
+    ("hessian", "neg_share", "H negative share"),
     ("hessian", "grad_sharpness_gHg_over_g2", "gHg/g2"),
     ("hessian", "one_step_gain_nats", "one-step gain"),
     ("llc", "llc_estimate", "LLC"),
@@ -691,6 +719,11 @@ def cmd_compare(args):
         rows.append(json.loads(p.read_text()) if p.is_file() else {"tag": tag})
     w = max(14, max(len(r.get("tag", "")) for r in rows) + 2)
     print("[prefit] metric".ljust(34) + "".join(r.get("tag", "?").rjust(w) for r in rows))
+    for r in rows:
+        h = r.get("hessian")
+        if isinstance(h, dict) and "neg_share" not in h and "lambda_max" in h:
+            lo, hi = h["lambda_min"], h["lambda_max"]
+            h["neg_share"] = -lo / (hi - lo) if hi > lo else float("nan")
     for blk, key, label in HEADLINE:
         vals = []
         for r in rows:

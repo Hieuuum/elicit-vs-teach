@@ -7052,3 +7052,17 @@ dcm/grad/resid/lens tables) updated.
 | LLC | -1.2e6 | -1.6e6 | -1.5e6 | -6.8e5 | -2.1e6 | INVALID (w0 not a minimum) |
 
 Reading: three parent-only mechanistic predictors order the ladder — the hidden preference (output), the causal answer subspace at the answer position (DAS; the full-residual swap is itself the cleanest version: the answer-position state of latent/llama/engine CARRIES the answer causally, blank/fmt's does not), and operand roles on the NL surface (DCM) — and the last one additionally separates the engine parent (arithmetic present, words not bound: DAS yes, DCM no) from the two elicit parents (both). Prediction misses recorded: gradient coherence (predicted coherent for elicit; latent is the LEAST coherent), attention interface (no separation), state PC1 (engine not separated). Pending: probe + Hessian rerun (`launch_prefit.sh --confirm-cost --metrics "probe hessian" --redo`).
+
+## 2026-09-18 (prefit rerun: curvature ORDERS the ladder; probe v1 invalid, v2 written) — Hessian of the task loss at the parent, both ends of the spectrum (16 examples, 20 power iterations each end):
+
+| parent | lambda_max | lambda_min | negative share -lmin/(lmax-lmin) |
+|---|---|---|---|
+| latent (elicit) | 0.19 | -718 | 1.00 |
+| llama (elicit) | 1.1e5 | -2.0e5 | 0.64 |
+| engine (between) | 76 | -69 | 0.48 |
+| fmt (teach) | 266 | -0.000 | 0.00 |
+| blank (teach) | 317 | -0.05 | 0.00 |
+
+The negative share orders all five in the known order. Reading: a parent about to be elicited sits on a saddle of the task loss — there are directions along which the loss falls faster than linearly (strong negative curvature: the latent capability is a "cliff" one push away); a parent about to be taught sits in a positively curved region with no such shortcut. Caveats: 16-example batch, power iteration (not Lanczos), Llama's scale is 100-1000x the TinyStories parents (different loss magnitude) — the ratio, not the raw eigenvalues, is the comparable quantity.
+
+Probe v1 is INVALID: its answer R^2 was 0.156 for every parent — the layer-0 state (last-token embedding) is two-valued because negative answers append '-', which predicts the answer's sign identically in every model; and first-digit decoding is largely operand copying. v1's operand R^2 (latent 0.84, engine 0.81, llama 0.77 vs fmt 0.28, blank 0.24) and first-digit accuracy (0.51 / 0.50 / 0.45 vs 0.27 / 0.18) do separate the arithmetic parents but measure presence of the inputs, not the answer. v2: addition only (no sign token), layers >= 1, units digit (a+b) mod 10 — not linear in the operands' own features — by 10-way logistic and T=10 helix ridge, against copy-only baselines fitted on the operands' own features. Needs one more run.
