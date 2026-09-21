@@ -44,6 +44,11 @@ Metrics
             a local minimum of the loss; a parent before fine-tuning is not, SGLD
             descends and the estimate comes out negative (2026-09-18 run: all five
             parents -0.7e6 .. -2.1e6). Kept for completeness; do not report.
+  cliff     cliff depth: walk the weights along the most-negative-curvature
+            eigenvector of the task loss (parent-determined direction, ONE free
+            number = the step size, chosen on validation problems) and read
+            held-out loss, hidden preference, top-1 and greedy exact match;
+            the step-0 gradient direction profiled the same way for comparison.
   all       every metric above in that order.
   compare   table across tags.
 
@@ -687,6 +692,133 @@ def metric_llc(model, tokenizer, items, device, n_ex, steps, eps, gamma, n_data,
             "llc_estimate": llc, "loss_trace": [round(v, 4) for v in trace]}
 
 
+# ------------------------------------------------------------------ cliff
+def _exact_match(model, tokenizer, triples, device, bs, max_new=8):
+    """Greedy-decoded exact match on plain prompts (no sign fed in)."""
+    import re as _re
+    tokenizer.padding_side = "left"
+    hit = 0
+    for s in range(0, len(triples), bs):
+        chunk = triples[s : s + bs]
+        prompts = [render_probe("bare_nl", a, b, op, 0)[0] for a, b, op in chunk]
+        enc = tokenizer(prompts, return_tensors="pt", padding=True, add_special_tokens=False).to(device)
+        with torch.no_grad():
+            out = model.generate(input_ids=enc["input_ids"], attention_mask=enc["attention_mask"],
+                                 max_new_tokens=max_new, do_sample=False,
+                                 pad_token_id=tokenizer.pad_token_id)
+        texts = tokenizer.batch_decode(out[:, enc["input_ids"].shape[1]:], skip_special_tokens=True)
+        for (a, b, op), t in zip(chunk, texts):
+            m = _re.match(r"\s*(-?\d+)", t)
+            hit += int(m is not None and int(m.group(1)) == true_answer(a, b, op))
+    return hit / max(1, len(triples))
+
+
+def metric_cliff(model, tokenizer, items, device, n_curv, n_val, n_test, power_iters, alphas, bs,
+                 seed=316):
+    """CLIFF DEPTH — how far does the task fall away along ONE direction that the
+    parent itself singles out?
+
+    The Hessian metric says an elicit parent sits on a saddle of the task loss
+    (negative-curvature share ~1) and a teach parent in a bowl (~0). This metric
+    walks off the saddle: find v_min, the eigenvector of the task-loss Hessian
+    with the most negative eigenvalue (shifted power iteration on n_curv
+    problems; no training), move the weights to w0 + alpha*|w0|*(+-v_min) for a
+    grid of alpha, and read held-out behaviour at each point: task loss, hidden
+    preference, first-chunk top-1, and greedy exact match at the best point.
+    The direction is fixed by the parent; the only free quantity is ONE number,
+    the step size (chosen on a validation split, reported on a disjoint test
+    split). The step-0 gradient direction -g is profiled the same way as the
+    comparison: it is what one step of fine-tuning would do, and on a parent
+    that has never emitted a number it mostly buys the output format.
+    """
+    params = [p for _, p in _trainable(model)]
+    curv, val, test = items[:n_curv], items[n_curv : n_curv + n_val], items[n_curv + n_val : n_curv + n_val + n_test]
+    for p in params:
+        p.requires_grad_(True)
+    g_ = torch.Generator(device="cpu").manual_seed(seed)
+    try:
+        loss = batch_loss(model, tokenizer, curv, device)
+        grads = torch.autograd.grad(loss, params, create_graph=True)
+
+        def hvp(vs):
+            gv = sum((g * v).sum() for g, v in zip(grads, vs))
+            return [h.detach() for h in torch.autograd.grad(gv, params, retain_graph=True)]
+
+        def power(shift):
+            vv = [torch.randn(p.shape, generator=g_).to(device) for p in params]
+            n0 = math.sqrt(sum((t.double() ** 2).sum() for t in vv).item()); vv = [t / n0 for t in vv]
+            mu = float("nan")
+            for _ in range(power_iters):
+                Hv = hvp(vv)
+                if shift:
+                    Hv = [h - shift * t for h, t in zip(Hv, vv)]
+                mu = sum((h.double() * t.double()).sum() for h, t in zip(Hv, vv)).item()
+                nv = math.sqrt(sum((h.double() ** 2).sum() for h in Hv).item())
+                vv = [h / nv for h in Hv]
+            return mu + shift, vv
+
+        lam_a, v_a = power(0.0)
+        lam_b, v_b = power(lam_a)
+        (lam_min, v_min), lam_max = ((lam_a, v_a), lam_b) if lam_a < lam_b else ((lam_b, v_b), lam_a)
+        gn = math.sqrt(sum((g.detach().double() ** 2).sum() for g in grads).item())
+        g_dir = [-(g.detach()) / gn for g in grads]
+        cos_gv = sum((a.double() * b.double()).sum() for a, b in zip(g_dir, v_min)).item()
+        del grads, loss, v_a, v_b
+    finally:
+        model.zero_grad(set_to_none=True)
+        for p in params:
+            p.requires_grad_(False)
+    wnorm = math.sqrt(sum((p.double() ** 2).sum().item() for p in params))
+
+    def shift_weights(direction, step):
+        with torch.no_grad():
+            for p, d in zip(params, direction):
+                p.add_(d.to(p.dtype), alpha=step)
+
+    def read(split):
+        with torch.no_grad():
+            L = batch_loss(model, tokenizer, split, device).item()
+        pr = metric_pref(model, tokenizer, split, device, bs)
+        return {"loss": L, "pref": pr["logit_diff_mean"], "top1": pr["top1_acc"]}
+
+    base_val, base_test = read(val), read(test)
+    test_triples = [(it[2], it[3], it[4]) for it in test]
+    base_em = _exact_match(model, tokenizer, test_triples, device, bs)
+    out = {"n_curv": len(curv), "n_val": len(val), "n_test": len(test), "lambda_min": lam_min,
+           "lambda_max": lam_max, "weight_norm": wnorm, "cos_grad_vmin": cos_gv,
+           "alphas": list(alphas), "base": {**base_test, "em": base_em}, "directions": {}}
+    for name, direction in (("vmin+", v_min), ("vmin-", [-t for t in v_min]), ("grad", g_dir)):
+        prof, cur = [], 0.0
+        for al in alphas:
+            step = al * wnorm
+            shift_weights(direction, step - cur); cur = step
+            prof.append({"alpha": al, **read(val)})
+        best = min(range(len(prof)), key=lambda i: prof[i]["loss"])
+        if prof[best]["loss"] >= base_val["loss"]:
+            best = None
+        if best is None:
+            shift_weights(direction, -cur); cur = 0.0
+            res = {"alpha": 0.0, **base_test, "em": base_em}
+        else:
+            step = alphas[best] * wnorm
+            shift_weights(direction, step - cur); cur = step
+            res = {"alpha": alphas[best], **read(test),
+                   "em": _exact_match(model, tokenizer, test_triples, device, bs)}
+            shift_weights(direction, -cur); cur = 0.0
+        out["directions"][name] = {"profile_val": prof, "best_test": res}
+        print(f"[prefit] cliff {name}: best alpha {res['alpha']:.2e}  loss {base_test['loss']:.2f}->{res['loss']:.2f}  "
+              f"pref {base_test['pref']:+.2f}->{res['pref']:+.2f}  top1 {base_test['top1']:.3f}->{res['top1']:.3f}  "
+              f"EM {base_em:.3f}->{res['em']:.3f}")
+    bv = min(("vmin+", "vmin-"), key=lambda k: out["directions"][k]["best_test"]["loss"])
+    b, gr = out["directions"][bv]["best_test"], out["directions"]["grad"]["best_test"]
+    out.update({"cliff_sign": bv, "cliff_alpha": b["alpha"],
+                "cliff_loss_drop_frac": (base_test["loss"] - b["loss"]) / base_test["loss"],
+                "cliff_pref_gain": b["pref"] - base_test["pref"], "cliff_top1": b["top1"], "cliff_em": b["em"],
+                "grad_loss_drop_frac": (base_test["loss"] - gr["loss"]) / base_test["loss"],
+                "grad_pref_gain": gr["pref"] - base_test["pref"], "grad_top1": gr["top1"], "grad_em": gr["em"]})
+    return out
+
+
 # ------------------------------------------------------------------ compare
 HEADLINE = [
     ("pref", "logit_diff_mean", "hidden pref (nats)"),
@@ -708,6 +840,13 @@ HEADLINE = [
     ("hessian", "grad_sharpness_gHg_over_g2", "gHg/g2"),
     ("hessian", "one_step_gain_nats", "one-step gain"),
     ("llc", "llc_estimate", "LLC"),
+    ("cliff", "cliff_loss_drop_frac", "cliff: loss drop frac"),
+    ("cliff", "cliff_pref_gain", "cliff: pref gain (nats)"),
+    ("cliff", "cliff_top1", "cliff: top-1"),
+    ("cliff", "cliff_em", "cliff: exact match"),
+    ("cliff", "grad_loss_drop_frac", "grad dir: loss drop frac"),
+    ("cliff", "grad_pref_gain", "grad dir: pref gain"),
+    ("cliff", "grad_em", "grad dir: exact match"),
 ]
 
 
@@ -745,7 +884,7 @@ def cmd_compare(args):
 
 
 # ------------------------------------------------------------------ driver
-METRICS = ("pref", "geometry", "probe", "das", "dcm", "attn", "grad", "hessian", "llc")
+METRICS = ("pref", "geometry", "probe", "das", "dcm", "attn", "grad", "hessian", "llc", "cliff")
 
 
 def run_metric(name, model, tokenizer, items, args):
@@ -767,6 +906,9 @@ def run_metric(name, model, tokenizer, items, args):
         return metric_grad(model, tokenizer, items, dev, args.grad_n, args.sketch_dim)
     if name == "hessian":
         return metric_hessian(model, tokenizer, items, dev, args.hess_n, args.power_iters, args.hutch)
+    if name == "cliff":
+        return metric_cliff(model, tokenizer, items, dev, args.cliff_curv, args.cliff_val, args.cliff_test,
+                            args.power_iters, args.cliff_alphas, args.batch_size)
     if name == "llc":
         return metric_llc(model, tokenizer, items, dev, args.llc_pool, args.llc_steps, args.llc_eps,
                           args.llc_gamma, args.llc_n_data, args.llc_batch)
@@ -781,7 +923,7 @@ def cmd_run(args):
         tokenizer.pad_token = tokenizer.eos_token
     names = list(METRICS) if args.metric == "all" else [args.metric]
     model = load(args.model, args.device, eager=("attn" in names))
-    items = problems(max(args.n, args.n_probe), tokenizer)
+    items = problems(max(args.n, args.n_probe, 512), tokenizer)
     out_dir = Path(args.out_dir)
     for name in names:
         t0 = time.time()
@@ -816,6 +958,7 @@ def cmd_smoke(args):
     args.grad_n, args.sketch_dim = 6, 512
     args.hess_n, args.power_iters, args.hutch = 4, 2, 2
     args.llc_pool, args.llc_steps, args.llc_eps, args.llc_gamma, args.llc_n_data, args.llc_batch = 8, 4, 1e-6, 100.0, 1000, 2
+    args.cliff_curv, args.cliff_val, args.cliff_test, args.cliff_alphas = 4, 8, 8, [1e-3, 1e-2]
     out_dir = Path(args.out_dir); out_dir.mkdir(exist_ok=True)
     for name in METRICS:
         block = run_metric(name, model, tok, items, args)
@@ -857,6 +1000,11 @@ def main() -> int:
     ap.add_argument("--llc-gamma", type=float, default=100.0)
     ap.add_argument("--llc-n-data", type=int, default=4_000_000)
     ap.add_argument("--llc-batch", type=int, default=8)
+    ap.add_argument("--cliff-curv", type=int, default=32)
+    ap.add_argument("--cliff-val", type=int, default=64)
+    ap.add_argument("--cliff-test", type=int, default=128)
+    ap.add_argument("--cliff-alphas", type=float, nargs="+",
+                    default=[1e-4, 2e-4, 5e-4, 1e-3, 2e-3, 5e-3, 1e-2, 2e-2, 5e-2])
     args = ap.parse_args()
     if args.metric == "compare":
         if not args.tags:

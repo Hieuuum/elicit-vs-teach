@@ -17,6 +17,7 @@
 \newcommand{\how}[1]{\par\noindent\textbf{How it is measured.} #1}
 \newcommand{\numbers}[1]{\par\noindent\textbf{The numbers.} #1\par\medskip}
 \newcommand{\metricsec}[2]{\item \textbf{#1} --- \emph{#2}}
+\newcommand{\metricsecp}[2]{\item \textbf{#1}~$\bigstar$ --- \emph{#2}}
 
 \begin{document}
 
@@ -50,6 +51,18 @@ set.}
 
 
 % =====================================================================
+\noindent\textbf{Metrics marked $\bigstar$ can be read before fine-tuning.} They need only the
+parent and the task data --- no fine-tuned checkpoint --- so they say in advance whether the coming
+fine-tune will elicit or teach. (Answer depth is marked for its before-training half.) The
+$\bigstar$ metrics in the second half of the list are tested on five parents whose learning curves
+are known: the two elicit parents (TS1B-latent and Llama-3.2-1B, both monotone), the two teach
+parents (format-installed and blank, both with the hump), and in between the \emph{symbol
+engine} --- the latent parent's first stage, which computes in symbols but was never shown what
+the words mean. Each orders these five parents the way their curves do, or splits them along a
+line the construction predicts (Table~\ref{tab:prefit}). They use the bare natural-language
+prompts of the target task, 0-shot; for negative answers the minus sign is fed in and the first
+digit chunk is scored.
+
 \begin{enumerate}[label=\textbf{M\arabic*}, leftmargin=*, itemsep=1.2em, resume]
 
 \metricsec{Circuit overlap}{the same circuit vs.\ a new circuit}
@@ -310,7 +323,7 @@ after removing the answer directions; the LoRA-taught size is $29\times$ (an ada
 
 % =====================================================================
 
-\metricsec{Latent reach}{do the words already reach the machinery?}
+\metricsecp{Latent reach}{do the words already reach the machinery?}
 \what{Before any target training, does a natural-language question already put the arithmetic
 components into a problem-specific state (elicit), or is there nothing for the words to reach
 (teach)?}
@@ -329,7 +342,7 @@ problem-specific) vs $0.99$ (teach parent; the blank base $0.98$) --- the same s
 problem (Table~\ref{tab:resid}, ``parent's own states''). \emph{Reading:} the words already reach the elicit parent's machinery
 before any target training; the teach parents have nothing for them to reach.}
 
-\metricsec{Answer depth}{the answer already there vs.\ absent; finished one layer earlier vs.\ later}
+\metricsecp{Answer depth}{the answer already there vs.\ absent; finished one layer earlier vs.\ later}
 \what{Is the answer readable from the parent's internal state before it can say it (elicit) or
 absent (teach); and after training, is it finished one layer earlier (elicit) or later (teach)?}
 \how{Read the model's intermediate state at each layer as if it were the output, three ways.
@@ -436,24 +449,7 @@ the fine-tuned child for scale}
 \label{fig:ladder}
 \end{figure}
 
-\end{enumerate}
-
-% =====================================================================
-\section*{Before fine-tuning: reading the parent alone}
-
-The metrics above compare a child with its parent. The ones below need only the parent and the
-task data, so they can be read before any fine-tuning budget is spent. Each is tested on five
-parents whose learning curves are known: the two elicit parents (TS1B-latent and
-Llama-3.2-1B, both monotone), the two teach parents (format-installed and blank, both with the
-hump), and in between the \emph{symbol engine} --- the latent parent's first stage, which
-computes in symbols but was never shown what the words mean. A metric is reported here only if it
-orders these five parents the way their curves do, or splits them along a line the construction
-predicts. Every measurement uses the bare natural-language prompts of the target task, 0-shot;
-for negative answers the minus sign is fed in and the first digit chunk is scored.
-
-\begin{enumerate}[label=\textbf{P\arabic*}, leftmargin=*, itemsep=1.2em]
-
-\metricsec{Repeatable task circuit in the parent}{a circuit for the task already there vs.\ noise}
+\metricsecp{Repeatable task circuit in the parent}{a circuit for the task already there vs.\ noise}
 \what{Before any target training, does the parent already have a stable set of components that
 raise the correct answer's logit on the target task (elicit), or does its attribution map on the
 task have no structure at all (teach)?}
@@ -492,7 +488,7 @@ on symbols the parent already answers, and many components carry a little of the
 \label{tab:parentcirc}
 \end{table}
 
-\metricsec{Hidden preference}{prefers the right answer without saying it vs.\ no preference}
+\metricsecp{Hidden preference}{prefers the right answer without saying it vs.\ no preference}
 \what{Before any target training, does the parent already prefer the correct answer to a wrong
 one, even though it never produces it (elicit), or is it indifferent (teach)?}
 \how{One forward pass per problem, 256 problems. At the answer position, read the parent's own
@@ -505,7 +501,7 @@ produces the answer (top-1 accuracy $\le0.05$). \emph{Reading:} the cheapest tes
 it already ranks the parents: a capability about to be elicited shows up as a preference the
 model does not act on.}
 
-\metricsec{Downward curvature of the task loss}{a cliff one push away vs.\ a bowl}
+\metricsecp{Downward curvature of the task loss}{a cliff one push away vs.\ a bowl}
 \what{Standing at the parent's weights, are there directions in which the task loss falls faster
 than linearly --- a capability one push away (elicit) --- or does the loss curve upward in every
 direction (teach)?}
@@ -522,7 +518,7 @@ $0.00$ --- again the order of the five curves. \emph{Reading:} a parent about to
 sits on a saddle of the task loss, with directions that fall away steeply; a parent about to be
 taught sits in a bowl with no such shortcut.}
 
-\metricsec{Answer carried by the state}{swapping the state moves the answer vs.\ nothing moves}
+\metricsecp{Answer carried by the state}{swapping the state moves the answer vs.\ nothing moves}
 \what{Does the parent's state at the answer position already carry the answer causally --- swap
 it between two problems and the preference follows (elicit) --- or does swapping it change
 nothing (teach)?}
@@ -541,7 +537,7 @@ $0.41$ at layer 12). \emph{Reading:} in every parent that can compute, the state
 position already holds the problem's answer; in the teach parents it holds nothing that moves
 the answer.}
 
-\metricsec{Number-reading heads}{words already reach the arithmetic vs.\ they do not}
+\metricsecp{Number-reading heads}{words already reach the arithmetic vs.\ they do not}
 \what{Do the parent's attention heads already fetch the two numbers when the problem is posed in
 words (elicit), or not (teach) --- and does having arithmetic suffice?}
 \how{Desiderata Component Masking, as in M2, on the frozen parent and the natural-language
@@ -556,7 +552,7 @@ has the arithmetic (the answer is in its state, previous metric) but no heads th
 numbers from the words to it; the binding dose is what builds that interface, and only a parent
 with both is about to be elicited on this task.}
 
-\metricsec{Operands present at the answer position}{the numbers are there vs.\ weakly there}
+\metricsecp{Operands present at the answer position}{the numbers are there vs.\ weakly there}
 \what{Is the information the computation needs --- the two numbers --- already readable from the
 parent's state at the moment it is about to answer?}
 \how{Linear probe on the state at the answer position, layer by layer, about 2,000 addition

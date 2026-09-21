@@ -17,7 +17,7 @@
 #   llama    meta-llama/Llama-3.2-1B       elicit (monotone Fig-2 noinst sweep)
 #
 # Metrics (each appends a block to analysis/prefit_<tag>.json; skip-if-done):
-#   pref geometry probe das dcm attn grad hessian llc   (see the script docstring)
+#   pref geometry probe das dcm attn grad hessian llc cliff   (see the script docstring)
 #
 # Usage:  bash launch_prefit.sh --confirm-cost [--tags "latent fmt"] [--metrics "pref probe"] [--redo]
 #         --redo recomputes the listed metrics even when their block exists.
@@ -29,7 +29,7 @@ export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 A=$REPO_ROOT/experiments/training-run/analysis
 LOG=$A/prefit.log
 
-CONFIRM=0; REDO=0; TAGS="latent fmt blank engine llama"; METRICS="pref geometry attn probe das dcm grad hessian llc"
+CONFIRM=0; REDO=0; TAGS="latent fmt blank engine llama"; METRICS="pref geometry attn probe das dcm grad hessian llc cliff"
 while [[ $# -gt 0 ]]; do
   case $1 in
     --confirm-cost) CONFIRM=1 ;;
