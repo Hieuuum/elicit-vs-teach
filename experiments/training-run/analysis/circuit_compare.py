@@ -61,11 +61,23 @@ def main() -> int:
         inter, union = top_a & top_b, top_a | top_b
         jacc = len(inter) / len(union)
         chance = k / (2 * n_nodes - k)
+        # Type-matched chance (2026-09-22): an MLP block's score is a dot product
+        # over 2048 dims, a head's over 64, so every top-k is MLP-heavy by
+        # construction and two unrelated maps share MLPs more often than the
+        # uniform null says. Expected Jaccard when each map keeps its own
+        # MLP/head counts but the members are drawn at random within type.
+        def is_mlp(idx):
+            return str(idx).startswith("mlp")
+        n_mlp = sum(is_mlp(i) for i in da.index)
+        ma_, mb_ = sum(is_mlp(i) for i in top_a), sum(is_mlp(i) for i in top_b)
+        e_inter = ma_ * mb_ / max(n_mlp, 1) + (k - ma_) * (k - mb_) / max(n_nodes - n_mlp, 1)
+        chance_t = e_inter / (2 * k - e_inter)
         # Spearman by hand (rank -> Pearson): the cluster env has no scipy.
         ra = da.loc[list(union), "abs_score"].rank()
         rb = db.loc[list(union), "abs_score"].rank()
         shared = ra.corr(rb)  # Pearson of ranks == Spearman
-        print(f"[compare] k={k:4d}: Jaccard {jacc:.3f} (chance ~{chance:.3f}) "
+        print(f"[compare] k={k:4d}: Jaccard {jacc:.3f} (chance ~{chance:.3f}; "
+              f"type-matched ~{chance_t:.3f}, MLPs {ma_}/{mb_} of {k}) "
               f"| shared {len(inter):3d}/{len(union)} "
               f"| union-score Spearman {shared:.3f} (rotation {1 - shared:.3f})")
 
