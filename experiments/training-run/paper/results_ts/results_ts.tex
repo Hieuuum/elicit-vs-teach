@@ -81,37 +81,41 @@ random circuits overlap at $0.031$; but an MLP block's score is a dot product ov
 dimensions and a head's over 64, so every top-32 holds 12--15 of the 16 MLP blocks and two
 unrelated circuits share those by construction. The \emph{type-matched chance} is the expected
 overlap when each circuit keeps its own MLP and head counts and the members are random within
-type ($0.20$--$0.27$ here); that is the floor to read against. The \emph{ceiling} is the overlap of two circuits of the
+type ($0.20$--$0.27$ here); that is the floor to read against. The cleanest comparison sets the
+MLP blocks aside: \emph{heads-only} Jaccard@32 over the 512 attention heads (chance $0.032$), the
+components where two circuits can actually differ. The \emph{ceiling} is the overlap of two circuits of the
 \emph{same} model computed from two disjoint halves of the data --- how repeatable a circuit is
 ($0.42$--$0.68$ here); an overlap at the ceiling means ``the same circuit''. Spearman $=$ rank
 correlation of the node scores over the union. Also which layers and node types each circuit's top nodes come from.}
 \numbers{Table~\ref{tab:overlap}. Elicit: the parent's circuit on the target task itself
-$\leftrightarrow$ the elicited child's: $0.455$ against ceilings of $0.60$ (parent) and $0.56$
-(child) --- three quarters of the way to ``the same circuit''. The parent answers none of the
+$\leftrightarrow$ the elicited child's: $0.455$ against a type-matched chance of $0.23$ and
+ceilings of $0.60$ (parent) and $0.56$ (child); heads only, $0.333$ against the parent map's
+heads-only ceiling of $0.42$ and chance $0.03$ --- the child uses the parent's heads. The parent answers none of the
 questions (it rewrites them), yet its answer logit-difference on them is $3.1$ nats, enough for
 a repeatable map ($0.60$ split-half), and that map is its symbol-arithmetic circuit
 ($0.524$ against the parent's own symbol-task map). Teach: parent $\leftrightarrow$ child
 undefined --- the teach parent's map fails the performing-regime check (answer logit-difference
 $-1.5$; the $0.231$ it scores against its child equals the type-matched chance, $0.25$), so the
 taught circuit ($0.52$ repeatable) is new. The two children against each other: $0.306$, at the
-type-matched chance of $0.25$ (score correlation $0.03$) --- what they share is only that both
-use many MLP blocks; the taught circuit's own heads sit in layers 4--7 and 15, the elicited
-one's are three layer-7 heads inherited from the parent. \emph{Reading:} elicitation re-weights
+type-matched chance of $0.25$ (score correlation $0.03$); heads only, $0.103$ (6 of 58 heads
+shared) --- what they share is that both use many MLP blocks; the taught circuit's heads sit in
+layers 4--7 and 15, the elicited one's are the parent's layer-7 heads. The teach parent
+$\leftrightarrow$ taught child, heads only: $0.016$, one head in 63. \emph{Reading:} elicitation re-weights
 the circuit the parent already runs on the task; teaching builds a different one.}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccc}
 \toprule
-Comparison & Jaccard@32 & chance (uniform / type-matched) & ceilings (A / B) \\
+Comparison & Jaccard@32 & chance (uniform / type-matched) & ceilings (A / B) & heads-only J@32 \\
 \midrule
-\textbf{elicit parent on the task $\leftrightarrow$ elicited child (FT)} & \textbf{0.455} (Spearman 0.22) & 0.031 / 0.23 & 0.600 / 0.561 \\
-\textbf{teach parent on the task $\leftrightarrow$ taught child (FT)} & \textbf{undefined}: parent map is noise (logit-diff $-1.5$; noise overlap 0.231) & 0.031 / 0.25 & -- / 0.524 \\
+\textbf{elicit parent on the task $\leftrightarrow$ elicited child (FT)} & \textbf{0.455} (Spearman 0.22) & 0.031 / 0.23 & 0.600 / 0.561 & \textbf{0.333} (ceiling 0.422) \\
+\textbf{teach parent on the task $\leftrightarrow$ taught child (FT)} & \textbf{undefined}: parent map is noise (logit-diff $-1.5$; noise overlap 0.231) & 0.031 / 0.25 & -- / 0.524 & \textbf{0.016} \\
 \midrule
-elicit parent on the task $\leftrightarrow$ elicit parent on symbols & 0.524 (Spearman 0.44) & 0.031 / 0.27 & 0.600 / 0.306 \\
-elicit parent on symbols $\leftrightarrow$ elicited child (FT) & 0.391 (Spearman 0.44) & 0.031 / 0.25 & 0.306 / 0.561 \\
-elicited child, full FT $\leftrightarrow$ elicited child, LoRA & 0.641 (Spearman 0.54) & 0.031 / 0.20 & 0.561 / 0.684 \\
-elicited child (FT) $\leftrightarrow$ taught child (FT) & 0.306 (Spearman 0.03) & 0.031 / 0.25 & 0.561 / 0.524 \\
-taught child (FT) $\leftrightarrow$ taught child from the blank base (FT) & 0.362 (Spearman 0.18) & 0.031 / 0.27 & 0.524 / 0.422 \\
+elicit parent on the task $\leftrightarrow$ elicit parent on symbols & 0.524 (Spearman 0.44) & 0.031 / 0.27 & 0.600 / 0.306 & 0.280 \\
+elicit parent on symbols $\leftrightarrow$ elicited child (FT) & 0.391 (Spearman 0.44) & 0.031 / 0.25 & 0.306 / 0.561 & 0.255 \\
+elicited child, full FT $\leftrightarrow$ elicited child, LoRA & 0.641 (Spearman 0.54) & 0.031 / 0.20 & 0.561 / 0.684 & 0.455 \\
+elicited child (FT) $\leftrightarrow$ taught child (FT) & 0.306 (Spearman 0.03) & 0.031 / 0.25 & 0.561 / 0.524 & 0.103 \\
+taught child (FT) $\leftrightarrow$ taught child from the blank base (FT) & 0.362 (Spearman 0.18) & 0.031 / 0.27 & 0.524 / 0.422 & 0.208 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
@@ -465,7 +469,8 @@ means the parent already computes something answer-specific for the task even if
 the answer.}
 \numbers{Table~\ref{tab:parentcirc}. Elicit parent: exact match $0.000$ (it rewrites the
 question), yet its answer logit-difference is $3.1$ nats and its map is repeatable at
-$0.600$ / $0.580$ / $0.552$ --- as repeatable as the fine-tuned children's ($0.42$--$0.68$). That
+$0.600$ / $0.580$ / $0.552$ (heads only $0.422$; type-matched chance $0.25$ / $0.03$) --- as
+repeatable as the fine-tuned children's ($0.42$--$0.68$). That
 circuit is its symbol-arithmetic circuit ($0.524$ overlap with the parent's own symbol-task map)
 and it is what the elicited child ends up running (M1: $0.455$). Teach parent: exact match
 $0.000$, answer logit-difference $-1.5$, map flagged as noise. \emph{Reading:} the parent's own
