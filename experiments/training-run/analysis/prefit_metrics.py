@@ -745,25 +745,40 @@ def metric_cliff(model, tokenizer, items, device, n_curv, n_val, n_test, power_i
             return [h.detach() for h in torch.autograd.grad(gv, params, retain_graph=True)]
 
         def power(shift):
+            # one live vector on the GPU at a time (each is the size of the model)
             vv = [torch.randn(p.shape, generator=g_).to(device) for p in params]
-            n0 = math.sqrt(sum((t.double() ** 2).sum() for t in vv).item()); vv = [t / n0 for t in vv]
+            n0 = math.sqrt(sum((t.double() ** 2).sum() for t in vv).item())
+            for t in vv:
+                t.div_(n0)
             mu = float("nan")
             for _ in range(power_iters):
                 Hv = hvp(vv)
                 if shift:
-                    Hv = [h - shift * t for h, t in zip(Hv, vv)]
+                    for h, t in zip(Hv, vv):
+                        h.sub_(shift * t)
                 mu = sum((h.double() * t.double()).sum() for h, t in zip(Hv, vv)).item()
                 nv = math.sqrt(sum((h.double() ** 2).sum() for h in Hv).item())
-                vv = [h / nv for h in Hv]
+                for h, t in zip(Hv, vv):
+                    t.copy_(h / nv)
+                del Hv
             return mu + shift, vv
 
         lam_a, v_a = power(0.0)
+        v_a = [t.cpu() for t in v_a]                       # park it while the second end runs
+        torch.cuda.empty_cache() if device.startswith("cuda") else None
         lam_b, v_b = power(lam_a)
-        (lam_min, v_min), lam_max = ((lam_a, v_a), lam_b) if lam_a < lam_b else ((lam_b, v_b), lam_a)
+        if lam_a < lam_b:
+            lam_min, lam_max = lam_a, lam_b
+            del v_b; v_min = [t.to(device) for t in v_a]
+        else:
+            lam_min, lam_max = lam_b, lam_a
+            v_min = v_b
+        del v_a
         gn = math.sqrt(sum((g.detach().double() ** 2).sum() for g in grads).item())
-        g_dir = [-(g.detach()) / gn for g in grads]
+        g_dir = [(-(g.detach()) / gn) for g in grads]
         cos_gv = sum((a.double() * b.double()).sum() for a, b in zip(g_dir, v_min)).item()
-        del grads, loss, v_a, v_b
+        del grads, loss
+        torch.cuda.empty_cache() if device.startswith("cuda") else None
     finally:
         model.zero_grad(set_to_none=True)
         for p in params:
@@ -1000,7 +1015,7 @@ def main() -> int:
     ap.add_argument("--llc-gamma", type=float, default=100.0)
     ap.add_argument("--llc-n-data", type=int, default=4_000_000)
     ap.add_argument("--llc-batch", type=int, default=8)
-    ap.add_argument("--cliff-curv", type=int, default=32)
+    ap.add_argument("--cliff-curv", type=int, default=16)
     ap.add_argument("--cliff-val", type=int, default=64)
     ap.add_argument("--cliff-test", type=int, default=128)
     ap.add_argument("--cliff-alphas", type=float, nargs="+",

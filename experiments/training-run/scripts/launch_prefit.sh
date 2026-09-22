@@ -56,6 +56,7 @@ PY
 
 milestone "repo $(git rev-parse --short HEAD) store=$GEODE_STORE tags=[$TAGS] metrics=[$METRICS]"
 cd "$A"
+export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}
 for tag in $TAGS; do
   model=${MODEL[$tag]:?unknown tag $tag}
   if [[ $model != */* && ! -d $GEODE_STORE/runs/$model/model ]]; then
