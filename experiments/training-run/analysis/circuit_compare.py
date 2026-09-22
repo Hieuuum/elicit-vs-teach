@@ -81,6 +81,18 @@ def main() -> int:
               f"| shared {len(inter):3d}/{len(union)} "
               f"| union-score Spearman {shared:.3f} (rotation {1 - shared:.3f})")
 
+    # heads-only overlap (2026-09-22): the MLP blocks are 16 of 528 nodes but
+    # fill ~half of every top-32 by score size; the attention heads are where
+    # two circuits can actually differ. Top-k heads by |score|, chance k/(2H-k).
+    heads_a = da[~da.index.astype(str).str.startswith("mlp")]["abs_score"]
+    heads_b = db[~db.index.astype(str).str.startswith("mlp")]["abs_score"]
+    n_heads = len(heads_a)
+    for k in (8, 16, 32):
+        ta_, tb_ = set(heads_a.nlargest(k).index), set(heads_b.nlargest(k).index)
+        j = len(ta_ & tb_) / len(ta_ | tb_)
+        print(f"[compare] heads-only k={k:3d}: Jaccard {j:.3f} (chance ~{k / (2 * n_heads - k):.3f}) "
+              f"| shared {len(ta_ & tb_):3d}/{len(ta_ | tb_)}")
+
     # top-16 nodes side by side, for eyeballing which heads carry the task
     print("[compare] top-16 by |score|:")
     ta = da["abs_score"].nlargest(16).index.tolist()

@@ -77,7 +77,11 @@ activation, times the activation difference between the clean and the corrupted 
 over 128--256 problem pairs. The 32 highest-scoring nodes are the circuit. A model that cannot do
 the task gives a noise map, which the tool flags (its answer logit-difference is $\approx0$).
 \emph{Comparing circuits.} Jaccard@32 $=$ shared nodes $\div$ union of the two 32-node sets. Two
-random circuits overlap at $0.031$. The \emph{ceiling} is the overlap of two circuits of the
+random circuits overlap at $0.031$; but an MLP block's score is a dot product over 2048
+dimensions and a head's over 64, so every top-32 holds 12--15 of the 16 MLP blocks and two
+unrelated circuits share those by construction. The \emph{type-matched chance} is the expected
+overlap when each circuit keeps its own MLP and head counts and the members are random within
+type ($0.20$--$0.27$ here); that is the floor to read against. The \emph{ceiling} is the overlap of two circuits of the
 \emph{same} model computed from two disjoint halves of the data --- how repeatable a circuit is
 ($0.42$--$0.68$ here); an overlap at the ceiling means ``the same circuit''. Spearman $=$ rank
 correlation of the node scores over the union. Also which layers and node types each circuit's top nodes come from.}
@@ -88,27 +92,26 @@ questions (it rewrites them), yet its answer logit-difference on them is $3.1$ n
 a repeatable map ($0.60$ split-half), and that map is its symbol-arithmetic circuit
 ($0.524$ against the parent's own symbol-task map). Teach: parent $\leftrightarrow$ child
 undefined --- the teach parent's map fails the performing-regime check (answer logit-difference
-$-1.5$; the $0.231$ it scores against its child is noise overlap), so the taught circuit
-($0.52$ repeatable) is new. The two children against each other: $0.306$; what they share is the
-late-layer MLP engine (\texttt{mlp:15,14,13,7}), the taught circuit adds early and middle MLPs
-(\texttt{mlp:0,1,3,4,5,6,10,11}) and attention heads in layers 4--7 and 15 of its own, the
-elicited one uses \texttt{mlp:8,9} and three layer-7 heads. \emph{Reading:} elicitation
-re-weights the circuit the parent already runs on the task; teaching builds a related but
-different one.}
+$-1.5$; the $0.231$ it scores against its child equals the type-matched chance, $0.25$), so the
+taught circuit ($0.52$ repeatable) is new. The two children against each other: $0.306$, at the
+type-matched chance of $0.25$ (score correlation $0.03$) --- what they share is only that both
+use many MLP blocks; the taught circuit's own heads sit in layers 4--7 and 15, the elicited
+one's are three layer-7 heads inherited from the parent. \emph{Reading:} elicitation re-weights
+the circuit the parent already runs on the task; teaching builds a different one.}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lccc}
 \toprule
-Comparison & Jaccard@32 & chance & ceilings (A / B) \\
+Comparison & Jaccard@32 & chance (uniform / type-matched) & ceilings (A / B) \\
 \midrule
-\textbf{elicit parent on the task $\leftrightarrow$ elicited child (FT)} & \textbf{0.455} (Spearman 0.22) & 0.031 & 0.600 / 0.561 \\
-\textbf{teach parent on the task $\leftrightarrow$ taught child (FT)} & \textbf{undefined}: parent map is noise (logit-diff $-1.5$; noise overlap 0.231) & 0.031 & -- / 0.524 \\
+\textbf{elicit parent on the task $\leftrightarrow$ elicited child (FT)} & \textbf{0.455} (Spearman 0.22) & 0.031 / 0.23 & 0.600 / 0.561 \\
+\textbf{teach parent on the task $\leftrightarrow$ taught child (FT)} & \textbf{undefined}: parent map is noise (logit-diff $-1.5$; noise overlap 0.231) & 0.031 / 0.25 & -- / 0.524 \\
 \midrule
-elicit parent on the task $\leftrightarrow$ elicit parent on symbols & 0.524 (Spearman 0.44) & 0.031 & 0.600 / 0.306 \\
-elicit parent on symbols $\leftrightarrow$ elicited child (FT) & 0.391 (Spearman 0.44) & 0.031 & 0.306 / 0.561 \\
-elicited child, full FT $\leftrightarrow$ elicited child, LoRA & 0.641 (Spearman 0.54) & 0.031 & 0.561 / 0.684 \\
-elicited child (FT) $\leftrightarrow$ taught child (FT) & 0.306 (Spearman 0.03) & 0.031 & 0.561 / 0.524 \\
-taught child (FT) $\leftrightarrow$ taught child from the blank base (FT) & 0.362 (Spearman 0.18) & 0.031 & 0.524 / 0.422 \\
+elicit parent on the task $\leftrightarrow$ elicit parent on symbols & 0.524 (Spearman 0.44) & 0.031 / 0.27 & 0.600 / 0.306 \\
+elicit parent on symbols $\leftrightarrow$ elicited child (FT) & 0.391 (Spearman 0.44) & 0.031 / 0.25 & 0.306 / 0.561 \\
+elicited child, full FT $\leftrightarrow$ elicited child, LoRA & 0.641 (Spearman 0.54) & 0.031 / 0.20 & 0.561 / 0.684 \\
+elicited child (FT) $\leftrightarrow$ taught child (FT) & 0.306 (Spearman 0.03) & 0.031 / 0.25 & 0.561 / 0.524 \\
+taught child (FT) $\leftrightarrow$ taught child from the blank base (FT) & 0.362 (Spearman 0.18) & 0.031 / 0.27 & 0.524 / 0.422 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
