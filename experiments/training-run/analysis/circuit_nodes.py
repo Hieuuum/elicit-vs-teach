@@ -191,18 +191,30 @@ def length_batches(pairs, batch_size: int):
             yield bucket[i : i + batch_size]
 
 
-def attribution_map(model, pairs, batch_size: int, device: str):
-    """(scores dict {(kind, layer, head): float}, mean logit-diff sanity).
+def attribution_map(model, pairs, batch_size: int, device: str, return_pairabs: bool = False):
+    """(scores dict {(kind, layer, head): float}, mean logit-diff sanity)
+    or, with return_pairabs, (scores, sanity, pairabs) where pairabs is the
+    same dict aggregated as sum over pairs of |per-pair contribution|.
 
     The shared attribution core: one corrupt pass (no grad) + one clean pass
     (grad) per batch; score = sum (a_corr - a_clean) . dM/da_clean. Importable
     by circuit_trajectory.py; hooks are removed before returning.
+
+    Aggregation (2026-09-24): the per-pair contribution of a node is its
+    signed effect summed over positions; `scores` sums those signed values
+    over pairs (a node used the same way on every pair adds up, a node used
+    both ways cancels), `pairabs` sums their absolute values (AtP* Eq. 5,
+    Kramar et al. 2024: the magnitude of a node's effect regardless of which
+    way it pushes on a given pair — robust to cross-pair cancellation, which
+    the type of head that reads a different operand on different problems
+    shows).
     """
     taps = NodeTaps(model)
     n_layers = model.config.num_hidden_layers
     n_heads = taps.n_heads
     scores = {("attn", i, h): 0.0 for i in range(n_layers) for h in range(n_heads)}
     scores.update({("mlp", i, -1): 0.0 for i in range(n_layers)})
+    pairabs = {k: 0.0 for k in scores}
     sanity_m = []
     try:
         for batch in length_batches(pairs, batch_size):
@@ -230,16 +242,22 @@ def attribution_map(model, pairs, batch_size: int, device: str):
                 if a_clean.grad is None:
                     continue
                 delta = (corr_acts[(kind, i)] - a_clean.detach()).float()
-                contrib = (delta * a_clean.grad.float()).sum(dim=(0, 1))
+                prod = delta * a_clean.grad.float()
                 if kind == "attn":
-                    per_head = contrib.sum(dim=-1)
+                    per_pair = prod.sum(dim=(1, 3))          # (B, H): signed, per pair
                     for h in range(n_heads):
-                        scores[("attn", i, h)] += per_head[h].item()
+                        scores[("attn", i, h)] += per_pair[:, h].sum().item()
+                        pairabs[("attn", i, h)] += per_pair[:, h].abs().sum().item()
                 else:
-                    scores[("mlp", i, -1)] += contrib.sum().item()
+                    per_pair = prod.sum(dim=(1, 2))          # (B,)
+                    scores[("mlp", i, -1)] += per_pair.sum().item()
+                    pairabs[("mlp", i, -1)] += per_pair.abs().sum().item()
     finally:
         taps.remove()
-    return scores, sum(sanity_m) / max(len(sanity_m), 1)
+    sanity = sum(sanity_m) / max(len(sanity_m), 1)
+    if return_pairabs:
+        return scores, sanity, pairabs
+    return scores, sanity
 
 
 def main() -> int:
@@ -264,6 +282,11 @@ def main() -> int:
                     "llama bare-NL target eval; pass eval_op_algo_data_ts.yaml "
                     "for op-notation pairs on the ts1b op-install track)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--agg", choices=("sum", "pairabs"), default="sum",
+                    help="ranking column: 'sum' = |sum over pairs of the signed per-pair "
+                    "contribution| (original); 'pairabs' = sum over pairs of |per-pair "
+                    "contribution| (AtP* Eq. 5; immune to cross-pair cancellation). Both "
+                    "columns are always written; --agg picks which one fills abs_score")
     args = ap.parse_args()
 
     cfg = load_config(args.eval_config, None)
@@ -288,9 +311,12 @@ def main() -> int:
             model = load_sidecar_merged(args.run_id, store, args.device)
         model_name = args.run_id
     else:
-        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
+        dtype = torch.float32 if args.device == "cpu" else torch.bfloat16
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=dtype)
         model.to(args.device)
         model_name = args.model
+    if args.device == "cpu":
+        model = model.float()  # bf16 matmuls are slow / partially unsupported on CPU
     model.eval()
     # Params stay grad-ENABLED: with everything frozen no activation would
     # require grad and the metric backward would have nothing to reach the
@@ -303,9 +329,11 @@ def main() -> int:
     if len(pairs) < args.n_pairs // 4:
         print(f"[circuit] WARNING: only {len(pairs)} length-matched pairs found")
 
-    scores, sanity = attribution_map(model, pairs, args.batch_size, args.device)
+    scores, sanity, pairabs = attribution_map(model, pairs, args.batch_size, args.device,
+                                              return_pairabs=True)
     rows = [
-        {"node_type": k, "layer": i, "head": h, "score": s, "abs_score": abs(s)}
+        {"node_type": k, "layer": i, "head": h, "score": s, "pairabs_score": pairabs[(k, i, h)],
+         "abs_score": pairabs[(k, i, h)] if args.agg == "pairabs" else abs(s)}
         for (k, i, h), s in scores.items()
     ]
     out = Path(args.out)
@@ -316,6 +344,7 @@ def main() -> int:
         "n_pairs": len(pairs),
         "half": args.half,
         "mean_logit_diff": sanity,
+        "agg": args.agg,
         "performing_regime": bool(sanity > 1.0),
         "note": "scores from a non-performing model (mean_logit_diff ~ 0) are NOISE; "
         "do not interpret circuit overlap against them as reuse",
