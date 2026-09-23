@@ -16,13 +16,25 @@
 \newcommand{\what}[1]{\par\noindent\textbf{Elicit vs.\ teach, in one sentence.} #1}
 \newcommand{\how}[1]{\par\noindent\textbf{How it is measured.} #1}
 \newcommand{\numbers}[1]{\par\noindent\textbf{The numbers.} #1\par\medskip}
+\newenvironment{steps}{\begin{itemize}[nosep,leftmargin=1.2em,topsep=2pt]}{\end{itemize}}
 \newcommand{\metricsec}[2]{\item \textbf{#1} --- \emph{#2}}
 \newcommand{\metricsecp}[2]{\item \textbf{#1}~$\bigstar$ --- \emph{#2}}
 
 \begin{document}
 
-
-
+\noindent\textbf{Setup in six lines.} The task is two-number arithmetic posed in words
+(\texttt{What is the sum of 621 and 5068?}, answered 0-shot); the same problems can be posed in
+symbols (\texttt{621 + 5068 = }), the ``symbol surface''. The model is TinyStories-1B (16
+layers, 32 heads per layer, width 2048), pretrained on children's stories with no arithmetic.
+Five parents are fine-tuned on the word task: the \emph{elicit parent} (TS1B-latent: the base
+plus symbol arithmetic plus a word$\leftrightarrow$symbol binding, so the capability is present
+but never shown on the task); the \emph{symbol engine} (the base plus symbol arithmetic only, no
+binding); the \emph{format-installed} parent (the base taught only to emit a number in the right
+format, no arithmetic); the \emph{blank} base; and Llama-3.2-1B, an off-the-shelf second elicit
+parent used in the parent-only metrics. \emph{Elicit} $=$ fine-tune the elicit parent;
+\emph{teach} $=$ fine-tune the format-installed parent (the blank base is the control). Two
+methods: full FT updates every weight; LoRA trains rank-512 adapters on frozen weights. Metrics
+marked $\bigstar$ need only the parent and are measured on all five parents (Table~\ref{tab:prefit}).
 
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
@@ -36,13 +48,14 @@ endpoint & parent & method & data & steps (passes) & stop & exact match \\
 elicit LoRA (sweep, snapshots) & TS1B-latent & LoRA $r{=}512$ & 1M & 11{,}500 (1.5) & converged & 0.981 \\
 teach LoRA (sweep) & format-installed & LoRA $r{=}512$ & 1M & -- & converged & 0.079 \\
 teach LoRA (snapshots) & blank & LoRA $r{=}512$ & 1M & 25{,}000 (3.2) & converged & 0.093 \\
+teach LoRA 4M (control) & blank & LoRA $r{=}512$ & 4M & 39{,}500 (1.3) & converged & 0.139 \\
 teach FT from the blank base (control) & blank & full FT & 4M & 72{,}000 (2.3) & converged & 0.819 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
 \caption{The main pair (top) and the endpoints used where noted (bottom). LoRA learning rate
 $3.53{\times}10^{-4}$, full FT $2{\times}10^{-5}$; batch 128; seed 316; training stops when
-validation loss stops improving (eps/k rule). Exact match $=$ 0-shot accuracy on 1,024 held-out
+validation loss stops improving. Exact match $=$ 0-shot accuracy on 1,024 held-out
 problems. The 4M file is the 1M file plus 3M new unique problems, disjoint from every evaluation
 set.}
 \label{tab:endpoints}
@@ -51,76 +64,56 @@ set.}
 
 
 % =====================================================================
-\noindent\textbf{Metrics marked $\bigstar$ can be read before fine-tuning.} They need only the
-parent and the task data --- no fine-tuned checkpoint --- so they say in advance whether the coming
-fine-tune will elicit or teach. (Answer depth is marked for its before-training half.) The
-$\bigstar$ metrics in the second half of the list are tested on five parents whose learning curves
-are known: the two elicit parents (TS1B-latent and Llama-3.2-1B, both monotone), the two teach
-parents (format-installed and blank, both with the hump), and in between the \emph{symbol
-engine} --- the latent parent's first stage, which computes in symbols but was never shown what
-the words mean. Each orders these five parents the way their curves do, or splits them along a
-line the construction predicts (Table~\ref{tab:prefit}). They use the bare natural-language
-prompts of the target task, 0-shot; for negative answers the minus sign is fed in and the first
-digit chunk is scored.
+
 
 \begin{enumerate}[label=\textbf{M\arabic*}, leftmargin=*, itemsep=1.2em, resume]
 
 \metricsec{Circuit overlap}{the same circuit vs.\ a new circuit}
 \what{Does the fine-tuned model solve the task with the circuit its parent already had (elicit)
 or with a circuit that did not exist before (teach)?}
-\how{\emph{Building a circuit.} The model is split into 528 nodes: 512 attention heads (32 per
-layer $\times$ 16 layers; heads move information between token positions) and 16 MLP blocks (one
-per layer; they transform it in place). For each node, attribution patching scores how much the
-answer's logit would change if that node's activation at the answer position were replaced by its
-value on a different problem: gradient of the answer logit-difference with respect to the node's
-activation, times the activation difference between the clean and the corrupted problem, averaged
-over 128--256 problem pairs. The 32 highest-scoring nodes are the circuit. A model that cannot do
-the task gives a noise map, which the tool flags (its answer logit-difference is $\approx0$).
-\emph{Comparing circuits.} Jaccard@32 $=$ shared nodes $\div$ union of the two 32-node sets. Two
-random circuits overlap at $0.031$; but an MLP block's score is a dot product over 2048
-dimensions and a head's over 64, so every top-32 holds 12--15 of the 16 MLP blocks and two
-unrelated circuits share those by construction. The \emph{type-matched chance} is the expected
-overlap when each circuit keeps its own MLP and head counts and the members are random within
-type ($0.20$--$0.27$ here); that is the floor to read against. The cleanest comparison sets the
-MLP blocks aside: \emph{heads-only} Jaccard@32 over the 512 attention heads (chance $0.032$), the
-components where two circuits can actually differ. The \emph{ceiling} is the overlap of two circuits of the
-\emph{same} model computed from two disjoint halves of the data --- how repeatable a circuit is
-($0.42$--$0.68$ here); an overlap at the ceiling means ``the same circuit''. Spearman $=$ rank
-correlation of the node scores over the union. Also which layers and node types each circuit's top nodes come from.}
-\numbers{Table~\ref{tab:overlap}. Elicit: the parent's circuit on the target task itself
-$\leftrightarrow$ the elicited child's: $0.455$ against a type-matched chance of $0.23$ and
-ceilings of $0.60$ (parent) and $0.56$ (child); heads only, $0.333$ against the parent map's
-heads-only ceiling of $0.42$ and chance $0.03$ --- the child uses the parent's heads. The parent answers none of the
-questions (it rewrites them), yet its answer logit-difference on them is $3.1$ nats, enough for
-a repeatable map ($0.60$ split-half), and that map is its symbol-arithmetic circuit
-($0.524$ against the parent's own symbol-task map). Teach: parent $\leftrightarrow$ child
-undefined --- the teach parent's map fails the performing-regime check (answer logit-difference
-$-1.5$; the $0.231$ it scores against its child equals the type-matched chance, $0.25$), so the
-taught circuit ($0.52$ repeatable) is new. The two children against each other: $0.306$, at the
-type-matched chance of $0.25$ (score correlation $0.03$); heads only, $0.103$ (6 of 58 heads
-shared) --- what they share is that both use many MLP blocks; the taught circuit's heads sit in
-layers 4--7 and 15, the elicited one's are the parent's layer-7 heads. The teach parent
-$\leftrightarrow$ taught child, heads only: $0.016$, one head in 63. \emph{Reading:} elicitation re-weights
-the circuit the parent already runs on the task; teaching builds a different one.}
+\how{
+\begin{steps}
+\item \emph{Nodes.} The model is cut into 528 parts: 512 attention heads and 16 MLP blocks.
+\item \emph{Scoring.} For each node, how much the answer's logit would move if that node's
+activation were swapped for its value on a different problem (first-order estimate: activation
+difference $\times$ gradient), averaged over 128--256 problem pairs. The top 32 are the circuit.
+\item \emph{Comparing.} Jaccard@32 $=$ shared nodes $\div$ union. Read against two references:
+the \emph{ceiling} (split-half), the overlap of the same model's circuit built from two halves
+of the data (how repeatable a circuit is at all), and the \emph{type-matched chance}, what two
+unrelated circuits with the same MLP/head mix share (0.20--0.27 here).
+\item \emph{Heads only.} The same overlap over the 512 heads alone, where circuits can actually
+differ (chance 0.03).
+\end{steps}}
+\numbers{Table~\ref{tab:overlap}.
+\begin{steps}
+\item \textbf{Elicit:} parent $\leftrightarrow$ child $0.455$ (chance $0.23$, ceilings $0.60$ /
+$0.56$); heads only $0.333$ against the parent's own ceiling of $0.42$. \textbf{Teach:} the
+parent has no circuit for the task (its node-score map is noise, M10), so the child's is new;
+heads only $0.016$.
+\item The two children share nothing beyond MLP blocks: $0.306$ at the type-matched chance;
+heads only $0.103$.
+\end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lcccc}
 \toprule
-Comparison & Jaccard@32 & chance (uniform / type-matched) & ceilings (A / B) & heads-only J@32 \\
+Comparison & Jaccard@32 & type-matched chance & ceilings (A / B) & heads-only J@32 \\
 \midrule
-\textbf{elicit parent on the task $\leftrightarrow$ elicited child (FT)} & \textbf{0.455} (Spearman 0.22) & 0.031 / 0.23 & 0.600 / 0.561 & \textbf{0.333} (ceiling 0.422) \\
-\textbf{teach parent on the task $\leftrightarrow$ taught child (FT)} & \textbf{undefined}: parent map is noise (logit-diff $-1.5$; noise overlap 0.231) & 0.031 / 0.25 & -- / 0.524 & \textbf{0.016} \\
+\textbf{elicit parent $\leftrightarrow$ elicited child} & \textbf{0.455} & 0.23 & 0.600 / 0.561 & \textbf{0.333} (ceiling 0.42) \\
+\textbf{teach parent $\leftrightarrow$ taught child} & \textbf{undefined} (parent map is noise; 0.231) & 0.25 & -- / 0.524 & \textbf{0.016} \\
 \midrule
-elicit parent on the task $\leftrightarrow$ elicit parent on symbols & 0.524 (Spearman 0.44) & 0.031 / 0.27 & 0.600 / 0.306 & 0.280 \\
-elicit parent on symbols $\leftrightarrow$ elicited child (FT) & 0.391 (Spearman 0.44) & 0.031 / 0.25 & 0.306 / 0.561 & 0.255 \\
-elicited child, full FT $\leftrightarrow$ elicited child, LoRA & 0.641 (Spearman 0.54) & 0.031 / 0.20 & 0.561 / 0.684 & 0.455 \\
-elicited child (FT) $\leftrightarrow$ taught child (FT) & 0.306 (Spearman 0.03) & 0.031 / 0.25 & 0.561 / 0.524 & 0.103 \\
-taught child (FT) $\leftrightarrow$ taught child from the blank base (FT) & 0.362 (Spearman 0.18) & 0.031 / 0.27 & 0.524 / 0.422 & 0.208 \\
+elicit parent on the task $\leftrightarrow$ on symbols & 0.524 & 0.27 & 0.600 / 0.306 & 0.280 \\
+elicit parent on symbols $\leftrightarrow$ elicited child & 0.391 & 0.25 & 0.306 / 0.561 & 0.255 \\
+elicited child, full FT $\leftrightarrow$ LoRA & 0.641 & 0.20 & 0.561 / 0.684 & 0.455 \\
+elicited child $\leftrightarrow$ taught child & 0.306 & 0.25 & 0.561 / 0.524 & 0.103 \\
+taught child $\leftrightarrow$ taught child from the blank base & 0.362 & 0.27 & 0.524 / 0.422 & 0.208 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{Circuit overlaps. Top: parent $\leftrightarrow$ child in each regime, both mapped on the
-target task (natural language, 0-shot); ceilings are each map's own split-half repeatability.
+\caption{Circuit overlaps of the full-FT children and their parents, mapped on the word task
+(0-shot). Uniform chance is $0.031$ everywhere; ceilings are each map's own split-half
+repeatability; the teach parent's map fails the performing check (logit-diff $-1.5$ nats, M11),
+so its overlap is noise.
 Bottom: the elicit parent's task circuit is its symbol-arithmetic circuit; the elicited circuit
 is method-independent; the two children against each other; two taught circuits against each
 other.}
@@ -130,44 +123,44 @@ other.}
 \metricsec{Head roles}{the same reader heads vs.\ rediscovered ones}
 \what{Does the fine-tuned model keep the parent's heads that read the two numbers (elicit) or
 have to find reader heads of its own (teach)?}
-\how{Desiderata Component Masking (Prakash et al.\ 2024). For one piece of information at a
-time, take a problem and a counterfactual problem that differs only in that piece, and learn
-(by gradient descent on a mask over heads, with a sparsity penalty) the smallest set of
-attention heads such that copying those heads' activations from the counterfactual run into the
-clean run makes the model answer the counterfactual problem. That set is the heads carrying that
-piece (its ``role''). The set is validated by its counterfactual-flip accuracy against the
-ceiling obtained by copying every head; a set is ``compact'' only if it reaches that ceiling.
-Role sets are compared across models by Jaccard (chance $\approx0.05$); 64--128 counterfactual
-pairs, heads only.}
-\numbers{Table~\ref{tab:dcm}. Both children have compact operand-reading sets at their
-ceilings. The elicited child's are the parent's: $0.69$ / $0.86$ overlap with the engine's sets
-(first / second operand) under full FT, $0.88$ / $0.90$ under LoRA, all at ceiling flip
-accuracy. The taught child's sets are larger (32 / 41 heads vs 30 / 27) and contain most of the
-same heads: $0.88$ / $0.66$ vs the engine. A taught model that did not learn the task (LoRA,
-exact match $0.14$) has no compact set at all (flip accuracy $0.01$--$0.03$ against a ceiling of
-$0.14$--$0.20$). \emph{Reading:} operand reading is a layer-0 function of the substrate;
-elicitation keeps it intact, teaching has to find it again and lands on a larger set --- a graded
-difference, not an absence.}
+\how{
+\begin{steps}
+\item Take a problem and a twin that differs in one thing only (a different first number).
+\item Learn the smallest set of attention heads such that copying their activations from the
+twin makes the model answer the twin's problem (Desiderata Component Masking, Prakash et al.\
+2024). Those heads carry that piece of information.
+\item A set counts only if it flips the answer as often as copying every head does (the
+ceiling). Sets are compared across models by Jaccard (chance $\approx0.05$).
+\end{steps}}
+\numbers{Table~\ref{tab:dcm}.
+\begin{steps}
+\item \textbf{Elicit:} the child's number-reading heads are the parent's, $0.69$ / $0.86$
+(first / second number; reference sets $=$ the elicit parent on symbols). \textbf{Teach}
+(against the same reference, since the teach parent has no reader heads, M14): the child finds
+a larger set that still contains most of the same heads, $0.88$ / $0.66$ --- a graded
+difference, not an absence.
+\item A taught model that never learned the task has no compact set at all.
+\end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lcccc}
 \toprule
 Comparison (first operand / second operand) & $|A|$ & $|B|$ & Jaccard & flip acc.\ / ceiling of $A$ \\
 \midrule
-\textbf{elicited child (FT) $\leftrightarrow$ engine} & 31 / 25 & 30 / 27 & \textbf{0.694 / 0.857} & 0.98 / 0.98 (at ceiling) \\
-\textbf{taught child (FT) $\leftrightarrow$ engine} & 32 / 41 & 30 / 27 & \textbf{0.879 / 0.659} & 0.59 / 0.54 (0.59 / 0.55) \\
+\textbf{elicited child (FT) $\leftrightarrow$ elicit parent on symbols} & 31 / 25 & 30 / 27 & \textbf{0.694 / 0.857} & 0.98 / 0.98 (at ceiling) \\
+\textbf{taught child (FT) $\leftrightarrow$ elicit parent on symbols} & 32 / 41 & 30 / 27 & \textbf{0.879 / 0.659} & 0.59 / 0.54 (0.59 / 0.55) \\
 taught child (FT) $\leftrightarrow$ elicited child (LoRA) & 32 / 41 & 36 / 30 & 0.659 / 0.690 & -- \\
 \midrule
-engine $\leftrightarrow$ elicited child (LoRA), symbol surface & 30 / 27 & 32 / 30 & 0.879 / 0.900 & at ceiling \\
-engine $\leftrightarrow$ elicited child (LoRA), operation role & 25 & 24 & 0.750 & at ceiling \\
+elicit parent on symbols $\leftrightarrow$ elicited child (LoRA), symbol surface & 30 / 27 & 32 / 30 & 0.879 / 0.900 & at ceiling \\
+elicit parent on symbols $\leftrightarrow$ elicited child (LoRA), operation role & 25 & 24 & 0.750 & at ceiling \\
 elicited child (FT) $\leftrightarrow$ elicited child (LoRA) & 31 / 25 & 36 / 30 & 0.811 / 0.833 & 0.98 / 0.98 \\
 taught child that did not learn (LoRA 4M) $\leftrightarrow$ elicited child (LoRA) & 12 / 21 & 36 / 30 & 0.043 / 0.041 & 0.01 / 0.03 (0.20 / 0.14) \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{Head roles by Desiderata Component Masking. ``Engine'' $=$ the elicit parent on the
-symbol surface, the reference role sets. $|A|$, $|B|$ $=$ size of the two role sets. Bottom: the
-references (the LoRA-elicited child keeps the engine's roles almost exactly; a taught model that
+\caption{Head roles by Desiderata Component Masking. Reference role sets $=$ the elicit parent
+on the symbol surface, where it already answers. $|A|$, $|B|$ $=$ size of the two role sets. Bottom: the
+references (the LoRA-elicited child keeps the parent's roles almost exactly; a taught model that
 never learned the task has no roles to compare).}
 \label{tab:dcm}
 \end{table}
@@ -177,17 +170,20 @@ never learned the task has no roles to compare).}
 \metricsec{Circuit formation time}{present at step 1 vs.\ assembled mid-run}
 \what{Is the final circuit present from the first step (elicit) or assembled somewhere in the
 middle of training (teach)?}
-\how{Adapter snapshots were saved along the LoRA runs (128 per run, log-spaced); the full-FT
-runs have no snapshots, so this metric is read on the LoRA pair (elicit twin vs blank teach
-twin, 1M examples each). For each snapshot, build the circuit exactly as in M2 and take its
-Jaccard@32 with the run's final circuit; read against chance ($0.031$) and the split-half
-ceiling. The step at which the curve leaves the noise floor is when the circuit starts to exist;
-the step at which it reaches the ceiling is when it stops changing.}
-\numbers{Figure~\ref{fig:form}. Elicit: $0.49$ overlap with the final circuit at step 1
-($16\times$ chance), locked from step 1.5K of 11.5K. Teach: at the noise floor until step 1.3K,
-then built over steps 1.3K--5.4K, where its EDL peaks (M1). \emph{Reading:} the elicited circuit
-is present before training starts; the taught circuit is assembled mid-run, exactly while the
-learning cost is rising.}
+\how{
+\begin{steps}
+\item Snapshots were saved along the LoRA runs (128 per run); the full-FT runs have none, so
+this metric uses the two 1M LoRA runs (Table~\ref{tab:endpoints}: elicit LoRA and teach LoRA from the blank base).
+\item At each snapshot, build the circuit as in M1 and take its overlap with the run's final
+circuit. The circuit exists once the curve leaves chance; it is finished once it reaches the
+ceiling.
+\end{steps}}
+\numbers{Figure~\ref{fig:form}.
+\begin{steps}
+\item \textbf{Elicit:} $0.49$ overlap with the final circuit at step 1 ($16\times$ chance),
+locked from step 1.5K of 11.5K. \textbf{Teach:} at chance until step 1.3K, built over steps
+1.3K--5.4K of 25K --- the stretch where its loss on new examples drops fastest.
+\end{steps}}
 \begin{figure}[h]\centering
 \includegraphics[width=\textwidth]{figures/fig_formation_ts.png}
 \caption{Circuit formation, elicit (left) vs teach (right); dashed = split-half ceiling.}
@@ -197,21 +193,21 @@ learning cost is rising.}
 \metricsec{Gradient pressure}{a dying gradient vs.\ a growing one}
 \what{Does the gradient fade as training proceeds because there is nothing left to change
 (elicit), or grow because structure is still being built (teach)?}
-\how{The global gradient norm before clipping, logged at every update. Reported: its peak and
-the step of the peak; its mean over the first 1\%, the middle, and the last 10\% of steps; the
-ratio first-1\% $\div$ last-10\% (above 1 $=$ decays, below 1 $=$ grows); and the cumulative
-gradient mass $\sum_t\|g_t\|$. For the LoRA runs also how that mass splits across attention
-query/key weights (QK), attention value/output weights (VO) and MLP weights; the full-FT trainer
-logs the global norm only. Norms are comparable within a method, not across methods (different
-parameter sets).}
-\numbers{Table~\ref{tab:grad}, Figure~\ref{fig:grad}. Elicit: the gradient peaks at step 1
-($34.0$) and decays $3.4\times$ from the first 1\% of steps to the last 10\%. Teach: it starts
-lower ($2.7$), peaks at step 50,860 ($70.9$) and ends $1.4\times$ above its start. Cumulative
-gradient mass $44$K vs $378$K ($8.6\times$). Under LoRA the same shape with a larger gap ---
-elicit decays $3.3\times$, teach grows $40\times$, mass $150\times$ --- and the LoRA logs show where
-the teach gradient goes: attention value/output weights (share $0.87$), the operand-fetching
-heads of M3 being written. \emph{Reading:} elicitation converges and its gradient dies; teaching
-keeps generating pressure while the structure is built.}
+\how{
+\begin{steps}
+\item The size of the gradient (before clipping) at every training step.
+\item Compare its average over the first 1\% of steps with the last 10\%: a ratio above 1 means
+the gradient fades, below 1 means it grows. Also the total gradient accumulated over the run.
+\item Norms are comparable within one fine-tuning method only.
+\end{steps}}
+\numbers{Table~\ref{tab:grad}, Figure~\ref{fig:grad}.
+\begin{steps}
+\item \textbf{Elicit:} fades $3.4\times$ from the first 1\% to the last 10\%. \textbf{Teach:}
+grows $1.4\times$, and accumulates $8.6\times$ the total gradient ($378$K vs $44$K).
+\item Under LoRA the gap is larger ($40\times$ growth, $150\times$ the mass), aimed at attention
+weights --- the number-reading heads of M2 being written. Figure~\ref{fig:grad} repeats both
+quantities across the sweep over training-set size $n$.
+\end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lcccc}
@@ -242,17 +238,19 @@ the per-class split, which the full-FT trainer does not log.}
 \metricsec{Weight write}{a small update vs.\ a large one}
 \what{Is the change to the weights small and efficient (elicit) or large and expensive per unit
 of capability gained (teach)?}
-\how{Relative weight change $\|\Delta W\|/\|W\|$ between child and parent --- exact from the LoRA
-factors ($\Delta W = BA$), or from the checkpoint difference for full fine-tuning --- over all
-attention and MLP matrices. Along the LoRA runs, from the adapter snapshots: total travel
-$\|\Delta W_t\|_F$ vs step, its peak and final speed per step, and capability per unit travel
-$=$ final exact match $\div$ total travel.}
-\numbers{Table~\ref{tab:weights}. Relative weight write $0.050$ (elicit) vs $0.086$ (teach),
-$1.7\times$. The travel instrument exists only
-for the LoRA runs (elicit vs blank teach, 1M): write $0.095$ vs $0.212$, travel $120$ vs $457$,
-capability per unit travel $8.1\times10^{-3}$ vs $2.0\times10^{-4}$ ($40\times$).
-\emph{Reading:} teaching writes about twice as much into the weights and gets forty times less
-capability per unit written.}
+\how{
+\begin{steps}
+\item Relative weight change $\|\Delta W\|/\|W\|$ between child and parent, over all attention
+and MLP matrices.
+\item Along the LoRA runs (the only ones with snapshots): total distance the weights travel, and
+capability per unit travelled $=$ final exact match $\div$ distance.
+\end{steps}}
+\numbers{Table~\ref{tab:weights}.
+\begin{steps}
+\item \textbf{Elicit} $0.050$ vs \textbf{teach} $0.086$: teaching writes $1.7\times$ more into the
+weights.
+\item Under LoRA: $3.8\times$ the distance for $40\times$ less capability per unit travelled.
+\end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lcc}
@@ -262,7 +260,7 @@ capability per unit written.}
 \textbf{relative write $\|\Delta W\|/\|W\|$, full FT} & \textbf{0.050} & \textbf{0.086} \\
 \midrule
 relative write, LoRA 1M (teach from the blank base) & 0.095 & 0.212 \\
-steps to convergence (LoRA 1M) & 11{,}500 & 23{,}496 \\
+steps (LoRA 1M) & 11{,}500 & 25{,}000 \\
 peak / final writing speed per step (LoRA 1M) & 0.218 / 0.018 & 0.306 / 0.022 \\
 total weight travel $\|\Delta W\|_F$ (LoRA 1M) & 120 & 457 \\
 final exact match (LoRA 1M) & 0.981 & 0.093 \\
@@ -271,7 +269,7 @@ capability per unit travel (LoRA 1M) & $8.1\times10^{-3}$ & $2.0\times10^{-4}$ \
 \end{tabular}
 \end{adjustbox}
 \caption{Weight-space write. Top: the pair. Bottom: the LoRA runs, the only ones with snapshots
-for travel (curves in \texttt{05\_weights/fig\_weight\_travel}).}
+for travel.}
 \label{tab:weights}
 \end{table}
 
@@ -280,30 +278,28 @@ for travel (curves in \texttt{05\_weights/fig\_weight\_travel}).}
 change different for every problem --- the child has added that problem's answer (elicit) --- or
 is it mostly the same change regardless of the problem --- the child has been moved into a new
 mode (teach)?}
-\how{Take 256 problems. Run each through the parent and through the child (both in fp32) and
-record the residual stream at the answer position: a 2048-number vector per layer, the model's
-internal state at the moment it is about to answer. Subtract: child state minus parent state.
-This is ``the change'' fine-tuning made to the internal state on that problem, one per problem.
-The question is whether the 256 changes look alike. \emph{Shared-direction score}: find the single
-direction that best explains all 256 changes and report the fraction of their total energy that
-lies along it (PC1). $1.0$ would mean the child moved every problem's state by the identical
-amount in the identical direction; a low score means each problem's change is its own. For
-calibration the same score is computed on the parent's own 256 states (how alike they are before
-any change). \emph{Control}: the score is recomputed after removing from each change the
-directions that spell out that problem's answer token, so that ``the same change'' cannot simply
-be ``writing the answer''. Also reported: the size of the change relative to the parent's state.}
-\numbers{Figure~\ref{fig:resid}, Table~\ref{tab:resid}. Shared-direction score of the changes
-at the last layer: elicit $0.056$, below even the parent's own states ($0.23$) --- each problem's
-change is its own. Teach: $0.567$ --- over half of every change is one and the same direction,
-and still $0.561$ after the answer directions are removed. Control: the taught child from the
-blank base, which does have an output format to learn, scores $0.526$, no higher; so the shared
-change is the algorithm's mode, not ``output a number''. The same split appears under LoRA
-($0.063$ vs $0.528$). \emph{Reading:} elicitation adds each problem's answer to a state that was
-already problem-specific; teaching first moves every problem by the same push into a new mode.}
+\how{
+\begin{steps}
+\item For each of 256 problems, take the model's internal state at the moment it is about to
+answer (a 2048-number vector), in the parent and in the child, and subtract. That difference is
+``the change'' fine-tuning made on that problem.
+\item Ask whether the 256 changes point the same way: the share of their total energy along the
+single best direction (\emph{shared-direction score}; 1.0 $=$ the same push every time).
+\item Control: recompute after removing the directions that spell the answer token, so ``the
+same push'' cannot simply be the answer.
+\end{steps}}
+\numbers{Figure~\ref{fig:resid}, Table~\ref{tab:resid}.
+\begin{steps}
+\item \textbf{Elicit} $0.056$ (each problem's change is its own) vs \textbf{teach} $0.567$
+(over half of every change is one shared push), unchanged with the answer removed.
+\item The taught child from the blank base, which did have an output format to learn, scores
+$0.526$ --- no higher, so the shared push is the algorithm's mode, not ``output a number''.
+\end{steps}}
 \begin{figure}[h]\centering
 \includegraphics[width=0.95\textwidth]{figures/fig_resid_shift.png}
-\caption{The pair (thick) with the blank-base taught control (thin diamonds). Left: relative residual shift by layer at the answer
-position (solid) and on generic story text (dashed): the size of the change by layer. Right:
+\caption{The pair (thick) with the blank-base taught control (thin diamonds). Left: relative change
+of the internal state by layer at the answer position (solid) and on generic story text
+(dashed). Right:
 shared-direction score (PC1) of the 256 per-problem changes by layer, with the parent's own states
 dotted.}
 \label{fig:resid}
@@ -334,47 +330,45 @@ after removing the answer directions; the LoRA-taught size is $29\times$ (an ada
 \what{Before any target training, does a natural-language question already put the arithmetic
 components into a problem-specific state (elicit), or is there nothing for the words to reach
 (teach)?}
-\how{Render each problem two ways --- \texttt{What is the sum of 621 and 5068?} and
-\texttt{621 + 5068 = } --- and record every node's activation at the answer position. Per node:
-the mean cosine between the two renderings of the \emph{same} problem minus the mean cosine
-between renderings of \emph{different} problems (the ``bridging index''). Positive means the
-words put the node into the state the symbols put it in. MLP blocks only: attention heads share
-digit tokens across renderings and would score trivially. Compared between the symbol-only
-engine (no binding dose) and the elicit parent (binding dose installed). A second, geometry-only
-check: how problem-specific the answer-position state itself is, as PC1 and cosine-to-mean across
-the 256 problems ($\approx1$ means the same state for every problem).}
-\numbers{Bridging index of the arithmetic MLPs on natural-language input: $\approx0$ in the
-symbol-only engine, $+0.07$--$0.13$ across layers 7--15 in the elicit parent ($10\times$). Shared-direction score of the parent's own answer-position states: $0.23$ (elicit parent,
-problem-specific) vs $0.99$ (teach parent; the blank base $0.98$) --- the same state for every
-problem (Table~\ref{tab:resid}, ``parent's own states''). \emph{Reading:} the words already reach the elicit parent's machinery
-before any target training; the teach parents have nothing for them to reach.}
-
+\how{
+\begin{steps}
+\item Pose each problem twice, in words (\texttt{What is the sum of 621 and 5068?}) and in
+symbols (\texttt{621 + 5068 = }), and record each MLP block's activation at the answer position.
+\item \emph{Bridging index:} similarity between the two renderings of the same problem, minus
+the similarity between renderings of different problems. Positive $=$ the words put the block
+into the state the symbols do.
+\item Second check: how alike the parent's own states are across problems (shared-direction
+score; $\approx1$ $=$ the same state for every problem).
+\end{steps}}
+\numbers{Table~\ref{tab:resid}, ``parent's own states''.
+\begin{steps}
+\item Bridging index of the arithmetic MLPs: $\approx0$ in the symbol engine (no binding),
+$+0.07$ to $+0.13$ (layers 7--15) in the elicit parent: the binding is what lets the words in.
+\item The elicit parent's states are problem-specific ($0.23$); the teach parent sits in the
+same state for every problem ($0.99$; blank base $0.98$).
+\end{steps}}
 \metricsecp{Answer depth}{the answer already there vs.\ absent; finished one layer earlier vs.\ later}
 \what{Is the answer readable from the parent's internal state before it can say it (elicit) or
 absent (teach); and after training, is it finished one layer earlier (elicit) or later (teach)?}
-\how{Read the model's intermediate state at each layer as if it were the output, three ways.
-\emph{Logit lens}: apply the final unembedding to the layer-$\ell$ state. \emph{J-lens}
-(Jacobian lens): first transport the state to the final-layer basis with the average Jacobian
-$\partial h_{\mathrm{final}}/\partial h_\ell$ over held-out story text, then unembed --- this
-reads what the state is \emph{disposed to make the model say}, and is where the answer can appear
-before the model emits it. \emph{R-lens}: the same transport with a relevance-propagation
-backward pass, more faithful at early layers. Scored token $=$ the first digit chunk of the
-answer (for negative answers the sign is fed in first, so predicting a minus sign never counts).
-Per layer: the answer token's median rank among 128K vocabulary entries (chance 64K); the
-\emph{logit-diff}, the model's preference for the correct answer over a mismatched problem's
-answer, in nats ($0$ $=$ no answer-specific signal); and the \emph{settled depth}, the first
-layer from which the token stays top-ranked to the end. Rank without logit-diff can be a number
-prior (any number ranks well in a model that emits numbers); the two are read together.}
-\numbers{Figure~\ref{fig:lens}, Table~\ref{tab:lens}. Before training: the elicit parent
-ranks the answer $174$ of 128K in its output and $510$ at layer 14 (J-lens), preferring it by
-$2.1$ nats while it emits a rewrite; the teach parent ranks it $452$ but with logit-diff $0.0$ at
-every layer --- a number, not this number (the blank base: rank $\sim75$K, logit-diff $0.0$).
-After training: the elicited child settles at layer 14 (J-rank $338$ / $8$ / $1$ at layers 12 /
-13 / 14), the trajectory of the parent's engine on symbols ($122$ / $6$ / $1$); the taught child
-settles at layer 15 ($27{,}044$ / $15{,}058$ / $961$), as does the taught child from the blank
-base. \emph{Reading:} the elicit parent already carries the answer and elicitation amplifies the
-read-out; the teach parent carries nothing, and a taught model finishes the answer one layer later
-even when it solves the task.}
+\how{
+\begin{steps}
+\item Read the model's intermediate state at each layer as if it were the output. Two lenses
+(a third, R, is in Table~\ref{tab:lens}): the \emph{logit lens} (unembed directly) and the
+\emph{J-lens} (first transport the state to the final layer with the average Jacobian, then
+unembed --- what the state is disposed to make the model say).
+\item Per layer: the answer's median rank among 128K vocabulary entries (chance 64K) and the
+\emph{logit-diff}, the preference for the correct answer over a mismatched problem's (0 $=$ no
+signal). Rank alone can be a number prior; the two are read together.
+\item \emph{Settled depth:} the first layer from which the answer stays top-ranked.
+\end{steps}}
+\numbers{Figure~\ref{fig:lens}, Table~\ref{tab:lens}.
+\begin{steps}
+\item \textbf{Before training:} the elicit parent ranks the answer $174$ of 128K and prefers it
+by $2.1$ nats while its actual output is a restatement of the question in symbols; the teach
+parent ranks it $452$ with logit-diff $0.0$ --- a number, not this number.
+\item \textbf{After training:} the elicited child settles at layer 14, the taught child at layer
+15.
+\end{steps}}
 \begin{figure}[h]\centering
 \includegraphics[width=0.95\textwidth]{figures/fig_lens_depth.png}
 \caption{J-lens read-out of the answer token by layer: median rank (left, chance 64K) and
@@ -387,7 +381,7 @@ down-triangles), grey = blank base.}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{llccccc}
 \toprule
-model & surface & own acc & rank L12 (logit / J / R) & rank L14 (logit / J / R) & read-out & ld \\
+model & surface & own acc (first digit, 256 problems) & rank L12 (logit / J / R) & rank L14 (logit / J / R) & read-out & ld \\
 \midrule
 \textbf{elicit parent} & NL & 0.047 & 5{,}704 / 2{,}606 / 2{,}730 & 436 / 510 / 424 & 174 & $+2.1$ \\
 \textbf{teach parent} (format-installed) & NL & 0.004 & 8{,}394 / 4{,}036 / 5{,}417 & 1{,}106 / 997 / 998 & 452 & $0.0$ \\
@@ -396,7 +390,7 @@ model & surface & own acc & rank L12 (logit / J / R) & rank L14 (logit / J / R) 
 \midrule
 blank base & NL & 0.000 & 76{,}049 / 80{,}840 / 78{,}243 & 77{,}707 / 77{,}320 / 79{,}116 & 75{,}441 & $0.0$ \\
 taught child from the blank base (FT) & NL & 0.844 & 18{,}988 / 4{,}123 / 9{,}620 & 170 / 138 / 459 & 1 & $+16.1$ \\
-elicit parent (the engine) & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 & 1 & $+15.1$ \\
+elicit parent & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 & 1 & $+15.1$ \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
@@ -404,7 +398,7 @@ elicit parent (the engine) & symbols & 0.836 & 1{,}224 / 122 / 334 & 1 / 1 / 1 &
 ``own acc'' $=$ the model's own first-digit-token accuracy on the 256 problems; read-out $=$ the
 last layer, where all lenses equal the model's output; ld $=$ logit-diff at the read-out (nats).
 Bottom: the blank base (rank without a number prior), the taught child from it (settles at layer
-15 too), and the engine's own trajectory on symbols, which the elicited child reproduces.}
+15 too), and the elicit parent's own trajectory on symbols, which the elicited child reproduces.}
 \label{tab:lens}
 \end{table}
 
@@ -412,27 +406,26 @@ Bottom: the blank base (rank without a number prior), the taught child from it (
 \what{With the parent's weights frozen, does writing the fine-tuned child's internal activations
 into the parent make it solve the task --- possible only if the machinery is already there
 (elicit) and impossible if it is not (teach)?}
-\how{Donor patching. Take the fine-tuned child (the donor) and its parent (the patient). For each
-problem, run the child and record its activations at the 32 circuit nodes of M2 at the answer
-position; run the parent on the same problem and overwrite those 32 activations with the child's;
-let the parent finish. Two variants: \emph{per-prompt states} (each problem gets the child's
-activations on that problem) and \emph{mean vector} (every problem gets the child's average
-activation, a single constant shift). Control: the same with 32 random nodes. Read-outs: exact
-match, and ``format'' $=$ the fraction of outputs that are a number at all. Done for the elicit
-side (elicited child into the elicit parent) and the teach side (each taught child into its own
-parent: the blank base, or the format-installed base).}
-\numbers{Table~\ref{tab:steer}, Figure~\ref{fig:ladder}. Elicit parent: the child's per-prompt
-states patched into 32 nodes give exact match $0.121$ from a parent that scores $0.000$ (random
-nodes $0.000$; the mean vector changes only the output format). Teach parent: its child's states
-patched in give $0.016$ (into the blank base, from the blank-base child: $0.004$).
-\emph{Reading:} 32 activations from the child are enough to switch the latent capability on
-because the machinery underneath is the parent's own; the same patch from a taught child finds
-nothing underneath in its parent.}
+\how{
+\begin{steps}
+\item Freeze the parent. On each problem, run the fine-tuned child, take its activations at the
+32 circuit nodes of M1, and write them into the parent's run at the answer position.
+\item Two variants: each problem gets the child's activations on that problem
+(\emph{per-prompt}), or every problem gets the child's average activation (\emph{mean vector}).
+Control: the same with 32 random nodes.
+\item Read exact match; ``format'' $=$ share of outputs that are a number at all.
+\end{steps}}
+\numbers{Table~\ref{tab:steer}, Figure~\ref{fig:ladder}.
+\begin{steps}
+\item \textbf{Elicit:} the child's per-prompt states switch the parent from $0.000$ to $0.121$
+(random nodes $0.000$, LoRA donor). \textbf{Teach:} the same patch into the teach parent gives $0.016$.
+\item The mean vector changes only the output format: the patch that works is problem-specific.
+\end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{llcc}
 \toprule
-Patient + donor (32 circuit nodes) & condition & format & exact match \\
+Parent (patient) + child (donor), 32 circuit nodes & condition & format & exact match \\
 \midrule
 \textbf{elicit parent + elicited child's per-prompt states} & circuit nodes & 0.387 & \textbf{0.121} \\
 \textbf{teach parent + taught child's per-prompt states} & circuit nodes & 0.836 (parent 1.000) & \textbf{0.016} \\
@@ -450,9 +443,9 @@ blank base + blank-base taught child's states & every condition & $\le$0.02 & $\
 \end{table}
 \begin{figure}[h]\centering
 \includegraphics[width=0.75\textwidth]{figures/fig_intervention_ladder.png}
-\caption{Donor patching on the elicit parent (right; left: the same on a Llama-3.2-1B parent,
-for intuition), weights frozen except the last bar: direct, mean vector, per-prompt states, and
-the fine-tuned child for scale}
+\caption{Donor patching on the elicit parent (right; left: the same on Llama-3.2-1B, the second
+elicit parent of M11--M15), weights frozen except the last bar: unpatched parent, mean vector,
+per-prompt states, and the fine-tuned child for scale.}
 \label{fig:ladder}
 \end{figure}
 
@@ -460,22 +453,22 @@ the fine-tuned child for scale}
 \what{Before any target training, does the parent already have a stable set of components that
 raise the correct answer's logit on the target task (elicit), or does its attribution map on the
 task have no structure at all (teach)?}
-\how{Build the parent's circuit on the target task exactly as in M1 (attribution patching over
-528 nodes at the answer position, 0-shot natural-language prompts), then measure two things.
-\emph{Is the map defined?} The mean answer logit-difference between clean and corrupted problems;
-the tool marks a map as noise below $1.0$ nats. \emph{Is it repeatable?} Build the map twice from
-two disjoint halves of the problems and take their Jaccard@32/64/128. A repeatable, defined map
-means the parent already computes something answer-specific for the task even if it never emits
-the answer.}
-\numbers{Table~\ref{tab:parentcirc}. Elicit parent: exact match $0.000$ (it rewrites the
-question), yet its answer logit-difference is $3.1$ nats and its map is repeatable at
-$0.600$ / $0.580$ / $0.552$ (heads only $0.422$; type-matched chance $0.25$ / $0.03$) --- as
-repeatable as the fine-tuned children's ($0.42$--$0.68$). That
-circuit is its symbol-arithmetic circuit ($0.524$ overlap with the parent's own symbol-task map)
-and it is what the elicited child ends up running (M1: $0.455$). Teach parent: exact match
-$0.000$, answer logit-difference $-1.5$, map flagged as noise. \emph{Reading:} the parent's own
-attribution map, split in half, already tells the two regimes apart before a single fine-tuning
-step.}
+\how{
+\begin{steps}
+\item Build the parent's circuit on the target task as in M1, before any target training.
+\item \emph{Is it defined?} The tool marks a map as noise when the parent's answer
+logit-difference is below 1 nat.
+\item \emph{Is it repeatable?} Build it twice from two halves of the problems and take the
+overlap.
+\end{steps}}
+\numbers{Table~\ref{tab:parentcirc}.
+\begin{steps}
+\item \textbf{Elicit parent:} answers nothing, yet has a defined map ($3.1$ nats) that is as
+repeatable as a fine-tuned child's, $0.600$ (heads only $0.422$). \textbf{Teach parent:} map
+flagged as noise ($-1.5$ nats).
+\item The elicit parent's task circuit is its symbol-arithmetic circuit ($0.524$ overlap), the
+one the elicited child ends up running (M1).
+\end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lcccc}
@@ -499,87 +492,95 @@ on symbols the parent already answers, and many components carry a little of the
 \metricsecp{Hidden preference}{prefers the right answer without saying it vs.\ no preference}
 \what{Before any target training, does the parent already prefer the correct answer to a wrong
 one, even though it never produces it (elicit), or is it indifferent (teach)?}
-\how{One forward pass per problem, 256 problems. At the answer position, read the parent's own
-output logits and take the logit of the correct answer's first chunk minus the logit of the first
-chunk of a different problem's answer (a mismatched but equally plausible number). Report the
-mean, in nats; $0$ means no answer-specific preference.}
-\numbers{Table~\ref{tab:prefit}. Latent parent $2.31$, Llama $1.00$, symbol engine $0.44$,
-format-installed $0.06$, blank $0.02$ --- the order of the five learning curves. None of them
-produces the answer (top-1 accuracy $\le0.05$). \emph{Reading:} the cheapest test there is, and
-it already ranks the parents: a capability about to be elicited shows up as a preference the
-model does not act on.}
-
+\how{
+\begin{steps}
+\item One forward pass per problem, 256 problems, on the parent alone.
+\item At the answer position, the logit of the correct answer's first chunk minus the logit of a
+different problem's answer. Mean in nats; 0 $=$ no preference.
+\end{steps}}
+\numbers{Table~\ref{tab:prefit}.
+\begin{steps}
+\item Elicit parent $2.31$, Llama-3.2-1B $1.00$, symbol engine $0.44$, format-installed $0.06$,
+blank $0.02$: the order in which the five parents learn the task under fine-tuning (learning
+curves not shown here), from parents that produce none of the answers.
+\end{steps}}
 \metricsecp{Downward curvature of the task loss}{a cliff one push away vs.\ a bowl}
 \what{Standing at the parent's weights, are there directions in which the task loss falls faster
 than linearly --- a capability one push away (elicit) --- or does the loss curve upward in every
 direction (teach)?}
-\how{Compute the Hessian of the target-task loss (teacher-forced answer tokens, 16 problems)
-with respect to all weights except the embeddings, through Hessian-vector products. Find the two
-ends of its spectrum: power iteration gives the eigenvalue of largest magnitude, shifted power
-iteration gives the other end. The \emph{negative share} is $-\lambda_{\min} /
-(\lambda_{\max}-\lambda_{\min})$: $1$ when the curvature range is all downward, $0$ when it is all
-upward. The ratio is used because raw eigenvalues are not comparable across models of different
-loss scale.}
-\numbers{Table~\ref{tab:prefit}. Latent parent $1.00$ ($\lambda_{\max}=0.19$,
-$\lambda_{\min}=-718$), Llama $0.64$, symbol engine $0.48$, format-installed $0.00$, blank
-$0.00$ --- again the order of the five curves. \emph{Reading:} a parent about to be elicited
-sits on a saddle of the task loss, with directions that fall away steeply; a parent about to be
-taught sits in a bowl with no such shortcut.}
-
+\how{
+\begin{steps}
+\item Take the task loss at the parent's weights and find the two ends of its curvature
+spectrum (Hessian-vector products, power iteration, 16 problems).
+\item \emph{Negative share} $=-\lambda_{\min}/(\lambda_{\max}-\lambda_{\min})$: 1 when every
+direction curves downward, 0 when every direction curves up. A ratio, so models of different
+loss scale compare.
+\end{steps}}
+\numbers{Table~\ref{tab:prefit}.
+\begin{steps}
+\item Elicit parent $1.00$, Llama-3.2-1B $0.64$, symbol engine $0.48$, format-installed $0.00$,
+blank $0.00$: again the order in which they learn. An elicit parent sits on a saddle with a way down; a teach
+parent sits in a bowl.
+\end{steps}}
 \metricsecp{Answer carried by the state}{swapping the state moves the answer vs.\ nothing moves}
 \what{Does the parent's state at the answer position already carry the answer causally --- swap
 it between two problems and the preference follows (elicit) --- or does swapping it change
 nothing (teach)?}
-\how{Distributed Alignment Search (Geiger et al.\ 2024), scored on preference rather than
-output so that it works on a parent that never answers. Take pairs of problems of equal prompt
-length. Run the parent on the base problem while overwriting its state after layer $L$ at the
-answer position with the state from the source problem --- either the whole state or only a
-learned $k$-dimensional subspace --- and count how often the parent then prefers the source
-problem's answer to the base problem's. Controls: no swap, and a random subspace of the same
-size; 256 training and 128 test pairs, $L\in\{8,12,14,15\}$, $k\in\{1,4,16,64\}$.}
-\numbers{Table~\ref{tab:prefit}. Swapping the whole state raises the fraction of flipped
-preferences above the no-swap level by $+0.39$ (latent), $+0.26$ (Llama) and $+0.30$ (symbol
-engine), against $+0.05$ (format-installed) and $+0.02$ (blank); a learned 64-dimensional
-subspace recovers most of the full-swap effect (latent $0.64$ against a random subspace's
-$0.41$ at layer 12). \emph{Reading:} in every parent that can compute, the state at the answer
-position already holds the problem's answer; in the teach parents it holds nothing that moves
-the answer.}
-
+\how{
+\begin{steps}
+\item Take two problems of equal length. Run the parent on the first while overwriting its
+state at the answer position, after layer $L$, with the state from the second (whole state, or a
+learned $k$-dimensional part of it; Distributed Alignment Search, Geiger et al.\ 2024).
+\item Count how often the parent now prefers the second problem's answer. Controls: no swap, and
+a random subspace of the same size. 128 test pairs.
+\end{steps}}
+\numbers{Table~\ref{tab:prefit}.
+\begin{steps}
+\item Swapping the whole state moves the preference by $+0.39$ (elicit parent), $+0.26$ (Llama),
+$+0.30$ (symbol engine) against $+0.05$ and $+0.02$ for the teach parents: every parent that can
+compute already holds the answer in its state.
+\item In the elicit parent a learned 64-dimensional part of the state recovers most of the effect
+(flip rate $0.64$ vs $0.41$ for a random 64-dimensional subspace).
+\end{steps}}
 \metricsecp{Number-reading heads}{words already reach the arithmetic vs.\ they do not}
 \what{Do the parent's attention heads already fetch the two numbers when the problem is posed in
 words (elicit), or not (teach) --- and does having arithmetic suffice?}
-\how{Desiderata Component Masking, as in M2, on the frozen parent and the natural-language
-prompts, with one change: since the parent never answers, a set of heads counts when copying its
-activations from a counterfactual problem (different first operand) moves the parent's
-\emph{preference} toward the counterfactual answer. Report the size of the learned head set and
-its flip rate against the ceiling of copying every head.}
-\numbers{Table~\ref{tab:prefit}. First-operand heads: latent parent 22 (flip $0.48$, ceiling
-$0.67$), Llama 23 ($0.59$ of $0.61$); symbol engine, format-installed and blank: none.
-\emph{Reading:} this is the metric that separates the symbol engine from the elicit parents. It
-has the arithmetic (the answer is in its state, previous metric) but no heads that carry the
-numbers from the words to it; the binding dose is what builds that interface, and only a parent
-with both is about to be elicited on this task.}
-
+\how{
+\begin{steps}
+\item Head roles (M2) on the frozen parent with the word prompts, with one change: since the
+parent never answers, a head set counts when copying it from the twin problem moves the parent's
+\emph{preference} toward the twin's answer.
+\item Report the size of the set and its flip rate against the copy-every-head ceiling.
+\end{steps}}
+\numbers{Table~\ref{tab:prefit}.
+\begin{steps}
+\item Elicit parent 22 heads, Llama-3.2-1B 23; symbol engine, format-installed and blank: none.
+The engine has the arithmetic (M13; the numbers are present, M15) but no heads carrying them
+from the words to it --- this is the metric that separates the two elicit parents from it.
+\end{steps}}
 \metricsecp{Operands present at the answer position}{the numbers are there vs.\ weakly there}
 \what{Is the information the computation needs --- the two numbers --- already readable from the
 parent's state at the moment it is about to answer?}
-\how{Linear probe on the state at the answer position, layer by layer, about 2,000 addition
-problems (75/25 split, ridge with the regulariser chosen on held-out data). Target: helix
-features of each operand, $[y, \cos(2\pi y/T), \sin(2\pi y/T)]$ for $T\in\{2,5,10,100\}$, the
-representation language models use for numbers (Kantamneni \& Tegmark 2025). Report the best
-layer's $R^2$, averaged over the two operands.}
-\numbers{Table~\ref{tab:prefit}. Latent parent $0.88$, Llama $0.86$, symbol engine $0.90$
-against format-installed $0.53$ and blank $0.49$. \emph{Reading:} every parent that can compute
-has gathered both numbers at the answer position; the teach parents hold them only partially.
-The answer chunk itself is not linearly readable beyond these copies in any parent: it is
-produced downstream and nonlinearly, where the hidden preference and the lens read it.}
-
+\how{
+\begin{steps}
+\item Linear probe on the parent's state at the answer position, about 2,000 addition problems,
+held-out split.
+\item Target: the two numbers, in the helix features language models use for numbers
+(Kantamneni \& Tegmark 2025). Report the best layer's $R^2$.
+\end{steps}}
+\numbers{Table~\ref{tab:prefit}.
+\begin{steps}
+\item Elicit parent $0.88$, Llama-3.2-1B $0.86$, symbol engine $0.90$ vs format-installed $0.53$, blank
+$0.49$: parents that can compute have both numbers at the answer position.
+\item The answer itself is not linearly readable in any parent beyond the two numbers
+themselves; it is produced downstream, where the lens and the hidden preference find it.
+\end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{lccccc}
 \toprule
  & \multicolumn{2}{c}{elicit} & between & \multicolumn{2}{c}{teach} \\
- & latent & Llama-3.2-1B & symbol engine & format-installed & blank \\
+ & elicit parent & Llama-3.2-1B & symbol engine & format-installed & blank \\
 \midrule
 hidden preference (nats) & \textbf{2.31} & \textbf{1.00} & 0.44 & 0.06 & 0.02 \\
 curvature: negative share & \textbf{1.00} & \textbf{0.64} & 0.48 & 0.00 & 0.00 \\
