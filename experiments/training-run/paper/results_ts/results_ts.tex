@@ -504,23 +504,26 @@ different problem's answer. Mean in nats; 0 $=$ no preference.
 blank $0.02$: the order in which the five parents learn the task under fine-tuning (learning
 curves not shown here), from parents that produce none of the answers.
 \end{steps}}
-\metricsecp{Downward curvature of the task loss}{a cliff one push away vs.\ a bowl}
-\what{Standing at the parent's weights, are there directions in which the task loss falls faster
-than linearly --- a capability one push away (elicit) --- or does the loss curve upward in every
-direction (teach)?}
+\metricsecp{Accelerating descent of the task loss}{the drop speeds up along some direction vs.\ tapers along every direction}
+\what{Nudge the parent's weights a little: is there a direction in which the task loss drops
+faster the further you go --- a capability one push away (elicit) --- or does the drop taper off
+whichever way you move (teach)?}
 \how{
 \begin{steps}
 \item Take the task loss at the parent's weights and find the two ends of its curvature
 spectrum (Hessian-vector products, power iteration, 16 problems).
-\item \emph{Negative share} $=-\lambda_{\min}/(\lambda_{\max}-\lambda_{\min})$: 1 when every
-direction curves downward, 0 when every direction curves up. A ratio, so models of different
-loss scale compare.
+\item The second derivative along a direction says what happens to the rate of descent:
+positive $=$ the drop tapers, negative $=$ it accelerates. $\lambda_{\max}$ and $\lambda_{\min}$
+are the strongest taper and the strongest acceleration. \emph{Negative share}
+$=-\lambda_{\min}/(\lambda_{\max}-\lambda_{\min})$: the fraction of that range on the
+accelerating side, 1 when every strong direction accelerates, 0 when none does. A ratio, so
+models of different loss scale compare.
 \end{steps}}
 \numbers{Table~\ref{tab:prefit}.
 \begin{steps}
 \item Elicit parent $1.00$, Llama-3.2-1B $0.64$, symbol engine $0.48$, format-installed $0.00$,
-blank $0.00$: again the order in which they learn. An elicit parent sits on a saddle with a way down; a teach
-parent sits in a bowl.
+blank $0.00$: again the order in which they learn. For an elicit parent there is a direction along which
+the loss falls faster and faster; for a teach parent every descent tapers off.
 \end{steps}}
 \metricsecp{Answer carried by the state}{swapping the state moves the answer vs.\ nothing moves}
 \what{Does the parent's state at the answer position already carry the answer causally --- swap
