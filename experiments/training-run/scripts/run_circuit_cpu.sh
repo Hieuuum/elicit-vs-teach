@@ -14,7 +14,7 @@
 # ~5 GB RAM. Rough cost on 16 cores: A ~15-25 min per map (7 maps), B/C ~20-40 min
 # per faithfulness run (8 runs). Start with --stage A to see timings.
 #
-# Usage:  bash run_circuit_cpu.sh [--stage A|B|C|all] [--threads N]
+# Usage:  bash run_circuit_cpu.sh [--stage A|B|C|D|all] [--threads N]   (D = the follow-up after A-C; ~8 h CPU)
 # Env:    GEODE_STORE, conda env geode.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -48,7 +48,7 @@ step() {  # step <done-file> <cmd...>
   { "$@" 2>&1 | tee -a "$LOG"; } && [[ ${PIPESTATUS[0]} == 0 ]] || { milestone "FAILED: $*"; return 1; }
   milestone "done in $((SECONDS - t0)) s: $marker"
 }
-want() { [[ $STAGE == all || $STAGE == "$1" ]]; }
+want() { [[ $STAGE == "$1" || ( $STAGE == all && $1 != D ) ]]; }  # D is explicit only
 
 milestone "repo $(git rev-parse --short HEAD) store=$GEODE_STORE stage=$STAGE threads=$THREADS"
 cd "$A"
@@ -100,5 +100,29 @@ if want C; then
     --run-id "$RID_FTFMT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_elft_in_ftfmt4m_suff --device cpu
   step reuse_ftfmt_in_elft4m_suff.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_ftfmt4m \
     --run-id "$RID_ELFT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_ftfmt_in_elft4m_suff --device cpu
+fi
+# ------------------------------------------------------------------ D: after the A-C read
+# Stages B/C showed restore-sufficiency is saturated by the MLP blocks (type-matched random sets
+# recover 0.83-0.99 too) and all-position "maintain" is 0 for every set (a different-problem
+# corruption at every position destroys the operand information; no 32-node set carries it).
+# D asks the two fair versions: (1) maintain confined to the ANSWER position; (2) heads-only
+# necessity and sufficiency against random heads — the components that can discriminate.
+if want D; then
+  for spec in "$RID_ELFT circ_ts_elft4m" "$RID_FTFMT circ_ts_ftfmt4m"; do
+    set -- $spec; rid=$1; map=$2
+    step ${map}_maintain_last.json python3 circuit_faithfulness.py --map $map --run-id "$rid" \
+      --mode maintain --positions last --ks 8 32 --n-pairs 128 --out ${map}_maintain_last --device cpu
+    step ${map}_heads_nec.json python3 circuit_faithfulness.py --map $map --run-id "$rid" --heads-only \
+      --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out ${map}_heads_nec --device cpu
+  done
+  # functional reuse, heads only: the parent's heads in the child vs random heads
+  step reuse_latent_in_elft4m_heads_suff.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_latent_nl \
+    --run-id "$RID_ELFT" --heads-only --mode sufficiency --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_heads_suff --device cpu
+  step reuse_latent_in_elft4m_heads_nec.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_latent_nl \
+    --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_heads_nec --device cpu
+  step reuse_elft_in_ftfmt4m_heads_nec.json python3 circuit_faithfulness.py --map circ_ts_ftfmt4m --nodes-from circ_ts_elft4m \
+    --run-id "$RID_FTFMT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_elft_in_ftfmt4m_heads_nec --device cpu
+  step reuse_ftfmt_in_elft4m_heads_nec.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_ftfmt4m \
+    --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_ftfmt_in_elft4m_heads_nec --device cpu
 fi
 milestone "done stage=$STAGE — paste $LOG"

@@ -71,6 +71,7 @@ class PatchTaps:
         self.mode = "off"  # "capture" | "patch" | "off"
         self.clean: dict[tuple, torch.Tensor] = {}
         self.patched_nodes: set[tuple] = set()
+        self.last_only = False   # patch only the final (answer) position
         self.handles = []
         cfg = model.config
         self.n_heads = cfg.num_attention_heads
@@ -92,7 +93,10 @@ class PatchTaps:
                 if heads:
                     x = x.view(*x.shape[:-1], self.n_heads, self.d_head).clone()
                     c = self.clean[("attn", i)].view(*x.shape)
-                    x[..., heads, :] = c[..., heads, :]
+                    if self.last_only:
+                        x[:, -1, heads, :] = c[:, -1, heads, :]
+                    else:
+                        x[..., heads, :] = c[..., heads, :]
                     return (x.view(*x.shape[:-2], self.n_heads * self.d_head),)
             return None
 
@@ -104,6 +108,10 @@ class PatchTaps:
                 self.clean[("mlp", i)] = output.detach().clone()
                 return output
             if self.mode == "patch" and ("mlp", i, -1) in self.patched_nodes:
+                if self.last_only:
+                    out = output.clone()
+                    out[:, -1] = self.clean[("mlp", i)][:, -1]
+                    return out
                 return self.clean[("mlp", i)]
             return output
 
@@ -148,6 +156,14 @@ def main() -> int:
     ap.add_argument("--random-sets", type=int, default=0,
                     help="N type-matched random node sets per k as the reference distribution")
     ap.add_argument("--random-seed", type=int, default=316)
+    ap.add_argument("--positions", choices=("all", "last"), default="all",
+                    help="patch at every position (default) or only at the answer position — "
+                    "for 'maintain' this is the position-specific strict test (Miller et al.): "
+                    "information may flow normally through earlier positions, only the "
+                    "final-position computation is confined to the circuit")
+    ap.add_argument("--heads-only", action="store_true",
+                    help="rank, patch and draw random sets over the 512 attention heads only "
+                    "(the MLP blocks fill every top-k and saturate sufficiency by themselves)")
     ap.add_argument("--out", default=None, help="output stem (default: <map>_faithfulness_<mode>)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
@@ -156,6 +172,8 @@ def main() -> int:
     node_df = pd.read_parquet(Path(rank_map).with_suffix(".parquet"))
     node_df = node_df.sort_values("abs_score", ascending=False)
     ranked = [(r.node_type, int(r.layer), int(r.head)) for r in node_df.itertuples()]
+    if args.heads_only:
+        ranked = [n for n in ranked if n[0] == "attn"]
     all_nodes = set(ranked)
 
     cfg = load_config(EVAL_CONFIG, None)
@@ -192,6 +210,7 @@ def main() -> int:
     random_sets = {k: [type_matched_random(ranked, ranked[:k], rng) for _ in range(args.random_sets)]
                    for k in args.ks}
     taps = PatchTaps(model)
+    taps.last_only = args.positions == "last"
     per_pair = {"clean": [], "corrupt": []}
     per_pair.update({f"top{k}": [] for k in args.ks})
     per_pair.update({f"rand{k}_{j}": [] for k in args.ks for j in range(args.random_sets)})
@@ -255,7 +274,8 @@ def main() -> int:
         return out
 
     word = {"sufficiency": "recovery", "necessity": "degradation", "maintain": "maintained"}[args.mode]
-    src = f" nodes ranked by {rank_map}" if args.nodes_from else ""
+    src = (f" nodes ranked by {rank_map}" if args.nodes_from else "") + \
+          (" heads-only" if args.heads_only else "") + (" last-position" if args.positions == "last" else "")
     print(f"[faith] {name} shots={args.shots} mode={args.mode} pairs={n}{src}: "
           f"mean M_clean {clean_sum / n:.3f}  M_corrupt {corr_sum / n:.3f}")
     rows = []
@@ -287,6 +307,7 @@ def main() -> int:
     pd.DataFrame(rows).to_parquet(out, index=False)
     meta = {"map": args.map, "nodes_from": args.nodes_from, "model": name, "shots": args.shots,
             "mode": args.mode, "n_pairs": n, "random_sets": args.random_sets,
+            "positions": args.positions, "heads_only": args.heads_only,
             "per_pair": {key: [round(v, 4) for v in vals] for key, vals in per_pair.items()
                          if not key.startswith("rand")}}
     Path(stem + ".json").write_text(json.dumps(meta, indent=2))
