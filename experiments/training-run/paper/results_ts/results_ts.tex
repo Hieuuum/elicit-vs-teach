@@ -83,6 +83,11 @@ of the data (how repeatable a circuit is at all), and the \emph{type-matched cha
 unrelated circuits with the same MLP/head mix share (0.20--0.27 here).
 \item \emph{Heads only.} The same overlap over the 512 heads alone, where circuits can actually
 differ (chance 0.03).
+\item \emph{Functional check.} Overlap counts names; this counts effect. Corrupt a set of 32
+heads (write in their activations from a different problem) and read how much of the model's
+answer preference is destroyed, against random sets of 32 heads. A set identified on the
+\emph{parent} and evaluated in the \emph{child} tests reuse without depending on which names
+rank highest.
 \end{steps}}
 \numbers{Table~\ref{tab:overlap}.
 \begin{steps}
@@ -90,8 +95,12 @@ differ (chance 0.03).
 $0.56$); heads only $0.333$ against the parent's own ceiling of $0.42$. \textbf{Teach:} the
 parent has no circuit for the task (its node-score map is noise, M10), so the child's is new;
 heads only $0.016$.
-\item The two children share nothing beyond MLP blocks: $0.306$ at the type-matched chance;
-heads only $0.103$.
+\item Functional check: the parent's 32 heads, found before any target training, carry
+$0.73$ of the elicited child's behaviour (random heads $0.04$; the child's own top heads
+$0.88$). The taught child's own top heads carry only $0.46$ of its behaviour, and $0.27$ of
+the elicited child's: teaching layers diffuse attention on the shared number-reading heads (M2)
+instead of inheriting a compact head circuit. Set overlap between the two children is at chance
+($0.306$; heads only $0.103$).
 \end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
