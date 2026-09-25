@@ -14,7 +14,7 @@
 # ~5 GB RAM. Rough cost on 16 cores: A ~15-25 min per map (7 maps), B/C ~20-40 min
 # per faithfulness run (8 runs). Start with --stage A to see timings.
 #
-# Usage:  bash run_circuit_cpu.sh [--stage A|B|C|D|E|all] [--threads N] [--gpu]
+# Usage:  bash run_circuit_cpu.sh [--stage A|B|C|D|E|F|all] [--threads N] [--gpu]   (F: NRAND=100 env)
 #         (D, E explicit only; ~8 h / ~14 h on CPU, minutes with --gpu; SHOTS=4 env for E)
 # Env:    GEODE_STORE, conda env geode.
 set -euo pipefail
@@ -50,7 +50,7 @@ step() {  # step <done-file> <cmd...>
   { "$@" 2>&1 | tee -a "$LOG"; } && [[ ${PIPESTATUS[0]} == 0 ]] || { milestone "FAILED: $*"; return 1; }
   milestone "done in $((SECONDS - t0)) s: $marker"
 }
-want() { [[ $STAGE == "$1" || ( $STAGE == all && $1 != D && $1 != E ) ]]; }  # D, E explicit only
+want() { [[ $STAGE == "$1" || ( $STAGE == all && $1 != D && $1 != E && $1 != F ) ]]; }  # D, E, F explicit only
 
 milestone "repo $(git rev-parse --short HEAD) store=$GEODE_STORE stage=$STAGE threads=$THREADS"
 cd "$A"
@@ -166,5 +166,28 @@ if want E; then
   [[ $SHOTS == 0 ]] || step done_ds_el_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_latent_nl_s$SHOTS --nodes-b circ_elft4m_s$SHOTS --edges-a edge_latent_nl_s$SHOTS --edges-b edge_elft4m_s$SHOTS
   step done_ds_ch_s0.log python3 circuit_edges.py delta-s --nodes-a circ_ts_elft4m --nodes-b circ_ts_ftfmt4m --edges-a edge_elft4m_s0 --edges-b edge_ftfmt4m_s0
   [[ $SHOTS == 0 ]] || step done_ds_ch_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_elft4m_s$SHOTS --nodes-b circ_ftfmt4m_s$SHOTS --edges-a edge_elft4m_s$SHOTS --edges-b edge_ftfmt4m_s$SHOTS
+fi
+# ------------------------------------------------------------------ F: functional reuse with a real null (GPU)
+# Stage D's heads-only patching used 20 random head sets, which cannot pass p<0.05 at q*=0.9.
+# F repeats the five decisive comparisons with 100 random sets (minutes on a GPU), in both
+# directions where they matter, so the reuse claim carries a significance statement.
+if want F; then
+  N=${NRAND:-100}
+  for spec in "$RID_ELFT circ_ts_elft4m" "$RID_FTFMT circ_ts_ftfmt4m"; do
+    set -- $spec; rid=$1; map=$2
+    step ${map}_heads_nec_n$N.json python3 circuit_faithfulness.py --map $map --run-id "$rid" --heads-only \
+      --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets $N --out ${map}_heads_nec_n$N --device $DEV
+  done
+  step reuse_latent_in_elft4m_heads_nec_n$N.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_latent_nl \
+    --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets $N --out reuse_latent_in_elft4m_heads_nec_n$N --device $DEV
+  step reuse_latent_in_elft4m_heads_suff_n$N.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_latent_nl \
+    --run-id "$RID_ELFT" --heads-only --mode sufficiency --ks 8 16 32 --n-pairs 128 --random-sets $N --out reuse_latent_in_elft4m_heads_suff_n$N --device $DEV
+  step reuse_elft_in_ftfmt4m_heads_nec_n$N.json python3 circuit_faithfulness.py --map circ_ts_ftfmt4m --nodes-from circ_ts_elft4m \
+    --run-id "$RID_FTFMT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets $N --out reuse_elft_in_ftfmt4m_heads_nec_n$N --device $DEV
+  step reuse_ftfmt_in_elft4m_heads_nec_n$N.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_ftfmt4m \
+    --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets $N --out reuse_ftfmt_in_elft4m_heads_nec_n$N --device $DEV
+  # the teach parent's heads in the taught child (its own map is noise, so this is the noise-parent control)
+  step reuse_fmt_in_ftfmt4m_heads_nec_n$N.json python3 circuit_faithfulness.py --map circ_ts_ftfmt4m --nodes-from circ_ts_fmtparent \
+    --run-id "$RID_FTFMT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets $N --out reuse_fmt_in_ftfmt4m_heads_nec_n$N --device $DEV
 fi
 milestone "done stage=$STAGE — paste $LOG"
