@@ -135,16 +135,17 @@ fi
 # decides whether a few-shot map is usable (children score ~0 exact match at 16 shots).
 # Cost on CPU: 0-shot edge map ~10 min (128 pairs), $SHOTS-shot ~5x that; ~14 h in all.
 if want E; then
-  SHOTS=${SHOTS:-4}
+  SHOTS=${SHOTS:-4}          # SHOTS=0 runs the 0-shot NL maps only (~1.5 h CPU)
   for spec in "$LATENT edge_latent_nl" "$RID_ELFT edge_elft4m" "$RID_FTFMT edge_ftfmt4m"; do
     set -- $spec; rid=$1; stem=$2
-    for sh in 0 $SHOTS; do
+    for sh in $(printf '%s\n' 0 $SHOTS | sort -un); do
       s=${stem}_s$sh
       step $s.json   python3 circuit_edges.py map --run-id "$rid" --out $s   --shots $sh --n-pairs 128 --device cpu
       step ${s}_a.json python3 circuit_edges.py map --run-id "$rid" --out ${s}_a --shots $sh --n-pairs 128 --half a --device cpu
       step ${s}_b.json python3 circuit_edges.py map --run-id "$rid" --out ${s}_b --shots $sh --n-pairs 128 --half b --device cpu
     done
     # node maps at $SHOTS shots (0-shot node maps exist: circ_ts_latent_nl / circ_ts_elft4m / circ_ts_ftfmt4m)
+    [[ $SHOTS == 0 ]] && continue
     n=${stem/edge_/circ_}_s$SHOTS
     step $n.json   python3 circuit_nodes.py --run-id "$rid" --out $n   --shots $SHOTS --n-pairs 128 --device cpu
     step ${n}_a.json python3 circuit_nodes.py --run-id "$rid" --out ${n}_a --shots $SHOTS --n-pairs 128 --half a --device cpu
@@ -155,13 +156,13 @@ if want E; then
   for m in latent_nl elft4m ftfmt4m; do
     step done_ds_floor_${m}_s0.log python3 circuit_edges.py delta-s --nodes-a ${NODE0[$m]}_a --nodes-b ${NODE0[$m]}_b \
       --edges-a edge_${m}_s0_a --edges-b edge_${m}_s0_b
-    step done_ds_floor_${m}_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_${m}_s${SHOTS}_a --nodes-b circ_${m}_s${SHOTS}_b \
+    [[ $SHOTS == 0 ]] || step done_ds_floor_${m}_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_${m}_s${SHOTS}_a --nodes-b circ_${m}_s${SHOTS}_b \
       --edges-a edge_${m}_s${SHOTS}_a --edges-b edge_${m}_s${SHOTS}_b
   done
   milestone "elicit parent -> elicited child, and the two children, at both prompt lengths"
   step done_ds_el_s0.log python3 circuit_edges.py delta-s --nodes-a circ_ts_latent_nl --nodes-b circ_ts_elft4m --edges-a edge_latent_nl_s0 --edges-b edge_elft4m_s0
-  step done_ds_el_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_latent_nl_s$SHOTS --nodes-b circ_elft4m_s$SHOTS --edges-a edge_latent_nl_s$SHOTS --edges-b edge_elft4m_s$SHOTS
+  [[ $SHOTS == 0 ]] || step done_ds_el_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_latent_nl_s$SHOTS --nodes-b circ_elft4m_s$SHOTS --edges-a edge_latent_nl_s$SHOTS --edges-b edge_elft4m_s$SHOTS
   step done_ds_ch_s0.log python3 circuit_edges.py delta-s --nodes-a circ_ts_elft4m --nodes-b circ_ts_ftfmt4m --edges-a edge_elft4m_s0 --edges-b edge_ftfmt4m_s0
-  step done_ds_ch_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_elft4m_s$SHOTS --nodes-b circ_ftfmt4m_s$SHOTS --edges-a edge_elft4m_s$SHOTS --edges-b edge_ftfmt4m_s$SHOTS
+  [[ $SHOTS == 0 ]] || step done_ds_ch_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_elft4m_s$SHOTS --nodes-b circ_ftfmt4m_s$SHOTS --edges-a edge_elft4m_s$SHOTS --edges-b edge_ftfmt4m_s$SHOTS
 fi
 milestone "done stage=$STAGE — paste $LOG"
