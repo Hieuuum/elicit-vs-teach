@@ -1,0 +1,352 @@
+<title>OLMo 2 Behavior Browser</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #F2F4F6; --surface: #FFFFFF; --ink: #1A222C; --muted: #64717F;
+    --line: #D6DDE4; --line-strong: #B9C3CD; --accent: #1D6F8A; --accent-ink: #FFFFFF;
+    --good: #2A7A46; --good-bg: #E3F3E8; --bad: #B4382E; --bad-bg: #F9E6E3;
+    --warn: #8A6414; --warn-bg: #FBF0D5; --code-bg: #F7F9FA; --hl: #E8F1F5;
+    --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #101519; --surface: #182028; --ink: #E7ECF0; --muted: #93A1AE;
+      --line: #2A353F; --line-strong: #3C4A57; --accent: #4FB3D0; --accent-ink: #0B1418;
+      --good: #6BCF8B; --good-bg: #16331F; --bad: #F08A7E; --bad-bg: #3A1B18;
+      --warn: #E3B94D; --warn-bg: #3A2E10; --code-bg: #131A21; --hl: #1E2D38;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #101519; --surface: #182028; --ink: #E7ECF0; --muted: #93A1AE;
+    --line: #2A353F; --line-strong: #3C4A57; --accent: #4FB3D0; --accent-ink: #0B1418;
+    --good: #6BCF8B; --good-bg: #16331F; --bad: #F08A7E; --bad-bg: #3A1B18;
+    --warn: #E3B94D; --warn-bg: #3A2E10; --code-bg: #131A21; --hl: #1E2D38;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; background: var(--ground); color: var(--ink); font: 14px/1.5 var(--sans); }
+  .wrap { padding-inline: 20px; padding-block: 14px 40px; max-width: 1400px; margin: 0 auto; display: grid; gap: 14px; }
+  h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+  .sub { color: var(--muted); font-size: 12.5px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: flex-end; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
+  .field { display: grid; gap: 3px; }
+  .field label, .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
+  select, input, button { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 4px; padding: 5px 8px; }
+  select:focus-visible, input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+  .nav { display: flex; gap: 6px; align-items: center; }
+  .nav input { width: 7ch; text-align: right; font-variant-numeric: tabular-nums; }
+  .nav .of { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #jump { width: 26ch; font-family: var(--mono); font-size: 12.5px; }
+  .toggle { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; }
+  .toggle input { width: auto; margin: 0; }
+
+  .stages { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+  .stage { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 9px; cursor: pointer; text-align: left; display: grid; gap: 2px; min-width: 0; }
+  .stage:hover { border-color: var(--accent); }
+  .stage.active { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--hl); }
+  .stage .name { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; display: flex; justify-content: space-between; }
+  .stage .pred { font-family: var(--mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .mark { font-weight: 600; }
+  .mark.ok { color: var(--good); } .mark.no { color: var(--bad); } .mark.pf { color: var(--warn); }
+
+  .main { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 14px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+  .panel h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; margin: 0; display: flex; justify-content: space-between; gap: 8px; }
+  .panel h2 .meta { text-transform: none; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+  pre { margin: 0; font: 12.5px/1.55 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; background: var(--code-bg); border: 1px solid var(--line); border-radius: 4px; padding: 10px 12px; max-height: 70vh; overflow: auto; }
+  pre.gen { border-left: 3px solid var(--accent); }
+  details { border: 1px solid var(--line); border-radius: 4px; background: var(--code-bg); }
+  details summary { cursor: pointer; padding: 6px 12px; font-size: 12.5px; color: var(--muted); }
+  details pre { border: 0; border-top: 1px solid var(--line); border-radius: 0 0 4px 4px; }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; align-items: baseline; }
+  .kv dt { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 500; }
+  .kv dd { margin: 0; font-family: var(--mono); font-size: 12.5px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font: 500 12px/1.6 var(--sans); }
+  .pill.ok { background: var(--good-bg); color: var(--good); }
+  .pill.no { background: var(--bad-bg); color: var(--bad); }
+  .pill.pf { background: var(--warn-bg); color: var(--warn); }
+  .flags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .flag { font: 500 11px/1.6 var(--sans); padding: 0 7px; border-radius: 3px; background: var(--warn-bg); color: var(--warn); }
+  .status { color: var(--muted); font-size: 12.5px; }
+  .status.err { color: var(--bad); }
+  kbd { font: 11px var(--mono); border: 1px solid var(--line-strong); border-radius: 3px; padding: 0 4px; }
+  @media (max-width: 900px) {
+    .main { grid-template-columns: 1fr; }
+    .stages { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  }
+  @media (prefers-reduced-motion: no-preference) { .stage { transition: border-color .12s; } }
+</style>
+
+<div class="wrap">
+  <div>
+    <h1>OLMo 2 Behavior Browser</h1>
+    <div class="sub">Every generation from the seven-checkpoint circuit-overlap run (2026-09-11), one example at a time. Pick a dataset, step through examples, click a checkpoint to see that model's answer. <kbd>←</kbd> <kbd>→</kbd> step, <kbd>r</kbd> random.</div>
+  </div>
+
+  <div class="bar">
+    <div class="field"><label for="task">Dataset</label><select id="task"></select></div>
+    <div class="field" id="variantField" hidden><label for="variant">Prompt variant</label><select id="variant"></select></div>
+    <div class="toggle" id="controlsToggle" hidden><input type="checkbox" id="controls"><label for="controls">Show position/label controls</label></div>
+    <div class="field"><label for="filter">Show</label>
+      <select id="filter">
+        <option value="all">All examples</option>
+        <option value="ok">Correct at selected checkpoint</option>
+        <option value="no">Incorrect at selected checkpoint</option>
+        <option value="pf">Parse failure at selected checkpoint</option>
+        <option value="flip">Correct at some checkpoints, not others</option>
+      </select>
+    </div>
+    <div class="field"><span class="lbl">Example</span>
+      <div class="nav">
+        <button id="prev" type="button" title="Previous (←)">‹</button>
+        <input id="pos" type="text" inputmode="numeric" value="1" aria-label="Example number">
+        <span class="of" id="of">/ –</span>
+        <button id="next" type="button" title="Next (→)">›</button>
+        <button id="rand" type="button" title="Random (r)">Random</button>
+      </div>
+    </div>
+    <div class="field"><label for="jump">Jump to id</label><input id="jump" type="text" placeholder="gsm_symbolic:0:0" list="idlist"><datalist id="idlist"></datalist></div>
+    <div class="status" id="status">Loading…</div>
+  </div>
+
+  <div class="stages" id="stages"></div>
+
+  <div class="main">
+    <section class="panel">
+      <h2>Prompt <span class="meta" id="promptMeta"></span></h2>
+      <div id="prompt"></div>
+      <h2>Source record</h2>
+      <dl class="kv" id="source"></dl>
+    </section>
+    <section class="panel">
+      <h2>Model generation <span class="meta" id="genMeta"></span></h2>
+      <pre class="gen" id="gen"></pre>
+      <dl class="kv" id="score"></dl>
+    </section>
+  </div>
+</div>
+
+<script>
+  const EVT = {
+    data: {}, stagesLoaded: {}, manifest: null,
+    reg(task, payload) { EVT.data[task] = payload; },
+    regStage(task, stage, payload) { (EVT.stagesLoaded[task] ||= {})[stage] = payload; },
+    setManifest(m) { EVT.manifest = m; },
+  };
+</script>
+<script src="data/manifest.js"></script>
+<script>
+  const STAGES = ["init", "stage1", "stage2", "sft", "dpo", "rlvr1", "rlvr2"];
+  const STAGE_LABEL = { init: "Init", stage1: "Stage 1", stage2: "Stage 2", sft: "SFT", dpo: "DPO", rlvr1: "RLVR 1", rlvr2: "RLVR 2" };
+  const $ = (id) => document.getElementById(id);
+  const state = { task: null, variant: "original", stage: "rlvr2", filter: "all", i: 0, controls: false };
+  let order = [];            // filtered example indices
+  const loading = {};
+
+  // ---------- data loading (script tags: the only same-origin fetch the sandbox allows)
+  function loadScript(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement("script");
+      s.src = src; s.onload = resolve; s.onerror = () => reject(new Error("failed to load " + src));
+      document.head.appendChild(s);
+    });
+  }
+  function loadTask(task) {
+    if (EVT.data[task] && STAGES.every((s) => EVT.stagesLoaded[task]?.[s])) return Promise.resolve();
+    if (!loading[task]) {
+      loading[task] = Promise.all([
+        loadScript(`data/${task}.base.js`),
+        ...STAGES.map((s) => loadScript(`data/${task}.${s}.js`)),
+      ]);
+    }
+    return loading[task];
+  }
+
+  // ---------- prompt reconstruction (mirrors build.py)
+  function swapScenarios(t) {
+    const m = /^Scenario 1: ([\s\S]*)\nScenario 2: ([\s\S]*)$/.exec(t);
+    return m ? `Scenario 1: ${m[2]}\nScenario 2: ${m[1]}` : t;
+  }
+  function promptFor(base, v, i) {
+    const ex = base.ex[i];
+    if (base.shared_prefix) return base.shared_prefix + ex.q;
+    if (ex.p !== undefined) return ex.p;
+    const fb = base.vprompt?.[v]?.[i];
+    if (fb) return fb;
+    const tpl = base.templates[v];
+    return tpl.includes("<SWAPPED_SRC>") ? tpl.replace("<SWAPPED_SRC>", swapScenarios(ex.st)) : tpl.replace("<SRC>", ex.st);
+  }
+  const isEthics = (t) => t.startsWith("ethics");
+  const col = (t, stage, v) => EVT.stagesLoaded[t][stage][v];
+  const okAt = (t, stage, v, i) => col(t, stage, v).ok[i] === "1";
+  const pfAt = (t, stage, v, i) => col(t, stage, v).pf[i] === "1";
+  const predAt = (t, stage, v, i) => col(t, stage, v).pred[i];
+
+  // ---------- filtering + navigation
+  function rebuildOrder() {
+    const { task: t, variant: v, stage, filter } = state;
+    const n = EVT.data[t].n;
+    order = [];
+    for (let i = 0; i < n; i++) {
+      let keep = true;
+      if (filter === "ok") keep = okAt(t, stage, v, i);
+      else if (filter === "no") keep = !okAt(t, stage, v, i) && !pfAt(t, stage, v, i);
+      else if (filter === "pf") keep = pfAt(t, stage, v, i);
+      else if (filter === "flip") {
+        const oks = STAGES.map((s) => okAt(t, s, v, i));
+        keep = oks.some(Boolean) && !oks.every(Boolean);
+      }
+      if (keep) order.push(i);
+    }
+    if (!order.includes(state.i)) state.i = order[0] ?? 0;
+  }
+  function step(d) {
+    if (!order.length) return;
+    const k = order.indexOf(state.i);
+    state.i = order[(k + d + order.length) % order.length];
+    render();
+  }
+
+  // ---------- rendering
+  function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
+  function kvRows(dl, rows) {
+    dl.replaceChildren();
+    for (const [k, v] of rows) {
+      if (v === undefined || v === null || v === "") continue;
+      dl.append(el("dt", null, k));
+      const dd = el("dd");
+      if (v instanceof Node) dd.append(v); else dd.textContent = String(v);
+      dl.append(dd);
+    }
+  }
+  function markFor(t, stage, v, i) {
+    if (pfAt(t, stage, v, i)) return ["pf", "parse fail"];
+    return okAt(t, stage, v, i) ? ["ok", "✓ correct"] : ["no", "✗ wrong"];
+  }
+  function renderStages() {
+    const { task: t, variant: v, i } = state;
+    const box = $("stages"); box.replaceChildren();
+    for (const s of STAGES) {
+      const b = el("button", "stage" + (s === state.stage ? " active" : ""));
+      b.type = "button";
+      const [cls, txt] = markFor(t, s, v, i);
+      const name = el("span", "name"); name.append(el("span", null, STAGE_LABEL[s]), el("span", "mark " + cls, txt.split(" ")[0]));
+      const p = predAt(t, s, v, i);
+      b.append(name, el("span", "pred", p === null || p === undefined ? "—" : String(p)));
+      b.title = `${STAGE_LABEL[s]}: ${txt}`;
+      b.addEventListener("click", () => { state.stage = s; rebuildOrder(); render(); });
+      box.append(b);
+    }
+  }
+  function render() {
+    const { task: t, variant: v, stage, i } = state;
+    const base = EVT.data[t]; const ex = base.ex[i]; const c = col(t, stage, v);
+    const k = order.indexOf(state.i);
+    $("pos").value = k + 1; $("of").textContent = `/ ${order.length.toLocaleString()}`;
+    $("status").textContent = `${base.ids[i]}${v !== "original" ? " · " + v : ""} · ${base.n.toLocaleString()} examples in dataset`;
+    renderStages();
+
+    // prompt
+    const promptBox = $("prompt"); promptBox.replaceChildren();
+    const full = promptFor(base, v, i);
+    if (base.shared_prefix) {
+      const d = el("details"); d.append(el("summary", null, `Shared 8-shot prefix, ${base.shared_prefix.length.toLocaleString()} chars (click to expand)`), el("pre", null, base.shared_prefix));
+      promptBox.append(d, el("pre", null, ex.q));
+    } else {
+      promptBox.append(el("pre", null, full));
+    }
+    $("promptMeta").textContent = `${full.length.toLocaleString()} chars · ${ex.it} prompt tokens`;
+
+    // source
+    const src = Object.entries(ex.src).map(([kk, vv]) => [kk, typeof vv === "object" ? JSON.stringify(vv) : vv]);
+    const rows = [["group", ex.g], ...src];
+    if (isEthics(t)) rows.push(["semantic label", ex.sem], ["options shown", (base.vlabel[v].label_mapping).join(" / ")]);
+    kvRows($("source"), rows);
+
+    // generation + score
+    const gen = c.gen[i];
+    $("gen").textContent = gen === "" ? "(empty generation)" : gen;
+    const outTok = c.ot ? c.ot[i] : 1;
+    $("genMeta").textContent = `${STAGE_LABEL[stage]} · ${outTok} tokens` + (ex.mnt ? ` (max ${ex.mnt})` : "");
+    const [cls, txt] = markFor(t, stage, v, i);
+    const pill = el("span", "pill " + cls, txt);
+    const flags = el("div", "flags");
+    if (c.pf[i] === "1") flags.append(el("span", "flag", "parse failure"));
+    if (c.tr[i] === "1") flags.append(el("span", "flag", "truncated at max tokens"));
+    if (c.ef && c.ef[i] === "1") flags.append(el("span", "flag", "execution failure"));
+    const scoreRows = [
+      ["verdict", pill],
+      ["parsed answer", c.pred[i] === null ? "(none)" : String(c.pred[i])],
+    ];
+    if (isEthics(t)) {
+      scoreRows.push(["gold label", base.vgold[v][i]], ["logit margin", c.mg[i]], ["gold log-prob (nats)", c.lp[i]]);
+    } else if (t === "gsm_symbolic") {
+      scoreRows.push(["gold answer", ex.num], ["gold rationale", el("pre", null, ex.a)],
+        ["reference log-prob (nats/tok)", c.lp[i]], ["scored with suffix", JSON.stringify(ex.dsuf) + " + " + ex.da]);
+    } else {
+      scoreRows.push(["gold answer", ex.da], ["reference completion", el("pre", null, ex.a)],
+        ["reference log-prob (nats/tok)", c.lp[i]], ["scored with suffix", JSON.stringify(ex.dsuf)]);
+    }
+    if (flags.childElementCount) scoreRows.push(["flags", flags]);
+    kvRows($("score"), scoreRows);
+    persist();
+  }
+
+  // ---------- state, controls
+  function persist() {
+    try { localStorage.setItem("evt-viewer", JSON.stringify(state)); } catch (e) { /* ignore */ }
+  }
+  function fillVariants() {
+    const base = EVT.data[state.task];
+    const sel = $("variant"); sel.replaceChildren();
+    const eth = isEthics(state.task);
+    $("variantField").hidden = !(eth && state.controls);
+    $("controlsToggle").hidden = !eth;
+    const vs = eth && state.controls ? base.variants : ["original"];
+    for (const v of vs) { const o = el("option", null, v === "original" ? "original (0/1 labels)" : v); o.value = v; sel.append(o); }
+    if (!vs.includes(state.variant)) state.variant = "original";
+    sel.value = state.variant;
+  }
+  async function switchTask(task) {
+    state.task = task; $("task").value = task;
+    $("status").className = "status"; $("status").textContent = "Loading " + task + "…";
+    try { await loadTask(task); }
+    catch (e) { $("status").className = "status err"; $("status").textContent = e.message; return; }
+    fillVariants();
+    const dl = $("idlist"); dl.replaceChildren();
+    for (const id of EVT.data[task].ids) { const o = document.createElement("option"); o.value = id; dl.append(o); }
+    rebuildOrder(); render();
+  }
+  function init(saved) {
+    const tasks = Object.keys(EVT.manifest.tasks);
+    for (const t of tasks) { const o = el("option", null, `${t} (${EVT.manifest.tasks[t].n.toLocaleString()})`); o.value = t; $("task").append(o); }
+    Object.assign(state, saved);
+    if (!tasks.includes(state.task)) state.task = "gsm_symbolic";
+    $("controls").checked = state.controls; $("filter").value = state.filter;
+    $("task").addEventListener("change", (e) => { state.i = 0; switchTask(e.target.value); });
+    $("variant").addEventListener("change", (e) => { state.variant = e.target.value; rebuildOrder(); render(); });
+    $("controls").addEventListener("change", (e) => { state.controls = e.target.checked; fillVariants(); rebuildOrder(); render(); });
+    $("filter").addEventListener("change", (e) => { state.filter = e.target.value; rebuildOrder(); render(); });
+    $("prev").addEventListener("click", () => step(-1));
+    $("next").addEventListener("click", () => step(1));
+    $("rand").addEventListener("click", () => { if (order.length) { state.i = order[Math.floor(Math.random() * order.length)]; render(); } });
+    $("pos").addEventListener("change", (e) => { const k = parseInt(e.target.value, 10); if (k >= 1 && k <= order.length) { state.i = order[k - 1]; render(); } else render(); });
+    $("jump").addEventListener("change", (e) => {
+      const idx = EVT.data[state.task]?.ids.indexOf(e.target.value.trim());
+      if (idx >= 0) { state.filter = "all"; $("filter").value = "all"; rebuildOrder(); state.i = idx; render(); e.target.value = ""; }
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.target.matches("input, select, textarea")) return;
+      if (e.key === "ArrowLeft") step(-1); else if (e.key === "ArrowRight") step(1); else if (e.key === "r") $("rand").click();
+    });
+    switchTask(state.task);
+  }
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem("evt-viewer") || "{}"); } catch (e) { saved = {}; }
+  window.claude?.hot?.snapshot?.(() => state);
+  window.claude?.hot?.ready ? window.claude.hot.ready((d) => init(d && d.task ? d : saved)) : init(window.claude?.hot?.data?.task ? window.claude.hot.data : saved);
+</script>
