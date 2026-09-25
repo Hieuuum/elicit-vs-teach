@@ -119,3 +119,14 @@ def test_v0_9_plain_checkpoint_under_lora_manifest_refused(tiny_llama, tmp_path:
 
     with pytest.raises(ValueError, match="plain state dict"):
         load_model("run-bad", store=store)
+
+
+def test_v0_9_unsupported_training_method_refused(tiny_llama, tmp_path: Path) -> None:
+    # "sparse_lora" is a valid training.method per the manifest schema, but
+    # load_model has no branch for it — the else clause must refuse rather
+    # than silently falling into the lora or full_ft path.
+    store = tmp_path / "store"
+    write_run(store, "run-sparse", tiny_llama(seed=0), "sparse_lora")
+
+    with pytest.raises(ValueError, match="unsupported training.method"):
+        load_model("run-sparse", store=store)

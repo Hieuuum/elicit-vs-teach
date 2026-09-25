@@ -1,0 +1,15 @@
+# ts38tr target-stage sweep point: n=2154, k7 (7-of-8 blocks kept) arm.
+# Overlay over ../../ts38tr_k7.yaml. G7-matched against the shipped
+# evt-ts38-base-n2154 run (train_target.py:411). eval_every/max_steps/
+# min_steps identical to the shipped ts38mt_pp_n2154.yaml overlay (same
+# recipe, only theta0/snapshots differ).
+run_id: evt-ts38tr-k7-n2154
+experiment:
+  match_data_order_with: evt-ts38-base-n2154
+data:
+  n_examples: 2154
+train:
+  eval_every: 5
+  max_steps: 1000
+  stopping:
+    min_steps: 17

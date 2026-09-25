@@ -1,0 +1,151 @@
+# ts38mt ("mechanistic tests") Stage 0 — format-preteach FULL-FT parent.
+#
+# Why. ts38mt's design is three target arms (base / paper-protocol pretaught
+# / format-pretaught) over the bare-NL task, differing ONLY in theta0, with
+# per-run snapshots turned on so a later mechanistic-analysis pass can walk
+# each arm's training trajectory. The elicit-arm theta0 (evt-ts38pp-parent,
+# ts38pp_parent.yaml) is already full FT; for the comparison to isolate
+# theta0 alone, the format-pretaught (teach-arm) theta0 must be trained by
+# the SAME METHOD, not a LoRA-installed one — every earlier "pretaught
+# format" parent in this repo (ts38_preteachfmt_parent.yaml, ts38pf's Stage
+# 0) is LoRA. This file is that full-FT twin: same DATA and stopping regime
+# as ts38_preteachfmt_parent.yaml (permuted-label operator-notation format
+# acquisition on the frozen D_algo prefix), but full fine-tuning, so the
+# elicit parent and this teach parent share one training method.
+#
+# Data: VERBATIM copy of ts38_preteachfmt_parent.yaml's data block —
+# D_preteachfmt.parquet (21,544 rows, operator-notation, permuted/wrong
+# labels, derived from D_algo by datagen/make_preteach_format.py), same
+# order_hash/local_path/val_fraction/seed. See that file's header for the
+# full data-provenance note (App. E.1.2's "teaches format, not the
+# input-output relationship" framing); not repeated here.
+#
+# NO top-level `lora:` block in this file, ON PURPOSE — same mechanism as
+# ts38pp_parent.yaml's own guard note (train_sft.py's own_lora_block() gates
+# training.method on THIS file's own un-merged `lora:` key, verified
+# directly in train_sft.py: `if "lora" in own: return cfg["lora"]`, checked
+# against the file's own un-merged mapping, not the deep-merged cfg;
+# common.yaml's shared default lora block does NOT count). Omitting the key
+# is what selects training.method: full_ft in the manifest — adding one by
+# habit would silently switch this run to LoRA and reintroduce the very
+# method mismatch this parent exists to remove.
+#
+# LR 3e-5 is PINNED to ts38pp_parent.yaml's own full-FT LR (that file's
+# header has the ladder: 3e-4 -> G1 .988/G8 9.96, 1e-4 -> G1 .986/G8 3.60,
+# 3e-5 -> G1 .979/G8 1.207, 1e-5 -> G1 .940 FAIL/G8 1.190; 3e-5 is the lowest
+# rung that both converged and passed G1 outright). No new sweep is run for
+# THIS data (permuted labels, format-only objective): ts38pf's LoRA format
+# parent (ts38_preteachfmt_parent.yaml) used lr 1e-3, but that is a
+# LoRA-scale rate, not a full-FT one, so it is not a valid comparison point
+# here. Reusing 3e-5 verbatim is the controlled choice — it makes the two
+# full-FT parents (evt-ts38pp-parent, evt-ts38mt-fmt-parent) differ ONLY in
+# their data (correct vs. permuted labels over different row counts), never
+# in method or rate. Whether 3e-5 is actually enough to acquire format on
+# permuted labels within the ceiling is exactly what this run's own
+# convergence behavior verifies (stop_reason must not be max_steps, mirroring
+# ts38_preteachfmt_parent.yaml's own eps/k regime, not a fixed-epoch pin) —
+# a future launcher's HALT gate on format-acquisition accuracy, mirroring
+# launch_ts38pf_family.sh's EM<0.90 check, would be the automated version of
+# that same verification. No such launcher exists yet for this family; this
+# file only makes the run itself correctly specified.
+#
+# `train.stopping.min_steps: 167` / `max_steps: 3340` are copied VERBATIM
+# from ts38_preteachfmt_parent.yaml's own numbers and reasoning (n_val =
+# round(0.005*21544) = 108, n_train = 21436, steps_per_epoch = n_train // 128
+# = 167 under train_sft.py's OWN floor/drop-last step counting) — min_steps
+# pinned to exactly one full epoch so eps/k cannot declare "converged" from
+# format acquisition alone before the model has seen the full set once;
+# max_steps is a 20-epoch ceiling that must never bind (this repo's
+# run-until-convergence convention) — stop_reason=max_steps stays a bug
+# signal to inspect, not a pass.
+#
+# `train.snapshot_steps` (NEW vs. every earlier ts38(*) preteach-format
+# parent): 14 marks feeding this family's mechanistic trajectory analyses —
+# 1,2,4,8,16,32,64,128 (dense unit-stride prefix through one epoch) then
+# 167 (the one-epoch mark itself) then 256,512,1024,2048,3000 (log-spaced
+# out toward the ceiling). geode/train/sft.py's _validate_snapshot_steps
+# (V5.77) requires strictly increasing ints >= 1 with max <= max_steps —
+# satisfied (max 3000 < 3340). Since this run is expected to stop near
+# min_steps=167 (see above), most marks past 167 are declared but never
+# reached; train_sft.py records only the snapshots actually taken
+# (manifest's snapshots_taken), the declared schedule is not a promise. This
+# is a full-FT run, so each reached mark writes a full save_pretrained dir
+# under sft_snapshots/step_<k>/ (train_sft.py phase 6/7) — no adapter
+# sidecar is extracted (that path is gated on lora_cfg, which is None here),
+# same as ts38pp_parent.yaml's own snapshot note.
+#
+# NO GATES EVER RECORDED against this parent, same discipline as every other
+# ts38(*) preteach parent: any G1/G8 scoring must be --no-record only.
+# parent_required_gates is [] on this parent's own gate (run 1 carries none)
+# and must stay [] on every child that uses this parent — a recorded FAIL
+# here would be V0.6 death for every child
+# ([[feedback-gate-thresholds-are-task-scoped]]).
+#
+# model/tokenizer blocks are IDENTICAL to every other ts38(*) parent config
+# (same base checkpoint evt-run1-base-v3-ext, same frozen tokenizer).
+run_id: evt-ts38mt-fmt-parent
+experiment:
+  name: training-run
+  arm: B                       # this family's TEACH-arm theta0 (the format
+                                # parent feeds evt-ts38mt-fmt's target chain,
+                                # the teach leg — ARM_REGIME["B"] ==
+                                # "teach", train_target.py); train_sft.py
+                                # hardcodes regime: "unknown" for full-FT
+                                # runs and never looks this up, so this
+                                # value is documentation only, kept
+                                # consistent with every other ts38(*) parent
+                                # config.
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext  # TinyStories 38.7M floor-1, min_val 1.0718
+  parent_required_gates: []    # run 1 carries no required gates (G0 removed
+                                # 2026-07-20, spec 02 §8) — the only bar is
+                                # status: complete.
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_op_preteachfmt    # metadata for the masking hash; free-form
+                                 # (geode.edl.masking.TaskFormat consults no
+                                 # registry) — same task name as
+                                 # ts38_preteachfmt_parent.yaml (same data)
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:                            # VERBATIM copy of ts38_preteachfmt_parent.yaml's data block
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_preteachfmt.parquet   # 21,544 rows, operator-notation, permuted
+                                 # (wrong) labels, derived from D_algo
+                                 # (make_preteach_format.py)
+  order_hash: 5b0b19a4c47375a4ada17cb1ee21292475b6ecaed22b2ef07aa560cf557b1bc1
+  local_path: experiments/training-run/data/full/D_preteachfmt.parquet
+  val_fraction: 0.005            # 108 held-out (run-2 convention); questions
+                                  # are the D_algo prefix's own unique rows,
+                                  # so the split cannot leak
+  seed: 316
+
+train:
+  lr: 3.0e-5                    # pinned from ts38pp_parent.yaml's full-FT
+                                 # ladder — see header
+  batch_size: 128
+  eval_every: 25                # matches ts38_preteachfmt_parent.yaml's own
+                                 # n=21544 cadence
+  max_steps: 3340               # 20-epoch ceiling (167 steps/epoch); never
+                                 # a planned stop — see header
+  stopping:                     # loss branch (no `metric`) — plain val-loss
+                                 # eps/k convergence, same regime as
+                                 # ts38_preteachfmt_parent.yaml
+    eps_nats: 0.002
+    k: 5
+    min_steps: 167              # exactly one full epoch — see header
+  snapshot_steps: [1, 2, 4, 8, 16, 32, 64, 128, 167, 256, 512, 1024, 2048, 3000]
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 20      # ceiling metadata; = max_steps/steps_per_epoch
+
+cost:
+  assumed_epochs_for_estimate: 20  # quote the ceiling (worst case), not the
+                                    # expected stop — run-2 convention

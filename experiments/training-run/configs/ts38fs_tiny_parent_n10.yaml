@@ -1,0 +1,52 @@
+# ts38fs-tiny Stage 0 — pre-teach-FORMAT parent, install size n=10. See
+# ts38fs_tiny_parent_n2.yaml for the full design note (labels/stopping
+# deviations from ts38fs, calibration derivation); this file differs only
+# in run_id, data.file/order_hash, and batch_size (== this size's n_train).
+run_id: evt-ts38fs-tiny-parent-n10
+experiment:
+  name: training-run
+  arm: A
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext
+  parent_required_gates: []
+
+model:
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_op_preteachfmt
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_preteachfmt_n10.parquet   # 10 rows, cyclic-shift (guaranteed-wrong)
+                                     # labels — see n2 sibling header
+  order_hash: 3cc4d3cbb2672440e17772d316897945b5405f8a6c69f7c85beb041fdb9226e8
+  local_path: experiments/training-run/data/full/D_preteachfmt_n10.parquet
+  seed: 316                     # manifest provenance only — see n2 sibling
+
+lora:
+  r: 128
+  alpha: 32
+
+train:
+  lr: 1.0e-3
+  batch_size: 10                # == n_train (V5.65 hard requirement)
+  eval_every: 1
+  max_steps: 1000               # calibration pilot fired at step 76 (~13x headroom)
+  stopping:
+    metric: train_loss
+    eps_nats: 0.0002            # CALIBRATED, matched against the n=2 pilot —
+                                 # see n2 sibling header + decisions.md
+    k: 5
+    min_steps: 0
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 1000
+
+cost:
+  assumed_epochs_for_estimate: 1

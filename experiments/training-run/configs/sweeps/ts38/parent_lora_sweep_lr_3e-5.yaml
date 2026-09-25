@@ -1,0 +1,12 @@
+# LoRA-parent LR sweep, rung 4 of 4 (1e-3 -> 3e-4 -> 1e-4 -> HERE). One
+# epoch of D_target (max_steps 8000 ~ 1.03x 7773 steps/epoch). Bottom rung —
+# if nothing qualifies (no LR gives sweep-end G8 <= 1.1718 with descending
+# val), that is LORA SWEEP EXHAUSTED, a second design result (decisions.md
+# 2026-08-15) -> write-up + hold + one ntfy, never a fifth rung. Sweep =
+# selector: gates on this run are scored --no-record. Numbers to
+# results/ts38_parent_lora_sweep.json.
+run_id: evt-ts38-parent-lorasweep-lr3e-5
+train:
+  lr: 3.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)
+  max_steps: 8000
+  epochs_total_planned: 1

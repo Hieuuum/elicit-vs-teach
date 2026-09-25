@@ -1,0 +1,38 @@
+# ts1b pp-parent CONTINUED-TRAINING DIAGNOSTIC — NOT the official parent
+# artifact. Added 2026-08-19, owner-requested ("minimal experiments to
+# reduce uncertainty" on the HALT gate near-miss — decisions.md/chat
+# 2026-08-19). Warm-starts from the JUST-COMPLETED evt-ts1b-pp-parent
+# checkpoint (via --init-from at launch, fresh optimizer state — same
+# weight-only warm-start convention every parent->child stage in this
+# project uses) and trains 5,000 MORE steps at the same pinned LR (1e-4,
+# inherited from ../../ts1b_pp_parent.yaml, not overridden here) on the
+# SAME D_target_4M_block.parquet file/order (same seed 316 -- the run
+# revisits the start of that shuffle order rather than continuing where
+# the official parent left off; acceptable for "does more gradient
+# descent help at all", not intended as a byte-exact continuation).
+#
+# PURPOSE: the official one-epoch-pinned parent (min_steps==max_steps==
+# 31093, App. E.2 literal recipe) landed op EM (block, k=0) at 89.16%
+# (n=1024) / 89.34% (n=8192, recheck) -- both just under the pre-
+# registered 0.90 HALT threshold, with a tightened 95% CI of roughly
+# [88.7%, 90.0%] at n=8192. The val-loss curve was still dropping steeply
+# at the step-31093 cutoff (analysis/figures/ts1b_pp_parent_val_loss.png).
+# This diagnostic asks: does a modest amount of ADDITIONAL training push
+# EM measurably higher, i.e. was one epoch simply a tight budget, or has
+# the curve already saturated? It does NOT redefine or bypass the HALT
+# gate, and does NOT feed into evt-ts1b-pp-parent's own official record
+# -- a separate run_id, inspected by hand, evidence only.
+#
+# min_steps stays at the inherited 31093 (>> this overlay's max_steps),
+# same "deliberately incomplete, keeps eps/k inert" pattern the LR-sweep
+# probe overlays use -- stop_reason=max_steps is the EXPECTED outcome
+# here, not a bug signal.
+run_id: evt-ts1b-pp-parent-contdiag5000
+experiment:
+  parent_run_id: evt-ts1b-pp-parent   # provenance only; weights load via
+                                        # --init-from at launch, matching
+                                        # this project's warm-start
+                                        # convention (fresh optimizer state)
+train:
+  max_steps: 5000
+  eval_every: 500

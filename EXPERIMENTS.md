@@ -163,6 +163,7 @@ ungated inspection tool.
 | G5 | runs 3–6 | zero/16-shot op add/sub + shared-set test loss, fixed slices of `D_target_eval` (final protocol 2026-07-22) | recorded (evidence-only): parents A 0.0117 / 2.30 nats, B 0.0000 / 3.75 (latent as required); **finals: run 5 (A) 0.9980 / 0.00194 vs run 6 (B) 0.9502 / 0.03558 — 18× θ_T loss gap** (quote with the stop-wobble caveat, decisions.md 2026-07-22). Pilots B@500K 0.9805 / 0.0140 vs A-ref@50K 0.9941 / 0.0059 → OPEN(2) = 500K. **1M pair: run 7 (A) 0.9971 / 0.0025 vs run 8 (B) 0.9551 / 0.0312 — 12.4× θ_T gap. Llama: run 9 parent 0.0000 / 9.26, run 10 0.9844 / 0.0232 — measured with `eval_target_data_llama.yaml` (an eval's tokenizer must match the model under eval; decisions.md 2026-07-24)**. **Caution (2026-07-25): run 9's 0.0000 was read as "latent as required" — it is not that. It is op-notation after random-label training, not the retention probe. The retention probe is NL add/sub vs a base baseline, and on it run 9 v1 scored 0.0000 against base Llama's 0.3271: the capability was destroyed, not latent. See runs 9-v2/10-v2.** 16-shot ≈ 0 everywhere incl. the 1.24B Llama (collapse — invalidated as a metric; decisions.md) |
 | G6 | phase-3 bridge | held-out bidirectional translation exact text match; aggregate and both directions ≥95% | built, unrun (`gates.py g6`; frozen 4,096-row eval) |
 | G7 | before matched target | identical frozen target `data_order_hash` + prefix against its anchor | enforced at launch |
+| G8 | ts38 pre-taught parent (§6.14) | TinyStories retention on a pre-taught parent: mean val loss (nats/token) on run 1's frozen TS validation stream, pass iff ≤ a pinned absolute bar | **LIVE — first real scoring 2026-08-14 caught a real fail**: the 3e-4 parent scored 9.9579 nats vs bar 1.1718 (G1 0.9883 pass — capability installed, retention destroyed; the exact fig2nl confound this gate exists to block). Anchor exact (base 1.071794 = manifest, |Δ| 0). Bar 1.1718 (= base min_val 1.0718 + delta 0.10, **ratified by owner 2026-08-14**, ≈10% relative perplexity tolerance). The pre-registered descending ladder ran to completion 2026-08-15 — 3e-4 9.9579 / 1e-4 3.5983 / 3e-5 1.2074 (all G1 pass) / 1e-5 1.1904 post-hoc (G1 0.9404 fail, converged @68k) — every rung FAILS G8: full FT on arithmetic-only data cannot certify a parent under G1+G8 at 38.7M (design result, decisions.md 2026-08-15 "ladder CLOSED" entry); the pre-declared LoRA r128/α32 parent then ran the same day (same gate, same bar): sweep-end G8 cleared at 3e-4/1e-4/3e-5 (1.1379/1.0842/1.0756; 1e-3 1.2549 ✗) but the CONVERGED full runs crossed it — 3e-4 @24k G1 0.9775 pass / **G8 1.1855 FAIL**, fallback 1e-4 @55k G1 0.9658 pass / **G8 1.1994 FAIL** → HALT, **design result #2**: no converged pre-taught parent, full FT or LoRA, certifies under G1+G8 at 38.7M (decisions.md 2026-08-15 "LoRA parent HALT" entry; probe of the 3e-4 trajectory's 15k–19k window built as `launch_ts38_lora_probe.sh`, owner fork held). **Owner fork taken 2026-08-15**: probe → earliest-certified-checkpoint parent PRE-AUTHORIZED (bends run-until-convergence for the parent only; no bar moves) — probe redesigned as one replay with `train.snapshot_steps` (V5.77) scoring the whole 10k–24k curve at 1k resolution instead of 4 points; selector `certified_step.py` + `launch_ts38_certified_parent.sh` built (chain: `launch_ts38_lora_probe.sh` → `launch_ts38_certified_parent.sh` → `launch_ts38_mini.sh`); log-replay diagnosis (`analysis/ts38_parent_tradeoff.py`) estimates a both-pass window ≈15k–19k for the 3e-4 lane (G8 headroom ≈0.01–0.013 nats at 15k) but full-FT 1e-5 shows the tradeoff is intrinsic there (converged at 68k with val never reaching the G1-passing band) — decisions.md 2026-08-15 "owner fork taken" entry. **Chain executed + CERTIFIED 2026-08-15** on the owner's own box: probe's both-pass window = steps 15000–18000 (matches the pre-session estimate); selector picked S=15000, `evt-ts38-pretaught-parent` recorded **G1=0.9570 PASS / G8=1.1632 PASS**, replay fidelity exact (`max_abs_dval=0.0`), merged and pushed. This is the certified parent the ts38 mini family (§6.14) trained from — decisions.md 2026-08-15 "chain COMPLETE" entry. |
 
 ## 5. Workflow
 
@@ -846,6 +847,1295 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `figures/fig2_full_replication.png`; endpoint snapshots for all four
     curves archived at podhajskimarcin/<run_id>. Full record:
     decisions.md 2026-08-22.
+
+**ts38 line (merged from the `ts38-mini` branch, 2026-09-25).** Items
+14–25 below were numbered on that branch before main's fig2ts entry above
+took §6.14, and they keep their branch numbers so the ~260 in-file
+references stay valid: a `§6.14`–`§6.25` reference inside a ts38 / ts38mw /
+ts38pf / ts38pp / ts38fs / ts38dense / ts38mt / probe1b file (configs,
+scripts, analysis, decisions.md entries dated 2026-08-14 to 2026-08-27)
+points into this block; everywhere else `§6.14` means fig2ts above.
+
+14. **ts38 mini — elicit-vs-teach EDL marker confirmation on the 38.7M base;
+    RATIFIED + BUILT 2026-08-14, LAUNCHED 2026-08-14; full-FT parent
+    ladder CLOSED 2026-08-15 (design result) → LoRA parent ALSO FAILED G8
+    2026-08-15 (design result #2) → owner's fork PRE-AUTHORIZED
+    earliest-certified-checkpoint parent → chain COMPLETE 2026-08-15
+    (probe S=15000, G1=0.9570/G8=1.1632, all 11 runs converged, pushed +
+    receiver-verified — decisions.md 2026-08-15 "chain COMPLETE" entry).**
+    OCV-floor EDL: 3/5 sizes favor the pretaught arm (1k, 100k, 316k), 2/5
+    favor base (4642, 21544) — mixed, no monotonic separation. **Three-floor
+    read + paper comparison done 2026-08-15 (`docs/ts38-vs-bits-that-count.md`,
+    decisions.md same date): shapes agree under OCV/min-val/test; the
+    pre-registered markers fire formally (base rise 4,642→21,544 +15 %,
+    pretaught non-increasing) but the arms are NOT separated — root cause is
+    that the certified parent has no NL capability at θ0 — measured 2×2 on
+    the box (`g5 --no-record`): parent scaffolded-NL zero-shot 1.6 % / label
+    loss 7.71 nats/tok, bare 0 % / 8.10, vs base 5.19 / 6.54 — the op-notation
+    skill is locked behind the NL *phrasing*, not just the `Answer:` handle
+    (~0.4 nats), so both arms teach; the base's hump sits ~15× earlier in n
+    than Table 5's ∼300K (easier data, 8× more updates per example, 38.7M
+    model). Pair NOT verified; the elicit-arm premise needs a pre-registered
+    latency gate on the parent (NL loss < base) and a parent/scale that
+    passes it — see the doc §4.** **CORRECTED 2026-08-16 evening:** "markers
+    fire formally" already IS the paper's Table 5 shape criterion (own-curve
+    ↓ vs ↑↓) — this was the one ts38-family entry that had it roughly right.
+    "Arms NOT separated" is the below-base bar, which this project invented,
+    not the paper's; the pretaught arm's own curve (4.047→2.366→2.363→
+    1.513→0.665, one 0.003-bit near-tie) is monotone ↓. The θ0-capability
+    root cause identified here (no NL capability at θ0) recurs identically
+    in ts38mw, ts38pf, and ts38pp — four independent parents, same gap. See
+    decisions.md 2026-08-16 (evening) "CORRECTION" for the full four-family
+    re-score. The smallest run
+    that confirms one arm is genuinely *teaching* and the other genuinely
+    *elicitation* via the paper's EDL/label-token signature, on ONE
+    architecture, as the controlled substrate for the mechanistic
+    comparison (verify markers first, then either heavier verification or
+    the mechanistic phase — snapshots OFF in the mini). This is Donoway et
+    al. §5 / Fig-3 CAUSAL intervention design (base = teaching vs
+    pre-taught = elicitation), **NOT** the Fig-2 TinyStories pair; the
+    pre-teach-FORMAT arm (paper E.1.2, random labels) is deliberately
+    EXCLUDED — both of the paper's Fig-2 TS arms are teaching, so it
+    verifies nothing about elicitation. Revival would need new
+    `bare_operator` format code + `D_inst_bare` + a span test, not a config
+    change. Full handoff spec: the ratified plan memory,
+    `project-ts38-mini-plan-2026-08-14`.
+    - **Base model:** `evt-run1-base-v3-ext` (TinyStories 38.7M floor 1,
+      min_val 1.0718) — the ONLY run with weights on the relay after the
+      2026-08-14 geode-store cleanup; first step on any box is a
+      receiver-not-sender load check.
+    - **Runs:** parent `evt-ts38-pretaught-parent` (full FT, paper App. E:
+      all pre-training interventions are full FT; lr 3e-4 run-2 pin — same
+      scale/method/stage/task-family as run 2's min_val 0.0037 / G1 0.9961
+      — fallback rung `parent_lr_1e-4.yaml`; `D_target` 1M op-notation
+      add/sub, correct labels, scaffolded, frozen runs-5/6 artifact; the
+      full-FT App. E parent above is now the design result, not the parent
+      in use — the parent is `configs/ts38_pretaught_parent_lora.yaml`, a
+      LoRA r128/α32 install with LR from a pre-registered one-epoch sweep
+      {1e-3,3e-4,1e-4,3e-5} selected on sweep-end G8 ≤ 1.1718 + descending
+      val, ONE full run at the winner, ceiling 160k ≈ 20.6 epochs; gated
+      artifact = the wrapped `model/`, Arm B inits from `model_merged/`).
+      Arm A
+      `evt-ts38-base-n{1000,4642,21544,100000,316228}` (teach: init=base,
+      LoRA r128/α32, lr 1e-3 target-stage pin, `D_algo_bare` frozen order
+      `946b5d02…`). Arm B `evt-ts38-pretaught-n{same 5}` (elicit:
+      init=parent, identical LoRA recipe and data order — arms differ ONLY
+      in θ0; G7 pins Arm A's stream per size). Eval/stopping for all
+      targets: `D_algo_eval_bare` (rows 0–2047 stopping block, 2048+
+      reporting/test floor) — disjointness holds by construction (no eval
+      question is ever trained under either notation, including by the
+      parent; the ~29.18% overlap between `D_algo` and `D_target` triples
+      is quoted, not fixed — it's in-distribution pre-teaching, moving MDL
+      the way elicitation predicts). Shared protocol: batch 128, bf16,
+      seed 316, ε/k 0.002/5. **Arm-letter note:** "Arm A"/"Arm B" above are
+      this doc's role labels only (A = teach, B = elicit); `train_target.py`
+      hardcodes `ARM_REGIME = {"A": "elicit", "B": "teach"}` (all prior
+      families comply), so it's the OPPOSITE mapping — manifests carry
+      `evt-ts38-base-*` as `arm: B`/`regime: teach` and
+      `evt-ts38-pretaught-*` as `arm: A`/`regime: elicit`.
+    - **Why r=128** (owner: "not too small, not too big"): the arch pin
+      for this scale (`common.yaml`, 2026-07-18) AND the rank the 1e-3 LR
+      pin + ε/k calibration were validated at — changing r unpins both.
+      r=512 is beyond-full-rank at d=512 (~48M adapter > the 38.7M model);
+      r=128 ≈ 12M trainable (~30%). Same rank both arms (per-arm sizing
+      would change training algorithm A and confound EDL(D; θ0, A)).
+      Escape hatch, pre-registered: if measured EDL/P at the top teaching
+      point exceeds ~0.5 bits/param, re-run that single point at r=256.
+    - **Guards (Opus-5-advisor findings, all accepted):** (1)
+      `min_steps = ceil(n/128)` on every target run + a loud
+      `epoch1_examples == n` assertion — MDL needs the complete first
+      epoch; the shipped op family's n=1M pair truncated at 768,000/896,000
+      of 1,000,000 examples (steps 6,000/7,000 of a 7,813-step epoch,
+      `min_steps=0` — decisions.md 2026-08-14). Built as `train_target.py`'s
+      `experiment.require_full_epoch1` flag (spec 02 V5.75 launch guard,
+      V5.76 `epoch1_examples` persistence + loud truncation failure). (2)
+      Parent gates BOTH enforced: **G1** — capability, ENFORCED on
+      `D_target`'s own held-out val split (the run-2 protocol; `gates.py`'s
+      `run_exact_match_gate` re-derives the split via `data.val_fraction`/
+      `seed`, which the eval-only pin configs deliberately omit) — plus
+      **G8** (new, §4) TinyStories retention on run-1's frozen val stream,
+      both scored `--no-record` first. `D_target_eval` is RECORDED on the
+      same parent checkpoint as G5 evidence (zero/16-shot + shared-set test
+      loss), not gated — the plan's "capability on `D_target_eval`" phrasing
+      is satisfied by this G5-evidence + G1-enforcement pair, not a pass bar
+      on `D_target_eval` itself. (3) Three floors reported — OCV primary,
+      test, min-val; floor named on every figure; a marker verdict counts
+      only if the shape holds across floors. (4) Edge rule: a peak at
+      n=316228 reads "unresolved," not "no teaching." (5) Fixed-cost
+      control: base step-0 mean label-token loss on bare prompts recorded
+      once (a fixed digit cost decays like 1/n and can fake a decreasing
+      limb).
+    - **Pre-registered decision rule, falsifiable both ways:** Arm A
+      teaching marker = a contiguous RISING span of EDL/D across the grid,
+      under OCV and test floors. Arm B elicitation marker = monotone
+      DECREASING EDL/D, both floors. Both land → owner picks heavier
+      verification (denser grid/seeds) or the mechanistic phase (snapshot
+      re-runs, fig2nl3s pattern). A marker fails with the premise verified
+      (parent gated, guards held) → genuine discrepancy, escalate, never
+      tune.
+    - **Deviations from the paper (pre-declared):** val convergence on 1M
+      unique examples vs the paper's single epoch over 4M unique;
+      capability certified by gate rather than assumed; single-line
+      scaffold rendering vs line-broken (cosmetic, frozen repo convention —
+      paper's E.2 pre-teach is scaffolded and its target is bare, ours
+      matches both — **2026-08-15 correction: the "target is bare" half is
+      unsupported; the paper never states the NL target's wrapper, and App. F
+      ("prompt … and any formatting tokens are excluded") suggests it is also
+      scaffolded — see `docs/ts38-vs-bits-that-count.md` §3.1**); targets
+      LoRA r128 (owner efficiency choice) vs the
+      paper's r512-at-1B; parent full-FT matches paper App. E.
+    - **Built this session:** `configs/ts38_pretaught_parent.yaml`,
+      `configs/ts38_base.yaml`, `configs/ts38_pretaught.yaml` +
+      `configs/sweeps/ts38/` (10 size overlays + `parent_lr_1e-4.yaml`
+      fallback rung); `scripts/launch_ts38_mini.sh` (stage 0 relay
+      receiver-verify of `evt-run1-base-v3-ext` → data verify → premise
+      guard + step-0 fixed-cost record → gated parent → Arm A ascending →
+      Arm B ascending); `gates.py g8`; `train_target.py`
+      `require_full_epoch1` (spec 02 V5.75/V5.76, above). **Cross-model
+      comparisons vs the Llama families (fig2nl3, EXPERIMENTS §6.13) are
+      SHAPE-ONLY** — different tokenizers, magnitudes don't transfer.
+    - **Budget:** ~11 runs ≈ a day on the launcher's reference A100,
+      single-digit dollars; launcher requires `--confirm-cost`. Actual
+      hardware: RTX 4090 (chosen 2026-08-14 — the 38.7M model's memory
+      footprint is trivial, so A100's capacity buys nothing here; a 4090
+      gives comparable per-step throughput at a fraction of the hourly
+      rate — see decisions.md 2026-08-14).
+    - **Status: full-FT parent ladder CLOSED 2026-08-15 (design result);
+      LoRA parent next.** G8's bar (1.1718 = base min_val 1.0718 + a
+      pre-declared delta of 0.10) is **ratified** by the owner 2026-08-14
+      (see decisions.md). First launch outcome, 2026-08-14: the run-2 LR
+      pin (3e-4) trained a parent that passed G1 (0.9883) but **failed G8
+      at 9.9579 nats** — the pin was validated under gate set {G1} only
+      (G8 postdates run 2). Response, owner-approved sweep-first: stage 2
+      of `launch_ts38_mini.sh` became a **pre-registered descending LR
+      ladder** (3e-4 → 1e-4 → 3e-5 → 1e-5), which ran to completion
+      2026-08-15 — all four rungs converged (eps/k, not the cost ceiling):
+
+      | rung | final_step | min_val | G1 (≥0.95) | G8 (≤1.1718) |
+      |---|---|---|---|---|
+      | 3.0e-4 | 21000 | 0.006350 | 0.9883 pass | 9.9579 FAIL |
+      | 1.0e-4 | 25000 | 0.008426 | 0.9863 pass | 3.5983 FAIL |
+      | 3.0e-5 | 40000 | 0.011681 | 0.9785 pass | 1.2074 FAIL |
+      | 1.0e-5 | 68000 | 0.038158 | 0.9404 FAIL | 1.1904 FAIL (post-hoc) |
+
+      1e-5's G8 is a post-hoc `--no-record` score on the converged 68k
+      checkpoint (the ladder's own G1-fail rule halted before G8 was
+      scored); a distinct earlier attempt at this rung hit its original
+      40k cost ceiling and was archived before the ceiling was raised to
+      240k and the rung replayed from scratch — that ceiling-cut checkpoint
+      scored G1 0.8809 / G8 1.1431 PASS, 0.029 headroom. Every rung FAILS
+      G8: full FT on arithmetic-only data cannot certify a parent under
+      G1+G8 at 38.7M for any LR in [1e-5, 3e-4] — a **design result**, not
+      an LR-tuning failure (decisions.md 2026-08-15 "ladder CLOSED" entry).
+      Neither bar moved. Archived to
+      `runs-failed/evt-ts38-pretaught-parent-lr{3.0e-4,1.0e-4,3.0e-5,
+      1.0e-5-ceil40k,1.0e-5-g1fail}` (metadata pushed to the public relay
+      `mhieuuu/geode-store`); per-rung numbers in
+      `results/ts38_parent_ladder.json`.
+
+      **Second parent, pre-declared and RUN 2026-08-15: LoRA r128/α32
+      install** (`configs/ts38_pretaught_parent_lora.yaml`,
+      `scripts/launch_ts38_lora_parent.sh`; sweep → ONE full run → merge,
+      protocol in decisions.md). Outcome — same bars, nothing moved:
+
+      | stage | lr | steps | G1 (≥0.95) | G8 (≤1.1718) |
+      |---|---|---|---|---|
+      | sweep (1 ep) | 1e-3 / 3e-4 / 1e-4 / 3e-5 | 8000 | 0.947 / 0.867 / 0.383 / 0.061 | 1.2549 ✗ / 1.1379 ✓ / 1.0842 ✓ / 1.0756 ✓ |
+      | full (winner) | 3e-4 | 24000 conv. | **0.9775 pass** | **1.1855 FAIL** (+0.114) |
+      | full (fallback) | 1e-4 | 55000 conv. | **0.9658 pass** | **1.1994 FAIL** (+0.128) |
+
+      → `LORA PARENT G8 FAIL after fallback` HALT = **design result #2**: no
+      CONVERGED pre-taught parent, full FT or LoRA, satisfies G1+G8 at 38.7M.
+      Under LoRA the drift tracks arithmetic-only update steps, not LR
+      (1e-4 @55k > 3e-4 @24k ≫ either @8k); the frozen base narrows the
+      miss to 0.014–0.028 nats but does not close it. The 3e-4 trajectory
+      brackets an unvisited window (~15k–19k: val in the G1 band, G8 not
+      yet across if drift is ~linear) — `scripts/launch_ts38_lora_probe.sh`
+      (4 deterministic replays to 14k/16k/18k/20k, G1+G8 `--no-record`,
+      ~$0.40) is built and NOT run. **Owner fork (held):** (1) probe →
+      earliest-certified-checkpoint parent (bends run-until-convergence for
+      the parent only); (2) replay-mixing parent (build); (3) accept the
+      design result. Archives: `runs-failed/…-lora-lr{3e-4,1e-4}` (relay:
+      metadata + adapter sidecar), sweep table
+      `results/ts38_parent_lora_sweep.json`. Box destroyed 2026-08-15 after
+      the pushes were hub-verified. Reading caveat stands for any LoRA
+      parent: adapter-installed base, not App. E full FT — a substrate
+      choice forced by G8, not a measurement change.
+
+15. **ts38mw — wrapper-diversity install falsification probe; Stage 0 + Stage
+    1 DONE 2026-08-15, verdict GO-B — symbol-invariant, not language-
+    invariant. Waits for owner on Stage 2′.** Plan:
+    `docs/plan-ts38mw-multiwrap-install.md`. §6.14's ts38 certified parent
+    computes op-notation add/sub correctly only under its EXACT training
+    template — even the symbol-bearing `What is a + b?` collapses to ~3%,
+    flat across snapshots 10k-24k (rules out the stopping rule; see
+    `docs/ts38-vs-bits-that-count.md`). Suspected cause: the install set has
+    exactly ONE surface form. Stage 1 installed the same arithmetic under 8
+    wrapper templates (LoRA r128/alpha32 @ 3e-4, reused from the ts38 lane,
+    `evt-ts38mw-parent-probe-lr3e-4`) and scored 6 held-out probe phrasings
+    per snapshot. Converged at step 28000 (6 snapshots scored: 8k-28k;
+    later snapshot_steps never materialized). **Verdict GO-B**
+    (`scripts/mw_verdict.py`, bands frozen in decisions.md 2026-08-15
+    pre-registration): `sym_q` (`What is a + b?`, symbol embedded in a
+    sentence) persists >= 0.90 EM at steps 20000/28000 with loss collapsing
+    to 0.03-0.11 nats (base 5.17 nats) — clean symbol-invariant transfer.
+    `sumof`/`sumof_bare`/`word_q` (the word-only target phrasing family)
+    stay <= 0.17 EM with loss 4.4-7.9 nats, `word_q` loss even ABOVE base
+    (5.1-7.9 vs 5.13) — no language-invariant transfer, GO-A did not fire.
+    Table + figure: `analysis/ts38mw_probe.json` + `analysis/plot_ts38mw_probe.py`
+    -> `analysis/figures/ts38mw_probe.png` (gitignored, laptop-only). Caveat
+    for Stage 2′ costing: G8 retention FAILs at both scored points (20k:
+    1.2406, 28k: 1.2694, bar <= 1.1718) — worse retention than the
+    single-wrapper ts38 parent (1.163 at S=15000) at the same LR. Stage 0
+    build: `datagen/make_multiwrap_set.py`, `datagen/make_dm_probe_eval.py`
+    (+2 keys), `configs/ts38mw_*`, `scripts/mw_verdict.py`,
+    `scripts/launch_ts38mw_probe.sh` (fixed post-launch, commit `e711c93`:
+    a fresh box has no `data/full/` at all — the launcher now regenerates
+    the frozen base artifacts from seed 20260717 before deriving
+    `D_target_mw`, mirroring `launch_ts38_mini.sh`'s pattern; no GPU spend
+    was lost, the failure was in datagen preflight). Full suite green (1091
+    tests, CPU only). Run metadata + full weights (`--with-snapshots`, all
+    6 snapshots, receiver-verified) pushed to the relay. Per plan §5, GO-B
+    unlocks **Stage 2′ only** (owner call — a held-out symbol-in-sentence
+    target family, or the DM mixture with per-template split); Stage 2
+    (word-only target) is closed by this result. Stopped here per the
+    plan; Stage 2′ not started. **Owner then asked for a minimal LoRA
+    experiment on the exact word-only "sumof" target instead (2026-08-15,
+    same session) — information-gathering-only handoff (no design
+    decisions) written to `docs/ts38mw-target-experiment-handoff.md`,
+    covering the already-measured base-arm EDL/D curve (reusable, zero new
+    cost), reusable target-dataset pins, the `require_parent_ready`/G8
+    mechanics blocking a naive reuse of the existing family config, and
+    every open decision left for the planning session.** **Owner
+    confirmed the family 2026-08-15 (evening; decisions.md "ts38mw target
+    family PRE-REGISTRATION"): target = `D_algo_bare` as-is (base arm
+    `evt-ts38-base-n*` REUSED, only the new arm trains); θ0 = the GO-B run
+    at step 28000 via `model_merged/`; parent deliberately UNGATED
+    (`parent_required_gates: []`, G8 FAIL 1.2694 accepted — a pretaught-mw
+    curve ABOVE base at any n reads as the retention confound, never as
+    teaching); recipe/grid verbatim ts38. Files: `configs/ts38mw_pretaught.yaml`
+    + `configs/sweeps/ts38/ts38mw_pretaught_n<size>.yaml`,
+    `scripts/launch_ts38mw_family.sh`, analysis family `ts38mw` in
+    `edl_converged_val_floor.py` / `dataset_size_sweep.py`. Pre-registered
+    marker: pretaught-mw EDL/D monotone non-increasing AND below base at
+    every n (OCV + test floors). **EXECUTED 2026-08-15 night, `TERMINAL_SUCCESS
+    runs=5`, all 5 sizes converged/pushed/receiver-verified. Outcome: marker
+    FAILS as pre-registered — monotone non-increasing holds, but NOT below
+    base at n=1000 (1.21× worse) or n=4642 (1.02× worse, near-tie) under the
+    primary OCV floor; below base and separating from n=21544 on (4.85×,
+    17.0×, 24.6×). Reads as a crossover (confounded at small n, elicitation-
+    shaped at large n), not a clean elicitation result under the below-base
+    bar — see decisions.md 2026-08-15 (night) "OUTCOME" entry for the full
+    table, caveats (θ0 entry-gap confound, g5-vs-EDL tension, overshoot
+    flag) and floor cross-checks. **CORRECTED 2026-08-16 evening:** the
+    below-base bar isn't the paper's criterion. On Table 5's own rule
+    (arm's own curve shape), multiwrap's sequence 5.413→1.973→0.458→
+    0.102→0.034 bits is monotone ↓, steep, no ties — the cleanest
+    elicitation-shaped conversion of any arm in this project. See
+    decisions.md 2026-08-16 (evening) "CORRECTION" for the four-family
+    re-score. Weights (5 target runs + GO-B parent incl. step 28000)
+    independently confirmed on the relay; box left running (owner's own
+    rental — teardown is the owner's call, not destroyed by this session).**
+
+16. **ts38pf — pre-teach-FORMAT causal intervention (paper App. E.1.2), on
+    the same 38.7M TinyStories base. Stage 0 build DONE 2026-08-15 night,
+    committed, NO GPU spend; launch pending owner go-ahead.** Question:
+    §6.14's base (teach) arm EDL/D-vs-n doesn't show the paper's "up-then-
+    down" teaching hump on the current 5-point grid (argmax at/below
+    n=1000). App. E.1.2 isolates format-learning from algorithm-learning by
+    fine-tuning on the target's arithmetic domain with RANDOMLY PERMUTED
+    (incorrect) labels before the real target run — does removing that
+    transient reveal a rising limb the base arm's own curve doesn't show?
+    Owner-confirmed design (AskUserQuestion, before any file written):
+    prompts = paper's literal operator-notation scaffold, format-mismatched
+    from the bare-NL target on purpose; pre-teach-format stage size =
+    n=21,544; downstream target grid = the existing 5-point grid; method =
+    LoRA r128/α32 @1e-3, same recipe as every other stage in this family.
+    Advisor review required two fixes, both applied: `min_steps` pinned to
+    exactly one full epoch under `train_sft.py`'s OWN step counting (167,
+    not `train_target.py`'s convention — this parent has no
+    `require_full_epoch1` guard, so the pin is the only thing preventing
+    ε/k from declaring "converged" on the permuted-label plateau after a
+    handful of evals); a pre-registered, automated format-acquisition HALT
+    gate (parent loss must drop materially below base's AND EM must stay
+    ~0, else the 5-size sweep does not launch — a failed check reads as "the
+    format lesson didn't transfer," not "format pre-teaching doesn't
+    reshape the curve"). Files: `datagen/make_preteach_format.py` (derives
+    `D_preteachfmt.parquet` from `D_algo`'s frozen triples, operator
+    notation, `geode.arith.permute_labels` — 3/21,544 chance label
+    collisions, 0.014%), `configs/ts38_preteachfmt_parent.yaml` +
+    `configs/ts38pf_preteachfmt.yaml` + 5
+    `configs/sweeps/ts38/ts38pf_preteachfmt_n<size>.yaml` overlays,
+    `scripts/launch_ts38pf_family.sh`, new `ts38pf` analysis family in
+    `edl_converged_val_floor.py` (`dataset_size_sweep.py` NOT extended —
+    out of scope, needs its own straddling-prefix special case). 52 new
+    test cases across 3 files (datagen smoke tests, config-completeness,
+    regex-collision matrix); full suite green, CPU-only, ~23s. Base arm
+    REUSED verbatim (`evt-ts38-base-n<size>`, not retrained) — only the new
+    parent + 5-size target arm train. Pre-registered readout: a SHAPE
+    question, no monotone-and-below-base pass/fail bar (that's the ts38mw
+    marker, a different question); the paper's own add/sub pre-teach-format
+    peak is ≈150K at 1B params, so a flat/still-falling result on this grid
+    does NOT by itself refute the hypothesis (see decisions.md 2026-08-15
+    "ts38pf pre-registration" entry). Complementary to, not superseded by,
+    the small-n bracket ({128,256,512}) discussed the same session — both
+    remain open, held pending the owner's go-ahead on `launch_ts38pf_family.sh
+    --confirm-cost`. **EXECUTED 2026-08-15 night → 2026-08-16 early,
+    `TERMINAL_SUCCESS runs=5`: the format-acquisition HALT gate passed
+    cleanly and all 5 target sizes converged, pushed and receiver-verified
+    (parent's full weights pushed too, after the by-design metadata-only
+    push). Outcome — the pre-teach-format arm reproduces the base arm's
+    shape rather than flattening it (dip 1000→4642, local rise at 21544,
+    fall through 100000/316228), and its rise is proportionally BIGGER, not
+    smaller: +72 % (0.827→1.420) against base's own +15 % (1.339→1.538)
+    under the OCV floor, with the pretaught arm below base in absolute terms
+    at every n. **CORRECTED 2026-08-16 evening:** scored against Table 5's
+    actual criterion (own-curve shape, not "does the rise appear vs.
+    disappear"), both base and pretaught-format arms classify ↑↓ — matching
+    the paper's prediction for pre-teach-format correctly. The specific
+    sub-claim that DOESN'T replicate is peak-shrinkage: the paper predicts
+    format pre-teaching moves the hump from base's ≈300K to ≈150K (2×
+    smaller); ours sits at the identical n=21544 for both arms, no
+    leftward shift. Narrow "App. E.1.2's account does not hold" to that
+    peak-location sub-claim, not the ↑↓ shape prediction, which holds. Full
+    table, the n=316228 overshoot caveat (3.25×) and the candidate readings
+    are in decisions.md 2026-08-16 (early) "ts38pf OUTCOME"; the re-score is
+    in the same-day (evening) "CORRECTION" entry. The small-n bracket named
+    above did NOT run alongside it — it stayed unlaunched and is now folded
+    into §6.17.**
+
+17. **ts38grid — unified 3-arm grid extension: small-n bracket {128,256,512} +
+    densification {2154,10000,46416,146780,215443}. SUPERSEDED/HELD
+    (2026-08-16: launch attempted, died on the venv/tmux env bug before any
+    training; owner abandoned it in favour of ts38pp; files kept, do not
+    relaunch).** Launch attempt: two tracked-account 4090 boxes
+    (47865868/47868306) both died at `relay_verify_start` with
+    `ModuleNotFoundError: No module named 'huggingface_hub'` — a launcher
+    started in a detached tmux never sources `~/.bashrc`, so
+    `/workspace/venv/bin` was never on PATH and bare `python3` ran the
+    system interpreter; no training ran on either box, no GPU-hours were
+    billed for training. Owner then asked to redesign the pre-teach run
+    around 4,000,000 unique examples (paper App. E.2's literal recipe)
+    instead of relaunching this grid — see §6.18 (`ts38pp`), which carries
+    the venv/PATH env guard this family lacked. **Files kept as-is, not
+    deleted; do NOT relaunch `launch_ts38grid_family.sh` — the underlying
+    design questions (small-n bracket, densification) remain open and could
+    be revisited later, but not via this launcher without the same fix.**
+    Two questions, one grid. *(i) Small-n:*
+    the base (teach) arm's GLOBAL argmax sits at the n=1000 edge of every grid
+    tried so far, under every floor (decisions.md 2026-08-15 late) — so the
+    paper-style rising limb may lie BELOW the grid entirely, and the local
+    hump all three families have been reading would then sit on the falling
+    side of a peak nobody has observed. Half the answer is already free: the
+    datasets are strict prefixes (`train_target.py:322`), so the n=1000 run's
+    own epoch-1 log gives the prequential average at smaller n — base 6.58
+    nats at 128 examples → 5.90 at 512 → 4.67 at 1000, against θ0's 6.54, i.e.
+    at n=128 the base has learned nothing. The rising limb therefore exists
+    iff a 128-example converged model's floor stays above 3.47 nats, and only
+    a run measures a floor. The bracket measures floor(128/256/512) directly:
+    1/2/4 optimizer steps in epoch 1 at batch 128, seconds each.
+    *(ii) Densification:* the already-measured 4642→21544 local hump (base
+    +15 %, pretaught-format +72 %, and the ts38mw crossover — a base win at
+    n≤4642, elicitation-shaped separation of 4.85×/17.0×/24.6× from 21544 up)
+    currently rests on a single ×4.6 grid step per limb. Five new sizes at 2×
+    finer log spacing say where each arm's local peak actually sits and
+    whether the rise survives 4642→10000→21544 or is an artifact of the
+    coarse spacing.
+    Design: three arms at each of 8 new sizes {128, 256, 512, 2154, 10000,
+    46416, 146780, 215443} — base/teach (inits from `evt-run1-base-v3-ext`,
+    and is the G7 anchor), ts38mw-pretaught (the merged GO-B step-28000
+    parent), ts38pf pre-teach-format (the merged ts38pf parent) — giving each
+    arm a 13-point grid {128, 256, 512, 1000, 2154, 4642, 10000, 21544, 46416,
+    100000, 146780, 215443, 316228} in which the 5 existing points are reused
+    verbatim, never retrained. 24 new target runs, NO new parents and no new
+    datasets: both installed parents are already built, pushed and reusable at
+    any n. Recipe identical to every other run in this family (LoRA r128/α32
+    @ 1e-3, batch 128, ε/k 0.002/5, seed 316, `require_full_epoch1`, the
+    frozen `D_algo_bare` / `D_algo_eval_bare` pins). Per-size
+    `eval_every`/`max_steps`/`min_steps` are tabulated in decisions.md
+    2026-08-16: the three small-n overlays copy the n=1000 overlays' cadence
+    and ceiling; 2154/10000/46416 are verbatim from the matching
+    `llama_fig2nl3` overlays; 146780 and 215443 take fig2nl3's `eval_every`
+    but RAISE `max_steps` to 23000/34000, because fig2nl3's 14000/20208 sit
+    below 20 epochs (22,940 / 33,680 steps) — the same ceiling-never-binds
+    rule commit `6b735f1` applied to n=100000 and n=316228.
+    Files: 24 overlays
+    `configs/sweeps/ts38/{ts38_base,ts38mw_pretaught,ts38pf_preteachfmt}_n<size>.yaml`;
+    `scripts/launch_ts38grid_family.sh` (TAG `ts38grid`, `--confirm-cost`;
+    per size ascending, base → mw → pf, each run train → require
+    `stop_reason=converged` on EVERY run, not merely a pin → G5 evidence →
+    push as-you-go; parents pulled and merged, never gated; refuses any
+    size whose run ids are already on the relay without a complete local
+    copy, so no shipped point can be silently retrained); a new `ts38grid` section in
+    `tests/experiments/scripts/test_config_completeness.py` and new `_MATRIX`
+    rows in `tests/experiments/analysis/test_edl_converged_val_floor_families.py`.
+    Reads go through `edl_converged_val_floor.py` (families `ts38`, `ts38mw`,
+    `ts38pf`, whose regexes already match the new run ids);
+    `dataset_size_sweep.py` is NOT extended — the same straddling-prefix
+    special case that put it out of scope in §6.16 still applies.
+    Cost, on ts38pf's measured per-run wall clock on one 4090 (1.7 / 2.1 /
+    6.4 / 10.5 / 23.6 min at n=1000/4642/21544/100000/316228): ≈48 min per arm
+    across the 8 new sizes, ≈2.4 h for three arms, ≈3 h with G5 and setup ⇒
+    **$1.0–1.4** at $0.35–0.45/h. The small-n bracket on its own is ≈5 min ⇒
+    ≈$0. Sequencing: `SIZES="128 256 512" bash launch_ts38grid_family.sh
+    --confirm-cost` runs the bracket alone — the override exists precisely so
+    the cheaper, more targeted experiment for question (i) can be run and READ
+    FIRST, per the 2026-08-16 (early) recommendation; the other five sizes
+    follow under the default `SIZES`.
+    Pre-registered readouts, frozen before launch (no bar moves afterwards):
+    **(a) bracket** — base EDL/D per label token at 128/256/512 against its
+    own n=1000 value, under OCV (primary) plus the min-val and paper/test
+    floors. `EDL/D(n<1000) < EDL/D(1000)` for the base arm ⇒ the rising limb
+    exists inside [128,1000] and the global peak is bracketed; otherwise the
+    curve is still rising toward smaller n (peak below 128) or monotone across
+    the whole grid. The mw and pf arms are reported alongside (is mw below
+    base at n<1000?), but their marker already FAILED at n=1000/4642 — the
+    bracket characterizes that crossover, it cannot rescue the marker.
+    **(b) densification** — each arm's argmax over its 13-point grid; a "local
+    hump" counts only as a local maximum strictly interior to the grid under
+    OCV AND the paper floor (a peak at either endpoint is a bracketing
+    failure, not a hump). The ts38mw marker (monotone non-increasing AND below
+    base at every n) is re-scored on 13 points for the record, with the frozen
+    understanding that it cannot pass: its n=1000/4642 failures are already
+    measured. This supersedes the "recommendation given as prose, NOT built"
+    status of decisions.md 2026-08-16 (early) — the design is now built and
+    pre-registered; only the launch (which box, whose money) is left with the
+    owner.
+
+    *Update 2026-08-21:* this item's 5 densification-size `ts38_base_n<N>.yaml`
+    overlays are now consumed by §21 ("ts38dense") — the small-n bracket
+    overlays ({128, 256, 512}) remain unused, that question stays open.
+
+18. **ts38pp — paper-protocol pre-teach: full FT, ONE epoch over 4,000,000
+    UNIQUE op-notation examples (Donoway et al. App. E.2's literal recipe),
+    → NL target family. BUILT + pre-registered 2026-08-16, EXECUTED
+    2026-08-16 on the owner's box.** ~~Marker lands in the RETENTION-CONFOUND
+    class~~ **CORRECTED 2026-08-16 evening: scored against the wrong bar.**
+    On the paper's own Table 5 criterion (arm's own EDL/D-vs-n shape, not
+    position vs. base), ts38pp's curve is monotone **↓** with no near-ties
+    (3.774→2.499→2.043→0.797→0.306 bits) — the cleanest elicitation-shaped
+    result this project has produced, and it's the only family built to
+    App. E.2's literal recipe. θ0 few-shot/zero-shot behavioral corroboration
+    still does not replicate the paper's Table 11 numbers (real, unresolved
+    gap — see decisions.md 2026-08-16 (evening) "CORRECTION"). Supersedes
+    the ts38grid launch attempt (§6.17,
+    SUPERSEDED/HELD — abandoned on the venv/tmux env bug). Question: does a
+    paper-faithful pre-teach install — full FT, exactly one epoch over 4M
+    unique op-notation add/sub examples, NO retention gate — on the 38.7M
+    TinyStories base yield a θ0 with latent NL add/sub, i.e. does the
+    pretaught arm's EDL/D on `D_algo_bare` sit BELOW the reused base arm at
+    every n and decrease monotonically (paper Table 5 "–" for Pre-teach
+    add/sub), where the LoRA-certified parent (1M examples, 1.9 epochs,
+    G1+G8-gated; §6.14) did not separate the arms? All four open design
+    forks were put to the owner via AskUserQuestion and confirmed
+    2026-08-16: (1) parent LR **3e-5, pinned** from the measured full-FT
+    ladder (§6.14's table) — no new sweep, the ladder IS the sweep; (2)
+    rendering: keep the repo's single-line
+    `Question: {a} {op} {b}\nAnswer: {ans}` (the paper's block form differs
+    only by whitespace); (3) family grid = the 5 standard sizes
+    {1000, 4642, 21544, 100000, 316228}, not a new grid; (4) runs go on the
+    **owner's own rental** (SSH handed over; box never destroyed by this
+    session), not the tracked vast account.
+
+    | arm | run ids | θ0 | status |
+    |---|---|---|---|
+    | base (teach) | `evt-ts38-base-n{1000,4642,21544,100000,316228}` | `evt-run1-base-v3-ext` | REUSED, never retrained (G7 anchor) |
+    | pretaught-pp (elicit) | `evt-ts38pp-pretaught-n{1000,4642,21544,100000,316228}` | `evt-ts38pp-parent` (full FT, no merge) | NEW |
+
+    **Parent recipe (`evt-ts38pp-parent`).** Data: new `D_target_4M.parquet`
+    (`datagen/make_data.py --preteach-4m`, new CLI path), 4,000,000 UNIQUE
+    `(a, op, b)` triples, seed 20260816, generated locally in 57 s, 206.5 MB.
+    Same task/rendering as `D_target` (`arith_op_addsub`, the single-line
+    scaffold above). Excludes the frozen eval triples (`probe`,
+    `D_target_eval`, `D_algo_eval`) so every eval set stays question-disjoint
+    from the parent's training stream; does **not** exclude `D_target`/
+    `D_algo` — an independent draw, per the training-stream policy
+    (decisions.md 2026-07-26, "measured, not eliminated"). Measured overlap:
+    538,179 triples shared with `D_target` (13.45 % of the 4M set / 53.82 %
+    of `D_target`), 537,965 shared with `D_algo` (13.45 % / 53.80 % of
+    `D_algo`) — ≈4× the 1M `D_target` set's 29.18 % overlap, as expected at
+    4× the draw size. `order_hash`
+    **`ba2d6efdd939f63e6da75420a93362fcf86a6adeaa66bf5b5cce01532fbec54c`**,
+    pinned in the parent config, regenerated and hash-verified on the box.
+    Training: `train_sft.py`, full FT (no
+    `lora:` block), `--init-from` the base `model/`; `val_fraction 0.005` ⇒
+    20,000 held out, `n_train` 3,980,000, batch 128 ⇒ **31,093 steps = exactly
+    one epoch** (`floor(3,980,000/128)`); **`min_steps == max_steps == 31093`,
+    pinned** — a pre-registered exception to run-until-convergence for the
+    parent only (same class as §6.14's certified-parent pinned-`max_steps`
+    replay); the launcher asserts `final_step == 31093`. LR **3e-5, pinned**
+    from §6.14's descending full-FT ladder (3e-4→G1 .988/G8 9.96 FAIL;
+    1e-4→.986/3.60 FAIL; 3e-5→.979/1.207 FAIL at 40k; 1e-5→.940 FAIL/1.190 at
+    68k) — the strongest install whose retention drift stays O(0.1) nats;
+    the paper's own TS-1B full-FT pin (Table 3, target stage) is 2e-5, same
+    order. **No gate is ever recorded against this parent**
+    (`experiment.gates: {}`; children `parent_required_gates: []`) — G1 op EM
+    and G8 TS retention (bar 1.1718) are scored `--no-record`, evidence only,
+    alongside a θ0 latency probe (`gates.py g5 --no-record` on parent and
+    base, op / scaffolded-NL / bare-NL renderings: zero-shot EM, 16-shot EM,
+    label loss) — all written to `results/ts38pp_family_theta0.json`. This is
+    the θ0 premise readout §6.14 found FAILING for the LoRA-certified parent
+    (no NL capability at θ0). **HALT gate (automated, pre-registered):**
+    parent op EM (G1, `--no-record`) **< 0.90 ⇒ HALT**, family not launched;
+    otherwise proceed regardless of G8/NL-probe values — the paper has no
+    retention gate, so none is enforced here either.
+
+    **Family recipe — VERBATIM ts38mw target recipe, base arm reused.**
+    `configs/ts38pp_pretaught.yaml` = copy of `ts38mw_pretaught.yaml` with
+    only `run_id`, `experiment.parent_run_id: evt-ts38pp-parent`,
+    `parent_required_gates: []`, and header prose changed; 5
+    `configs/sweeps/ts38/ts38pp_pretaught_n<N>.yaml` overlays byte-parity
+    with the `ts38mw_pretaught_n<N>.yaml` overlays except `run_id`
+    (`match_data_order_with: evt-ts38-base-n<N>` kept — G7 anchor). LoRA
+    r128/α32 @1e-3, ε/k 0.002/5, batch 128, seed 316,
+    `require_full_epoch1`, per-size `eval_every`/`max_steps`/`min_steps` as
+    already pinned for this 5-point grid. Every child must reach
+    `stop_reason=converged` (`max_steps` = bug signal). G5 IS recorded per
+    child — unlike the parent, target runs are gated the normal way.
+    `--init-from $GEODE_STORE/runs/evt-ts38pp-parent/model` (no merge stage:
+    full FT, not LoRA, so the parent's `model/` already IS the checkpoint).
+    `evt-ts38-base-n{1000,4642,21544,100000,316228}` REUSED verbatim, never
+    retrained.
+
+    **Deviations from the paper (pre-declared):** 38.7M custom model, not
+    the paper's TinyStories-1B (no 1B pretrained base exists in this
+    project; ~50 h on an A100 to build one); LR pinned at 3e-5 from the
+    already-measured ladder rather than swept fresh for this exact config
+    (owner-confirmed — the ladder IS the sweep); single-line rendering vs
+    the paper's block form (whitespace only); batch 128 vs the paper's
+    effective 1024 (batch 128 × 8 GPUs — single-GPU box); optimizer/schedule
+    left at repo defaults vs paper Table 1's AdamW wd 0.01/clip 1.0/constant
+    LR (noted, not adopted); `D_target_4M` excludes only the frozen probe +
+    eval triples, not `D_target`/`D_algo` — an independent draw whose
+    overlap is quoted above, not fixed, per the same training-stream policy
+    every prior ts38 family used; the one-epoch `min_steps == max_steps`
+    pin bends run-until-convergence for the parent only, pre-registered, not
+    applied anywhere else in the family.
+
+    **Guards:** env guard in the launcher (`. /workspace/venv/bin/activate`
+    if present, then a `python3 -c "import huggingface_hub, torch, geode"`
+    preflight) — fixes the exact bug that killed the ts38grid relaunch
+    (§6.17); G7 anchor preflight (5 base manifests, metadata-only) before
+    parent training starts; post-train checks
+    (`training.method == full_ft`, `final_step == 31093`,
+    `data_order_hash == pin`) before the parent is pushed; full-weight
+    parent push (`hf_checkpoint.py push --with-snapshots`, snapshots at
+    ¼/½/¾ epoch); never destroys the box.
+
+    **Pre-registered readout (frozen; do not re-derive after seeing
+    numbers).** Marker, identical to ts38mw's: pretaught-pp EDL/D monotone
+    non-increasing across the 5 sizes AND below base at every n ⇒
+    elicitation signature. Below base only from some n upward ⇒ crossover
+    (report as observed, not one of the buckets). Above base at any n ⇒
+    retention-confound class (never "evidence against teaching"). θ0
+    premise recorded next to it: parent NL label loss < base and/or NL
+    zero-shot EM ≫ base (both renderings) — if the premise FAILS the family
+    is teaching-vs-teaching again (as in §6.14) and is reported so. No bar
+    moves after seeing numbers.
+
+    **Built this session:** `datagen/make_data.py`'s new `--preteach-4m`
+    path (`PRETEACH_4M_SPEC`/`_N`/`_SEED`/`_EXCLUDES`, the
+    `D_target_4M.overlap.json` sidecar) + 13 new tests in
+    `tests/experiments/datagen/test_preteach_4m.py`; `configs/ts38pp_parent.yaml`
+    (full FT, no `lora:` block) + `configs/ts38pp_pretaught.yaml` + 5
+    `configs/sweeps/ts38/ts38pp_pretaught_n<size>.yaml` overlays;
+    `scripts/launch_ts38pp_family.sh` (698 lines, clone of
+    `launch_ts38pf_family.sh`'s stage structure, with the venv/PATH env
+    guard above — the fix the ts38grid launcher lacked); `ts38pp` family in
+    `analysis/edl_converged_val_floor.py` (`FAMILIES`/`ARM_MAPS`) and
+    `analysis/dataset_size_sweep.py --family ts38pp`; `analysis/
+    plot_ts38_all_arms.py` gains the 5th (ts38pp) arm; matching rows in
+    `tests/experiments/analysis/test_edl_converged_val_floor_families.py`
+    and `test_dataset_size_sweep.py`.
+
+    **Runs: EXECUTED.** Launched 2026-08-16 ~15:38 UTC on the owner's own
+    rental, `TERMINAL_SUCCESS runs=5` at 17:12:52 UTC (parent + all 5 target
+    sizes converged, pushed, receiver-verified — actual wall-clock ≈1h35m,
+    close to the ≈1h50m estimate below; the per-size 42-minute figure
+    quoted mid-run to the owner from the ts38pf timing table was wrong,
+    corrected against `manifest.json` timestamps: 4 of 5 target sizes
+    actually finished in ~26 min combined). Parent G1 op EM 0.9805 (HALT
+    gate, <0.90, not triggered).
+
+    **Outcome — OCV floor, EDL per label token (nats), base vs pretaught-pp:**
+    | n | base (noinst) | pretaught-pp (inst) |
+    |---|---|---|
+    | 1,000 | 3.108 | 2.616 |
+    | 4,642 | 1.339 | **1.732** |
+    | 21,544 | 1.538 | 1.416 |
+    | 100,000 | 1.198 | 0.553 |
+    | 316,228 | 0.583 | 0.212 |
+
+    Pretaught-pp's own trajectory is monotone non-increasing across all 5
+    sizes and sits ABOVE base at n=4,642 (1.732 vs 1.339). Under the
+    project's own below-base bar (frozen readout at pre-registration time)
+    this scored as retention-confound class — but that bar is not the
+    paper's criterion. **CORRECTED 2026-08-16 evening:** Table 5's own
+    classification (arm's own curve shape) reads pretaught-pp's sequence
+    2.616→1.732→1.416→0.553→0.212 as monotone **↓**, no near-ties — the
+    cleanest elicitation-shaped result in this family, matching App. E.2's
+    "converts to elicitation" exactly. See decisions.md 2026-08-16 (evening)
+    "CORRECTION" for the full four-family re-score. θ0 premise
+    (`ts38pp_family_theta0.json`): parent op EM 0.9795 (zero-shot) confirms
+    the op lesson landed, but NL capability at θ0 still isn't there —
+    scaffolded-NL zero-shot EM 0.39% vs base 0%, scaffolded-NL label loss
+    actually WORSE than base (9.25 vs 5.19 nats); bare-NL loss improves only
+    marginally (6.15 vs 6.54 nats), EM 0% both. **θ0/few-shot behavioral
+    corroboration still does not replicate the paper's Table 11 numbers**
+    (paper: 2.0%→11.9% at 16-shot; ours: 0.39%→0%) — this is the real open
+    item, NOT resolved by the shape-criterion correction above. Full table +
+    overshoot flags in decisions.md 2026-08-16 "ts38pp OUTCOME" and the
+    same-day "CORRECTION" entry. **Tier-1 θ0 few-shot diagnostic (decisions.md
+    2026-08-16 "late" entry):** op EM collapses 98%→0.1% at k=1 already
+    (immediate, not gradual), and a pure ~200-token non-arithmetic story
+    prefix alone (zero exemplars) causes the same collapse — mechanism is
+    M1 (position/context lock from one-example-per-row SFT), not M2; the
+    paper's Table 11 few-shot check is not constructible as a fair
+    replication against a parent trained this way.
+
+    **Budget (estimate vs actual):** estimated ≈1h50m ≈$0.7–1.0; actual
+    ≈1h35m wall-clock (15:38→17:12:52 UTC) on one RTX 4090, in line with
+    estimate.
+
+19. **fig2ts (ts1b) — the paper-scale staged redo: 3 paper arms at
+    TinyStories-1B; PRE-REGISTERED 2026-08-19, Stages 0–2 authorized
+    (≈$25), Stages 3+ (target grids) need owner re-confirmation.** The two
+    open 38M puzzles — ts38pf's D-R-D shape (§16) and ts38pp's Table-11
+    few-shot non-replication (§18) — retested at the paper's own scale on
+    `evt-ts1b-base` (exact Llama-3.2-1B arch + real Llama tokenizer;
+    checkpoint VERIFIED converged 2026-08-19: min_val 0.98554 nats @24k,
+    stop_reason=converged, anonymous read access confirmed). Fidelity rule
+    (owner 2026-08-19): paper-explicit choices binding (⇒ BLOCK render,
+    App. E.2's literal form); paper-silent ⇒ keep codebase convention (⇒
+    one-per-row SFT, NO packing; `spans.py` no-BOS stays — pretraining
+    itself was BOS-free, `packing.py:93-95`, so BOS would be an OOD
+    arithmetic-only cue; target task stays `D_algo_bare`, DM mixture is
+    eval-only). Stage 0 (CPU): block-render datagen + span-integrity check
+    (negative answers under the Llama BPE = HALT-class fork), θ0-diag
+    generalization, configs. Stage 1 (~$3–5): full-FT LR rungs {1e-4,
+    3e-5, 1e-5} × 2k steps. Stage 2 (~$10–18, THE gate): `evt-ts1b-pp-
+    parent` (E.2: 1 epoch, 4M block, 31,093 steps pinned — corrected
+    2026-08-19 from the pre-reg prose's naive 31,250 = 4M/128; the trainer
+    holds out n_val = 20,000 rows at val_fraction 0.005, so one epoch is
+    3,980,000 // 128 = 31,093, same derivation as ts38pp; pf ceiling is
+    likewise 3 × 31,093 = 93,279) + `evt-ts1b-pf-
+    parent` (E.1.2: permuted labels, until convergence, 3-epoch ceiling) +
+    θ0 few-shot diag on base/pf/pp — Table-11 read (paper row 2.0→11.9 vs
+    base/pf 0→0; primary criterion pp k16−k0 ≥ +5 pts on DM mixture,
+    base/pf ≤1%) and M1-lock read (story-prefix/k=1 collapse), with a
+    pre-registered 4-outcome decision table. All 38M forks (block-render
+    retrain, twin parents, ts38grid densification, seeds) ON HOLD. Full
+    pre-registration: decisions.md 2026-08-19 "ts1b (fig2ts) staged redo".
+
+    **pp-parent HALT near-miss → owner override, NOT a clean retrain
+    (2026-08-19).** The one-epoch-pinned `evt-ts1b-pp-parent` landed op EM
+    (block, k=0) at 89.16% (n=1024) — a near-miss under the pre-registered
+    0.90 HALT threshold. A 3-tier diagnostic (decisions.md 2026-08-19 "pp
+    parent HALT near-miss") ruled out sampling noise (n=8192 recheck:
+    89.34%, tight CI ~[88.7%, 90.0%]) and showed the curve was still
+    descending, not plateaued (5,000-step continuation:
+    `evt-ts1b-pp-parent-contdiag5000`, op EM → 96.12%). A from-scratch
+    single-continuous 36,093-step retrain was started to get a tidier
+    artifact under the canonical `evt-ts1b-pp-parent` name (commit
+    `e31a965`) but the owner killed it mid-run: "no need to retrain why
+    would we do that when we alr have a good enough model?" **Resolution
+    (decisions.md 2026-08-19 "owner override"):** `evt-ts1b-pp-parent-
+    contdiag5000` is used AS-IS as the pp-arm parent everywhere downstream
+    — kept under its own honest name (real two-stage training history),
+    not renamed/promoted. Every place that hardcoded `evt-ts1b-pp-parent`
+    (`configs/ts1b_pp_target.yaml`, both target-grid launchers,
+    `scripts/launch_ts1b_stage12.sh`'s `PP_RID`) was repointed at the
+    diagnostic checkpoint instead, and the step-count assertions
+    (`final_step==36093`) were dropped rather than replaced with a new
+    number — same owner instruction, "don't care about the gates."
+
+    **pp-arm AND pf-arm target-stage grids — BOTH BUILT 2026-08-19, NOT YET
+    LAUNCHED.** Stage 3+ money re-confirmed live by the owner in chat,
+    2026-08-19 — first for pf only, then extended to pp the same session
+    ("run the pp parent at 36k steps with 5 datapoints"). A matching
+    base-arm (no pre-teach) comparator grid was explicitly declined, so
+    both curves read on their own shape only, not "above/below base,"
+    until a base grid exists at this scale.
+
+    Files, pf-arm: `configs/ts1b_pf_target.yaml` (LoRA r512/α32 on
+    `D_algo_bare`, warm-started from `evt-ts1b-pf-parent`, no G7 anchor —
+    `match_data_order_with` stays permanently null); 5 size overlays
+    `configs/sweeps/ts1b/ts1b_pf_target_n{1000,4642,21544,100000,316228}
+    .yaml`; launcher `scripts/launch_ts1b_pf_target_grid.sh`. Files,
+    pp-arm (mirror, `evt-ts1b-pp-parent` in place of `evt-ts1b-pf-parent`
+    throughout): `configs/ts1b_pp_target.yaml`; 5 size overlays
+    `configs/sweeps/ts1b/ts1b_pp_target_n{1000,4642,21544,100000,316228}
+    .yaml`; launcher `scripts/launch_ts1b_pp_target_grid.sh`. Step
+    ceilings/eval cadence on both sides sourced from `llama_fig2nl3_noinst`
+    's own already-completed runs at this exact model/adapter/lr class, the
+    best available empirical precedent at 1.24B — not the 38M numbers.
+
+    **LR is SHARED between the two grids, not independently swept** — the
+    elicit-vs-teach design requires the arms to differ ONLY in θ0, so two
+    independently-auto-picked target-stage LRs would silently break the
+    comparison (same convention as `ts38pp_pretaught.yaml` vs
+    `ts38mw_pretaught.yaml` at 38M). `scripts/launch_ts1b_pp_target_grid.sh`
+    runs the ONE 3-rung mini-sweep (`configs/sweeps/ts1b/pp_target_lrsweep_
+    {1e-4,3.53e-4,1e-3}.yaml`, bracket centered on the paper's own Table 3
+    TinyStories-1B LoRA row) — it runs there because the pp parent finishes
+    (and its grid becomes launchable) well before the pf parent even
+    starts, not because the LR "belongs" to that arm. On picking a winner
+    (auto-selected, owner delegated the pick: lowest rung with a finite,
+    non-diverging val-loss trace, up to 2 auto-generated bracket-extension
+    rounds if the winner lands at a tested endpoint, hard failure if no
+    rung is stable), the launcher pins that same value into BOTH
+    `ts1b_pp_target.yaml`'s AND `ts1b_pf_target.yaml`'s `train.lr` field
+    directly. `scripts/launch_ts1b_pf_target_grid.sh`'s own independent
+    sweep was retrofitted OUT the same session — it now only verifies the
+    shared pin exists (fails loudly, telling the operator to run the
+    pp-arm grid first, if `ts1b_pf_target.yaml`'s `train.lr` is still the
+    unpinned placeholder). Its now-orphaned seed overlays
+    (`pf_target_lrsweep_{1e-4,3.53e-4,1e-3}.yaml`) are left in place for
+    the historical record only.
+
+    Batch size stays 128 on both sides (paper's per-GPU figure, not the
+    1024 effective/8-GPU figure) per
+    [[feedback-paper-fidelity-methodology-not-infra-scale]]. Estimated
+    cost: pp-arm grid (incl. the shared sweep) ≈$9–17, pf-arm grid (sweep
+    excluded, already counted) ≈$8–15 — ≈$17–32 combined, inside no prior
+    authorization ceiling; this IS the Stage 3+ re-confirmation, now scoped
+    to both pp and pf. A base-arm grid or any other arm/size is a separate
+    ask. Both grids are gated on their respective parent's status==complete
+    and refuse to run otherwise. **No gates block anything as of the
+    2026-08-19 override** (decisions.md): the pp HALT check and both
+    grids' `require_converged()` are logged, not enforced — a run that
+    hits its step ceiling still counts as a data point. pp-arm grid is
+    launchable immediately (`evt-ts1b-pp-parent-contdiag5000` already
+    exists); pf-arm grid awaits `evt-ts1b-pf-parent`, training on the box
+    as of this commit (independent of pp, no gate between them). Plan also
+    calls for running the Table-11 few-shot diagnostic on all three models
+    (base/pp/pf), not just the OCV/EDL grid side.
+
+20. **ts38fs — format-install DOSE sweep: how install SIZE reshapes the
+    ts38pf pre-teach-format curve, on the same 38.7M TinyStories base.
+    PRE-REGISTERED 2026-08-20; datagen extension landed, configs +
+    launcher + analysis wiring PENDING; NOT LAUNCHED (GPU spend needs
+    explicit owner go-ahead + cost confirmation).** §16's ts38pf tested
+    App. E.1.2's pre-teach-format intervention at a single install size
+    (i=21544) and found the pretaught-format arm reproduces the base
+    arm's hump shape, proportionally BIGGER (+72% vs base's own +15%,
+    §16). ts38fs turns install size itself into the manipulated
+    variable: install i ∈ {1000, 4642, 21544, 100000} (1 seed per parent,
+    seed 316) × target n ∈ {1000, 4642, 21544, 100000, 316228} (the
+    standard 5-point ts38 grid) × seed s ∈ {316, 1316, 2316} — 60 target
+    cells. Chain per cell is ts38pf's own: `evt-run1-base-v3-ext` →
+    format-install parent (LoRA r128/α32 @1e-3, operator render
+    `Question: 23 + 45\nAnswer: <permuted>`, labels permuted via
+    `geode.arith.permute_labels(seed=20260717)`, ε/k 0.002/5 val
+    convergence, `min_steps` pinned to exactly one epoch under
+    `train_sft.py`'s own step counting: n=1000→7, n=4642→36,
+    n=100000→777, matching §16's n=21544→167 derivation) → target stage
+    (LoRA r128/α32 @1e-3 on the unchanged frozen `D_algo_bare` corpus,
+    convergence, OCV floor per run). Reuse: i=21544's parent IS
+    `evt-ts38pf-preteachfmt-parent` (not retrained); the (i=21544, s=316)
+    row across all 5 target sizes IS the existing 5
+    `evt-ts38pf-preteachfmt-n{N}` runs (not retrained). Net new: 3
+    parents (`evt-ts38fs-parent-n{1000,4642,100000}`) + 55 target runs
+    (`evt-ts38fs-i{I}-n{N}-s{S}`). Held fixed on purpose (install size is
+    the only manipulated variable): single-line operator render (the
+    ts38-family convention, not ts1b's block render), same base
+    checkpoint, the same frozen `D_algo_bare`/`D_algo_eval_bare` target
+    corpus, both LR pins (1e-3 parent / 1e-3 target) reused in-scope from
+    already-validated recipes — no new sweep. Format-acquisition θ0
+    check (`gates.py g5 --no-record`, `loss_drop_frac` vs base) runs per
+    parent with a **deliberate semantic change vs the §16 launcher**:
+    `LEAKED` (permutation failed as a control) still HARD-FAILS
+    (datagen-bug class, unchanged); `NOT_LEARNED` (`loss_drop_frac <
+    0.10`) — which HALTed the family in §16 — instead **logs the verdict
+    and CONTINUES**, because at small installs failing to acquire format
+    IS the measurement this dose-response family exists to make (the
+    n=1000 install may never clear the bar even at convergence — that's
+    signal, not a defect, anchoring the dose-response floor). Verdict +
+    `loss_drop_frac` recorded per install size ⇒ a secondary
+    format-acquisition-vs-install-size curve alongside the primary
+    EDL/D-vs-n curves. No gates are ever recorded on any parent or target
+    (`parent_required_gates: []`, `experiment.gates: {}`, `--no-record`
+    probes only — same discipline as ts38pf/ts38pp, §16/§18); target
+    overlays carry no `match_data_order_with` (no G7 anchor), same
+    precedent as ts1b's pf-arm grid (§19). Caveats, all pre-declared:
+    the reused single-seed `evt-ts38-base-n<N>` reference is compared
+    against 3-seed ts38fs curves — a deliberate seed-count asymmetry,
+    matched base seeds NOT added (owner scoped this session to
+    base→pf→target only); a curve sitting ABOVE the base reference at
+    some n reads as retention-confound class, never as evidence against
+    teaching (same reading convention as §16/§18); the paused ts1b pf-arm
+    grid (§19) is untouched by this family; these r128 target runs
+    supersede nothing at ts1b (r512, 1.24B params). Run order:
+    density before seeds — complete the full seed-316 pass over every
+    (install × target-size) cell first, then seed-1316, then seed-2316.
+    Built this session: `datagen/make_preteach_format.py` extended
+    (uncommitted) to emit `D_preteachfmt_n{N}.parquet` for every
+    non-21544 size, `n=21544` still routed to the legacy, byte-identical
+    `D_preteachfmt.parquet` the §16 pin was computed against. NOT yet
+    built: `configs/ts38fs_parent_n{1000,4642,100000}.yaml`,
+    `configs/ts38fs_target.yaml`, `scripts/launch_ts38fs_family.sh`, and
+    the `ts38fs` entry in `analysis/edl_converged_val_floor.py`'s
+    `FAMILIES`/`ARM_MAPS` (none present as of this commit). Analysis
+    plan, once built: EDL/D vs n, one curve per install size, 3-seed mean
+    ± spread under the OCV floor convention, hump position/height vs
+    install size, plus the format-acquisition curve; figures at
+    `analysis/figures/`, scripts shipped. Cost: build is local-only, $0;
+    GPU estimate ≈$15–30 (ballpark ≈10× the ts38pf family's measured
+    volume, to be refined from measured per-run time at launch). BUILD
+    authorized 2026-08-20; GPU spend requires explicit owner OK at launch
+    time, `--confirm-cost` discipline, nothing launches implicitly. Full
+    pre-registration: decisions.md 2026-08-20 "ts38fs pre-registration
+    (format-install dose sweep)".
+
+21. **ts38dense — 10-point densification of the base / ts38pp /
+    ts38fs-i1000 dose-curve grids, on the same 38.7M TinyStories base.
+    DONE 2026-08-21 — `TERMINAL_SUCCESS runs=15`, all converged,
+    pushed + receiver-verified; 2h33m on the owner's 4090. OUTCOME (OCV
+    floor, test floor agrees ≤0.02 bits): ts38pp stays monotone ↓ at all
+    10 points (the Table-5 elicitation-shaped verdict SURVIVES
+    densification); ts38fs-i1000 has a genuine INTERIOR hump at n=21544
+    (+103% over a trough at n=10000, seed-1316 agrees ≤5%); base's hump
+    at 21544 is also interior-local (+56% over its own n=10000 trough)
+    though its global argmax is the n=1000 endpoint. Both no-algorithm
+    arms jump between 10⁴ and 2×10⁴; the algorithm-installed arm never
+    rises. Full table + readout scoring: decisions.md 2026-08-21
+    "ts38dense pre-registration" → Outcome.** Densifies
+    the target-size grid of three already-measured arms from 5 to 10
+    log-spaced points, reusing every shipped cell rather than retraining
+    anything: shipped sizes {1000, 4642, 21544, 100000, 316228}
+    (`TS38_SIZES`) union 5 NEW sizes {2154, 10000, 46416, 146780, 215443} —
+    ⅓-decade spacing from 10³ to 10⁵, then ⅙-decade spacing up to 316228
+    (the same 5 sizes §6.17 "ts38grid" already provisioned base overlays
+    for, before that launch was abandoned). Owner explicitly dropped the
+    sub-1000 bracket {128, 256, 512} that §6.17 had paired with this same
+    densification question — "no need for below 1k" — leaving
+    densification as the only surviving half of that shelved design.
+    Owner's verbatim framing this session: "I want to run ts38fs format
+    install for i=1k and ts-38pp for more log-spaced data points … we can
+    also do the datapoints in between and reuse existing ones" → "no need
+    for below 1k" → "go with 10 points, build it".
+
+    | n (10-point grid) | shipped/new | base run id | ts38pp run id | ts38fs (i=1000) run id |
+    |---|---|---|---|---|
+    | 1,000 | shipped | `evt-ts38-base-n1000` | `evt-ts38pp-pretaught-n1000` | `evt-ts38fs-i1000-n1000-s316` |
+    | 2,154 | NEW | `evt-ts38-base-n2154` | `evt-ts38pp-pretaught-n2154` | `evt-ts38fs-i1000-n2154-s316` |
+    | 4,642 | shipped | `evt-ts38-base-n4642` | `evt-ts38pp-pretaught-n4642` | `evt-ts38fs-i1000-n4642-s316` |
+    | 10,000 | NEW | `evt-ts38-base-n10000` | `evt-ts38pp-pretaught-n10000` | `evt-ts38fs-i1000-n10000-s316` |
+    | 21,544 | shipped | `evt-ts38-base-n21544` | `evt-ts38pp-pretaught-n21544` | `evt-ts38fs-i1000-n21544-s316` |
+    | 46,416 | NEW | `evt-ts38-base-n46416` | `evt-ts38pp-pretaught-n46416` | `evt-ts38fs-i1000-n46416-s316` |
+    | 100,000 | shipped | `evt-ts38-base-n100000` | `evt-ts38pp-pretaught-n100000` | `evt-ts38fs-i1000-n100000-s316` |
+    | 146,780 | NEW | `evt-ts38-base-n146780` | `evt-ts38pp-pretaught-n146780` | `evt-ts38fs-i1000-n146780-s316` |
+    | 215,443 | NEW | `evt-ts38-base-n215443` | `evt-ts38pp-pretaught-n215443` | `evt-ts38fs-i1000-n215443-s316` |
+    | 316,228 | shipped | `evt-ts38-base-n316228` | `evt-ts38pp-pretaught-n316228` | `evt-ts38fs-i1000-n316228-s316` |
+
+    **Arms, theta0, and init paths.** `base`: theta0 `evt-run1-base-v3-ext`,
+    overlay `ts38_base_n<N>.yaml` (the 5 new-size overlays already exist
+    from §6.17; the 5 shipped are the original ts38 base overlays); this
+    arm's run at each new size is a NEW measurement (single seed, matching
+    the existing ts38 base-arm convention) and becomes the G7 anchor for
+    any future pp/pf/mw run at that size. `pp`: theta0 `evt-ts38pp-parent`
+    (full FT, no merge — the paper-protocol 4M-example pre-teach parent,
+    §6.18), overlay `ts38pp_pretaught_n<N>.yaml` (NEW for the 5
+    densification sizes), G7-paired to base (`match_data_order_with:
+    evt-ts38-base-n<N>`, same as every other ts38pp overlay). `fs` (i=1000
+    dose point only): theta0 `evt-ts38fs-parent-n1000` (merged — a LoRA
+    format-install parent, not full FT), overlay
+    `ts38fs_dense_i1000_n<N>.yaml` (NEW; this filename prefix, not
+    `ts38fs_i1000_n<N>_s316.yaml`, is deliberate — the launcher's
+    `ts38fs_i*_n*_s*.yaml` glob at `launch_ts38fs_family.sh:501` asserts
+    exactly 55 matches, and a 6th install-tagged file matching that glob
+    would break the assertion), no G7 pairing (`match_data_order_with`
+    stays null, matching every other ts38fs overlay — that family has never
+    anchored on base). 15 new target runs total (5 per arm), 0 new
+    parents — every parent (`evt-run1-base-v3-ext`, `evt-ts38pp-parent`,
+    `evt-ts38fs-parent-n1000`) already exists.
+
+    **Order is load-bearing.** Per size: base → pp → fs. pp's
+    `match_data_order_with` needs that size's base manifest to exist before
+    it can be validated, so base must land first at every new size; fs has
+    no G7 dependency but follows the same base→pp→fs sequence for
+    consistency with how every other ts38 family has ordered its arms.
+
+    **G5 convention** mirrors each arm's own family, not a new
+    family-wide rule: base and pp record G5 zero-shot-EM evidence (no
+    pass/fail bar enforced, matching every prior ts38/ts38mw/ts38pp target
+    run); fs cells do NOT record G5 — ts38fs proper (§6.20) never did, and
+    this extension doesn't change that.
+
+    **Reuse.** 15 of the 30 arm×size cells (5 per arm, all at the 5
+    shipped sizes) are pure reads of already-shipped runs, not retrained:
+    the base arm's `evt-ts38-base-n{1000,4642,21544,100000,316228}` (shared
+    across the whole ts38 family tree), the pp arm's
+    `evt-ts38pp-pretaught-n{1000,4642,21544,100000,316228}` (§6.18), and
+    the fs arm's `evt-ts38fs-i1000-n{1000,4642,21544,100000,316228}-s316`
+    (§6.20's own i=1000/s=316 row). ts38fs's i=1000 dose point already has
+    TWO seeds (316, 1316) at these 5 shipped sizes; the 5 new
+    densification sizes get seed 316 ONLY — a pre-declared asymmetry, not
+    an oversight (seed-1316/2316 coverage at the new sizes is out of scope
+    for this family).
+
+    **Pins** (`eval_every`/`max_steps`/`min_steps`, identical to the
+    existing §6.17 `ts38_base_n<N>.yaml` overlays for the 5 new sizes;
+    `min_steps = ceil(n/128)`, ceilings ≥20 epochs, never bind): 2154 →
+    5/1000/17; 10000 → 10/2000/79; 46416 → 55/11000/363; 146780 →
+    175/23000/1147; 215443 → 250/34000/1684. Recipe otherwise verbatim
+    across every arm and every size: LoRA r128/α32 @1e-3, ε/k 0.002/5,
+    batch 128, seed 316, `require_full_epoch1`, run until convergence
+    (`stop_reason=converged` required, `max_steps` is a bug signal), OCV
+    floor primary.
+
+    **Cost.** ≈43 min/arm on a 4090, interpolated from the measured 1.7 /
+    2.1 / 6.4 / 10.5 / 23.6 min at the 5 shipped sizes (§6.17's own
+    per-run timing table) ⇒ ≈2.5 h wall-clock for the 3 arms, ≈$1 at
+    $0.35–0.45/h.
+
+    **Frozen readouts** (no new bars; the densification half of §6.17's
+    shelved readout, minus the bracket). (i) Each arm's argmax of EDL/D
+    over its 10 points under the OCV floor (primary) and the paper/test
+    floor; a "local hump" counts only as a local max strictly interior to
+    the grid under BOTH floors. (ii) ts38pp's Table-5 shape classification
+    (§6.18: monotone ↓ vs ↑↓) re-scored over the 10-point grid — the
+    existing 5-point ↓ verdict (decisions.md 2026-08-16 evening
+    "CORRECTION") is what this stress-tests; the n=4642 above-base point
+    is now bracketed by 2154 and 10000. (iii) ts38fs i=1000's hump near
+    n≈21544 (decisions.md 2026-08-20 "ts38fs pre-registration"; §6.16's
+    ts38pf entry) localized by the new 10000/46416 points. (iv) the base
+    arm's own ↑↓ peak (≈21544, first measured under §6.17) localized the
+    same way. Report as-is; position-vs-base stays descriptive, never a
+    verdict (2026-08-16 correction, unchanged).
+
+    **Caveats.** No sub-1000 bracket — owner explicitly scoped this
+    session to densification only, dropping the {128, 256, 512} half of
+    §6.17's shelved design; whether the paper-style rising limb lies below
+    n=1000 stays open. The base arm's 5 new-size measurements are
+    single-seed (matching the existing base-arm convention, not a new
+    asymmetry). The ts38mw and ts38pf grids are untouched — still 5
+    points — this family densifies only base/ts38pp/ts38fs-i1000. Does
+    not touch ts38fs's other 3 dose points (i=4642/21544/100000) or its
+    seed-1316/2316 replication.
+
+    **Files.** 15 new overlays: 5
+    `configs/sweeps/ts38/ts38pp_pretaught_n<N>.yaml`, 5
+    `configs/sweeps/ts38/ts38fs_dense_i1000_n<N>.yaml` (the 5
+    `ts38_base_n<N>.yaml` overlays already existed from §6.17);
+    `scripts/launch_ts38dense_family.sh` (TAG `ts38dense`,
+    `--confirm-cost`, `SIZES` override, guards against relaunching any
+    already-shipped size); analysis wiring — `TS38PP_SIZES` added to
+    `analysis/dataset_size_sweep.py` (ts38/ts38mw stay on the 5-point
+    `TS38_SIZES`; only `ts38pp` densifies) and
+    `DENSE_CELLS`/`TOTAL_CELLS` (now 65) added to
+    `analysis/ts38fs_dose_curve.py`; `edl_converged_val_floor.py` needs no
+    change (`collect()` regex-discovers runs from the store, so the
+    widened ts38pp grid is picked up automatically), nor does
+    `plot_ts38_all_arms.py` (reads whatever `n` values are in each
+    family's committed CSV); new/updated tests in
+    `tests/experiments/analysis/test_dataset_size_sweep.py` and a new
+    `tests/experiments/analysis/test_ts38fs_dose_curve.py`, plus a
+    `ts38dense` section in
+    `tests/experiments/scripts/test_config_completeness.py`. Full
+    pre-registration: decisions.md 2026-08-21 "ts38dense pre-registration".
+
+22. **ts38mt — mechanistic tests on full-FT parents (elicit=ts38pp,
+    teach=full-FT format), 3 arms × 10 sizes with snapshots, on the same
+    38.7M TinyStories base. DONE 2026-08-22 — parent HALT gate LEARNED
+    (em0 = 0, bare-NL loss −40 %), 31/31 runs converged + pushed to both
+    repos (52 GB on `geode-internals`), repro 20/20 cells exact, Phase-0 +
+    Tier-1/2 grid analyses uploaded (`results/ts38mt_{phase0,mech}/`),
+    Tier 3 skipped (gate CLOSED). Headline answer: NO — the sum is no
+    more linearly decodable at `evt-ts38pp-parent`'s θ0 than at the
+    untrained base (probe margin over the layer-0 floor +0.344 vs +0.306;
+    op-notation control +0.146 → +0.543 over the same training), the
+    logit lens never sees it on bare-NL prompts at any layer or
+    checkpoint, and no Tier-1/2 test separates the elicit θ0 from the
+    teach θ0 in the pre-registered direction (all three θ0 probe at
+    +0.31–0.35; gradients sustained, LoRA ΔW effective rank 7–15 outside
+    W0's top-32 subspace, in every arm). The pp arm's EDL advantage
+    (2.2–2.75× base from n ≥ 100k) coincides with a ~2× smaller, ~2× more
+    task-confined LoRA update — "less to rewrite", not "something latent
+    to unlock". The fmt arm has the LOWEST EDL at n ≤ 10k (0.41–0.55× pp)
+    yet is mechanistically indistinguishable from base. Full numbers:
+    decisions.md 2026-08-21 (night) Outcome; fold script
+    `analysis/ts38mt_mech_summary.py` → `ts38mt_mech_summary.csv`.
+    Original plan follows.** Headline
+    question: is the sum linearly decodable from the residual stream on
+    bare-NL inputs at `evt-ts38pp-parent`'s θ0, even though its zero-shot
+    NL EM there is ≈0 (decisions.md 2026-08-16 evening ts38pp OUTCOME)?
+    Yes → a Jain-style suppressed capability sits behind ts38pp's
+    monotone-↓ EDL curve (§6.18); no → that curve reflects transferred
+    digit machinery, not a latent sum. Ten mechanistic-interpretability
+    tests, tiered by build cost, probe an elicit arm (θ0 =
+    `evt-ts38pp-parent`, the 4M-example full-FT op pre-teach parent,
+    §6.18) against a teach arm (θ0 = a NEW pre-teach-FORMAT parent —
+    permuted labels, algorithm absent, matched to ts38pp's method: full
+    FT, not LoRA, so the two parents differ only in data — "a controlled
+    experiment where the stage should roughly be similar," owner's
+    framing) plus a base arm.
+
+    **Interpretation caveat.** The owner's message literally reads
+    "ts38pp for teach and 4m full ft for elicit"; in this repo's naming
+    ts38pp IS the 4M op pre-teach parent. Read as format-parent = teach,
+    op-parent = elicit — the paper's own pairing (App. E.1.2 format vs.
+    App. E.2 algorithm) — not the literal string match.
+
+    **Parent (`evt-ts38mt-fmt-parent`, `configs/ts38mt_fmt_parent.yaml`).**
+    Full FT via `train_sft.py --init-from` the base `model/`, on
+    `D_preteachfmt.parquet` — ts38pf's exact 21,544-row op-notation,
+    permuted-label data and `order_hash` (§6.16), reused not
+    regenerated. LR **3e-5, pinned** = ts38pp parent's own full-FT LR
+    (§6.18's already-measured ladder) — no fresh sweep; same precedent
+    ts38pp used ("the ladder IS the sweep," owner-confirmed), applicable
+    here since both parents are full FT on the same base. `min_steps
+    167` / `max_steps 3340` / `eval_every 25` — ts38pf's own derivation
+    under `train_sft.py`'s step counting (`n_val = round(0.005·21544) =
+    108`, `n_train = 21436`, `21436 // 128 = 167` = one epoch; `max_steps`
+    is a 20-epoch ceiling, never binds). ε/k 0.002/5, batch 128, seed
+    316. **HALT gate**, replicated verbatim from ts38pf's stage 5
+    (§6.16): `parent.em0 > 0.05` → LEAKED (permutation control failed) →
+    HALT; `loss_drop_frac = (base.loss − parent.loss)/base.loss < 0.10`
+    → NOT_LEARNED (format lesson didn't transfer) → HALT; else LEARNED →
+    proceed. Fallback if 3e-5 HALTs: re-run at 1e-4. No gate ever
+    recorded (`--no-record` only, same convention as every ts38 parent).
+    `snapshot_steps [1,2,4,8,16,32,64,128,167,256,512,1024,2048,3000]` —
+    full model states via `train_sft.py`'s own `sft_snapshots/` dir
+    (~155 MB each, written only if that step is reached).
+
+    **Targets — 3 arms × 10 sizes = 30 LoRA runs, `D_algo_bare`.**
+    Verbatim `ts38_base.yaml` recipe (r128/α32 @1e-3, ε/k 0.002/5, batch
+    128, seed 316, `require_full_epoch1`, run to `stop_reason=converged`),
+    differing only in θ0 and run id, at the full 10-point ts38dense grid
+    {1000, 2154, 4642, 10000, 21544, 46416, 100000, 146780, 215443,
+    316228}:
+
+    | arm | run ids | θ0 | role |
+    |---|---|---|---|
+    | base | `evt-ts38mt-base-n<N>` | `evt-run1-base-v3-ext` | teach reference |
+    | pp | `evt-ts38mt-pp-n<N>` | `evt-ts38pp-parent` (full FT) | elicit |
+    | fmt | `evt-ts38mt-fmt-n<N>` | `evt-ts38mt-fmt-parent` (full FT, NEW) | teach |
+
+    Every overlay `match_data_order_with: evt-ts38-base-n<N>` — the same
+    frozen prefix every shipped ts38 family anchors to. For base and pp
+    this makes `ts38mt-base`/`ts38mt-pp` **seed-identical re-runs** of
+    already-shipped `evt-ts38-base-n<N>` / `evt-ts38pp-pretaught-n<N>`
+    (§6.18, §6.21), with adapter snapshots switched on — a free
+    reproducibility check, not a new measurement, gated by the tolerance
+    below. `fmt` is the only genuinely new arm. Adapter-only `snapshots:
+    {n: 32, dense_until: 8}` (~48 MB each, schedule scales off each run's
+    own `max_steps` so converged runs write fewer). G5 zero-shot-EM
+    recorded on all three arms (no pass/fail bar, matching every prior
+    ts38/ts38pp/ts38dense target run). Per-step `grad_norm` and
+    per-module gradstats are already logged by the harness — test 8
+    needs no new instrumentation.
+
+    **Reproducibility-check tolerance (pre-registered).** Each of the 20
+    base/pp re-run cells' EDL/D at the OCV floor must land within ≤5%
+    relative of its shipped value (the same bar ts38dense used to
+    confirm its seed-1316 row agreed with seed-316, decisions.md
+    2026-08-21), on the assumption that adding a snapshot-write hook is
+    pure I/O and does not perturb the training stream. A cell outside
+    that bar is evidence against that assumption — a snapshot-hook side
+    effect — not a reproducibility failure of the already-shipped
+    §6.18/§6.21 numbers.
+
+    **Readouts, tiered** (owner: "do whatever is more convenient or is
+    needed first" — order is build cost, not importance; the five Tier-1
+    signature pairs are the owner's own table, quoted):
+
+    | test | measures | tier | elicit signature | teach signature |
+    |---|---|---|---|---|
+    | 1 | residual-stream linear probe, sum, at θ0 + across snapshots | 1 | probe accuracy high at θ0 | low/near-chance at θ0 |
+    | 6 | logit-lens depth of first answer digit | 1 | early emergence (shallow layer) | late emergence, or none |
+    | 8 | grad-norm decay + ‖θ_t−θ0‖ from snapshots | 1 | one big early step, then collapse | gradual, sustained descent |
+    | 9 | ΔW relative norm / effective rank / top-singular overlap with W_base | 1 | effective rank ≈ 1, inside existing directions | higher rank, new directions |
+    | 10 | residual shift, task vs. generic text; direction consistency | 1 | surgical, consistent shift | diffuse, inconsistent shift |
+    | 4 | cross-model activation patching θ_T → θ0 | 2 | not pre-registered | not pre-registered |
+    | 7 | J-lens | 2 | not pre-registered | not pre-registered |
+    | 2 | circuit Jaccard | 3, gated on Tier 1 finding a latent sum | not pre-registered | not pre-registered |
+    | 3 | node-vs-edge ΔS | 3, gated | not pre-registered | not pre-registered |
+    | 5 | DCM | 3, gated | not pre-registered | not pre-registered |
+
+    Probe inputs, for tests 1/6/10: bare-NL target prompts (task),
+    op-notation (positive control, meaningful only on the pp parent — the
+    fmt/base parents were never taught the op mapping either), held-out
+    TinyStories (generic/negative control). **Test 1 discriminator
+    (pre-registered, not optional):** run the probe at every layer, not
+    one late layer, and report the layer-0 (post-embedding, pre-compute)
+    accuracy as a floor — a linear probe that already scores high at
+    layer 0 is computing the sum from raw digit tokens, not reading a
+    computed representation, and that would undercut a "latent
+    capability" reading regardless of downstream-layer accuracy. Judge
+    task-probe accuracy against that floor and the op-notation ceiling,
+    not in absolute terms — the same discipline the 2026-08-16 evening
+    correction imposed on ts38pp's own scoring (§6.18).
+
+    **Phase 0 (no new training, runs as soon as any box exists).** Tests
+    1/6/9/10 on `evt-run1-base-v3-ext` → `evt-ts38pp-parent` and its 3
+    existing relay snapshots — both checkpoints already exist; test 9's
+    ΔW is a direct full-FT weight diff, no LoRA merge needed for this
+    pair.
+
+    **Cost, storage, HF repos.** Launcher's own printed estimate: ≈2.5–3 h
+    on a 4090 ≈ $1 (`scripts/launch_ts38mt_family.sh`, `--confirm-cost`,
+    `SIZES` override, never destroys the box); parent → HALT gate → grid
+    base→pp→fmt per size → push to `mhieuuu/geode-store` (model +
+    manifest, snapshots excluded) AND to the NEW public
+    `mhieuuu/geode-internals` (`--with-snapshots`) → receiver-verify
+    both. Storage: ≈46 GB worst case for the 30 target runs (32 adapter
+    snapshots × ~48 MB × 30, fewer where a run converges early) + ≤2.2 GB
+    for the parent's full-state snapshots (≤14 × ~155 MB) ⇒ **≤~48 GB on
+    `geode-internals`**. `geode-internals` was created 2026-08-21 (public,
+    README describes the layout; no auth required to read — both HF repos
+    are readable with no token, per the owner's ask), same no-secrets
+    discipline as `geode-store`. `hf_checkpoint.py`'s default ignore list is being
+    extended to also cover `sft_snapshots/*` (the full-FT parent's own
+    snapshot dir, distinct from LoRA's `snapshots/`) — without that
+    change the parent's ~2 GB of full states would leak into the plain
+    `geode-store` push while the targets' adapter snapshots are already
+    correctly excluded there.
+
+    **Caveats.** GPU spend authorized in principle (owner: "do the
+    training first" + a promised box) but **not launched — no box yet**.
+    Check the CUDA `ld.so.conf` compat bug on any new box from the owner
+    template FIRST (same defect hit twice already, ts38dense/ts38fs-tiny
+    memory). No existing ts38-family launcher's asserted-count glob
+    collides with a `ts38mt_` prefix (checked:
+    `launch_ts38fs_family.sh:501`'s `ts38fs_i*_n*_s*.yaml`/55 and
+    `launch_ts38fs_tiny_family.sh`'s `ts38fs_tiny_i*_n*.yaml` are the
+    only such asserts in the ts38 tree). Exact overlay filenames are the
+    concurrent build's call — this entry fixes run ids, θ0 mapping, and
+    pinned values only.
+
+    **Files (concurrent build, named here for cross-reference).**
+    `configs/ts38mt_fmt_parent.yaml`; target bases `configs/ts38mt_base.yaml`
+    / `ts38mt_pp.yaml` / `ts38mt_fmt.yaml` (verbatim `ts38_base.yaml` /
+    `ts38pp_pretaught.yaml` + snapshots on); 30 overlays
+    `configs/sweeps/ts38/ts38mt_{base,pp,fmt}_n<N>.yaml`; `scripts/
+    launch_ts38mt_family.sh`; analysis drivers, one per test, all under
+    `analysis/` (built 2026-08-21, the last seven while the grid trained):
+    1 `resid_probe.py`, 2 `circuit_jaccard.py`, 3 `node_edge_delta.py`,
+    4 `cross_patch.py`, 5 `dcm.py`, 6 `logit_lens.py`, 7 `jacobian_lens.py`
+    (J-lens read as Jacobian lens — an interpretation, flagged), 8
+    `grad_dynamics.py`, 9 `weight_diff.py`, 10 `resid_shift.py`; shared
+    `mech_lib.py` (residual capture/loading) and `mech_nodes.py`
+    (head/MLP nodes, patching, node + EAP edge attribution). Property
+    tests: `tests/experiments/analysis/test_{mech_phase0,
+    mech_phase0_extra,mech_nodes,resid_probe,grad_dynamics,jacobian_lens,
+    cross_patch,circuit_jaccard,node_edge_delta,dcm}.py`. Full
+    pre-registration: decisions.md 2026-08-21 (night) "ts38mt
+    pre-registration"; the Tier-2/3 candidate readouts (not owner
+    signatures) are registered in decisions.md 2026-08-21 (late night)
+    "ts38mt mechanistic-test drivers", before any grid data existed. The
+    handoff runbook's §5b has the per-run command loop.
+
+23. **ts38mt follow-ups: (A) probe routing control + (B) ts38tr
+    truncated-adapter positive control — DONE 2026-08-22 (owner's box
+    48397374, ≈ $0.6).** Result: (A) R-A1 FIRES — ts38mt's Test-1
+    margins at θ0 were operand routing; R-A2 not met (pp θ0 +0.075 on
+    the affected subset, a ≈ 2.5-SE trace, bar +0.10); R-A3 passes.
+    (B) R-B1 pipeline verified but k6 carries a latent sum too
+    (affected-subset 0.47 vs k7 0.63, base 0.18 — the base's last block
+    linearizes θ_T's mid-layer residual); R-B2 NOT met (0/5 criteria;
+    only gradient timing separates k7 from k6, ≈ 2×) → **§6.22's
+    mechanistic CLOSED verdict downgraded to "not tested"**; R-B3 NOT met
+    and OCV-floor EDL ranks both truncated parents above base while they
+    hit 0.79–0.89 zero-shot EM → **EDL is insensitive to a latent
+    representation at n ≤ 4 642 under either floor**; small-n ts38 reads
+    must be re-scored on raw MDL / a shared floor. Results:
+    `geode-internals` `results/{ts38tr_mech,ts38mt_probe_control}/`,
+    folds `analysis/ts38tr_{mech,phase0}_summary.csv` (via
+    `ts38mt_mech_summary.py --run-prefix evt-ts38tr`). Full Outcome:
+    decisions.md 2026-08-22 "ts38mt follow-ups". Original entry: two
+    instrument checks on the §6.22 CLOSED verdict. (A) Test 1's target (first answer token, classes `{-,1..9}`)
+    is largely a function of the operands' top-position digits, and the
+    layer-0 floor cannot see routing (layer 0 at the generating position
+    is just `\n`); base θ0 already probes 0.44 after ONE block and θ_T's
+    layers 1–6 are unchanged from θ0 while 7/8 jump to 0.77/0.98.
+    `analysis/probe_routing_control.py` splits probe accuracy into
+    examples the top-position rule determines vs those a carry / borrow /
+    sign-tie changes ("affected"), plus a model-free token-linear
+    baseline; only affected-subset accuracy above its own chance is
+    evidence of a computed result. (B) Two synthetic parents from
+    `evt-ts38mt-base-n316228`'s LoRA: blocks < K keep the adapter, blocks
+    ≥ K are the base (`scripts/truncate_lora_parent.py`); K = 7 holds a
+    decodable answer (θ_T layer-7 probe 0.77) with no readout, K = 6 does
+    not (0.56) — a matched pair with/without a latent sum. Gate em0 ≤ 0.05
+    (HIDDEN); targets `evt-ts38tr-k{6,7}-n{1000,2154,4642}` on the ts38mt
+    recipe; Tier 1+2 tests + EDL on all six. Reads R-A1–A3 / R-B1–B3
+    pre-registered in decisions.md 2026-08-22 "ts38mt follow-ups";
+    headline: if k7 ≡ k6 on every dynamics test, the §6.22 verdict is
+    downgraded from CLOSED to "not tested". (C) op+format parent
+    (`ppfmt`) proposed there as the fair elicit-vs-teach pair, not built.
+    Files: `analysis/probe_routing_control.py`,
+    `scripts/truncate_lora_parent.py`, `configs/ts38tr_k{6,7}.yaml` + 6
+    overlays, `scripts/run_{probe_routing_control,ts38tr_family,
+    ts38tr_mech}.sh`, `edl_converged_val_floor.py` family `ts38tr`; tests
+    `tests/experiments/analysis/test_{probe_routing_control,
+    truncate_lora_parent}.py`. Cost ≈ $0.6.
+
+24. **Probe trajectory at n = 46 416 (`ts38mt_probe_traj`) — DONE
+    2026-08-23** (owner's box; tables on `geode-internals`
+    `results/ts38mt_probe_traj/`, figure `figures/probe_traj_n46416.png`;
+    outcome under decisions.md 2026-08-22 "probe trajectory"). Verdicts:
+    R-T0 pp θ0 trace replicates at +0.08 over base (< +0.10, gate stays
+    closed); R-T1 met by the letter (k7 0.80 at step 4, from 0.79 at θ0);
+    R-T2 VOID — t50 base/pp/fmt = 162/120/120, the speed-up is the
+    format's (pp separates from fmt only at t80: 400 vs 731); R-T3 θ0
+    transfer fails (`op_to_task` = chance, `op_to_op` 0.96), training
+    shows partial reuse (`op_to_task` plateau ≈ 0.55, `op_to_op` decays
+    to 0.67); R-T4 k7 vs base 2/5 (rel_fro, grad timing), pp splits 1/1
+    on those — teammate's read. Next: `ppfmt`. One dataset
+    size, every arm's whole training trajectory: the carry-subset probe
+    (§6.23's Test-1 fix) plus a NEW cross-format transfer probe (fit on
+    the operator-notation twin of the same problems, score on English;
+    positive answers only, classes = first digit) on every snapshot of
+    `evt-ts38mt-{base,pp,fmt}-n46416` and of a k7 control trained at the
+    same size (`evt-ts38tr-k7-n46416`, new overlay), plus the four θ0
+    parents at 3× the earlier sample (`--limit 6000`). Tier-1/2 tables
+    for the k7 target give the dynamics half (teammate: tests 8/9/7 +
+    Tier-3 2/3) a latent-vs-none control row (k7 vs base) at this n.
+    Reads R-T0–R-T4 pre-registered in decisions.md 2026-08-22 "probe
+    trajectory": R-T0 re-tests the pp trace; R-T1 calibrates (k7 ≥ 0.80
+    by step 8); R-T2 `t50(pp)` ≤ ½ `t50(base)` = elicit, 0.8–1.25× =
+    teach, fmt must track base; R-T3 transfer at θ0 ≥ chance + 0.10 =
+    latent sum readable from English (strong read; failure is not the
+    converse). Files: `analysis/probe_routing_control.py` (`--run-id`,
+    `--transfer-set`), `analysis/plot_probe_traj.py`,
+    `scripts/run_probe_traj.sh` (`--confirm-cost`; env `N`, `LIMIT`,
+    `SKIP_K7`), `configs/sweeps/ts38/ts38tr_k7_n46416.yaml`. Runbook for
+    the executing session: `notes/handoff-probe-traj-launch.md`. Launch:
+    `tmux new-session -d -s probetraj 'bash run_probe_traj.sh
+    --confirm-cost > /workspace/probe_traj.log 2>&1'` from
+    `experiments/training-run/scripts` on a prepared box (venv, HF login,
+    data regenerated). Cost ≈ 1.5 h on a 4090 ≈ $0.6.
+
+25. **probe1b phase 1 — per-digit probes on Llama-3.2-1B vs its
+    stories-pretrained twin (`probe1b_phase1`) — DONE 2026-08-27
+    (owner-rented box).** R-P2 NOT MET (1/4 heads clear the bar, need
+    ≥2) — phase 2 not justified by this read, needs a rethink per the
+    plan's own fallback. R-P4 replicates cleanly (4/4 heads, matches the
+    behavioral EM anchor). R-P1 fails numerically (20/51 evaluable
+    cells) but traces to shuffled-control miscalibration under weak L2,
+    not a probe-design leak. ts1b/nl lens rows blocked by a deterministic
+    bf16 tail outlier in the layer-16 lens≡model-output assert (1/12000
+    comparisons, 0.001019 vs 1e-3 nats; reproducible, median/mean 0);
+    `--fit`'s CSV write ordering discarded that file's already-completed
+    probe fits. Full read: `notes/decisions.md` 2026-08-27 (evening)
+    OUTCOME entry. The twin pair
+    (`meta-llama/Llama-3.2-1B` vs `podhajskimarcin/evt-ts1b-base`, same
+    architecture + tokenizer, only pretraining data differs) probed at
+    θ0 only: per-digit 10-way probes of the 4-digit addition answer at
+    all 17 hidden points, formats op/nl, placements B (pre-answer
+    state) / C (teacher-forced), cheat/affected per-digit splits,
+    shuffled-label refits, logit lens as the zero-capacity control,
+    greedy-EM behavioral anchor. No training; ts1b is the negative
+    control. Plan: `docs/plan-probe1b-digits-phase1.md`; reads
+    R-P1–R-P4 pre-registered in decisions.md 2026-08-27 "probe1b
+    phase 1". R-P2 gates phase 2 (fine-tune both, probe trajectories —
+    the 1B elicit-vs-teach pair). Files:
+    `analysis/probe1b_digits.py` (`--make-data/--extract/--fit/
+    --behavior/--all`, `--confirm-cost`), `analysis/plot_probe1b.py`,
+    `tests/experiments/analysis/test_probe1b_digits.py`. Results to
+    `geode-internals` `results/probe1b_phase1/` (feature tensors stay
+    on-box). Cost ≤ 2 h on a 24 GB box ≈ $1.
 
 ## 7. Budget
 

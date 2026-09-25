@@ -1,0 +1,42 @@
+# Bare-format (scaffold-free) eval-data pin for the ts38 mini family: the
+# TinyStories-chain analogue of eval_bare_target_data_llama.yaml. Feeds
+# gates.py g5 (evidence-only test loss) on the ts38 target runs and the
+# family's premise guard (base ~=0 EM AND ~=0 format validity on bare
+# prompts — plan Pre-flight; the TS-chain analogue of
+# scripts/check_bare_baseline.py). No training run consumes this config
+# directly — ts38_base.yaml/ts38_pretaught.yaml pin the identical file/hash
+# in their OWN data.eval_file/eval_order_hash for train_target.py's in-loop
+# stopping + reporting eval; this file exists so gate/premise scripts that
+# run BEFORE any run manifest exists have a standalone pin to read (mirrors
+# eval_target_data.yaml's relationship to run5_target.yaml/run6_target.yaml).
+#
+# D_algo_eval_bare.parquet is DERIVED, not sampled: datagen/make_bare_sets.py
+# re-renders the frozen D_algo_eval row-by-row in the bare_nl format (same
+# triples, same order, same question bodies — only the Question:/Answer:
+# scaffold is dropped), source hash-verified against D_algo_eval's pin. Every
+# disjointness guarantee (question-disjoint from D_algo_bare/D_target/probe)
+# carries over. LOCAL-ONLY like its source (derived, never published to HF);
+# local_path is load-bearing, resolved against REPO_ROOT, hash still
+# verified.
+#
+# Rows 0-2047 are the STOPPING block the target runs consume in-loop; rows
+# 2048+ are the REPORTING block (test loss). No val_fraction, deliberately —
+# consumers slice FIXED rows.
+#
+# The tokenizer must match the model under eval (2026-07-24 incident,
+# eval_bare_target_data_llama.yaml's note) — this pin uses the frozen
+# TinyStories-chain tokenizer, NOT the Llama one.
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_bare_addsub       # for the shared-set test loss's label mask
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_eval_bare.parquet  # 100k bare NL add/sub, question-disjoint
+                                   # from D_algo/D_algo_bare (derived from
+                                   # D_algo_eval)
+  order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet

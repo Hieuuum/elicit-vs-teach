@@ -35,6 +35,21 @@ $GEODE_STORE/
                               #   (A/B) tensors at θ_k; reassemble via
                               #   geode.edl.load_snapshot (bit-exact, V1.11;
                               #   legacy full model.safetensors still loads)
+    sft_snapshots/            # OPTIONAL: train_sft.py `train.snapshot_steps`
+                              #   (2026-08-15, V5.77):
+      step_{k:07d}/           #   full save_pretrained dirs at the listed
+                              #   steps (wrapped state for LoRA runs — load
+                              #   ONLY via zoo.load_model(run, checkpoint=dir));
+                              #   probe/diagnostic artifact, expendable,
+                              #   replay-derivable. Distinct from `snapshots/`
+                              #   above (different trainer, different
+                              #   contract) — hf_checkpoint.py's default
+                              #   ignore patterns name `snapshots/*`, NOT this
+                              #   dir, so a plain push ships every byte here;
+                              #   `--no-weights` excludes only
+                              #   `model.safetensors` (adapter sidecars still
+                              #   ride) and `--metadata-only` excludes every
+                              #   `*.safetensors` under it, same as elsewhere.
     probe/step_{k}/           # offline probe dumps (spec 02 §7):
                               #   acts.safetensors + grads.safetensors (bf16,
                               #   n_layers+1 named residual tensors each),
@@ -165,7 +180,8 @@ Target-run result extras (2026-07-30) — the LoRA target launcher
   "min_val_nats": "float",
   "edl_epoch1_nats": "float",
   "edl_per_label_token_nats": "float",
-  "edl_per_example_nats": "float"
+  "edl_per_example_nats": "float",
+  "epoch1_examples": "int, optional"
 }
 ```
 
@@ -193,6 +209,20 @@ All loss/EDL values are **nats**; bits only at reporting boundaries (V1.8).
 - `edl_per_example_nats`: `edl_epoch1_nats` divided by the epoch-1 example
   count (example-weighted, not token-weighted — distinct denominator from
   the field above). Computed by `geode.edl.metrics.edl_epoch1_per_example`.
+- `epoch1_examples` (added 2026-08-14, ts38-mini guard 1): examples consumed
+  in epoch 1 — the third element `geode.edl.metrics.epoch1_totals` returns,
+  summing `len(example_ids)` over epoch-1 `prequential.jsonl` records (§3).
+  Equals `n_examples` **iff** epoch 1 ran to completion, per the §3
+  enumeration invariant (concatenating epoch-1 `example_ids` enumerates each
+  unique training example exactly once). Written for every run
+  `train_target.py` finalizes, not only runs that opt into the guard below.
+  **Optional-on-read**: manifests written before this field existed lack it;
+  a validator or reader must not require its presence. When the launch-time
+  flag `experiment.require_full_epoch1` is set (specs/02 V5.75), the
+  launcher additionally requires `epoch1_examples == n_examples` before
+  flipping the manifest's `status` to `"complete"` — a mismatch means epoch
+  1 was truncated, and the run is left at `status: "running"` rather than
+  recorded a clean success (specs/02 V5.76).
 
 Rationale: `regime` is recorded at creation from experimental design, so
 analysis code can group runs without re-deriving it. `snapshot_steps` is

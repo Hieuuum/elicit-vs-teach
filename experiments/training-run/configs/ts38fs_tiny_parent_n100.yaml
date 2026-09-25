@@ -1,0 +1,64 @@
+# ts38fs-tiny Stage 0 — pre-teach-FORMAT parent, install size n=100. See
+# ts38fs_tiny_parent_n2.yaml for the full design note (labels/stopping
+# deviations from ts38fs, calibration derivation); this file differs only
+# in run_id, data.file/order_hash, batch_size, and max_steps.
+#
+# Calibration (configs/sweeps/dose_cal/ts38fs_tiny_cal_n100.yaml,
+# eps_nats=0.0 sentinel pilot + dose_stop_calibration.py, replayed jointly
+# against the n=2/n=10 pilots' own recorded curves): the SAME eps_nats=0.0002
+# k=5 pin already used at i=2/10 fires at 99.96% descent here (vs 99.99%/
+# 99.98% at i=2/10 — max 0.03pp cross-dose gap, as tight as the original
+# 2-point calibration's own 0.04pp) — the pin is a bf16-precision-floor
+# property (V5.78 calibration note), not an n-dependent one, so it carries
+# over rather than needing its own re-derivation. Real pilot converged at
+# step 996 (L0=5.2177 -> 0.000068); the eps/k replay fires far earlier, at
+# step 130.
+run_id: evt-ts38fs-tiny-parent-n100
+experiment:
+  name: training-run
+  arm: A
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext
+  parent_required_gates: []
+
+model:
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer
+
+task:
+  name: arith_op_preteachfmt
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_preteachfmt_n100.parquet   # 100 rows, cyclic-shift (guaranteed-
+                                      # wrong) labels — see n2 sibling header
+  order_hash: e66dc109ff340a6d7c1cb94ecb72eb312a5f398725e24bbe0d2369de4386d9e8
+  local_path: experiments/training-run/data/full/D_preteachfmt_n100.parquet
+  seed: 316                     # manifest provenance only — see n2 sibling
+
+lora:
+  r: 128
+  alpha: 32
+
+train:
+  lr: 1.0e-3
+  batch_size: 100                # == n_train (V5.65 hard requirement)
+  eval_every: 1
+  max_steps: 2000                # calibration pilot fired (eps/k replay) at
+                                  # step 130 — ~15x headroom, same order as
+                                  # the n2/n10 siblings' own margin
+  stopping:
+    metric: train_loss
+    eps_nats: 0.0002            # CALIBRATED — see header above
+    k: 5
+    min_steps: 0
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 2000
+
+cost:
+  assumed_epochs_for_estimate: 1

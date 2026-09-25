@@ -27,7 +27,7 @@ from geode.arith.evals import (
     text_exact_match,
 )
 from geode.arith.formats import OPS, digits, render, render_translate, true_answer
-from geode.arith.labels import permute_labels, random_label
+from geode.arith.labels import cyclic_shift_labels, permute_labels, random_label
 from geode.arith.load import load_frozen_parquet
 from geode.arith.spans import SftExample, token_label_span, tokenize_with_spans
 from geode.arith.stratify import DIGIT_BAND_SIZES, allocate, capacity
@@ -42,6 +42,7 @@ __all__ = [
     "cell_counts",
     "digits",
     "exact_match",
+    "cyclic_shift_labels",
     "exact_match_accuracy",
     "few_shot_prompt",
     "format_valid",

@@ -1,0 +1,15 @@
+# ts38dense densification point: n=46416 (EXPERIMENTS.md §6.21; decisions.md
+# 2026-08-21 "ts38dense pre-registration"). Overlay over
+# ../../ts38pp_pretaught.yaml. Paired with ts38_base_n46416.yaml (G7 anchor,
+# trained in the same launch, base first) — pins identical to that base
+# overlay.
+run_id: evt-ts38pp-pretaught-n46416
+experiment:
+  match_data_order_with: evt-ts38-base-n46416
+data:
+  n_examples: 46416
+train:
+  eval_every: 55
+  max_steps: 11000
+  stopping:
+    min_steps: 363

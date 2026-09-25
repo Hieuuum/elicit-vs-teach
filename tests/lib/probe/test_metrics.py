@@ -153,6 +153,15 @@ def test_v5_14_masked_out_shift_ignored():
         assert x == pytest.approx(0.0, abs=1e-9)
 
 
+def test_representation_drift_rejects_zero_examples():
+    """L124: n == 0 (shape and dtype checks upstream still pass, on
+    zero-length tensors) refuses rather than pooling over nothing."""
+    acts = torch.zeros(0, 4, 8, dtype=torch.float64)
+    mask = torch.zeros(0, 4, dtype=torch.bool)
+    with pytest.raises(ValueError, match="n == 0"):
+        representation_drift(acts, acts, mask, [])
+
+
 def test_v5_14_degenerate_inputs_raise():
     """Shape mismatch, non-3-D acts, wrong mask shape, an all-False mask row,
     and a wrong classes length all refuse loudly."""
@@ -278,6 +287,18 @@ def test_v5_16_degenerate_inputs_raise():
         performance_aligned_matching([2, 1], [0.1, 0.2], [1, 2], [0.1, 0.2])
     with pytest.raises(ValueError, match="non-finite"):
         performance_aligned_matching([1, 2], [0.1, float("nan")], [1, 2], [0.1, 0.2])
+
+
+def test_v5_16_length_mismatch_raises_for_each_arm():
+    """L204/L208: arm A's and arm B's steps/perf length checks are two
+    separate branches — ``test_v5_16_degenerate_inputs_raise`` only trips
+    arm A's (its case has arm A mismatched, so arm B's branch is never
+    reached). Exercise both explicitly, arm A matched in the second call so
+    only arm B's branch can fire there."""
+    with pytest.raises(ValueError, match="arm A len"):
+        performance_aligned_matching([1, 2], [0.1], [1, 2], [0.1, 0.2])
+    with pytest.raises(ValueError, match="arm B len"):
+        performance_aligned_matching([1, 2], [0.1, 0.2], [1, 2], [0.1])
 
 
 # --- V5.63 linear CKA --------------------------------------------------------

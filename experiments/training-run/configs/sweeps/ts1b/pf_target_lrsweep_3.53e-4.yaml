@@ -1,0 +1,17 @@
+# ts1b pf-arm TARGET-STAGE LR mini-sweep, rung 3.53e-4 (the paper's own
+# Table 3 TinyStories-1B LoRA pin, already adopted directly — no local
+# sweep — by configs/llama_fig2nl3_noinst.yaml at this same r512/a32/
+# batch-128 config; here it is the CENTER candidate of a 3-rung bracket
+# instead, per owner instruction 2026-08-19 — see pf_target_lrsweep_1e-4.
+# yaml's header for the full rationale, identical for every rung in this
+# bracket). Probed at n=21544, 500-step deliberately-incomplete budget,
+# min_steps 5000 keeps eps/k inert (stop_reason=max_steps expected).
+run_id: evt-ts1b-pf-target-lrsweep-3.53e-4
+data:
+  n_examples: 21544
+train:
+  lr: 3.53e-4
+  eval_every: 25
+  max_steps: 500
+  stopping:
+    min_steps: 5000

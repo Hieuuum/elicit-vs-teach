@@ -1,0 +1,96 @@
+# ts38 mini — Arm B ("elicit" per the ratified plan's prose table,
+# project-ts38-mini-plan-2026-08-14.md): evt-ts38-pretaught-parent (full FT
+# on D_target, op-notation) -> LoRA target, on D_algo_bare (scaffold-free NL
+# add/sub) — IDENTICAL recipe to ts38_base.yaml except theta0. BASE config
+# for 5 log-spaced-prefix sizes (configs/sweeps/ts38/
+# ts38_pretaught_n<size>.yaml overlays); never launched standalone. Trains
+# via scripts/train_target.py through the prequential EDL harness.
+#
+# The parent already knows the algorithm in op-notation (full FT on
+# D_target); this run must ELICIT that knowledge into the bare-NL surface
+# form it never saw during pre-teach — the paper's Sec 5/Fig-3
+# "pre-taught = elicitation" leg. See ts38_base.yaml for the full pairing
+# note (arms differ ONLY in theta0) and the arm-letter note this file
+# continues below.
+#
+# ARM-LETTER NOTE (continued from ts38_base.yaml): this file sets `arm: A`
+# so `ARM_REGIME["A"] == "elicit"` (train_target.py) matches reality, the
+# OPPOSITE of the plan's own-prose "Arm B" label for this run. See
+# ts38_base.yaml's header for the full reasoning — every prior run family in
+# this repo uses A=elicit/B=teach without exception, and that mapping is
+# hardcoded (not configurable per-family) in train_target.py.
+run_id: evt-ts38-pretaught
+experiment:
+  name: training-run
+  arm: A                       # ARM_REGIME["A"] == "elicit" — see the note above
+  role: target
+  parent_run_id: evt-ts38-pretaught-parent
+  # G1 = capability, enforced on D_target's own held-out val split (the
+  # run-2 protocol — run_exact_match_gate re-derives the split via
+  # val_fraction/seed, which the eval-only pins omit); D_target_eval is
+  # recorded on the same checkpoint as G5 evidence, not gated.
+  parent_required_gates: [G1, G8]
+                                # (0.95 bar, configs/eval_target_data.yaml).
+                                # G8 = TinyStories-val retention >= 1.1718
+                                # nats (= base evt-run1-base-v3-ext's min_val
+                                # 1.0718 + the pre-declared 0.10 delta) — new
+                                # gate, guards against fig2nl's "installed
+                                # arm sits above the base" inversion class
+                                # (the ungated-parent failure the plan's
+                                # guard 2 exists to close).
+  match_data_order_with: null  # placeholder; every overlay points this at
+                                # the SAME-SIZE evt-ts38-base-n<size> run
+                                # (G7 — that arm is the anchor)
+  require_full_epoch1: true    # ts38-mini guard 1 — see ts38_base.yaml's
+                                # header; identical here (arms differ only
+                                # in theta0)
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_bare_addsub       # scaffold-free NL add/sub (D_algo_bare); TaskFormat
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:                           # VERBATIM copy of ts38_base.yaml's data block (G7)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 316228            # placeholder = largest size; every overlay
+                                 # sets its own prefix of the frozen order
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:                          # r/alpha restated from common.yaml for the
+  r: 128                       # record — SAME rank both arms (per-arm
+  alpha: 32                    # sizing would change training algorithm A
+                                # and confound EDL(D; theta0, A))
+
+train:
+  lr: 1.0e-3                   # target-stage pin — SAME as ts38_base.yaml
+                                # (arms differ only in theta0)
+  precision: bf16
+  batch_size: 128
+  eval_every: 375               # placeholder = largest size's cadence; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  max_steps: 30000              # placeholder = largest size's ceiling; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2471              # placeholder = ceil(316228/128); every
+                                  # overlay sets its own exact
+                                  # ceil(n/128) (require_full_epoch1 guard)
+  snapshots:
+    n: 0                         # snapshots OFF in the mini (plan pin)
+    dense_until: 30              # unused when n:0 (kept for parity)
+  seed: 316

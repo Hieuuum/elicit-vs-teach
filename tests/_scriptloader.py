@@ -50,6 +50,17 @@ def load(name: str) -> ModuleType:
     for directory in (SCRIPTS, ANALYSIS):
         path = directory / f"{name}.py"
         if path.is_file():
+            # Idempotent: if this exact file is already in sys.modules — loaded
+            # here earlier, OR pulled in as a bare sibling import by another
+            # path-loaded module (``cross_patch`` doing ``from mech_nodes import
+            # NodeId``) — return that object instead of exec'ing a second copy.
+            # A second copy would define a second, distinct ``NodeId`` class, so
+            # ``NodeId``s produced by one copy never compare equal to the other's
+            # (dataclass ``__eq__`` checks class identity) — a test-order-dependent
+            # KeyError first seen 2026-08-21 in the ts38mt mech-test suites.
+            existing = sys.modules.get(name)
+            if existing is not None and getattr(existing, "__file__", None) == str(path):
+                return existing
             for source_dir in (SCRIPTS, ANALYSIS):
                 if str(source_dir) not in sys.path:
                     sys.path.insert(0, str(source_dir))

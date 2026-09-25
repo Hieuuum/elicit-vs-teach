@@ -1,0 +1,107 @@
+# ts38mw target-stage arm ("pretaught-mw"; docs/ts38mw-target-experiment-
+# handoff.md, EXPERIMENTS.md §6.14/§6.15): the ts38mw wrapper-diverse GO-B
+# installed parent (evt-ts38mw-parent-probe-lr3e-4, final checkpoint step
+# 28000) -> LoRA target fine-tune on D_algo_bare (scaffold-free NL "What is
+# the sum of a and b?" add/sub) — a minimal-LoRA version of the paper's
+# Sec 5/Fig-3 causal intervention (absent -> latent capability). theta0 =
+# runs/evt-ts38mw-parent-probe-lr3e-4/model_merged/ (folded via
+# scripts/merge_adapter.py; launched by scripts/launch_ts38mw_family.sh).
+# The base arm is REUSED, not retrained — this curve overlays the already-
+# measured evt-ts38-base-n<size> family (ts38_base.yaml); only this arm
+# trains. BASE config for 5 log-spaced-prefix sizes
+# (configs/sweeps/ts38/ts38mw_pretaught_n<size>.yaml overlays); never
+# launched standalone. Trains via scripts/train_target.py through the
+# prequential EDL harness.
+#
+# Deliberately-ungated parent: evt-ts38mw-parent-probe-lr3e-4's manifest
+# carries experiment.gates: {} — every gate scored this session used
+# --no-record (owner-accepted deviation, 2026-08-15). Measured (not
+# recorded): G8 TinyStories retention FAILS (1.2694 nats vs bar 1.1718,
+# base 1.0718); G1 was never recorded (canonical op EM 0.98 --no-record).
+# geode/zoo/checks.py::require_parent_ready would hard-fail against
+# [G1, G8] (neither ever recorded pass), so parent_required_gates is []
+# below — that reflects the parent's readiness bookkeeping, not a belief
+# that it passes. NEVER run gates.py g8 (or g1) on this parent without
+# --no-record: a recorded FAIL is V0.6 death for every child
+# (feedback-gate-thresholds-are-task-scoped). If this arm's EDL/D curve
+# ends ABOVE the base arm's at any n, read that as the retention confound
+# (the fig2nl "installed arm sits above base" inversion class), not as
+# evidence against teaching.
+#
+# Everything else below is VERBATIM ts38_pretaught.yaml / ts38_base.yaml —
+# the three arms (base / pretaught / pretaught-mw) differ ONLY in theta0
+# (init/parent); enforced by test_config_completeness.py's ts38mw section.
+# See ts38_base.yaml's ARM-LETTER NOTE for why `arm: A` here maps to
+# ARM_REGIME["A"] == "elicit" (train_target.py) — not duplicated here.
+run_id: evt-ts38mw-pretaught
+experiment:
+  name: training-run
+  arm: A                       # ARM_REGIME["A"] == "elicit" — see ts38_base.yaml's note
+  role: target
+  parent_run_id: evt-ts38mw-parent-probe-lr3e-4
+  parent_required_gates: []    # parent deliberately ungated: gates never
+                                # recorded (experiment.gates: {}); measured
+                                # --no-record only — G8 measured 1.2694 vs
+                                # bar 1.1718 -> FAIL; G1 never recorded
+                                # (canonical op EM 0.98 --no-record). owner
+                                # accepted 2026-08-15; a recorded FAIL would
+                                # block every child (V0.6) so NEVER run
+                                # gates.py g8 on this parent without
+                                # --no-record.
+  match_data_order_with: null  # placeholder; every overlay points this at
+                                # the SAME-SIZE evt-ts38-base-n<size> run
+                                # (G7 — that arm is the anchor, reused not
+                                # retrained)
+  require_full_epoch1: true    # ts38-mini guard 1 — see ts38_base.yaml's
+                                # header; identical here (arms differ only
+                                # in theta0)
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_bare_addsub       # scaffold-free NL add/sub (D_algo_bare); TaskFormat
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:                           # VERBATIM copy of ts38_base.yaml's data block (G7)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 316228            # placeholder = largest size; every overlay
+                                 # sets its own prefix of the frozen order
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:                          # r/alpha restated from common.yaml for the
+  r: 128                       # record — SAME rank both arms (per-arm
+  alpha: 32                    # sizing would change training algorithm A
+                                # and confound EDL(D; theta0, A))
+
+train:
+  lr: 1.0e-3                   # target-stage pin — SAME as ts38_base.yaml
+                                # (arms differ only in theta0)
+  precision: bf16
+  batch_size: 128
+  eval_every: 375               # placeholder = largest size's cadence; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  max_steps: 30000              # placeholder = largest size's ceiling; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2471              # placeholder = ceil(316228/128); every
+                                  # overlay sets its own exact
+                                  # ceil(n/128) (require_full_epoch1 guard)
+  snapshots:
+    n: 0                         # snapshots OFF in the mini (plan pin)
+    dense_until: 30              # unused when n:0 (kept for parity)
+  seed: 316

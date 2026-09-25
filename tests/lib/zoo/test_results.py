@@ -193,3 +193,23 @@ def test_two_tables_join_on_run_id_dataset_size(geode_store: Path) -> None:
     assert len(allrows) == len(edl) + len(steering)
     assert set(allrows["metric_name"]) == {"edl_bits", "steering_sufficiency"}
     assert set(REQUIRED_COLUMNS) <= set(allrows.columns)
+
+
+# ---------------------------------------------------------------------------
+# Implicit loud failures: unknown table name, no tables to concatenate
+# ---------------------------------------------------------------------------
+
+
+def test_read_results_unknown_name_raises(geode_store: Path) -> None:
+    """Reading a name with no matching parquet fails loudly, naming it."""
+    with pytest.raises(Exception) as excinfo:
+        read_results("never_written", store=geode_store)
+    assert "never_written" in str(excinfo.value)
+
+
+def test_read_results_none_over_empty_dir_raises(geode_store: Path) -> None:
+    """read_results(None) over an empty results/ dir has nothing to
+    concatenate — a silent empty frame would hide a wrong store root."""
+    (geode_store / "results").mkdir()
+    with pytest.raises(Exception):
+        read_results(None, store=geode_store)
