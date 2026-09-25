@@ -14,7 +14,7 @@
 # ~5 GB RAM. Rough cost on 16 cores: A ~15-25 min per map (7 maps), B/C ~20-40 min
 # per faithfulness run (8 runs). Start with --stage A to see timings.
 #
-# Usage:  bash run_circuit_cpu.sh [--stage A|B|C|D|all] [--threads N]   (D = the follow-up after A-C; ~8 h CPU)
+# Usage:  bash run_circuit_cpu.sh [--stage A|B|C|D|E|all] [--threads N]   (D, E explicit only; ~8 h / ~14 h CPU; SHOTS=4 env for E)
 # Env:    GEODE_STORE, conda env geode.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -48,7 +48,7 @@ step() {  # step <done-file> <cmd...>
   { "$@" 2>&1 | tee -a "$LOG"; } && [[ ${PIPESTATUS[0]} == 0 ]] || { milestone "FAILED: $*"; return 1; }
   milestone "done in $((SECONDS - t0)) s: $marker"
 }
-want() { [[ $STAGE == "$1" || ( $STAGE == all && $1 != D ) ]]; }  # D is explicit only
+want() { [[ $STAGE == "$1" || ( $STAGE == all && $1 != D && $1 != E ) ]]; }  # D, E explicit only
 
 milestone "repo $(git rev-parse --short HEAD) store=$GEODE_STORE stage=$STAGE threads=$THREADS"
 cd "$A"
@@ -124,5 +124,44 @@ if want D; then
     --run-id "$RID_FTFMT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_elft_in_ftfmt4m_heads_nec --device cpu
   step reuse_ftfmt_in_elft4m_heads_nec.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_ftfmt4m \
     --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_ftfmt_in_elft4m_heads_nec --device cpu
+fi
+# ------------------------------------------------------------------ E: edges on the NL surface, two prompt lengths
+# The edge track was retired on TinyStories after a split-half floor of 0.65 measured on the
+# SYMBOL surface (~7-token prompts). The main pair's NL maps (~15 tokens) were never edge-mapped,
+# and no longer-prompt variant was tried. E builds edge maps (+ split halves) for the elicit
+# parent, the elicited child and the taught child on the NL task at 0 shots and at $SHOTS shots
+# (few-shot exemplars prepended: ~16 tokens each), plus node maps at $SHOTS shots so that the
+# node-vs-edge change rate (Wang et al.) is read at matching prompts. The performing guard
+# decides whether a few-shot map is usable (children score ~0 exact match at 16 shots).
+# Cost on CPU: 0-shot edge map ~10 min (128 pairs), $SHOTS-shot ~5x that; ~14 h in all.
+if want E; then
+  SHOTS=${SHOTS:-4}
+  for spec in "$LATENT edge_latent_nl" "$RID_ELFT edge_elft4m" "$RID_FTFMT edge_ftfmt4m"; do
+    set -- $spec; rid=$1; stem=$2
+    for sh in 0 $SHOTS; do
+      s=${stem}_s$sh
+      step $s.json   python3 circuit_edges.py map --run-id "$rid" --out $s   --shots $sh --n-pairs 128 --device cpu
+      step ${s}_a.json python3 circuit_edges.py map --run-id "$rid" --out ${s}_a --shots $sh --n-pairs 128 --half a --device cpu
+      step ${s}_b.json python3 circuit_edges.py map --run-id "$rid" --out ${s}_b --shots $sh --n-pairs 128 --half b --device cpu
+    done
+    # node maps at $SHOTS shots (0-shot node maps exist: circ_ts_latent_nl / circ_ts_elft4m / circ_ts_ftfmt4m)
+    n=${stem/edge_/circ_}_s$SHOTS
+    step $n.json   python3 circuit_nodes.py --run-id "$rid" --out $n   --shots $SHOTS --n-pairs 128 --device cpu
+    step ${n}_a.json python3 circuit_nodes.py --run-id "$rid" --out ${n}_a --shots $SHOTS --n-pairs 128 --half a --device cpu
+    step ${n}_b.json python3 circuit_nodes.py --run-id "$rid" --out ${n}_b --shots $SHOTS --n-pairs 128 --half b --device cpu
+  done
+  milestone "edge split-half floors (1 - Jaccard between halves) and node-vs-edge change rates"
+  declare -A NODE0=( [latent_nl]=circ_ts_latent_nl [elft4m]=circ_ts_elft4m [ftfmt4m]=circ_ts_ftfmt4m )
+  for m in latent_nl elft4m ftfmt4m; do
+    step done_ds_floor_${m}_s0.log python3 circuit_edges.py delta-s --nodes-a ${NODE0[$m]}_a --nodes-b ${NODE0[$m]}_b \
+      --edges-a edge_${m}_s0_a --edges-b edge_${m}_s0_b
+    step done_ds_floor_${m}_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_${m}_s${SHOTS}_a --nodes-b circ_${m}_s${SHOTS}_b \
+      --edges-a edge_${m}_s${SHOTS}_a --edges-b edge_${m}_s${SHOTS}_b
+  done
+  milestone "elicit parent -> elicited child, and the two children, at both prompt lengths"
+  step done_ds_el_s0.log python3 circuit_edges.py delta-s --nodes-a circ_ts_latent_nl --nodes-b circ_ts_elft4m --edges-a edge_latent_nl_s0 --edges-b edge_elft4m_s0
+  step done_ds_el_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_latent_nl_s$SHOTS --nodes-b circ_elft4m_s$SHOTS --edges-a edge_latent_nl_s$SHOTS --edges-b edge_elft4m_s$SHOTS
+  step done_ds_ch_s0.log python3 circuit_edges.py delta-s --nodes-a circ_ts_elft4m --nodes-b circ_ts_ftfmt4m --edges-a edge_elft4m_s0 --edges-b edge_ftfmt4m_s0
+  step done_ds_ch_s$SHOTS.log python3 circuit_edges.py delta-s --nodes-a circ_elft4m_s$SHOTS --nodes-b circ_ftfmt4m_s$SHOTS --edges-a edge_elft4m_s$SHOTS --edges-b edge_ftfmt4m_s$SHOTS
 fi
 milestone "done stage=$STAGE — paste $LOG"

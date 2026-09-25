@@ -213,9 +213,12 @@ def cmd_map(args) -> int:
             model = load_sidecar_merged(args.run_id, store, args.device)
         name = args.run_id
     else:
-        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
+        dtype = torch.float32 if args.device == "cpu" else torch.bfloat16
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=dtype)
         model.to(args.device)
         name = args.model
+    if args.device == "cpu":
+        model = model.float()  # bf16 is slow / partially unsupported on CPU
     model.eval()
     for p in model.parameters():
         p.requires_grad_(True)
