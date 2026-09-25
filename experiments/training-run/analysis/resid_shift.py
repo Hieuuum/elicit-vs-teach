@@ -86,6 +86,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from circuit_nodes import apply_sidecar  # noqa: E402
 from premise_checks import DEFAULT_ROW_OFFSET, EVAL_PARQUET, render_probe  # noqa: E402
+from task_adapter import add_task_args, load_task, resolve_tokenizer  # noqa: E402
+
+from geode.adapt import layout  # noqa: E402
 
 STORE = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
 TOKENIZER = "meta-llama/Llama-3.2-1B"
@@ -141,8 +144,9 @@ class ResidTaps:
 
     def __init__(self, model):
         self.acts: list[torch.Tensor] = []
-        self.handles = [model.model.embed_tokens.register_forward_hook(self._emb)]
-        for layer in model.model.layers:
+        lay = layout(model)  # model-family embedding / decoder-layer locations
+        self.handles = [lay.embed().register_forward_hook(self._emb)]
+        for layer in lay.layers:
             self.handles.append(layer.register_forward_hook(self._layer))
 
     def _emb(self, _m, _i, out):
@@ -248,7 +252,7 @@ def direction_stats(mat: torch.Tensor) -> tuple[float, float, float]:
 @torch.no_grad()
 def run_pair(parent, child, tokenizer, prompts, device, batch_size, gen_ids, gen_bs,
              n_gen_rows_per_seq, seed):
-    n_layers = len(parent.model.layers) + 1  # + embedding
+    n_layers = layout(parent).n_layers + 1  # + embedding
     tp, tc = ResidTaps(parent), ResidTaps(child)
     acc_ans, acc_all, acc_gen = Accum(n_layers), Accum(n_layers), Accum(n_layers)
     fn = {"kl_task_ans": [], "parent_top1": [], "kl_gen": 0.0, "nll_gen_parent": 0.0,
@@ -316,12 +320,18 @@ def participation(shares: torch.Tensor) -> float:
 def cmd_run(args) -> int:
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    task = load_task(args)  # None = arithmetic default, unchanged
+    tokenizer = AutoTokenizer.from_pretrained(resolve_tokenizer(args, args.parent, TOKENIZER))
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    prompts, triples = task_prompts(args.task_format, args.n)
+    if task is None:
+        prompts, triples = task_prompts(args.task_format, args.n)
+        label = args.task_format
+    else:
+        items = task.items(tokenizer, args.n)
+        prompts, triples, label = [it.prompt for it in items], None, f"{args.task}/{args.task_split}"
     gen_ids, gen_path = generic_ids(tokenizer, args.generic_text, args.n, args.seq_len)
-    print(f"[resid] task: {args.task_format} x{len(prompts)}  e.g. {prompts[0]!r}")
+    print(f"[resid] task: {label} x{len(prompts)}  e.g. {prompts[0][-80:]!r}")
     print(f"[resid] generic: {gen_ids.shape[0]} x {args.seq_len} tokens from {gen_path}")
 
     parent = load_fp32(args.parent, args.device)
@@ -343,9 +353,12 @@ def cmd_run(args) -> int:
     from geode.arith.formats import true_answer
 
     U = parent.lm_head.weight.detach().float().cpu()
-    gamma = parent.model.norm.weight.detach().float().cpu()
+    gamma = layout(parent).final_norm().weight.detach().float().cpu()
     first_tok = lambda x: tokenizer(str(x), add_special_tokens=False)["input_ids"][0]  # noqa: E731
-    correct = torch.tensor([first_tok(true_answer(a, b, op)) for a, b, op in triples])
+    if task is None:
+        correct = torch.tensor([first_tok(true_answer(a, b, op)) for a, b, op in triples])
+    else:
+        correct = torch.tensor([it.target for it in items])
     ptop = torch.tensor(fn["parent_top1"])
     D = acc_ans.matrices()[-1].double()                       # (N, d) final-layer deltas
     u1 = (U[correct] * gamma).double()
@@ -501,7 +514,7 @@ def cmd_run(args) -> int:
           f"(final layer {s['cos_task_generic_last']:+.3f})")
     out = Path(f"{args.out}.json")
     out.write_text(json.dumps({"parent": args.parent, "child": args.child,
-                               "task_format": args.task_format, "generic": gen_path,
+                               "task_format": label, "generic": gen_path,
                                "seq_len": args.seq_len, "summary": summary,
                                "layers": layers}, indent=2))
     print(f"[resid] wrote {out}")
@@ -601,8 +614,10 @@ def main() -> int:
     r.add_argument("--batch-size", type=int, default=32)
     r.add_argument("--gen-batch-size", type=int, default=16)
     r.add_argument("--seed", type=int, default=0)
-    r.add_argument("--tokenizer", default=TOKENIZER)
+    r.add_argument("--tokenizer", default=None,
+                   help=f"default {TOKENIZER} (arith) / the parent's own (other tasks)")
     r.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    add_task_args(r)
     c = sub.add_parser("compare")
     c.add_argument("runs", nargs="+", help="label=path.json ...")
     c.add_argument("--plot", default=None)

@@ -72,7 +72,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from premise_checks import DEFAULT_ROW_OFFSET, EVAL_PARQUET, render_probe  # noqa: E402
 from resid_shift import TOKENIZER, generic_ids, load_fp32  # noqa: E402
+from task_adapter import add_task_args, load_task, resolve_tokenizer  # noqa: E402
 
+from geode.adapt import layout  # noqa: E402
 from geode.arith.formats import true_answer  # noqa: E402
 
 STORE = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
@@ -87,8 +89,9 @@ class LensTaps:
     def __init__(self, model):
         self.acts: list[torch.Tensor] = []
         self.grad_mode = False
-        self.handles = [model.model.embed_tokens.register_forward_hook(self._mk(-1))]
-        for i, layer in enumerate(model.model.layers):
+        lay = layout(model)  # model-family embedding / decoder-layer locations
+        self.handles = [lay.embed().register_forward_hook(self._mk(-1))]
+        for i, layer in enumerate(lay.layers):
             self.handles.append(layer.register_forward_hook(self._mk(i)))
 
     def _mk(self, idx):
@@ -117,7 +120,7 @@ class LensTaps:
 
 def decode(model, h: torch.Tensor) -> torch.Tensor:
     """unembed(norm(h)) -> logits (…, V); scale-invariant in h (RMSNorm)."""
-    return model.lm_head(model.model.norm(h))
+    return model.lm_head(layout(model).final_norm()(h))
 
 
 # ------------------------------------------------------- LRP (R-lens) rules
@@ -126,9 +129,12 @@ def lrp_rules(model):
     """Same forward values, LRP backward: LN-rule on RMSNorm, identity-rule on
     SiLU, half-rule on the gated product. Class-level monkeypatch, restored on
     exit. Attention and all linear maps untouched (0-rule == gradient)."""
-    norm_cls = type(model.model.norm)
-    mlp_cls = type(model.model.layers[0].mlp)
-    assert getattr(model.config, "hidden_act", "silu") == "silu", model.config.hidden_act
+    lay = layout(model)
+    if not lay.supports_lrp:
+        raise SystemExit(f"[lens] R-lens rules assume RMSNorm + gated SiLU MLP; {lay.family} "
+                         "is not supported — run with --lenses logit jlens")
+    norm_cls = type(lay.final_norm())
+    mlp_cls = type(lay.layers[0].mlp)
     orig_norm, orig_mlp = norm_cls.forward, mlp_cls.forward
 
     def rms_ln_rule(self, x):
@@ -158,7 +164,7 @@ def average_jacobians(model, taps, story_ids, device, k_batch, mode, log=True):
     / d h_{l,t}, averaged over source positions t and prompts. mode 'grad' =
     J-lens, 'lrp' = R-lens. Returns (J tensor (L+1, d, d) on CPU, info dict)."""
     d = model.config.hidden_size
-    n_layers = len(model.model.layers) + 1
+    n_layers = layout(model).n_layers + 1
     P, T = story_ids.shape
     J = torch.zeros(n_layers, d, d, dtype=torch.float64)
     ctx = lrp_rules(model) if mode == "lrp" else contextlib.nullcontext()
@@ -260,9 +266,16 @@ def summarize_layers(per_layer: list[dict]) -> dict:
 def cmd_run(args) -> int:
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    task = load_task(args)  # None = arithmetic default, unchanged
+    tokenizer = AutoTokenizer.from_pretrained(resolve_tokenizer(args, args.run_id, TOKENIZER))
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
+    positions = [p if p == "subject" else int(p) for p in args.positions]
+    if task is not None:
+        return run_task(args, task, tokenizer, positions)
+    if "subject" in positions:
+        raise SystemExit("[lens] --positions subject needs a task with subjects (e.g. --task tofu)")
+    args.positions = positions
     df = pd.read_parquet(EVAL_PARQUET)
     rows = df.iloc[DEFAULT_ROW_OFFSET : DEFAULT_ROW_OFFSET + args.n]
     triples = [(int(r.a), int(r.b), str(r.op)) for r in rows.itertuples()]
@@ -299,6 +312,41 @@ def cmd_run(args) -> int:
           f"-> {answers[0]} (scored token {tokenizer.decode([correct[0].item()])!r}); "
           f"{n_neg} negative answers ({'sign appended to prompt' if n_neg else 'none'})")
 
+    results = {"run_id": args.run_id, "surface": args.surface, "n": len(prompts),
+               "negatives": args.negatives, "negative_all": negative,
+               "problems": [list(t) + [a] for t, a in zip(triples, answers)]}
+    return lens_core(args, tokenizer, input_ids, correct, distract, results,
+                     {pos: None for pos in args.positions})
+
+
+def run_task(args, task, tokenizer, positions) -> int:
+    """Non-arithmetic task: scored token = the task's in-context answer token,
+    distractor = its primary same-slot distractor. Position 'subject' decodes
+    the state at the last token of the subject's first mention (items whose
+    question does not name the subject are left out of that position)."""
+    items = task.items(tokenizer, args.n)
+    input_ids = [it.prompt_ids for it in items]
+    correct = torch.tensor([it.target for it in items])
+    distract = torch.tensor([it.distractors[0] for it in items])
+    rowpos: dict = {}
+    for pos in positions:
+        if pos == "subject":
+            rowpos[pos] = [task.subject_last_position(tokenizer, it) for it in items]
+        else:
+            rowpos[pos] = None
+    print(f"[lens] {args.run_id}: task {args.task}/{args.task_split} x{len(items)}  "
+          f"e.g. ...{items[0].prompt[-60:]!r} -> {tokenizer.decode([items[0].target])!r} "
+          f"(distractor {tokenizer.decode([items[0].distractors[0]])!r})")
+    results = {"run_id": args.run_id, "surface": f"{args.task}/{args.task_split}", "n": len(items),
+               "negatives": "n/a", "item_ids": [it.item_id for it in items]}
+    return lens_core(args, tokenizer, input_ids, correct, distract, results, rowpos)
+
+
+def lens_core(args, tokenizer, input_ids, correct, distract, results, rowpos) -> int:
+    """Shared tail: states at the requested positions, own logits, lenses, summaries.
+    rowpos[pos] = None (a fixed offset from the end, e.g. -1) or a per-row list of
+    absolute indices into the unpadded prompt (None entries = row not scored)."""
+    prompts = input_ids
     model = load_fp32(args.run_id, args.device)
     for prm in model.parameters():
         prm.requires_grad_(False)
@@ -306,11 +354,13 @@ def cmd_run(args) -> int:
         model.config._attn_implementation = "eager"
     taps = LensTaps(model)
     device = args.device
-    n_layers = len(model.model.layers) + 1
+    n_layers = layout(model).n_layers + 1
 
     # --- task states at the requested positions + the model's own logits
     pad = tokenizer.pad_token_id
-    H = {pos: [[] for _ in range(n_layers)] for pos in args.positions}
+    H = {pos: [[] for _ in range(n_layers)] for pos in rowpos}
+    keep = {pos: [i for i in range(len(prompts)) if rowpos[pos] is None or rowpos[pos][i] is not None]
+            for pos in rowpos}
     own_logits = []
     with torch.no_grad():
         for s in range(0, len(prompts), args.batch_size):
@@ -320,25 +370,33 @@ def cmd_run(args) -> int:
             am = torch.tensor([[0] * (T - len(x)) + [1] * len(x) for x in chunk])
             out = model(input_ids=ids.to(device), attention_mask=am.to(device))
             own_logits.append(out.logits[:, -1].float().cpu())
-            for pos in args.positions:
+            for pos, rp in rowpos.items():
+                if rp is None:
+                    idx = torch.full((len(chunk),), pos if pos >= 0 else T + pos)
+                    rows = torch.arange(len(chunk))
+                else:  # per-row absolute index into the unpadded prompt (left padding)
+                    sel = [(j, T - len(x) + rp[s + j]) for j, x in enumerate(chunk)
+                           if rp[s + j] is not None]
+                    if not sel:
+                        continue
+                    rows = torch.tensor([j for j, _ in sel])
+                    idx = torch.tensor([t for _, t in sel])
                 for li in range(n_layers):
-                    H[pos][li].append(taps.acts[li][:, pos].float().cpu())
-    H = {pos: [torch.cat(x, 0) for x in H[pos]] for pos in args.positions}
+                    H[pos][li].append(taps.acts[li][rows, idx].float().cpu())
+    H = {pos: [torch.cat(x, 0) for x in H[pos]] for pos in rowpos}
     own = score(torch.cat(own_logits, 0), correct, distract)
     own_acc = sum(own["top1"]) / len(prompts)
-    print(f"[lens] model's own first-digit-token accuracy: {own_acc:.3f}  "
+    print(f"[lens] model's own first-answer-token accuracy: {own_acc:.3f}  "
           f"logit-diff {sum(own['logit_diff']) / len(prompts):+.2f}")
-    results = {"run_id": args.run_id, "surface": args.surface, "n": len(prompts),
-               "negatives": args.negatives, "negative_all": negative,
-               "problems": [list(t) + [a] for t, a in zip(triples, answers)],
-               "own_first_token_acc": own_acc,
-               "own_logit_diff": sum(own["logit_diff"]) / len(prompts), "positions": {},
-               "jacobian_info": {}}
+    results.update({"own_first_token_acc": own_acc,
+                    "own_logit_diff": sum(own["logit_diff"]) / len(prompts), "positions": {},
+                    "jacobian_info": {}})
     logit_scores = {}
     if "logit" in args.lenses:
         with torch.no_grad():
-            for pos in args.positions:
-                logit_scores[pos] = [score(decode(model, H[pos][li].to(device)), correct, distract)
+            for pos in rowpos:
+                c, x = correct[keep[pos]], distract[keep[pos]]
+                logit_scores[pos] = [score(decode(model, H[pos][li].to(device)), c, x)
                                      for li in range(n_layers)]
                 acc_l = logit_scores[pos][-1]["top1"]
                 print(f"[lens] logit lens scored (pos {pos}); last layer acc "
@@ -382,14 +440,15 @@ def cmd_run(args) -> int:
             print("[lens] ||R-J||/||J|| by layer: "
                   + " ".join(f"L{li - 1}:{v:.2f}" for li, v in enumerate(rel)))
 
-    for pos in args.positions:
+    for pos in rowpos:
         per = {}
+        c, x = correct[keep[pos]], distract[keep[pos]]
         if pos in logit_scores:
             per["logit"] = logit_scores[pos]
         with torch.no_grad():
             for ln, J in mats.items():
-                per[ln] = [score(decode(model, (H[pos][li] @ J[li].T).to(device)), correct,
-                                 distract) for li in range(n_layers)]
+                per[ln] = [score(decode(model, (H[pos][li] @ J[li].T).to(device)), c, x)
+                           for li in range(n_layers)]
         if "logit" in per:
             for ln in mats:  # J = R = I at the last layer: lenses must coincide there
                 a, b = per[ln][-1]["logit_diff"], per["logit"][-1]["logit_diff"]
@@ -399,6 +458,8 @@ def cmd_run(args) -> int:
         for ln, v in per.items():  # per-example rank trajectory (L+1 x N) for breakdowns
             summ[ln]["rank_all"] = [d["rank"] for d in v]
         results["positions"][str(pos)] = summ
+        summ_n = len(keep[pos])
+        print(f"[lens] position {pos}: {summ_n} rows scored")
         print(f"[lens] position {pos}:")
         print("[lens] layer | " + " | ".join(f"{ln}: acc   ld    rank" for ln in summ))
         for i, layer in enumerate(next(iter(summ.values()))["layers"]):
@@ -482,8 +543,9 @@ def main() -> int:
     r.add_argument("--surface", default="bare_nl")
     r.add_argument("--out", required=True)
     r.add_argument("--n", type=int, default=256)
-    r.add_argument("--positions", type=int, nargs="+", default=[-1],
-                   help="prompt positions to decode (-1 = answer position)")
+    r.add_argument("--positions", nargs="+", default=["-1"],
+                   help="prompt positions to decode (-1 = answer position; 'subject' = the last "
+                   "token of the subject's first mention, tasks with subjects only)")
     r.add_argument("--lenses", nargs="+", default=["logit", "jlens", "rlens"],
                    choices=["logit", "jlens", "rlens"])
     r.add_argument("--batch-size", type=int, default=32)
@@ -505,8 +567,10 @@ def main() -> int:
                    help="skip writing <out>_{jlens,rlens}_J.pt (fp16, ~140 MB each)")
     r.add_argument("--no-tf32", dest="tf32", action="store_false",
                    help="keep full fp32 matmuls in the Jacobian phase (~8x slower)")
-    r.add_argument("--tokenizer", default=TOKENIZER)
+    r.add_argument("--tokenizer", default=None,
+                   help=f"default {TOKENIZER} (arith) / the model's own (other tasks)")
     r.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    add_task_args(r)
     c = sub.add_parser("compare")
     c.add_argument("runs", nargs="+", help="label=path.json ...")
     c.add_argument("--position", default="-1")

@@ -45,9 +45,13 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "experiments" / "training-run" / "scripts"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from circuit_nodes import EVAL_CONFIG, load_sidecar_merged  # noqa: E402
+from task_adapter import add_task_args, load_task, load_tokenizer, resolve_tokenizer  # noqa: E402
 from train import load_config  # noqa: E402
 from train_sft import load_frozen_parquet  # noqa: E402
+
+from geode.adapt import layout  # noqa: E402
 
 from geode.arith import exact_match_accuracy, format_valid  # noqa: E402
 from geode.arith.spans import tokenize_with_spans  # noqa: E402
@@ -82,14 +86,12 @@ class SteerTaps:
         self.replace = False        # True: overwrite with vec (per-prompt patch)
         self.capture_rows = False   # capture per-row acts, not sums
         self.handles = []
-        cfg = model.config
-        self.n_heads = cfg.num_attention_heads
-        self.d_head = cfg.hidden_size // cfg.num_attention_heads
-        for i, layer in enumerate(model.model.layers):
-            self.handles.append(
-                layer.self_attn.o_proj.register_forward_pre_hook(self._attn_hook(i))
-            )
-            self.handles.append(layer.mlp.down_proj.register_forward_hook(self._mlp_hook(i)))
+        lay = layout(model)  # model-family node locations (Llama: o_proj / down_proj)
+        self.n_heads = lay.n_heads
+        self.d_head = lay.d_head
+        for i in range(lay.n_layers):
+            self.handles.append(lay.attn_out(i).register_forward_pre_hook(self._attn_hook(i)))
+            self.handles.append(lay.mlp_out(i).register_forward_hook(self._mlp_hook(i)))
 
     def _attn_hook(self, i):
         def hook(_mod, inputs):
@@ -168,6 +170,130 @@ def capture_means(model, taps, prompt_ids, device, batch_size):
     return {k: v / n for k, v in sums.items()}
 
 
+def main_task(args, task) -> int:
+    """Non-arithmetic task (--task tofu): patch the DONOR's activations at the
+    top-k nodes of --map into the frozen BASE at the answer position and read
+    the next-token answer directly — first-token top-1 on the task's answer
+    token and the logit-diff against its same-slot distractor (no generation:
+    the task's answer is a fact token, not a parsed integer).
+
+    Conditions: base unpatched; per-prompt donor states at the top-k nodes;
+    per-prompt at k type-matched random nodes (mean over --random-sets draws);
+    the donor's mean vector at the top-k (a constant, deployable patch); and
+    the donor itself (ceiling). --heads-only restricts ranking, patching and
+    random sets to attention heads: MLP outputs at the answer position can
+    write the answer directly, heads only route information, so a heads-only
+    patch that works means the FACTS are still stored in the base (latent)."""
+    import random as _random
+
+    from circuit_faithfulness import type_matched_random
+
+    tokenizer = load_tokenizer(resolve_tokenizer(args, args.base, ""))
+    items = task.items(tokenizer, args.n_eval)
+    node_df = pd.read_parquet(Path(args.map).with_suffix(".parquet"))
+    ranked = [(r.node_type, int(r.layer), int(r.head))
+              for r in node_df.sort_values("abs_score", ascending=False).itertuples()]
+    if args.heads_only:
+        ranked = [n for n in ranked if n[0] == "attn"]
+    top = ranked[: args.k]
+    rng = _random.Random(args.seed)
+    rand_sets = [sorted(type_matched_random(ranked, top, rng)) for _ in range(args.random_sets)]
+    pad = tokenizer.pad_token_id
+    batches = [items[i : i + args.batch_size] for i in range(0, len(items), args.batch_size)]
+
+    def tensors(chunk):
+        T = max(len(it.prompt_ids) for it in chunk)
+        ids = torch.tensor([[pad] * (T - len(it.prompt_ids)) + it.prompt_ids for it in chunk],
+                           device=args.device)
+        am = (torch.arange(T, device=args.device)[None, :]
+              >= torch.tensor([T - len(it.prompt_ids) for it in chunk], device=args.device)[:, None]).long()
+        tgt = torch.tensor([it.target for it in chunk], device=args.device)
+        dis = torch.tensor([it.distractors[0] for it in chunk], device=args.device)
+        return ids, am, tgt, dis
+
+    def score(logits, tgt, dis):
+        z = logits[:, -1].float()
+        top1 = (z.argmax(-1) == tgt).float()
+        ld = (z.gather(1, tgt[:, None]) - z.gather(1, dis[:, None])).squeeze(1)
+        return top1.tolist(), ld.tolist()
+
+    # donor: per-row final-position activations at every node + its own scores
+    donor = load_any(args.donor_run, args.device).eval()
+    d_taps = SteerTaps(donor)
+    d_taps.capture_rows = True
+    donor_rows, donor_top1, donor_ld = [], [], []
+    with torch.no_grad():
+        for chunk in batches:
+            ids, am, tgt, dis = tensors(chunk)
+            d_taps.captured, d_taps.mode = {}, "capture"
+            t1, ld = score(donor(input_ids=ids, attention_mask=am).logits, tgt, dis)
+            d_taps.mode = "off"
+            donor_rows.append({k: v for k, v in d_taps.captured.items()})
+            donor_top1 += t1
+            donor_ld += ld
+    d_taps.remove()
+    del donor
+    torch.cuda.empty_cache() if args.device.startswith("cuda") else None
+    means = {k: torch.cat([r[k] for r in donor_rows], 0).mean(0) for k in donor_rows[0]}
+
+    base = load_any(args.base, args.device).eval()
+    taps = SteerTaps(base)
+    taps.replace = True
+
+    def vectors(nodes, gi, mean=False):
+        out = {}
+        for kind, layer, head in nodes:
+            rows = means[(kind, layer)] if mean else donor_rows[gi][(kind, layer)]
+            if kind == "attn":
+                out[(kind, layer, head)] = rows[..., head, :]
+            else:
+                out[(kind, layer, head)] = rows
+        return out
+
+    def run(label, nodes_fn):
+        t1_all, ld_all = [], []
+        with torch.no_grad():
+            for gi, chunk in enumerate(batches):
+                ids, am, tgt, dis = tensors(chunk)
+                vec = nodes_fn(gi)
+                taps.vectors = vec
+                taps.mode = "steer" if vec else "off"
+                t1, ld = score(base(input_ids=ids, attention_mask=am).logits, tgt, dis)
+                taps.mode = "off"
+                t1_all += t1
+                ld_all += ld
+        res = {"top1": sum(t1_all) / len(t1_all), "logit_diff": sum(ld_all) / len(ld_all)}
+        print(f"[steer] {label:<34}: top-1 {res['top1']:.3f}  logit-diff {res['logit_diff']:+.3f}"
+              f"  (n={len(t1_all)})")
+        return res
+
+    results = {"base_unpatched": run("base unpatched", lambda gi: {}),
+               f"per_prompt_top{args.k}": run(f"per-prompt donor states, top-{args.k}",
+                                               lambda gi: vectors(top, gi)),
+               f"mean_vector_top{args.k}": run(f"donor mean vector, top-{args.k}",
+                                               lambda gi: vectors(top, gi, mean=True))}
+    rand = [run(f"per-prompt, random-{args.k} #{j}", lambda gi, rs=rs: vectors(rs, gi))
+            for j, rs in enumerate(rand_sets)]
+    if rand:
+        results[f"per_prompt_random{args.k}"] = {
+            "top1": sum(r["top1"] for r in rand) / len(rand),
+            "logit_diff": sum(r["logit_diff"] for r in rand) / len(rand),
+            "top1_max": max(r["top1"] for r in rand), "n_sets": len(rand)}
+    results["donor"] = {"top1": sum(donor_top1) / len(donor_top1),
+                        "logit_diff": sum(donor_ld) / len(donor_ld)}
+    print(f"[steer] donor itself (ceiling)          : top-1 {results['donor']['top1']:.3f}  "
+          f"logit-diff {results['donor']['logit_diff']:+.3f}")
+    taps.remove()
+    meta = {"base": args.base, "donor": args.donor_run, "map": args.map, "k": args.k,
+            "heads_only": args.heads_only, "task": f"{args.task}/{args.task_split}",
+            "n_eval": len(items), "results": results}
+    out = Path(f"{args.out}.json" if args.out else
+               f"steer_{Path(args.map).name}_k{args.k}_{args.task}.json")
+    out.write_text(json.dumps(meta, indent=2))
+    print(f"[steer] wrote {out}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base", required=True, help="model to steer (hub id / dir / run id)")
@@ -191,7 +317,15 @@ def main() -> int:
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--seed", type=int, default=316)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--heads-only", action="store_true", help="task path: heads only")
+    ap.add_argument("--random-sets", type=int, default=5, help="task path: random node sets")
+    ap.add_argument("--tokenizer", default=None)
+    ap.add_argument("--out", default=None, help="task path: output stem")
+    add_task_args(ap)
     args = ap.parse_args()
+    task = load_task(args)
+    if task is not None:
+        return main_task(args, task)
 
     cfg = load_config(EVAL_CONFIG, None)
     df = load_frozen_parquet(cfg)

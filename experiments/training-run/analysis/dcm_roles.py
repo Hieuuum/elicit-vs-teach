@@ -49,8 +49,10 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from geode.adapt import layout  # noqa: E402
 from geode.arith.formats import digits, true_answer  # noqa: E402
 from premise_checks import DEFAULT_ROW_OFFSET, EVAL_PARQUET, render_probe  # noqa: E402
+from task_adapter import add_task_args, load_task, load_tokenizer, resolve_tokenizer  # noqa: E402
 
 ROLES = ("operand_a", "operand_b", "operation")
 
@@ -101,18 +103,18 @@ class MixTaps:
     weighted by a differentiable mask: x <- (1-m) x + m x_cf."""
 
     def __init__(self, model):
-        cfg = model.config
-        self.H = cfg.num_attention_heads
-        self.dh = cfg.hidden_size // cfg.num_attention_heads
-        self.L = cfg.num_hidden_layers
+        lay = layout(model)  # model-family node locations (Llama: o_proj / down_proj)
+        self.H = lay.n_heads
+        self.dh = lay.d_head
+        self.L = lay.n_layers
         self.mode = "off"
         self.cf: dict[tuple, torch.Tensor] = {}
         self.mask_attn = None  # (L, H)
         self.mask_mlp = None   # (L,)
         self.handles = []
-        for i, layer in enumerate(model.model.layers):
-            self.handles.append(layer.self_attn.o_proj.register_forward_pre_hook(self._a(i)))
-            self.handles.append(layer.mlp.down_proj.register_forward_hook(self._m(i)))
+        for i in range(lay.n_layers):
+            self.handles.append(lay.attn_out(i).register_forward_pre_hook(self._a(i)))
+            self.handles.append(lay.mlp_out(i).register_forward_hook(self._m(i)))
 
     def _a(self, i):
         def hook(_mod, inputs):
@@ -144,13 +146,23 @@ class MixTaps:
             h.remove()
 
 
-def learn_role(model, taps, pairs, device, lam, steps, lr, components="heads"):
+def learn_role(model, taps, pairs, device, lam, steps, lr, components="heads",
+               cf_target="label"):
     """Optimise mask logits; return (attn_mask (L,H), mlp_mask (L,), stats).
 
     Pairs are length-matched within a pair but not across pairs, so they are
     processed in same-length groups; the counterfactual activations of each
     group are captured once and cached, and every optimisation step sums the
-    task loss over all groups before one Adam update."""
+    task loss over all groups before one Adam update.
+
+    cf_target="label" (arithmetic, default): the mixed run must produce the
+    counterfactual's labelled answer token p[3]. cf_target="cf_dist" (tasks
+    whose counterfactual answer is unknown, e.g. a TOFU author swapped for an
+    invented one): the mixed run must reproduce the model's OWN next-token
+    distribution on the counterfactual prompt (soft cross-entropy); p[3] is
+    then the same-slot distractor, used only for the logit-diff criterion
+    (share of performing pairs whose preference logit(p[2]) - logit(p[3])
+    moves at least halfway from the clean to the counterfactual value)."""
     groups: dict[int, list] = {}
     for pr in pairs:
         groups.setdefault(len(pr[0]), []).append(pr)
@@ -163,9 +175,9 @@ def learn_role(model, taps, pairs, device, lam, steps, lr, components="heads"):
         taps.cf = {}
         taps.mode = "capture"
         with torch.no_grad():
-            model(cf)
+            cf_prob = torch.softmax(model(cf).logits[:, -1].float(), -1)
         taps.mode = "off"
-        batches.append((clean, cf, ct, xt, dict(taps.cf)))
+        batches.append((clean, cf, ct, xt, dict(taps.cf), cf_prob))
     n_total = sum(len(b[0]) for b in batches)
 
     la = torch.full((taps.L, taps.H), -3.0, device=device, requires_grad=True)
@@ -180,12 +192,13 @@ def learn_role(model, taps, pairs, device, lam, steps, lr, components="heads"):
     for step in range(steps):
         taps.mask_attn, taps.mask_mlp = torch.sigmoid(la), torch.sigmoid(lm)
         task = 0.0
-        for clean, _cf, _ct, xt, cf_acts in batches:
+        for clean, _cf, _ct, xt, cf_acts, cf_prob in batches:
             taps.cf = cf_acts
             taps.mode = "mix"
             logits = model(clean).logits[:, -1].float()
             taps.mode = "off"
-            task = task + F.cross_entropy(logits, xt, reduction="sum")
+            target = cf_prob if cf_target == "cf_dist" else xt
+            task = task + F.cross_entropy(logits, target, reduction="sum")
         task = task / n_total
         sparsity = torch.sigmoid(la).sum() + torch.sigmoid(lm).sum()
         loss = task + lam * sparsity
@@ -201,26 +214,54 @@ def learn_role(model, taps, pairs, device, lam, steps, lr, components="heads"):
         ha, hm = (torch.sigmoid(la) > 0.5).float(), (torch.sigmoid(lm) > 0.5).float()
         taps.mask_attn, taps.mask_mlp = ha, hm
         hit_cf = hit_clean = hit_ceiling = 0
-        for clean, cf, ct, xt, cf_acts in batches:
+        ld_rows = []  # (ld_clean, ld_mix, ld_cf, ld_allheads) for cf_dist
+        for clean, cf, ct, xt, cf_acts, cf_prob in batches:
             taps.cf = cf_acts
             taps.mode = "mix"
-            hit_cf += (model(clean).logits[:, -1].argmax(-1) == xt).sum().item()
+            lg_mix = model(clean).logits[:, -1].float()
+            want = cf_prob.argmax(-1) if cf_target == "cf_dist" else xt
+            hit_cf += (lg_mix.argmax(-1) == want).sum().item()
             taps.mode = "off"
-            hit_clean += (model(clean).logits[:, -1].argmax(-1) == ct).sum().item()
-            hit_ceiling += (model(cf).logits[:, -1].argmax(-1) == xt).sum().item()
-    return ha.cpu(), hm.cpu(), {"cf_flip_acc": hit_cf / n_total,
-                                "clean_acc": hit_clean / n_total,
-                                "cf_ceiling_acc": hit_ceiling / n_total,
-                                "n_attn": int(ha.sum()), "n_mlp": int(hm.sum()),
-                                "n_length_groups": len(batches)}
+            lg_clean = model(clean).logits[:, -1].float()
+            hit_clean += (lg_clean.argmax(-1) == ct).sum().item()
+            lg_cf = model(cf).logits[:, -1].float()
+            hit_ceiling += (lg_cf.argmax(-1) == want).sum().item()
+            if cf_target == "cf_dist":
+                taps.mask_attn = torch.ones_like(ha)   # every head copied: the head ceiling
+                taps.mode = "mix"
+                lg_all = model(clean).logits[:, -1].float()
+                taps.mode = "off"
+                taps.mask_attn = ha
+
+                def ld(z):
+                    return (z.gather(1, ct[:, None]) - z.gather(1, xt[:, None])).squeeze(1).tolist()
+
+                ld_rows += list(zip(ld(lg_clean), ld(lg_mix), ld(lg_cf), ld(lg_all)))
+    stats = {"cf_flip_acc": hit_cf / n_total, "clean_acc": hit_clean / n_total,
+             "cf_ceiling_acc": hit_ceiling / n_total,
+             "n_attn": int(ha.sum()), "n_mlp": int(hm.sum()),
+             "n_length_groups": len(batches), "cf_target": cf_target}
+    if cf_target == "cf_dist":
+        valid = [r for r in ld_rows if r[0] - r[2] >= 1.0]   # pairs with a preference to move
+
+        def moved(k):
+            return sum((r[0] - r[k]) >= 0.5 * (r[0] - r[2]) for r in valid) / max(1, len(valid))
+
+        n = max(1, len(ld_rows))
+        stats.update({"ld_n_valid": len(valid), "ld_n_pairs": len(ld_rows),
+                      "ld_moved_frac": moved(1), "ld_moved_ceiling": moved(3),
+                      "ld_clean_mean": sum(r[0] for r in ld_rows) / n,
+                      "ld_cf_mean": sum(r[2] for r in ld_rows) / n})
+    return ha.cpu(), hm.cpu(), stats
 
 
 def cmd_learn(args) -> int:
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM
 
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    task = load_task(args)  # None = arithmetic default, unchanged
+    if task is None and args.surface is None:
+        raise SystemExit("[dcm] --surface is required for --task arith")
+    tokenizer = load_tokenizer(resolve_tokenizer(args, args.model, "meta-llama/Llama-3.2-1B"))
     store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
     if args.run_id is not None:
         if (store / "runs" / args.run_id / "model" / "model.safetensors").is_file():
@@ -233,7 +274,8 @@ def cmd_learn(args) -> int:
             model = load_sidecar_merged(args.run_id, store, args.device)
         name = args.run_id
     else:
-        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
+        dtype = torch.bfloat16 if task is None or args.device != "cpu" else torch.float32
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=dtype)
         model.to(args.device)
         name = args.model
     model.eval()
@@ -241,16 +283,20 @@ def cmd_learn(args) -> int:
         p.requires_grad_(False)
 
     taps = MixTaps(model)
-    out = {"model": name, "surface": args.surface, "lam": args.lam,
+    surface = args.surface if task is None else f"{args.task}/{args.task_split}"
+    roles = args.roles if task is None else list(task.roles)
+    out = {"model": name, "surface": surface, "lam": args.lam,
            "components": args.components, "roles": {}}
-    for role in args.roles:
-        pairs = make_pairs(args.surface, role, args.n_pairs, tokenizer)
+    for role in roles:
+        pairs = (make_pairs(args.surface, role, args.n_pairs, tokenizer) if task is None
+                 else task.role_pairs(tokenizer, role, args.n_pairs))
         if len(pairs) < 8:
-            print(f"[dcm] {role}: only {len(pairs)} usable pairs on {args.surface} — skipped")
+            print(f"[dcm] {role}: only {len(pairs)} usable pairs on {surface} — skipped")
             continue
         print(f"[dcm] {name} / {role}: {len(pairs)} pairs")
         ha, hm, st = learn_role(model, taps, pairs, args.device, args.lam, args.steps, args.lr,
-                                components=args.components)
+                                components=args.components,
+                                cf_target="label" if task is None else "cf_dist")
         nodes = [f"attn:{i}:{h}" for i in range(taps.L) for h in range(taps.H) if ha[i, h]]
         nodes += [f"mlp:{i}" for i in range(taps.L) if hm[i]]
         out["roles"][role] = {"nodes": nodes, **st, "n_pairs": len(pairs)}
@@ -258,6 +304,10 @@ def cmd_learn(args) -> int:
         print(f"[dcm]   role set: {len(nodes)} nodes ({st['n_attn']} heads, {st['n_mlp']} MLPs) "
               f"layers {layers}; cf-flip acc {st['cf_flip_acc']:.3f} "
               f"(ceiling {st['cf_ceiling_acc']:.3f}); clean acc {st['clean_acc']:.3f}")
+        if "ld_moved_frac" in st:
+            print(f"[dcm]   preference moved on {st['ld_moved_frac']:.3f} of {st['ld_n_valid']} "
+                  f"performing pairs (all heads {st['ld_moved_ceiling']:.3f}); "
+                  f"ld clean {st['ld_clean_mean']:+.2f} cf {st['ld_cf_mean']:+.2f}")
     taps.remove()
     Path(f"{args.out}.json").write_text(json.dumps(out, indent=2))
     print(f"[dcm] wrote {args.out}.json")
@@ -289,7 +339,10 @@ def main() -> int:
     m = sub.add_parser("learn")
     m.add_argument("--run-id", default=None)
     m.add_argument("--model", default=None)
-    m.add_argument("--surface", choices=("bare_op", "bare_nl", "bridge"), required=True)
+    m.add_argument("--surface", choices=("bare_op", "bare_nl", "bridge"), default=None,
+                   help="arith only (required there)")
+    m.add_argument("--tokenizer", default=None)
+    add_task_args(m)
     m.add_argument("--roles", nargs="+", default=list(ROLES), choices=ROLES)
     m.add_argument("--out", required=True)
     m.add_argument("--n-pairs", type=int, default=64)

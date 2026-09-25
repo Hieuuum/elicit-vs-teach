@@ -45,15 +45,27 @@ GROUP = {"q_proj": "QK", "k_proj": "QK", "v_proj": "VO", "o_proj": "VO",
 
 
 def load_weights(spec: str) -> dict[str, torch.Tensor]:
-    """State dict of a plain checkpoint: local run id or hub id."""
+    """State dict of a plain checkpoint: local run id, local checkpoint dir, or
+    hub id; single-file or sharded (model.safetensors.index.json)."""
     from safetensors.torch import load_file
 
     p = STORE / "runs" / spec / "model" / "model.safetensors"
     if p.is_file():
         return load_file(p)
+    d = Path(spec)
+    if d.is_dir():
+        if (d / "model.safetensors").is_file():
+            return load_file(d / "model.safetensors")
+        idx = json.loads((d / "model.safetensors.index.json").read_text())
+        return {k: v for f in sorted(set(idx["weight_map"].values())) for k, v in load_file(d / f).items()}
     from huggingface_hub import hf_hub_download
 
-    return load_file(hf_hub_download(spec, "model.safetensors"))
+    try:
+        return load_file(hf_hub_download(spec, "model.safetensors"))
+    except Exception:  # sharded hub checkpoint
+        idx = json.loads(Path(hf_hub_download(spec, "model.safetensors.index.json")).read_text())
+        return {k: v for f in sorted(set(idx["weight_map"].values()))
+                for k, v in load_file(hf_hub_download(spec, f)).items()}
 
 
 def lora_deltas(run_id: str) -> dict[str, tuple[torch.Tensor, torch.Tensor, float]] | None:
@@ -105,8 +117,16 @@ def main() -> int:
     ap.add_argument("--k", type=int, default=64, help="base top-k subspace for alignment")
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--model-type", default="llama",
+                    help="config.model_type of the pair: picks the module -> QK/VO/MLP map "
+                    "(geode.adapt.weight_groups); llama = the original table")
     args = ap.parse_args()
     dev = args.device
+    if args.model_type != "llama":
+        from geode.adapt import weight_groups
+
+        GROUP.clear()
+        GROUP.update(weight_groups(args.model_type))
 
     base = load_weights(args.base_run)
     deltas = lora_deltas(args.ft_run)

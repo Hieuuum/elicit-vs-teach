@@ -52,6 +52,15 @@ Metrics
   all       every metric above in that order.
   compare   table across tags.
 
+Other tasks (--task tofu --task-data DIR --task-split forget; task_adapter.py):
+the scored token is the task's in-context answer token and the contrast is its
+same-slot distractor. pref / geometry / das (item pairs) / dcm (subject role,
+the model's own counterfactual output as the target) / grad / hessian / llc run
+unchanged in spirit; probe becomes the FACT read-out at the subject position
+(logit lens of the fact vs distractor token at the last token of the author's
+name, per layer; plus the same at the answer position); attn and cliff are
+arithmetic-only and refuse.
+
 Usage
   python3 prefit_metrics.py <metric> --model SPEC --tag TAG [--n 256] [--device cuda]
   python3 prefit_metrics.py compare TAG [TAG ...]
@@ -78,9 +87,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from geode.adapt import layout  # noqa: E402
 from geode.arith.formats import true_answer  # noqa: E402
 from premise_checks import render_probe  # noqa: E402
 from resid_shift import STORE, TOKENIZER, ResidTaps, load_fp32, task_prompts  # noqa: E402
+from task_adapter import add_task_args, load_task, resolve_tokenizer  # noqa: E402
 
 HELIX_T = (2, 5, 10, 100)
 
@@ -103,6 +114,11 @@ def problems(n: int, tokenizer, offset_extra: int = 0):
 
 def answer_text(ans: int) -> str:
     return str(ans)
+
+
+def _prompt(it) -> str:
+    """Prompt string of an arithmetic tuple item or a task ScoredItem."""
+    return it.prompt if hasattr(it, "prompt") else it[0]
 
 
 def length_pairs(items, tokenizer, n_pairs: int, seed: int = 316):
@@ -201,7 +217,7 @@ def pc1_stats(mat: torch.Tensor):
 
 
 def metric_geometry(model, tokenizer, items, device, bs):
-    st = states_at_answer(model, tokenizer, [it[0] for it in items], device, bs)
+    st = states_at_answer(model, tokenizer, [_prompt(it) for it in items], device, bs)
     per = [pc1_stats(st[l]) for l in range(st.shape[0])]
     return {"n": len(items), "cos_to_mean_by_layer": [round(p[0], 4) for p in per],
             "pc1_by_layer": [round(p[1], 4) for p in per],
@@ -311,7 +327,7 @@ class LayerPatch:
         self.R = None         # (d, k) or None for full replacement
         self.mode = "off"     # off | capture | patch | full
         self.captured = None
-        self.h = model.model.layers[layer].register_forward_hook(self._hook)
+        self.h = layout(model).layers[layer].register_forward_hook(self._hook)
 
     def _hook(self, _m, _i, out):
         hs = out[0] if isinstance(out, tuple) else out
@@ -358,8 +374,9 @@ def _eval_patch(model, patch, batches, device):
 
 
 def metric_das(model, tokenizer, items, device, layers, ks, n_train, n_test, steps, lr,
-               seed=316):
-    pairs = length_pairs(items, tokenizer, n_train + n_test, seed)
+               seed=316, pairs=None):
+    if pairs is None:  # arithmetic: length-matched different problems
+        pairs = length_pairs(items, tokenizer, n_train + n_test, seed)
     if len(pairs) < n_train + n_test:
         print(f"[prefit] das: only {len(pairs)} length-matched pairs")
     train, test = pairs[:n_train], pairs[n_train : n_train + n_test]
@@ -520,12 +537,22 @@ def metric_attn(model, tokenizer, items, device, bs):
 
 # ------------------------------------------------------------------ grad
 def _trainable(model):
-    return [(n, p) for n, p in model.named_parameters()
-            if "embed_tokens" not in n and "lm_head" not in n]
+    """Every parameter except the input / output embeddings (by identity, so
+    the rule holds for any family; on Llama this is the old name filter)."""
+    skip = {id(p) for p in layout(model).embed().parameters()}
+    out_emb = model.get_output_embeddings()
+    if out_emb is not None:
+        skip |= {id(p) for p in out_emb.parameters()}
+    return [(n, p) for n, p in model.named_parameters() if id(p) not in skip]
 
 
 def example_loss(model, tokenizer, item, device):
     """Teacher-forced CE over the answer tokens given the prompt (the SFT loss)."""
+    if hasattr(item, "answer_ids"):  # task LossItem: ids prepared by the adapter
+        p_ids, a_ids = item.prompt_ids, item.answer_ids
+        ids = torch.tensor([p_ids + a_ids], device=device)
+        logits = model(ids).logits[0, len(p_ids) - 1 : -1].float()
+        return F.cross_entropy(logits, torch.tensor(a_ids, device=device))
     p_ids = tokenizer(item[0], add_special_tokens=False)["input_ids"]
     tgt = str(-item[5]) if item[5] < 0 else str(item[5])
     a_ids = tokenizer(tgt, add_special_tokens=False)["input_ids"]
@@ -563,7 +590,8 @@ def metric_grad(model, tokenizer, items, device, n_ex, D):
             grads = [p.grad for p in params if p.grad is not None]
             norms.append(math.sqrt(sum((g.double() ** 2).sum().item() for g in grads)))
             sketches.append(count_sketch(grads, D).cpu())
-            losses.append(loss.item()); first_digit.append(int(str(abs(it[5]))[0]))
+            losses.append(loss.item())
+            first_digit.append(it.answer_ids[0] if hasattr(it, "answer_ids") else int(str(abs(it[5]))[0]))
     finally:
         model.zero_grad(set_to_none=True)
         for p in params:
@@ -834,6 +862,133 @@ def metric_cliff(model, tokenizer, items, device, n_curv, n_val, n_test, power_i
     return out
 
 
+# ------------------------------------------------------------------ task (non-arith) metrics
+def _batched_ids_logits(model, ids_list, device, bs, pad_id, keep_states=False):
+    """Final-position logits (and optionally every layer's residual at every
+    position) for pre-tokenised prompts, left-padded."""
+    outs, states, offsets = [], [], []
+    taps = ResidTaps(model) if keep_states else None
+    try:
+        for s0 in range(0, len(ids_list), bs):
+            chunk = ids_list[s0 : s0 + bs]
+            T = max(len(x) for x in chunk)
+            ids = torch.tensor([[pad_id] * (T - len(x)) + x for x in chunk], device=device)
+            am = torch.tensor([[0] * (T - len(x)) + [1] * len(x) for x in chunk], device=device)
+            with torch.no_grad():
+                outs.append(model(input_ids=ids, attention_mask=am).logits[:, -1].float())
+            if keep_states:
+                states.append([a.float().cpu() for a in taps.acts])
+                offsets.append([T - len(x) for x in chunk])
+    finally:
+        if taps is not None:
+            taps.remove()
+    return torch.cat(outs), states, offsets
+
+
+def metric_pref_task(model, tokenizer, items, device, bs):
+    """Hidden preference on a task: logit(answer token) - logit(same-slot
+    distractor), primary distractor and mean over all distractors."""
+    logits, _, _ = _batched_ids_logits(model, [it.prompt_ids for it in items], device, bs,
+                                       tokenizer.pad_token_id)
+    tgt = torch.tensor([it.target for it in items], device=device)
+    lt = logits.gather(1, tgt[:, None]).squeeze(1)
+    ld1 = lt - logits.gather(1, torch.tensor([it.distractors[0] for it in items], device=device)[:, None]).squeeze(1)
+    ldm = torch.stack([lt[i] - logits[i, it.distractors].mean() for i, it in enumerate(items)])
+    logp = F.log_softmax(logits, -1).gather(1, tgt[:, None]).squeeze(1)
+    rank = (logits > lt[:, None]).sum(1) + 1
+    return {"n": len(items), "logit_diff_mean": ld1.mean().item(),
+            "logit_diff_pos_frac": (ld1 > 0).float().mean().item(),
+            "logit_diff_all_distractors_mean": ldm.mean().item(),
+            "logp_correct_mean": logp.mean().item(), "rank_median": rank.float().median().item(),
+            "top1_acc": (rank == 1).float().mean().item(),
+            "n_distractors_mean": sum(len(it.distractors) for it in items) / len(items)}
+
+
+def metric_probe_task(model, tokenizer, task, items, device, bs):
+    """Fact present at the subject? Logit lens of the fact token vs its
+    distractor at the last token of the subject's first mention, per layer
+    (Geva et al. 2023 attribute extraction; the 'operands present' analogue:
+    the input the recall needs is the subject's enriched representation). The
+    same read-out at the answer position is reported for reference."""
+    lay = layout(model)
+    pos = [task.subject_last_position(tokenizer, it) for it in items]
+    keep = [i for i, p in enumerate(pos) if p is not None]
+    _, states, offsets = _batched_ids_logits(model, [it.prompt_ids for it in items], device, bs,
+                                             tokenizer.pad_token_id, keep_states=True)
+    n_layers = len(states[0])
+    subj = [[] for _ in range(n_layers)]
+    ans = [[] for _ in range(n_layers)]
+    for b, (st, off) in enumerate(zip(states, offsets)):
+        for j, o in enumerate(off):
+            i = b * bs + j
+            for li in range(n_layers):
+                ans[li].append(st[li][j, -1])
+                if pos[i] is not None:
+                    subj[li].append(st[li][j, o + pos[i]])
+    norm, head = lay.final_norm(), model.lm_head
+    tgt = torch.tensor([it.target for it in items])
+    dis = torch.tensor([it.distractors[0] for it in items])
+
+    def readout(rows, t, d):
+        out_ld, out_win, out_rank = [], [], []
+        for li in range(n_layers):
+            if not rows[li]:
+                return None
+            h = torch.stack(rows[li]).to(device)
+            with torch.no_grad():
+                z = head(norm(h)).float().cpu()
+            lt = z.gather(1, t[:, None]).squeeze(1)
+            ld = lt - z.gather(1, d[:, None]).squeeze(1)
+            out_ld.append(round(ld.mean().item(), 4))
+            out_win.append(round((ld > 0).float().mean().item(), 4))
+            out_rank.append(float((z > lt[:, None]).sum(1).add(1).float().median().item()))
+        return {"logit_diff_by_layer": out_ld, "win_frac_by_layer": out_win,
+                "median_rank_by_layer": out_rank}
+
+    rs = readout(subj, tgt[keep], dis[keep])
+    ra = readout(ans, tgt, dis)
+    out = {"n": len(items), "n_subject": len(keep), "subject": rs, "answer": ra,
+           "surface": "fact read-out by the logit lens (layer -1 = embedding)"}
+    if rs:
+        ld = rs["logit_diff_by_layer"][1:]
+        out["subject_ld_best"] = max(ld)
+        out["subject_ld_best_layer"] = ld.index(max(ld))
+        out["subject_win_best"] = max(rs["win_frac_by_layer"][1:])
+    ld = ra["logit_diff_by_layer"][1:]
+    out["answer_ld_best"] = max(ld)
+    out["answer_ld_best_layer"] = ld.index(max(ld))
+    return out
+
+
+def metric_dcm_task(model, tokenizer, task, device, n_pairs, lam, steps, lr):
+    """Subject-reading heads on the frozen parent (DCM heads-only; the target
+    is the model's own output on the name-swapped prompt)."""
+    from dcm_roles import MixTaps, learn_role
+
+    taps = MixTaps(model)
+    out = {"surface": f"{task.name}/{task.split}", "lam": lam, "steps": steps, "roles": {}}
+    try:
+        for role in task.roles:
+            pairs = task.role_pairs(tokenizer, role, n_pairs)
+            if len(pairs) < 8:
+                out["roles"][role] = {"skipped": f"{len(pairs)} pairs"}
+                continue
+            ha, _hm, st = learn_role(model, taps, pairs, device, lam, steps, lr,
+                                     components="heads", cf_target="cf_dist")
+            nodes = [f"attn:{i}:{h}" for i in range(taps.L) for h in range(taps.H) if ha[i, h]]
+            # a role set counts only if it moves the preference on performing pairs
+            n_heads = int(ha.sum()) if st.get("ld_n_valid", 0) >= 8 else 0
+            out["roles"][role] = {"nodes": nodes, "n_heads": n_heads, "n_heads_raw": int(ha.sum()),
+                                  "n_pairs": len(pairs), "ld_flip_frac": st.get("ld_moved_frac", 0.0),
+                                  "ld_flip_ceiling": st.get("ld_moved_ceiling", 0.0), **st}
+            print(f"[prefit] dcm {role}: {n_heads} heads (raw {int(ha.sum())}); moved "
+                  f"{st.get('ld_moved_frac', 0):.3f} of {st.get('ld_n_valid', 0)} performing pairs "
+                  f"(all heads {st.get('ld_moved_ceiling', 0):.3f})")
+    finally:
+        taps.remove()
+    return out
+
+
 # ------------------------------------------------------------------ compare
 HEADLINE = [
     ("pref", "logit_diff_mean", "hidden pref (nats)"),
@@ -843,6 +998,10 @@ HEADLINE = [
     ("probe", "chunk_r2_copy", "  copy-only baseline"),
     ("probe", "chunk_r2_excess", "  excess over copy"),
     ("probe", "operand_r2_best", "probe operand R2"),
+    ("probe", "subject_ld_best", "fact at subject: best ld"),
+    ("probe", "subject_win_best", "fact at subject: win frac"),
+    ("probe", "answer_ld_best", "fact at answer (lens): best ld"),
+    ("pref", "logit_diff_all_distractors_mean", "hidden pref, all distractors"),
     ("attn", "max_head_mass", "attn max head->operands"),
     ("attn", "heads_over_0.25", "heads >0.25"),
     ("grad", "pairwise_cos_mean", "grad cos"),
@@ -902,6 +1061,34 @@ def cmd_compare(args):
 METRICS = ("pref", "geometry", "probe", "das", "dcm", "attn", "grad", "hessian", "llc", "cliff")
 
 
+def run_metric_task(name, model, tokenizer, task, args):
+    """Dispatch for non-arithmetic tasks (module docstring)."""
+    dev = args.device
+    items = task.items(tokenizer)
+    if name == "pref":
+        return metric_pref_task(model, tokenizer, items[: args.n], dev, args.batch_size)
+    if name == "geometry":
+        return metric_geometry(model, tokenizer, items[: args.n], dev, args.batch_size)
+    if name == "probe":
+        return metric_probe_task(model, tokenizer, task, items[: args.n_probe], dev, args.batch_size)
+    if name == "das":
+        pairs = task.pairs(tokenizer, args.das_train + args.das_test, mode="item")
+        return metric_das(model, tokenizer, items, dev, args.das_layers, args.das_ks,
+                          args.das_train, args.das_test, args.das_steps, args.das_lr, pairs=pairs)
+    if name == "dcm":
+        return metric_dcm_task(model, tokenizer, task, dev, args.dcm_pairs, args.dcm_lam,
+                               args.dcm_steps, args.dcm_lr)
+    loss_items = task.loss_items(tokenizer)
+    if name == "grad":
+        return metric_grad(model, tokenizer, loss_items, dev, args.grad_n, args.sketch_dim)
+    if name == "hessian":
+        return metric_hessian(model, tokenizer, loss_items, dev, args.hess_n, args.power_iters, args.hutch)
+    if name == "llc":
+        return metric_llc(model, tokenizer, loss_items, dev, args.llc_pool, args.llc_steps, args.llc_eps,
+                          args.llc_gamma, args.llc_n_data, args.llc_batch)
+    raise SystemExit(f"[prefit] metric {name!r} is arithmetic-only (not defined for --task {args.task})")
+
+
 def run_metric(name, model, tokenizer, items, args):
     dev = args.device
     if name == "pref":
@@ -933,17 +1120,23 @@ def run_metric(name, model, tokenizer, items, args):
 def cmd_run(args):
     from transformers import AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+    task = load_task(args)  # None = arithmetic default, unchanged
+    tokenizer = AutoTokenizer.from_pretrained(resolve_tokenizer(args, args.model, TOKENIZER))
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     names = list(METRICS) if args.metric == "all" else [args.metric]
+    if task is not None and args.metric == "all":
+        names = [m for m in METRICS if m not in ("attn", "cliff", "llc")]
     model = load(args.model, args.device, eager=("attn" in names))
-    items = problems(max(args.n, args.n_probe, 512), tokenizer)
+    items = problems(max(args.n, args.n_probe, 512), tokenizer) if task is None else None
     out_dir = Path(args.out_dir)
     for name in names:
         t0 = time.time()
         print(f"[prefit] {args.tag}: {name} on {args.model}")
-        block = run_metric(name, model, tokenizer, items, args)
+        block = (run_metric(name, model, tokenizer, items, args) if task is None
+                 else run_metric_task(name, model, tokenizer, task, args))
+        if task is not None:
+            block["task"] = f"{args.task}/{args.task_split}"
         block["seconds"] = round(time.time() - t0, 1)
         write_block(out_dir, args.tag, name, block, args.model)
     return 0
@@ -988,9 +1181,11 @@ def main() -> int:
     ap.add_argument("tags", nargs="*", help="compare: tags")
     ap.add_argument("--model", help="zoo run id or hub id")
     ap.add_argument("--tag", help="short name for the output json")
-    ap.add_argument("--tokenizer", default=TOKENIZER)
+    ap.add_argument("--tokenizer", default=None,
+                    help=f"default {TOKENIZER} (arith) / the model's own (other tasks)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--out-dir", default=str(Path(__file__).resolve().parent))
+    add_task_args(ap)
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--n", type=int, default=256, help="problems for pref / geometry / attn")
     ap.add_argument("--n-probe", type=int, default=4096, help="problems for probe / das pairs")
@@ -1026,6 +1221,7 @@ def main() -> int:
             ap.error("compare needs tags")
         return cmd_compare(args)
     if args.metric == "smoke":
+        args.tokenizer = args.tokenizer or TOKENIZER
         return cmd_smoke(args)
     if not args.model or not args.tag:
         ap.error("--model and --tag are required")
