@@ -83,6 +83,8 @@ of the data (how repeatable a circuit is at all), and the \emph{type-matched cha
 unrelated circuits with the same MLP/head mix share (0.20--0.27 here).
 \item \emph{Heads only.} The same overlap over the 512 heads alone, where circuits can actually
 differ (chance 0.03).
+\item \emph{Edges.} The same scoring for the connections between nodes (which node's output
+each node reads, $\approx$8.4K edges); the 256 strongest are the wiring, compared the same way.
 \item \emph{Functional check.} Overlap counts names; this counts effect. Corrupt a set of 32
 heads (write in their activations from a different problem) and read how much of the model's
 answer preference is destroyed, against random sets of 32 heads. A set identified on the
@@ -92,7 +94,9 @@ rank highest.
 \numbers{Table~\ref{tab:overlap}.
 \begin{steps}
 \item \textbf{Elicit:} parent $\leftrightarrow$ child $0.455$ (chance $0.23$, ceilings $0.60$ /
-$0.56$); heads only $0.333$ against the parent's own ceiling of $0.42$. \textbf{Teach:} the
+$0.56$); heads only $0.333$ against the parent's own ceiling of $0.42$; wiring $0.358$ against
+ceilings of $0.49$ / $0.51$ --- the child keeps the parent's connections about as much as its
+nodes (edge change only $1.3\times$ node change after ceiling correction). \textbf{Teach:} the
 parent has no circuit for the task (its node-score map is noise, M10), so the child's is new;
 heads only $0.016$.
 \item Functional check: the parent's 32 heads, found before any target training, carry
@@ -116,13 +120,18 @@ elicit parent on symbols $\leftrightarrow$ elicited child & 0.391 & 0.25 & 0.306
 elicited child, full FT $\leftrightarrow$ LoRA & 0.641 & 0.20 & 0.561 / 0.684 & 0.455 \\
 elicited child $\leftrightarrow$ taught child & 0.306 & 0.25 & 0.561 / 0.524 & 0.103 \\
 taught child $\leftrightarrow$ taught child from the blank base & 0.362 & 0.27 & 0.524 / 0.422 & 0.208 \\
+\midrule
+wiring (256 edges): elicit parent $\leftrightarrow$ elicited child & 0.358 & 0.03 & 0.493 / 0.510 & -- \\
+wiring (256 edges): elicited child $\leftrightarrow$ taught child & 0.267 & 0.03 & 0.510 / 0.446 & -- \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
 \caption{Circuit overlaps of the full-FT children and their parents, mapped on the word task
 (0-shot). Uniform chance is $0.031$ everywhere; ceilings are each map's own split-half
 repeatability; the teach parent's map fails the performing check (logit-diff $-1.5$ nats, M11),
-so its overlap is noise.
+so its overlap is noise. Wiring rows: Jaccard over the 256 strongest edges, each map's own
+split-half ceiling; edges change $1.3\times$ as much as nodes under elicitation here (Llama
+base$\to$fine-tune: $2.2\times$).
 Bottom: the elicit parent's task circuit is its symbol-arithmetic circuit; the elicited circuit
 is method-independent; the two children against each other; two taught circuits against each
 other.}
