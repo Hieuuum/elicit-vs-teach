@@ -14,7 +14,8 @@
 # ~5 GB RAM. Rough cost on 16 cores: A ~15-25 min per map (7 maps), B/C ~20-40 min
 # per faithfulness run (8 runs). Start with --stage A to see timings.
 #
-# Usage:  bash run_circuit_cpu.sh [--stage A|B|C|D|E|all] [--threads N]   (D, E explicit only; ~8 h / ~14 h CPU; SHOTS=4 env for E)
+# Usage:  bash run_circuit_cpu.sh [--stage A|B|C|D|E|all] [--threads N] [--gpu]
+#         (D, E explicit only; ~8 h / ~14 h on CPU, minutes with --gpu; SHOTS=4 env for E)
 # Env:    GEODE_STORE, conda env geode.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -22,16 +23,17 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
 A=$REPO_ROOT/experiments/training-run/analysis
 LOG=$A/circuit_cpu.log
-STAGE=all; THREADS=$(nproc)
+STAGE=all; THREADS=$(nproc); DEV=cpu
 while [[ $# -gt 0 ]]; do
   case $1 in
     --stage) STAGE=$2; shift ;;
     --threads) THREADS=$2; shift ;;
+    --gpu) DEV=cuda ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac; shift
 done
 export OMP_NUM_THREADS=$THREADS MKL_NUM_THREADS=$THREADS
-export CUDA_VISIBLE_DEVICES=""
+[[ $DEV == cpu ]] && export CUDA_VISIBLE_DEVICES=""
 
 LATENT=evt-ts1b-op-bridge-mix          # elicit parent
 RID_ELFT=evt-ts1b-elicit-ft-n4000000   # elicited child (full FT)
@@ -58,9 +60,9 @@ if want A; then
   # rid, stem, extra args
   for spec in "$LATENT circ_pa_latent_nl" "$RID_ELFT circ_pa_elft4m" "$RID_FMT circ_pa_fmtparent" "$RID_FTFMT circ_pa_ftfmt4m"; do
     set -- $spec; rid=$1; stem=$2
-    step $stem.json   python3 circuit_nodes.py --run-id "$rid" --out $stem   --n-pairs 256 --agg pairabs --device cpu
-    step ${stem}_a.json python3 circuit_nodes.py --run-id "$rid" --out ${stem}_a --half a --n-pairs 256 --agg pairabs --device cpu
-    step ${stem}_b.json python3 circuit_nodes.py --run-id "$rid" --out ${stem}_b --half b --n-pairs 256 --agg pairabs --device cpu
+    step $stem.json   python3 circuit_nodes.py --run-id "$rid" --out $stem   --n-pairs 256 --agg pairabs --device $DEV
+    step ${stem}_a.json python3 circuit_nodes.py --run-id "$rid" --out ${stem}_a --half a --n-pairs 256 --agg pairabs --device $DEV
+    step ${stem}_b.json python3 circuit_nodes.py --run-id "$rid" --out ${stem}_b --half b --n-pairs 256 --agg pairabs --device $DEV
   done
   milestone "split-half ceilings, pairabs (compare with the signed-sum ceilings 0.600 / 0.561 / noise / 0.524)"
   for stem in circ_pa_latent_nl circ_pa_elft4m circ_pa_fmtparent circ_pa_ftfmt4m; do
@@ -77,9 +79,9 @@ if want B; then
   for spec in "$RID_ELFT circ_ts_elft4m" "$RID_FTFMT circ_ts_ftfmt4m"; do
     set -- $spec; rid=$1; map=$2
     step ${map}_faithfulness_maintain.json python3 circuit_faithfulness.py --map $map --run-id "$rid" \
-      --mode maintain --ks 8 32 --n-pairs 128 --device cpu
+      --mode maintain --ks 8 32 --n-pairs 128 --device $DEV
     step ${map}_faithfulness_sufficiency_v2.json python3 circuit_faithfulness.py --map $map --run-id "$rid" \
-      --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out ${map}_faithfulness_sufficiency_v2 --device cpu
+      --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out ${map}_faithfulness_sufficiency_v2 --device $DEV
   done
 fi
 
@@ -87,19 +89,19 @@ fi
 if want C; then
   # elicit: the parent's NL-task circuit evaluated in the elicited child
   step reuse_latent_in_elft4m_suff.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_latent_nl \
-    --run-id "$RID_ELFT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_suff --device cpu
+    --run-id "$RID_ELFT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_suff --device $DEV
   step reuse_latent_in_elft4m_maint.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_latent_nl \
-    --run-id "$RID_ELFT" --mode maintain --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_maint --device cpu
+    --run-id "$RID_ELFT" --mode maintain --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_maint --device $DEV
   # teach: the (noise) parent map evaluated in the taught child — expected at the random level
   step reuse_fmt_in_ftfmt4m_suff.json python3 circuit_faithfulness.py --map circ_ts_ftfmt4m --nodes-from circ_ts_fmtparent \
-    --run-id "$RID_FTFMT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_fmt_in_ftfmt4m_suff --device cpu
+    --run-id "$RID_FTFMT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_fmt_in_ftfmt4m_suff --device $DEV
   step reuse_fmt_in_ftfmt4m_maint.json python3 circuit_faithfulness.py --map circ_ts_ftfmt4m --nodes-from circ_ts_fmtparent \
-    --run-id "$RID_FTFMT" --mode maintain --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_fmt_in_ftfmt4m_maint --device cpu
+    --run-id "$RID_FTFMT" --mode maintain --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_fmt_in_ftfmt4m_maint --device $DEV
   # cross control: the ELICITED child's circuit evaluated in the TAUGHT child (and vice versa)
   step reuse_elft_in_ftfmt4m_suff.json python3 circuit_faithfulness.py --map circ_ts_ftfmt4m --nodes-from circ_ts_elft4m \
-    --run-id "$RID_FTFMT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_elft_in_ftfmt4m_suff --device cpu
+    --run-id "$RID_FTFMT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_elft_in_ftfmt4m_suff --device $DEV
   step reuse_ftfmt_in_elft4m_suff.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_ftfmt4m \
-    --run-id "$RID_ELFT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_ftfmt_in_elft4m_suff --device cpu
+    --run-id "$RID_ELFT" --mode sufficiency --ks 8 32 --n-pairs 128 --random-sets 20 --out reuse_ftfmt_in_elft4m_suff --device $DEV
 fi
 # ------------------------------------------------------------------ D: after the A-C read
 # Stages B/C showed restore-sufficiency is saturated by the MLP blocks (type-matched random sets
@@ -111,19 +113,19 @@ if want D; then
   for spec in "$RID_ELFT circ_ts_elft4m" "$RID_FTFMT circ_ts_ftfmt4m"; do
     set -- $spec; rid=$1; map=$2
     step ${map}_maintain_last.json python3 circuit_faithfulness.py --map $map --run-id "$rid" \
-      --mode maintain --positions last --ks 8 32 --n-pairs 128 --out ${map}_maintain_last --device cpu
+      --mode maintain --positions last --ks 8 32 --n-pairs 128 --out ${map}_maintain_last --device $DEV
     step ${map}_heads_nec.json python3 circuit_faithfulness.py --map $map --run-id "$rid" --heads-only \
-      --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out ${map}_heads_nec --device cpu
+      --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out ${map}_heads_nec --device $DEV
   done
   # functional reuse, heads only: the parent's heads in the child vs random heads
   step reuse_latent_in_elft4m_heads_suff.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_latent_nl \
-    --run-id "$RID_ELFT" --heads-only --mode sufficiency --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_heads_suff --device cpu
+    --run-id "$RID_ELFT" --heads-only --mode sufficiency --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_heads_suff --device $DEV
   step reuse_latent_in_elft4m_heads_nec.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_latent_nl \
-    --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_heads_nec --device cpu
+    --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_latent_in_elft4m_heads_nec --device $DEV
   step reuse_elft_in_ftfmt4m_heads_nec.json python3 circuit_faithfulness.py --map circ_ts_ftfmt4m --nodes-from circ_ts_elft4m \
-    --run-id "$RID_FTFMT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_elft_in_ftfmt4m_heads_nec --device cpu
+    --run-id "$RID_FTFMT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_elft_in_ftfmt4m_heads_nec --device $DEV
   step reuse_ftfmt_in_elft4m_heads_nec.json python3 circuit_faithfulness.py --map circ_ts_elft4m --nodes-from circ_ts_ftfmt4m \
-    --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_ftfmt_in_elft4m_heads_nec --device cpu
+    --run-id "$RID_ELFT" --heads-only --mode necessity --ks 8 16 32 --n-pairs 128 --random-sets 20 --out reuse_ftfmt_in_elft4m_heads_nec --device $DEV
 fi
 # ------------------------------------------------------------------ E: edges on the NL surface, two prompt lengths
 # The edge track was retired on TinyStories after a split-half floor of 0.65 measured on the
@@ -140,16 +142,16 @@ if want E; then
     set -- $spec; rid=$1; stem=$2
     for sh in $(printf '%s\n' 0 $SHOTS | sort -un); do
       s=${stem}_s$sh
-      step $s.json   python3 circuit_edges.py map --run-id "$rid" --out $s   --shots $sh --n-pairs 128 --device cpu
-      step ${s}_a.json python3 circuit_edges.py map --run-id "$rid" --out ${s}_a --shots $sh --n-pairs 128 --half a --device cpu
-      step ${s}_b.json python3 circuit_edges.py map --run-id "$rid" --out ${s}_b --shots $sh --n-pairs 128 --half b --device cpu
+      step $s.json   python3 circuit_edges.py map --run-id "$rid" --out $s   --shots $sh --n-pairs 128 --device $DEV
+      step ${s}_a.json python3 circuit_edges.py map --run-id "$rid" --out ${s}_a --shots $sh --n-pairs 128 --half a --device $DEV
+      step ${s}_b.json python3 circuit_edges.py map --run-id "$rid" --out ${s}_b --shots $sh --n-pairs 128 --half b --device $DEV
     done
     # node maps at $SHOTS shots (0-shot node maps exist: circ_ts_latent_nl / circ_ts_elft4m / circ_ts_ftfmt4m)
     [[ $SHOTS == 0 ]] && continue
     n=${stem/edge_/circ_}_s$SHOTS
-    step $n.json   python3 circuit_nodes.py --run-id "$rid" --out $n   --shots $SHOTS --n-pairs 128 --device cpu
-    step ${n}_a.json python3 circuit_nodes.py --run-id "$rid" --out ${n}_a --shots $SHOTS --n-pairs 128 --half a --device cpu
-    step ${n}_b.json python3 circuit_nodes.py --run-id "$rid" --out ${n}_b --shots $SHOTS --n-pairs 128 --half b --device cpu
+    step $n.json   python3 circuit_nodes.py --run-id "$rid" --out $n   --shots $SHOTS --n-pairs 128 --device $DEV
+    step ${n}_a.json python3 circuit_nodes.py --run-id "$rid" --out ${n}_a --shots $SHOTS --n-pairs 128 --half a --device $DEV
+    step ${n}_b.json python3 circuit_nodes.py --run-id "$rid" --out ${n}_b --shots $SHOTS --n-pairs 128 --half b --device $DEV
   done
   milestone "edge split-half floors (1 - Jaccard between halves) and node-vs-edge change rates"
   declare -A NODE0=( [latent_nl]=circ_ts_latent_nl [elft4m]=circ_ts_elft4m [ftfmt4m]=circ_ts_ftfmt4m )
