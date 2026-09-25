@@ -1,0 +1,38 @@
+# WMDP relearning ("retraining on T", Deeb & Roger 2024) — PLAN.md §W5. Primary design.
+# Train on the bio_A items as TEXT FACTS (description + question + "Answer:" +
+# the correct option's text; no options shown, so no letter can be learned),
+# then read the held-out bio_B items as MCQ: recovery on B, which the fine-tune
+# never saw, means the knowledge was still in the weights.
+# The null for this recovery is relearn_wmdp_mmluA.yaml (same recipe, far-domain
+# MMLU facts): the part of a B gain that ANY small fine-tune in this format
+# produces. Same recipe for every parent (the original's relearning child is
+# the reference child for the circuit comparisons).
+#
+# 7B on one 80 GB GPU: LoRA r=64 on every projection (geode.train.lora,
+# scaling alpha/(2r) = 1), bf16 base, fp32 factors, bf16 autocast.
+data:
+  train_file: relearn_bioA.parquet
+  val_file: relearn_bioA_val.parquet
+probe_task: wmdp
+probe_splits: [bio_A, bio_B, mmlu]   # relearned / held-out / general capability
+probe_n: 256
+probe_max_tokens: 512
+snapshots: 8                         # adapter-only; materialized on demand for M4
+lora: {r: 64, alpha: 128}
+base_dtype: bfloat16
+save_dtype: bfloat16
+train:
+  lr: 1.0e-4
+  batch_size: 8
+  betas: [0.9, 0.999]
+  weight_decay: 0.0
+  grad_clip: 1.0
+  max_steps: 600                     # ~8 passes over ~570 rows
+  eval_every: 20
+  stopping: {eps_nats: 0.002, k: 5, min_steps: 80}
+  precision: bf16
+  seed: 316
+gpu:
+  tflops_bf16: 312.0
+  utilization: 0.25
+  usd_per_hour: 2.0

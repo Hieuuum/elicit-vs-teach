@@ -1,0 +1,32 @@
+# WMDP relearning NULL (PLAN.md §W5): the identical recipe as relearn_wmdp_bioA.yaml,
+# on far-domain MMLU facts (same row count, same text format). Whatever this
+# fine-tune does to the held-out bio_B items is the generic effect of a small
+# fine-tune (format, letter calibration, undoing a refusal mode) — the model's
+# OWN null for held-out recovery. Not a second model: the same parent, a
+# different training set.
+data:
+  train_file: relearn_mmluA.parquet
+  val_file: relearn_mmluA_val.parquet
+probe_task: wmdp
+probe_splits: [bio_A, bio_B, mmlu]
+probe_n: 256
+probe_max_tokens: 512
+snapshots: 0
+lora: {r: 64, alpha: 128}
+base_dtype: bfloat16
+save_dtype: bfloat16
+train:
+  lr: 1.0e-4
+  batch_size: 8
+  betas: [0.9, 0.999]
+  weight_decay: 0.0
+  grad_clip: 1.0
+  max_steps: 600
+  eval_every: 20
+  stopping: {eps_nats: 0.002, k: 5, min_steps: 80}
+  precision: bf16
+  seed: 316
+gpu:
+  tflops_bf16: 312.0
+  utilization: 0.25
+  usd_per_hour: 2.0

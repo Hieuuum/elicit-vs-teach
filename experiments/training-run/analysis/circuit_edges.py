@@ -128,8 +128,14 @@ class EdgeTaps:
             h.remove()
 
 
-def edge_map(model, pairs, batch_size: int, device: str):
-    """({(wt,wl,wh,rt,rl): score}, mean logit-diff sanity)."""
+def edge_map(model, pairs, batch_size: int, device: str, fast: bool = False):
+    """({(wt,wl,wh,rt,rl): score}, mean logit-diff sanity).
+
+    fast=True (--fast-edges; the 7B runs): the same scores, vectorised over the
+    writer heads of a layer — score(h -> r) = sum_{b,t,k} d_oin[b,t,h,k] *
+    (gv_r @ W_o)[b,t,h,k] instead of forming every head's residual write — one
+    matmul per (reader, writer layer) and no per-edge .item(); equal to the loop
+    up to float summation order (tested)."""
     taps = EdgeTaps(model)
     lay = layout(model)
     n_layers = lay.n_layers
@@ -162,6 +168,10 @@ def edge_map(model, pairs, batch_size: int, device: str):
             clean_o = {i: v.detach().float() for i, v in taps.o_in.items()}
             clean_m = {i: v.detach().float() for i, v in taps.mlp_out.items()}
 
+            if fast:
+                with torch.no_grad():
+                    _edge_batch_fast(lay, taps, ln_w, corr_o, clean_o, corr_m, clean_m, H, dh, edges)
+                continue
             # writer residual-write deltas, per node
             with torch.no_grad():
                 dwrites: dict[tuple, torch.Tensor] = {}
@@ -192,6 +202,34 @@ def edge_map(model, pairs, batch_size: int, device: str):
     finally:
         taps.remove()
     return edges, sum(sanity) / max(1, len(sanity))
+
+
+def _edge_batch_fast(lay, taps, ln_w, corr_o, clean_o, corr_m, clean_m, H, dh, edges) -> None:
+    n_layers = lay.n_layers
+    d_o = {i: (corr_o[i] - clean_o[i]) for i in range(n_layers)}            # (B,T,H*dh)
+    d_m = {i: (corr_m[i] - clean_m[i]) for i in range(n_layers)}            # (B,T,d)
+    W = {i: effective_weight(lay.attn_out(i)) for i in range(n_layers)}   # (d, H*dh)
+    acc: dict[tuple, torch.Tensor] = {}
+    for (rt, rl), g in taps.ln_grad.items():
+        if g.grad is None:
+            continue
+        gv = g.grad.detach().float() * ln_w[(rt, rl)].float()
+        gv = gv / taps.ln_rms[(rt, rl)]
+        for wl in range(n_layers):
+            if (rt == "attn" and wl < rl) or (rt == "mlp" and wl <= rl):     # attn writer upstream
+                pr = (gv @ W[wl]) * d_o[wl]                                   # (B,T,H*dh)
+                acc[("attn", wl, rt, rl)] = pr.view(*pr.shape[:-1], H, dh).sum(dim=(0, 1, 3))
+            if wl < rl:                                                       # mlp writer upstream
+                acc[("mlp", wl, rt, rl)] = (gv * d_m[wl]).sum().reshape(1)
+    for (wt, wl, rt, rl), v in acc.items():
+        v = v.cpu().tolist()
+        if wt == "attn":
+            for h, x in enumerate(v):
+                key = ("attn", wl, h, rt, rl)
+                edges[key] = edges.get(key, 0.0) + x
+        else:
+            key = ("mlp", wl, -1, rt, rl)
+            edges[key] = edges.get(key, 0.0) + v[0]
 
 
 def cmd_map(args) -> int:
@@ -230,7 +268,7 @@ def cmd_map(args) -> int:
              else task.pairs(tokenizer, args.n_pairs))
     if args.half:  # disjoint pair splits — the edge-map reliability ceiling
         pairs = pairs[0::2] if args.half == "a" else pairs[1::2]
-    edges, sanity = edge_map(model, pairs, args.batch_size, args.device)
+    edges, sanity = edge_map(model, pairs, args.batch_size, args.device, fast=args.fast_edges)
     performing = sanity > 2.0
     print(f"[edges] {name} shots={args.shots}: mean logit_diff {sanity:.3f} "
           f"({'PERFORMING' if performing else 'NOT PERFORMING — map is noise'}); "
@@ -296,6 +334,8 @@ def main() -> int:
     m.add_argument("--batch-size", type=int, default=8)
     m.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     m.add_argument("--tokenizer", default=None)
+    m.add_argument("--fast-edges", action="store_true",
+                   help="vectorised over writer heads (same scores; for 7B models)")
     add_task_args(m)
     d = sub.add_parser("delta-s")
     d.add_argument("--nodes-a", required=True)

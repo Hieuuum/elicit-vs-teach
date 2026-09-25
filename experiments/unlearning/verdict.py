@@ -1,4 +1,6 @@
-"""Seventeen checks: per metric, is each unlearned model PRE-ELICIT or PRE-TEACH? (PLAN.md §4)
+"""Verdict tables. --design wmdp (default): verdict_wmdp.py (PLAN.md §W6).
+
+--design tofu — seventeen checks: per metric, is each unlearned model PRE-ELICIT or PRE-TEACH? (PLAN.md §T)
 
 Every metric is reduced to one number per model. Parent-only metrics (★) are
 read on the parents themselves; child metrics on each parent's relearning
@@ -385,7 +387,14 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--store", type=Path, required=True)
     ap.add_argument("--tags", required=True)
+    ap.add_argument("--design", choices=("wmdp", "tofu"), default="wmdp",
+                    help="wmdp (primary): each metric vs its own null + orig; tofu: the anchored design")
+    ap.add_argument("--domain", default="bio", help="wmdp: circuits / relearning domain")
     args = ap.parse_args()
+    if args.design == "wmdp":
+        import verdict_wmdp
+
+        return verdict_wmdp.main(args)
     OUT, STORE = args.out, args.store
     res = evaluate(args.tags.split())
     tested = res["tested"]

@@ -90,3 +90,17 @@ def test_attribution_on_task_pairs(env):
     scores, sanity = cn.attribution_map(model, pairs, 4, "cpu")
     L, H = model.config.num_hidden_layers, model.config.num_attention_heads
     assert len(scores) == L * H + L and torch.isfinite(torch.tensor(sanity))
+
+
+def test_fast_edges_equal_the_loop(env):
+    """circuit_edges --fast-edges (vectorised over writer heads) == the per-head loop."""
+    ta, data, tok, model = env
+    ce = load("circuit_edges")
+    for p in model.parameters():
+        p.requires_grad_(True)
+    pairs = ta.QATask(data, "forget_A").pairs(tok, 6)
+    slow, s1 = ce.edge_map(model, pairs, 4, "cpu", fast=False)
+    fast, s2 = ce.edge_map(model, pairs, 4, "cpu", fast=True)
+    assert set(slow) == set(fast) and s1 == pytest.approx(s2)
+    for k in slow:
+        assert fast[k] == pytest.approx(slow[k], rel=1e-4, abs=1e-6), k

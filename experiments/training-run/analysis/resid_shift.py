@@ -135,8 +135,17 @@ def load_fp32(spec: str, device: str):
 
         print(f"[resid] {spec}: zoo checkpoint (manifest-aware), cast to fp32")
         return zoo_load_model(spec, store=STORE, device=device).float().eval()
-    print(f"[resid] {spec}: from_pretrained fp32")
-    return AutoModelForCausalLM.from_pretrained(spec, torch_dtype=torch.float32).to(device).eval()
+    dt = analysis_dtype()
+    print(f"[resid] {spec}: from_pretrained {dt}")
+    return AutoModelForCausalLM.from_pretrained(spec, torch_dtype=dt).to(device).eval()
+
+
+def analysis_dtype() -> torch.dtype:
+    """fp32 by default (the 1B analyses). GEODE_ANALYSIS_DTYPE=bfloat16 for 7B
+    models on one 80 GB GPU (two fp32 7B models + grads do not fit); CPU runs
+    stay fp32 regardless."""
+    name = os.environ.get("GEODE_ANALYSIS_DTYPE", "float32")
+    return getattr(torch, name)
 
 
 class ResidTaps:

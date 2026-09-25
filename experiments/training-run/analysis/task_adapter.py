@@ -16,6 +16,16 @@ other task, asks this module for the four things it needs:
                               metrics (curvature, gradients)
 
 Tasks
+  wmdp   WMDP / MMLU multiple choice (experiments/unlearning/data/prepare_wmdp.py;
+         the PRIMARY unlearning design). Scored token = the correct LETTER
+         (" A".." D", in context after "Answer:"); distractors = the other three
+         letters, the swap partner first. Splits: bio, cyber, chem (= _A + _B),
+         bio_A, bio_B, cyber_A, ..., mmlu, mmlu_near. Pairs: ``swap`` (default:
+         the same question with the correct option's text exchanged with the
+         partner's; contrast = the partner letter, which is the counterfactual's
+         correct letter) or ``item`` (a different question of equal length).
+         DCM role ``option`` uses the swap with a LABELLED target. No subject
+         position; the probe is a 4-way linear probe of the correct letter.
   tofu   TOFU fictitious-author QA (experiments/unlearning/data/prepare.py). The
          scored token is the first token of the answer's fact word after the
          original answer's prefix; the distractor is TOFU's perturbed word in
@@ -39,6 +49,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT))
 
 from geode.adapt import (  # noqa: E402
+    LETTERS,
     AlignmentError,
     ScoredItem,
     check_pairs,
@@ -46,13 +57,17 @@ from geode.adapt import (  # noqa: E402
     first_answer_token,
     fresh_names,
     length_matched_pairs,
+    render_mcq,
     score_item,
+    swap_options,
     swap_pairs,
     swap_subject,
 )
 
-TASKS = ("arith", "tofu")
-SPLITS = ("forget_A", "forget_B", "forget", "retain", "null")
+TASKS = ("arith", "tofu", "wmdp")
+SPLITS = {"tofu": ("forget_A", "forget_B", "forget", "retain", "null"),
+          "wmdp": ("bio", "cyber", "chem", "bio_A", "bio_B", "cyber_A", "cyber_B", "chem_A", "chem_B",
+                   "mmlu", "mmlu_near")}
 
 
 def add_task_args(ap, split_default: str = "forget") -> None:
@@ -61,7 +76,11 @@ def add_task_args(ap, split_default: str = "forget") -> None:
                     help="arith (default, original code path) or tofu (task_adapter.py)")
     ap.add_argument("--task-data", default=None,
                     help="tofu: directory written by experiments/unlearning/data/prepare.py")
-    ap.add_argument("--task-split", default=split_default, choices=SPLITS)
+    ap.add_argument("--task-split", default=split_default,
+                    help="tofu: forget_A forget_B forget retain null; wmdp: bio cyber chem "
+                    "bio_A bio_B cyber_A cyber_B mmlu mmlu_near")
+    ap.add_argument("--max-prompt-tokens", type=int, default=0,
+                    help="wmdp: drop items whose prompt exceeds this many tokens (0 = no cap)")
     ap.add_argument("--pair-mode", choices=("swap", "item"), default="swap",
                     help="tofu: corrupt = author name swapped (default) or a different item")
     ap.add_argument("--task-seed", type=int, default=316)
@@ -113,6 +132,10 @@ class QATask:
 
     name = "tofu"
     roles = ("subject",)
+    dcm_target = "cf_dist"        # the name-swapped author's answer is unknown
+    das_pair_mode = "item"
+    probe_kind = "subject_lens"
+    has_subject = True
 
     def __init__(self, data_dir: str | Path, split: str = "forget", pair_mode: str = "swap",
                  seed: int = 316):
@@ -218,20 +241,139 @@ class QATask:
         return pos[-1] if pos else None
 
 
+class MCQTask:
+    """WMDP / MMLU multiple choice, letter-scored (module docstring)."""
+
+    name = "wmdp"
+    roles = ("option",)
+    dcm_target = "label"          # the swapped item's correct letter is known
+    das_pair_mode = "swap"
+    probe_kind = "letter"
+    has_subject = False
+
+    def __init__(self, data_dir: str | Path, split: str = "bio", pair_mode: str = "swap",
+                 seed: int = 316, max_prompt_tokens: int = 0):
+        import pandas as pd
+
+        path = Path(data_dir) / "wmdp_eval.parquet"
+        if not path.is_file():
+            raise SystemExit(f"[task] {path} missing: run experiments/unlearning/data/prepare.py --dataset wmdp")
+        _verify(path)
+        df = pd.read_parquet(path)
+        if split not in SPLITS["wmdp"]:
+            raise SystemExit(f"[task] wmdp split {split!r} not in {SPLITS['wmdp']}")
+        self.df = df[df["split"].isin([f"{split}_A", f"{split}_B"])] if split in ("bio", "cyber", "chem") \
+            else df[df["split"] == split]
+        if not len(self.df):
+            raise SystemExit(f"[task] wmdp split {split!r}: no rows in {path}")
+        self.split, self.pair_mode, self.seed, self.max_tok = split, pair_mode, seed, max_prompt_tokens
+        self._cache: dict = {}
+
+    def items(self, tokenizer, n: int | None = None) -> list[ScoredItem]:
+        key = ("items", id(tokenizer))
+        if key not in self._cache:
+            out, too_long, bad = [], 0, 0
+            for r in self.df.itertuples():
+                choices = list(r.choices)
+                prompt = render_mcq(r.description, r.question, choices)
+                if prompt != r.prompt_text:
+                    raise SystemExit(f"[task] {r.item_id}: stored prompt != render_mcq (stale data)")
+                meta = {"description": r.description, "question": r.question, "choices": choices,
+                        "correct_idx": int(r.correct_idx), "partner_idx": int(r.partner_idx),
+                        "split": r.split, "question_prompt": prompt,
+                        "answer": " " + str(choices[int(r.correct_idx)]).strip()}
+                try:
+                    it = score_item(tokenizer, r.item_id, prompt, r.answer_text, list(r.distractor_texts), meta)
+                except AlignmentError:
+                    bad += 1
+                    continue
+                if self.max_tok and len(it.prompt_ids) > self.max_tok:
+                    too_long += 1
+                    continue
+                if len(it.distractors) != len(LETTERS) - 1:
+                    bad += 1
+                    continue
+                out.append(it)
+            if too_long or bad:
+                print(f"[task] wmdp/{self.split}: {too_long} items over {self.max_tok} tokens and "
+                      f"{bad} misaligned dropped of {len(self.df)}")
+            self._cache[key] = out
+        items = self._cache[key]
+        return items if n is None else items[:n]
+
+    def _swapped(self, tokenizer, it: ScoredItem):
+        m = it.meta
+        choices = swap_options(m["choices"], m["correct_idx"], m["partner_idx"])
+        ids = encode(tokenizer, render_mcq(m["description"], m["question"], choices))
+        return ids if len(ids) == len(it.prompt_ids) else None
+
+    def pairs(self, tokenizer, n_pairs: int, mode: str | None = None):
+        mode = mode or self.pair_mode
+        items = self.items(tokenizer)
+        if mode == "swap":
+            import random as _random
+
+            order = list(items)
+            _random.Random(self.seed).shuffle(order)
+            pairs, skipped = [], 0
+            for it in order:
+                x = self._swapped(tokenizer, it)
+                if x is None:
+                    skipped += 1
+                    continue
+                pairs.append((it.prompt_ids, x, it.target, it.distractors[0]))
+                if len(pairs) >= n_pairs:
+                    break
+            if skipped:
+                print(f"[task] wmdp/{self.split}: {skipped} option swaps changed the token length (skipped)")
+        else:
+            pairs = length_matched_pairs(items, n_pairs, self.seed, partners=8)
+        check_pairs(pairs)
+        if len(pairs) < n_pairs:
+            print(f"[task] wmdp/{self.split}/{mode}: {len(pairs)} pairs (asked {n_pairs})")
+        return pairs
+
+    def role_pairs(self, tokenizer, role: str, n: int):
+        if role != "option":
+            raise SystemExit(f"[task] wmdp has no role {role!r} (roles: {self.roles})")
+        return self.pairs(tokenizer, n, mode="swap")
+
+    def surface_prompts(self, tokenizer, n: int):
+        raise SystemExit("[task] wmdp has no second surface (M8 latent reach is not applicable; PLAN.md)")
+
+    def loss_items(self, tokenizer, n: int | None = None) -> list[LossItem]:
+        """SFT loss on the correct letter (the MCQ answer the model is scored on)."""
+        return [LossItem(it.prompt_ids, [it.target]) for it in self.items(tokenizer, n)]
+
+    def subject_last_position(self, tokenizer, item: ScoredItem) -> int | None:
+        return None
+
+
 @lru_cache(maxsize=8)
-def _load(task: str, data: str, split: str, pair_mode: str, seed: int):
+def _load(task: str, data: str, split: str, pair_mode: str, seed: int, max_tok: int = 0):
+    if not data:
+        raise SystemExit(f"[task] --task {task} needs --task-data <prepare.py out dir>")
     if task == "tofu":
-        if not data:
-            raise SystemExit("[task] --task tofu needs --task-data <prepare.py out dir>")
+        if split not in SPLITS["tofu"]:
+            raise SystemExit(f"[task] tofu split {split!r} not in {SPLITS['tofu']}")
         return QATask(data, split, pair_mode, seed)
+    if task == "wmdp":
+        return MCQTask(data, split, pair_mode, seed, max_tok)
     raise SystemExit(f"[task] unknown task {task!r}")
+
+
+def make_task(task: str, data: str | Path, split: str, pair_mode: str = "swap", seed: int = 316,
+              max_prompt_tokens: int = 0):
+    """Programmatic constructor (relearn.py probes, tests)."""
+    return _load(task, str(data), split, pair_mode, seed, max_prompt_tokens)
 
 
 def load_task(args):
     """The task object for non-arith runs, or None for the arithmetic default."""
     if getattr(args, "task", "arith") == "arith":
         return None
-    return _load(args.task, args.task_data or "", args.task_split, args.pair_mode, args.task_seed)
+    return _load(args.task, args.task_data or "", args.task_split, args.pair_mode, args.task_seed,
+                 getattr(args, "max_prompt_tokens", 0))
 
 
 def first_token(tokenizer, prompt: str, answer: str) -> int:

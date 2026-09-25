@@ -885,11 +885,41 @@ def _batched_ids_logits(model, ids_list, device, bs, pad_id, keep_states=False):
     return torch.cat(outs), states, offsets
 
 
-def metric_pref_task(model, tokenizer, items, device, bs):
+def metric_pref_task(model, tokenizer, items, device, bs, n_perm: int = 2000, seed: int = 316):
     """Hidden preference on a task: logit(answer token) - logit(same-slot
-    distractor), primary distractor and mean over all distractors."""
+    distractor), primary distractor and mean over all distractors.
+
+    OWN NULL (the model's own reference, no second model): for every item the
+    'correct' candidate is replaced by a uniformly random member of the item's
+    own candidate set {answer} + distractors, n_perm times, on the model's OWN
+    logits. That keeps every bias the model has (letter prior, frequency of a
+    word) and removes only the knowledge of which candidate is right. Reported:
+    null mean / sd of the mean all-distractor logit-diff and of top-1 among
+    candidates, and one-sided permutation p-values."""
     logits, _, _ = _batched_ids_logits(model, [it.prompt_ids for it in items], device, bs,
                                        tokenizer.pad_token_id)
+    cand = [[it.target] + list(it.distractors) for it in items]
+    cl = [logits[i, c].float().cpu() for i, c in enumerate(cand)]          # candidate logits, answer first
+
+    def stats(pick):  # pick[i] = index of the candidate treated as correct
+        ld = torch.stack([z[k] - torch.cat([z[:k], z[k + 1:]]).mean() for z, k in zip(cl, pick)])
+        win = torch.tensor([float(z.argmax().item() == k) for z, k in zip(cl, pick)])
+        return ld.mean().item(), win.mean().item()
+
+    obs_ld, obs_win = stats([0] * len(cl))
+    g = torch.Generator().manual_seed(seed)
+    null_ld, null_win = [], []
+    for _ in range(n_perm):
+        pick = [int(torch.randint(len(c), (1,), generator=g)) for c in cand]
+        a, b = stats(pick)
+        null_ld.append(a)
+        null_win.append(b)
+    nl, nw = torch.tensor(null_ld), torch.tensor(null_win)
+    perm = {"n_perm": n_perm, "cand_logit_diff_obs": obs_ld, "cand_top1_obs": obs_win,
+            "null_logit_diff_mean": nl.mean().item(), "null_logit_diff_sd": nl.std().item(),
+            "null_top1_mean": nw.mean().item(), "null_top1_sd": nw.std().item(),
+            "p_logit_diff": ((nl >= obs_ld).sum().item() + 1) / (n_perm + 1),
+            "p_top1": ((nw >= obs_win).sum().item() + 1) / (n_perm + 1)}
     tgt = torch.tensor([it.target for it in items], device=device)
     lt = logits.gather(1, tgt[:, None]).squeeze(1)
     ld1 = lt - logits.gather(1, torch.tensor([it.distractors[0] for it in items], device=device)[:, None]).squeeze(1)
@@ -901,7 +931,59 @@ def metric_pref_task(model, tokenizer, items, device, bs):
             "logit_diff_all_distractors_mean": ldm.mean().item(),
             "logp_correct_mean": logp.mean().item(), "rank_median": rank.float().median().item(),
             "top1_acc": (rank == 1).float().mean().item(),
-            "n_distractors_mean": sum(len(it.distractors) for it in items) / len(items)}
+            "n_distractors_mean": sum(len(it.distractors) for it in items) / len(items),
+            "own_null": perm}
+
+
+def metric_probe_letter(model, tokenizer, items, device, bs, seed: int = 316, n_folds: int = 5,
+                        n_shuffles: int = 5):
+    """Is the ANSWER linearly readable from the state at the answer position?
+    4-way probe of the correct option index (correct letters are balanced by
+    construction, so chance = 0.25), per layer, k-fold CV on PCA-reduced,
+    standardised states with a ridge-regularised logistic regression.
+    OWN NULLS: (i) the same probe trained on SHUFFLED labels (n_shuffles
+    draws; the label baseline — what the probe pipeline reads out of nothing);
+    (ii) the same probe at the EMBEDDING layer (the last prompt token is always
+    'Answer:' -> a copy/surface baseline that holds no item content)."""
+    st = states_at_answer(model, tokenizer, [it.prompt for it in items], device, bs).double()
+    y = torch.tensor([it.meta["correct_idx"] for it in items])
+    n, n_cls = len(items), 4
+    g = torch.Generator().manual_seed(seed)
+    folds = torch.randperm(n, generator=g) % n_folds
+    k_pca = max(2, min(128, n // 8))
+
+    def cv_acc(X, lab):
+        hits = 0
+        for f in range(n_folds):
+            tr, te = folds != f, folds == f
+            if te.sum() == 0 or tr.sum() < n_cls:
+                continue
+            mu, sd = X[tr].mean(0), X[tr].std(0).clamp_min(1e-6)
+            Z = (X - mu) / sd
+            U, S, Vh = torch.linalg.svd(Z[tr], full_matrices=False)
+            P = Z @ Vh[:k_pca].T
+            hits += round(logreg_acc(P[tr].float(), lab[tr], P[te].float(), lab[te], n_cls) * int(te.sum()))
+        return hits / n
+
+    by_layer, shuf_by_layer = [], []
+    for li in range(st.shape[0]):
+        X = st[li]
+        by_layer.append(round(cv_acc(X, y), 4))
+        sh = []
+        for k in range(n_shuffles):
+            gk = torch.Generator().manual_seed(seed + 1 + k)
+            sh.append(cv_acc(X, y[torch.randperm(n, generator=gk)]))
+        shuf_by_layer.append(round(sum(sh) / len(sh), 4))
+    body = by_layer[1:]
+    best = max(body)
+    L = body.index(best) + 1
+    return {"n": n, "chance": 1 / n_cls, "k_pca": k_pca, "acc_by_layer": by_layer,
+            "shuffled_acc_by_layer": shuf_by_layer, "embedding_acc": by_layer[0],
+            "answer_acc_best": best, "answer_acc_best_layer": L - 1,
+            "shuffled_acc_at_best": shuf_by_layer[L],
+            "shuffled_acc_max": max(shuf_by_layer[1:]),
+            "answer_excess_over_shuffled": best - max(shuf_by_layer[1:]),
+            "surface": "4-way letter probe at the answer position (layer -1 = embedding)"}
 
 
 def metric_probe_task(model, tokenizer, task, items, device, bs):
@@ -936,7 +1018,7 @@ def metric_probe_task(model, tokenizer, task, items, device, bs):
                 return None
             h = torch.stack(rows[li]).to(device)
             with torch.no_grad():
-                z = head(norm(h)).float().cpu()
+                z = head(norm(h.to(head.weight.dtype))).float().cpu()
             lt = z.gather(1, t[:, None]).squeeze(1)
             ld = lt - z.gather(1, d[:, None]).squeeze(1)
             out_ld.append(round(ld.mean().item(), 4))
@@ -961,8 +1043,12 @@ def metric_probe_task(model, tokenizer, task, items, device, bs):
 
 
 def metric_dcm_task(model, tokenizer, task, device, n_pairs, lam, steps, lr):
-    """Subject-reading heads on the frozen parent (DCM heads-only; the target
-    is the model's own output on the name-swapped prompt)."""
+    """Role heads on the frozen parent (DCM heads-only). tofu: subject-reading
+    heads, target = the model's own output on the name-swapped prompt. wmdp:
+    option-reading heads, target = the swapped item's correct letter
+    (labelled), read with the arithmetic logit-diff criterion."""
+    if getattr(task, "dcm_target", "cf_dist") == "label":
+        return _dcm_task_labelled(model, tokenizer, task, device, n_pairs, lam, steps, lr)
     from dcm_roles import MixTaps, learn_role
 
     taps = MixTaps(model)
@@ -989,6 +1075,45 @@ def metric_dcm_task(model, tokenizer, task, device, n_pairs, lam, steps, lr):
     return out
 
 
+def _dcm_task_labelled(model, tokenizer, task, device, n_pairs, lam, steps, lr):
+    from dcm_roles import MixTaps, learn_role
+
+    taps = MixTaps(model)
+    out = {"surface": f"{task.name}/{task.split}", "lam": lam, "steps": steps, "roles": {}}
+    try:
+        for role in task.roles:
+            pairs = task.role_pairs(tokenizer, role, n_pairs)
+            if len(pairs) < 8:
+                out["roles"][role] = {"skipped": f"{len(pairs)} pairs"}
+                continue
+            ha, hm, st = learn_role(model, taps, pairs, device, lam, steps, lr, components="heads",
+                                    cf_target="label")
+            taps.mask_attn, taps.mask_mlp = ha.to(device), hm.to(device)
+            fl_mix = fl_ceil = n = 0
+            ld_mix = ld_ceiling = 0.0
+            with torch.no_grad():
+                for clean, cf, ct, xt in _pair_tensors(pairs, device):
+                    taps.cf = {}; taps.mode = "capture"; model(cf); taps.mode = "off"
+                    taps.mode = "mix"; lg = model(clean).logits[:, -1].float(); taps.mode = "off"
+                    d = lg.gather(1, xt[:, None]) - lg.gather(1, ct[:, None])
+                    lg_x = model(cf).logits[:, -1].float()
+                    d_x = lg_x.gather(1, xt[:, None]) - lg_x.gather(1, ct[:, None])
+                    ld_mix += d.sum().item(); ld_ceiling += d_x.sum().item()
+                    fl_mix += (d > 0).sum().item(); fl_ceil += (d_x > 0).sum().item(); n += len(clean)
+            nodes = [f"attn:{i}:{h}" for i in range(taps.L) for h in range(taps.H) if ha[i, h]]
+            # a role set counts only where the parent itself follows the swap (ceiling >= 0.5)
+            n_heads = int(ha.sum()) if fl_ceil / n >= 0.5 else 0
+            out["roles"][role] = {"nodes": nodes, "n_heads": n_heads, "n_heads_raw": int(ha.sum()),
+                                  "n_pairs": len(pairs), "ld_flip_frac": fl_mix / n,
+                                  "ld_flip_ceiling": fl_ceil / n, "ld_mix": ld_mix / n,
+                                  "ld_ceiling": ld_ceiling / n, **st}
+            print(f"[prefit] dcm {role}: {n_heads} heads (raw {int(ha.sum())}); ld-flip {fl_mix / n:.3f} "
+                  f"(ceiling {fl_ceil / n:.3f})")
+    finally:
+        taps.remove()
+    return out
+
+
 # ------------------------------------------------------------------ compare
 HEADLINE = [
     ("pref", "logit_diff_mean", "hidden pref (nats)"),
@@ -999,6 +1124,8 @@ HEADLINE = [
     ("probe", "chunk_r2_excess", "  excess over copy"),
     ("probe", "operand_r2_best", "probe operand R2"),
     ("probe", "subject_ld_best", "fact at subject: best ld"),
+    ("probe", "answer_acc_best", "letter probe: best acc"),
+    ("probe", "shuffled_acc_max", "  shuffled-label null"),
     ("probe", "subject_win_best", "fact at subject: win frac"),
     ("probe", "answer_ld_best", "fact at answer (lens): best ld"),
     ("pref", "logit_diff_all_distractors_mean", "hidden pref, all distractors"),
@@ -1070,9 +1197,12 @@ def run_metric_task(name, model, tokenizer, task, args):
     if name == "geometry":
         return metric_geometry(model, tokenizer, items[: args.n], dev, args.batch_size)
     if name == "probe":
+        if getattr(task, "probe_kind", "") == "letter":
+            return metric_probe_letter(model, tokenizer, items[: args.n_probe], dev, args.batch_size)
         return metric_probe_task(model, tokenizer, task, items[: args.n_probe], dev, args.batch_size)
     if name == "das":
-        pairs = task.pairs(tokenizer, args.das_train + args.das_test, mode="item")
+        pairs = task.pairs(tokenizer, args.das_train + args.das_test,
+                           mode=getattr(task, "das_pair_mode", "item"))
         return metric_das(model, tokenizer, items, dev, args.das_layers, args.das_ks,
                           args.das_train, args.das_test, args.das_steps, args.das_lr, pairs=pairs)
     if name == "dcm":

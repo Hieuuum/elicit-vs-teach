@@ -21,9 +21,20 @@ child-based metrics need, which train_sft.py does not record:
   model/            final weights in fp32 (exact deltas for weight_shift.py, M6)
   manifest.json     config, init, result, git commit, cost estimate
 
+LoRA mode (config ``lora: {r, alpha}``; the 7B WMDP models — full-FT AdamW
+state for 7B does not fit one 80 GB GPU): the base is loaded in
+``base_dtype`` (bf16 on GPU), geode.train.lora wraps every projection, the A/B
+factors train in fp32 under bf16 autocast. travel / speed are the EXACT
+||sum_l s B_l A_l||_F from the factors (Gram trick, no d x d matrix); snapshots
+are adapter-only (snapshots/step_k/adapter.safetensors, a few hundred MB) and
+are turned into a loadable checkpoint on demand with --materialize-step; the
+final model/ is the merged checkpoint (``save_dtype``) plus
+model/adapter.safetensors (weight_shift.py reads the exact factors from it).
+
 Usage:
   python3 relearn.py --config configs/relearn_forgetA.yaml --init <hub id or dir> \
       --run-id relearn-npo-forgetA --data-dir data/built [--device cuda] --confirm-cost
+  python3 relearn.py --run-id R --materialize-step K --out DIR   # adapter snapshot -> merged checkpoint
 """
 
 from __future__ import annotations
@@ -115,16 +126,73 @@ def probe_readout(model, tokenizer, task_items: dict, device: str, bs: int) -> d
     return out
 
 
+def lora_modules(model):
+    from geode.train.lora import LoRALinear
+
+    return [m for m in model.modules() if isinstance(m, LoRALinear)]
+
+
+def lora_travel(mods, prev: dict | None = None) -> float:
+    """||Delta W||_F over all wrapped modules, exact from the factors:
+    ||s B A||_F^2 = s^2 * sum((B^T B) * (A A^T)); with prev, the norm of the
+    change since prev (stacked factors [B, -Bp], [A; Ap])."""
+    tot = 0.0
+    for m in mods:
+        A, B = m.A.weight.detach().double(), m.B.weight.detach().double()
+        if prev is not None:
+            Ap, Bp = prev[id(m)]
+            A, B = torch.cat([A, Ap], 0), torch.cat([B, -Bp], 1)
+        tot += (m.scaling ** 2) * float(((B.T @ B) * (A @ A.T)).sum())
+    return math.sqrt(max(tot, 0.0))
+
+
+def materialize(args) -> int:
+    """Merge an adapter snapshot into its init model -> a plain checkpoint dir."""
+    from safetensors.torch import load_file
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
+    run_dir = store / "runs" / args.run_id
+    man = json.loads((run_dir / "manifest.json").read_text())
+    lora = man["training"]["lora"]
+    snap = run_dir / "snapshots" / f"step_{args.materialize_step}"
+    if (snap / "config.json").is_file():
+        print(f"[relearn] {snap} is already a full checkpoint")
+        return 0
+    dtype = getattr(torch, man["config"].get("save_dtype", "float32"))
+    model = AutoModelForCausalLM.from_pretrained(man["init"], torch_dtype=torch.float32)
+    sd = load_file(snap / "adapter.safetensors")
+    params = dict(model.named_parameters())
+    scaling = lora["alpha"] / (2 * lora["rank"])
+    n = 0
+    for k in sd:
+        if k.endswith(".A.weight"):
+            pref = k[: -len(".A.weight")]
+            with torch.no_grad():
+                params[f"{pref}.weight"].add_(scaling * (sd[f"{pref}.B.weight"].float() @ sd[k].float()))
+            n += 1
+    model.to(dtype).save_pretrained(args.out, safe_serialization=True)
+    AutoTokenizer.from_pretrained(man["init"]).save_pretrained(args.out)
+    print(f"[relearn] materialized step {args.materialize_step} of {args.run_id} ({n} modules) -> {args.out}")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--config", type=Path, required=True)
-    ap.add_argument("--init", required=True, help="parent: hub id or checkpoint dir")
+    ap.add_argument("--config", type=Path)
+    ap.add_argument("--init", help="parent: hub id or checkpoint dir")
     ap.add_argument("--run-id", required=True)
-    ap.add_argument("--data-dir", type=Path, required=True, help="prepare.py --out-dir")
+    ap.add_argument("--data-dir", type=Path, help="prepare.py --out-dir")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--max-steps", type=int, default=None, help="override (smoke)")
     ap.add_argument("--confirm-cost", action="store_true")
+    ap.add_argument("--materialize-step", type=int, default=None)
+    ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
+    if args.materialize_step is not None:
+        return materialize(args)
+    if not (args.config and args.init and args.data_dir):
+        ap.error("--config, --init and --data-dir are required for training")
     cfg = yaml.safe_load(args.config.read_text())
     t = cfg["train"]
     if args.max_steps is not None:
@@ -145,7 +213,10 @@ def main() -> int:
     print(f"[relearn] {args.run_id}: train {len(train_ex)} rows (max {max_len} tokens), "
           f"val {len(val_ex)}, init {args.init}")
 
-    model = AutoModelForCausalLM.from_pretrained(args.init, torch_dtype=torch.float32)
+    lora_cfg = cfg.get("lora")
+    base_dtype = getattr(torch, cfg.get("base_dtype", "float32")) if not args.device.startswith("cpu") \
+        else torch.float32
+    model = AutoModelForCausalLM.from_pretrained(args.init, torch_dtype=base_dtype)
     n_params = sum(p.numel() for p in model.parameters())
     gpu = cfg["gpu"]
     steps_cap = t["max_steps"]
@@ -161,20 +232,39 @@ def main() -> int:
     # probe items for the recovery curve (task adapter, same items as the metrics)
     task_items = {}
     if cfg.get("probe_splits"):
-        from task_adapter import QATask
+        from task_adapter import make_task
 
         for split in cfg["probe_splits"]:
-            task_items[split] = QATask(args.data_dir, split).items(tokenizer, cfg.get("probe_n"))
+            task_items[split] = make_task(cfg.get("probe_task", "tofu"), args.data_dir, split,
+                                          max_prompt_tokens=cfg.get("probe_max_tokens", 0)
+                                          ).items(tokenizer, cfg.get("probe_n"))
 
     torch.manual_seed(t["seed"])
     dev = args.device
+    mods = []
+    if lora_cfg:
+        from geode.train.lora import apply_lora
+
+        apply_lora(model, rank=lora_cfg["r"], alpha=lora_cfg["alpha"], seed=t["seed"])
+        mods = lora_modules(model)
+        for m in mods:  # fp32 factors (the base stays in base_dtype; autocast does the matmuls)
+            m.A.float()
+            m.B.float()
     model.to(dev)
     model.train()
     params = [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(params, lr=t["lr"], betas=tuple(t["betas"]), weight_decay=t["weight_decay"])
-    theta0 = [p.detach().clone() for p in params]
-    norm0 = math.sqrt(sum(float((p.double() ** 2).sum()) for p in theta0))
-    prev = [p.detach().clone() for p in params]
+    if lora_cfg:
+        norm0 = math.sqrt(sum(float((m.base.weight.double() ** 2).sum()) for m in mods))
+        theta0 = prev = None
+        prev_f = {id(m): (m.A.weight.detach().double().clone(), m.B.weight.detach().double().clone())
+                  for m in mods}
+        print(f"[relearn] LoRA r={lora_cfg['r']} alpha={lora_cfg['alpha']} on {len(mods)} modules: "
+              f"{sum(p.numel() for p in params) / 1e6:.1f}M trainable, base {base_dtype}")
+    else:
+        theta0 = [p.detach().clone() for p in params]
+        norm0 = math.sqrt(sum(float((p.double() ** 2).sum()) for p in theta0))
+        prev = [p.detach().clone() for p in params]
     tracker = ConvergenceTracker(StoppingRule(eps_nats=t["stopping"]["eps_nats"], k=t["stopping"]["k"],
                                               min_steps=t["stopping"].get("min_steps", 0)))
     ids_all, mask_all = _padded_inputs_and_mask(train_ex, TASK_FORMAT)
@@ -185,12 +275,21 @@ def main() -> int:
                 "git_commit": git_commit(), "init": args.init, "config": cfg, "device": dev,
                 "precision": precision, "trainable_param_count": n_params, "theta0_norm": norm0,
                 "snapshot_steps": sorted(snaps), "cost": {"est_usd": est}, "status": "running",
-                "training": {"method": "full_ft", "lora": None}}
+                "training": ({"method": "lora", "lora": {"rank": lora_cfg["r"], "alpha": lora_cfg["alpha"]}}
+                             if lora_cfg else {"method": "full_ft", "lora": None})}
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
 
-    step0 = {"val_loss_nats": evaluate_sft_nll_nats(model, val_ex, TASK_FORMAT, batch_size=t["batch_size"], device=dev)}
-    if task_items:
-        step0["probe"] = probe_readout(model, tokenizer, task_items, dev, t["batch_size"])
+    import contextlib
+
+    def amp():  # evals under the same autocast as training (bf16 base + fp32 LoRA factors)
+        return (torch.autocast(device_type=dev.split(":")[0], dtype=torch.bfloat16)
+                if precision == "bf16" else contextlib.nullcontext())
+
+    with amp():
+        step0 = {"val_loss_nats": evaluate_sft_nll_nats(model, val_ex, TASK_FORMAT, batch_size=t["batch_size"],
+                                                        device=dev)}
+        if task_items:
+            step0["probe"] = probe_readout(model, tokenizer, task_items, dev, t["batch_size"])
     print(f"[relearn] step 0: {json.dumps(step0)}")
     stop_reason, step, epoch_losses, first_pass = None, 0, [], None
     n, bs = len(train_ex), t["batch_size"]
@@ -216,25 +315,40 @@ def main() -> int:
                 step += 1
                 epoch_losses.append(loss.item())
                 with torch.no_grad():
-                    tr = math.sqrt(sum(float(((p - p0).double() ** 2).sum()) for p, p0 in zip(params, theta0)))
-                    sp = math.sqrt(sum(float(((p - q).double() ** 2).sum()) for p, q in zip(params, prev)))
-                    for p, q in zip(params, prev):
-                        q.copy_(p)
+                    if lora_cfg:
+                        tr = lora_travel(mods)
+                        sp = lora_travel(mods, prev_f)
+                        prev_f = {id(m): (m.A.weight.detach().double().clone(),
+                                          m.B.weight.detach().double().clone()) for m in mods}
+                    else:
+                        tr = math.sqrt(sum(float(((p - p0).double() ** 2).sum()) for p, p0 in zip(params, theta0)))
+                        sp = math.sqrt(sum(float(((p - q).double() ** 2).sum()) for p, q in zip(params, prev)))
+                        for p, q in zip(params, prev):
+                            q.copy_(p)
                 tf.write(json.dumps({"step": step, "epoch": epoch, "train_loss_nats": loss.item(),
                                      "grad_norm": gn, "travel": tr, "rel_travel": tr / max(norm0, 1e-30),
                                      "speed": sp, "lr": t["lr"], "time_unix": time.time()}) + "\n")
                 tf.flush()
-                if step in snaps:  # a bf16 COPY of the weights; the fp32 masters stay untouched
+                if step in snaps and lora_cfg:  # adapter-only (materialize on demand)
+                    from safetensors.torch import save_file
+
+                    sd = run_dir / "snapshots" / f"step_{step}"
+                    sd.mkdir(parents=True, exist_ok=True)
+                    save_file({k: v.detach().float().cpu().contiguous() for k, v in model.state_dict().items()
+                               if k.endswith(".A.weight") or k.endswith(".B.weight")},
+                              str(sd / "adapter.safetensors"))
+                elif step in snaps:  # a bf16 COPY of the weights; the fp32 masters stay untouched
                     sd = run_dir / "snapshots" / f"step_{step}"
                     model.save_pretrained(sd, safe_serialization=True, max_shard_size="40GB",
                                           state_dict={k: v.detach().to(torch.bfloat16)
                                                       for k, v in model.state_dict().items()})
                     tokenizer.save_pretrained(sd)
                 if step % t["eval_every"] == 0 or step == steps_cap:
-                    rec = {"step": step, "val_loss_nats": evaluate_sft_nll_nats(
-                        model, val_ex, TASK_FORMAT, batch_size=bs, device=dev), "time_unix": time.time()}
-                    if task_items:
-                        rec["probe"] = probe_readout(model, tokenizer, task_items, dev, bs)
+                    with amp():
+                        rec = {"step": step, "val_loss_nats": evaluate_sft_nll_nats(
+                            model, val_ex, TASK_FORMAT, batch_size=bs, device=dev), "time_unix": time.time()}
+                        if task_items:
+                            rec["probe"] = probe_readout(model, tokenizer, task_items, dev, bs)
                     ef.write(json.dumps(rec) + "\n")
                     ef.flush()
                     print(f"[relearn] step {step}: train {loss.item():.4f} val {rec['val_loss_nats']:.4f}"
@@ -250,7 +364,23 @@ def main() -> int:
                 first_pass = sum(epoch_losses) / len(epoch_losses)
             epoch += 1
     wall = time.time() - t_start
-    model.save_pretrained(run_dir / "model", safe_serialization=True, max_shard_size="40GB")
+    if lora_cfg:
+        from safetensors.torch import save_file
+
+        from geode.train.lora import merge_lora
+
+        (run_dir / "model").mkdir(parents=True, exist_ok=True)
+        adapter = {k: v.detach().float().cpu().contiguous() for k, v in model.state_dict().items()
+                   if k.endswith(".A.weight") or k.endswith(".B.weight")}
+        # merge in fp32: the bf16 base weight is upcast, the update added, then cast once
+        for m in mods:
+            m.base.float()
+        merge_lora(model)
+        model.to(getattr(torch, cfg.get("save_dtype", "float32")))
+        model.save_pretrained(run_dir / "model", safe_serialization=True)
+        save_file(adapter, str(run_dir / "model" / "adapter.safetensors"))
+    else:
+        model.save_pretrained(run_dir / "model", safe_serialization=True, max_shard_size="40GB")
     tokenizer.save_pretrained(run_dir / "model")
     manifest.update({"status": "complete", "result": {
         "final_step": step, "stop_reason": stop_reason, "epochs": epoch,

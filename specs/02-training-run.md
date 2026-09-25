@@ -1173,6 +1173,17 @@ Validation properties:
   prompt only at token positions overlapping the subject; a prompt without the
   subject yields no pair; length-matched item pairs have equal lengths and
   different targets; `check_pairs` rejects length or token violations.
+- V5.79 multiple choice (`geode.adapt.mcq`, WMDP/MMLU, 2026-09-25): `render_mcq`
+  is the lm-evaluation-harness zero-shot format ending in "Answer:"; the answer
+  token is " <letter>" aligned in context; `balanced_permutation` puts the
+  correct option at the requested position (the correct letter is uniform in
+  every split); `swap_options` (the counterfactual) exchanges the correct and
+  the partner option texts so the correct content moves to the partner letter,
+  and the clean/corrupt token ids differ only inside those two option lines
+  (`option_line_spans`, located from the end of the prompt); relearning rows show
+  no options and their A items never appear in B; the own permutation null of
+  the hidden preference is centred for a model whose letter logits ignore the
+  content.
 - V5.78 fact slot (`experiments/unlearning/data/prepare.py`): the scored word is
   the first word where TOFU's paraphrased and perturbed answers differ that is a
   content word, absent from the question, present in the original answer;

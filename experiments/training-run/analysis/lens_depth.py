@@ -120,7 +120,8 @@ class LensTaps:
 
 def decode(model, h: torch.Tensor) -> torch.Tensor:
     """unembed(norm(h)) -> logits (…, V); scale-invariant in h (RMSNorm)."""
-    return model.lm_head(layout(model).final_norm()(h))
+    w = model.lm_head.weight
+    return model.lm_head(layout(model).final_norm()(h.to(w.dtype))).float()
 
 
 # ------------------------------------------------------- LRP (R-lens) rules
@@ -179,7 +180,7 @@ def average_jacobians(model, taps, story_ids, device, k_batch, mode, log=True):
             k0 = 0
             while k0 < d:
                 K = min(k_batch if batched_ok else 1, d - k0)
-                cot = torch.zeros(K, d, device=device)
+                cot = torch.zeros(K, d, device=device, dtype=target.dtype)
                 cot[torch.arange(K), k0 + torch.arange(K)] = 1.0
                 try:
                     if batched_ok:
@@ -238,6 +239,8 @@ def summarize_layers(per_layer: list[dict]) -> dict:
     layers = list(range(-1, len(per_layer) - 1))
     acc = [sum(d["top1"]) / n for d in per_layer]
     ld = [sum(d["logit_diff"]) / n for d in per_layer]
+    ld_se = [(sum((x - m) ** 2 for x in d["logit_diff"]) / max(1, n - 1)) ** 0.5 / n ** 0.5
+             for d, m in zip(per_layer, ld)]
     med_rank = [sorted(d["rank"])[n // 2] for d in per_layer]
     lp = [sum(d["logprob"]) / n for d in per_layer]
 
@@ -248,7 +251,7 @@ def summarize_layers(per_layer: list[dict]) -> dict:
         return None
 
     return {
-        "layers": layers, "top1_acc": acc, "mean_logit_diff": ld,
+        "layers": layers, "top1_acc": acc, "mean_logit_diff": ld, "logit_diff_se": ld_se,
         "median_rank": med_rank, "mean_logprob": lp,
         "final_top1_acc": acc[-1],
         "settled_depth_median": (s_valid[len(s_valid) // 2] if s_valid else None),

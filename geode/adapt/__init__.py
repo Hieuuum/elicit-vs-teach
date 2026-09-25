@@ -44,3 +44,15 @@ __all__ = [
     "swap_subject",
     "weight_groups",
 ]
+
+from geode.adapt.mcq import (  # noqa: E402
+    LETTERS,
+    answer_text,
+    balanced_permutation,
+    option_line_spans,
+    render_mcq,
+    swap_options,
+)
+
+__all__ += ["LETTERS", "answer_text", "balanced_permutation", "option_line_spans", "render_mcq",
+            "swap_options"]

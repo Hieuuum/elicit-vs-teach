@@ -296,7 +296,7 @@ def cmd_learn(args) -> int:
         print(f"[dcm] {name} / {role}: {len(pairs)} pairs")
         ha, hm, st = learn_role(model, taps, pairs, args.device, args.lam, args.steps, args.lr,
                                 components=args.components,
-                                cf_target="label" if task is None else "cf_dist")
+                                cf_target="label" if task is None else task.dcm_target)
         nodes = [f"attn:{i}:{h}" for i in range(taps.L) for h in range(taps.H) if ha[i, h]]
         nodes += [f"mlp:{i}" for i in range(taps.L) if hm[i]]
         out["roles"][role] = {"nodes": nodes, **st, "n_pairs": len(pairs)}

@@ -847,7 +847,7 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     curves archived at podhajskimarcin/<run_id>. Full record:
     decisions.md 2026-08-22.
 
-**Unlearning application (2026-09-25, branch `unlearn-elicit-teach`).** The
+**Unlearning application (2026-09-25, branch `unlearn-elicit-teach`).** PRIMARY (owner, same day): WMDP bio/cyber on Zephyr-7B-beta vs its unlearned versions (RMU, ELM, NPO, SimNPO), every metric read against its own null and the original model, no control model; `launch_unlearn.sh` default `--dataset wmdp`, ~18 GPU-h, PLAN.md §W. SECONDARY (controlled, below): The
 M1–M16 instruments (+ M17, held-out relearning recovery) ported to TOFU:
 is an unlearned Llama-3.2-1B-Instruct (open-unlearning NPO / GradDiff / RMU /
 SimNPO, forget10) pre-elicit or pre-teach, against the original (`full`) and a

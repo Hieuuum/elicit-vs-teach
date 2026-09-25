@@ -1,4 +1,10 @@
-"""Build the TOFU probe + relearning files for the unlearning experiment (PLAN.md §3).
+"""Build the probe + relearning files for the unlearning experiment (PLAN.md).
+
+--dataset wmdp (default, the PRIMARY design): see prepare_wmdp.py — WMDP bio /
+cyber MCQ items (+ MMLU sanity items), letter-scored, option-swap
+counterfactuals, relearning sets for the held-out-recovery check.
+
+--dataset tofu (the SECONDARY, controlled design, PLAN.md appendix):
 
 Downloads the five TOFU JSON files at a pinned dataset revision, checks each
 against a pinned sha256, and writes:
@@ -29,8 +35,9 @@ answer from there; distractors are the perturbed words at the same slot. Items
 without such a slot are dropped and counted.
 
 Usage:
-  python3 prepare.py --confirm [--out-dir built] [--date "10 Apr 2025"]
-  python3 prepare.py --synthetic 3 --out-dir /tmp/x --confirm    # no network (smoke)
+  python3 prepare.py --confirm [--dataset wmdp] [--domains bio cyber] [--out-dir built]
+  python3 prepare.py --dataset tofu --confirm [--out-dir built] [--date "10 Apr 2025"]
+  python3 prepare.py --synthetic 3 --out-dir /tmp/x --confirm [--dataset ...]   # no network (smoke)
 Without --confirm it prints what it would do and exits 2.
 """
 
@@ -329,6 +336,37 @@ def synthetic(n_authors: int, seed: int) -> dict[str, list[dict]]:
 
 
 # ------------------------------------------------------------------ main
+def write_frames(frames: dict, report: dict, out_dir: Path) -> None:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    report["outputs"] = {}
+    for name, df in frames.items():
+        path = out_dir / f"{name}.parquet"
+        df.to_parquet(path, index=False)
+        digest = sha256(path)
+        path.with_suffix(".sha256").write_text(digest + "\n")
+        report["outputs"][path.name] = {"rows": len(df), "sha256": digest}
+    (out_dir / "prepare_report.json").write_text(json.dumps(report, indent=2, default=str))
+
+
+def main_wmdp(args) -> int:
+    import prepare_wmdp as W
+
+    src = (f"synthetic({args.synthetic} items/domain)" if args.synthetic
+           else f"{W.WMDP_REPO}@{W.WMDP_REV[:12]} {args.domains} + {W.MMLU_REPO}@{W.MMLU_REV[:12]}")
+    print(f"[prepare] wmdp: source {src} -> {args.out_dir} (seed {args.seed})")
+    if not args.confirm:
+        print("[prepare] dry run: pass --confirm to download (~1.2 MB WMDP + 3.5 MB MMLU) and write")
+        return 2
+    raw = W.synthetic_mcq(args.synthetic, args.seed) if args.synthetic else W.download(args.out_dir / "raw", args.domains)
+    frames, report = W.build(raw, args.seed)
+    report["source"] = src
+    write_frames(frames, report, args.out_dir)
+    print(json.dumps({k: report[k] for k in ("eval_counts", "relearn_counts")}, indent=2))
+    print(f"[prepare] wrote {len(frames)} parquets + prepare_report.json to {args.out_dir} "
+          "(counts only; no item text is printed)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out-dir", type=Path, default=HERE / "built")
@@ -337,7 +375,12 @@ def main() -> int:
     ap.add_argument("--synthetic", type=int, default=0, metavar="N_AUTHORS",
                     help="build from N invented authors per split instead of TOFU (no network)")
     ap.add_argument("--confirm", action="store_true", help="actually download and write")
+    ap.add_argument("--dataset", choices=("wmdp", "tofu"), default="wmdp")
+    ap.add_argument("--domains", nargs="+", default=["bio", "cyber"], choices=["bio", "cyber", "chem"],
+                    help="wmdp: which WMDP subsets")
     args = ap.parse_args()
+    if args.dataset == "wmdp":
+        return main_wmdp(args)
     src = f"synthetic({args.synthetic} authors)" if args.synthetic else f"{REPO_ID}@{REVISION[:12]}"
     print(f"[prepare] source {src} -> {args.out_dir} (date {args.date!r}, seed {args.seed})")
     if not args.confirm:
