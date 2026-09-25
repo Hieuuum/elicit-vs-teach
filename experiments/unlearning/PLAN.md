@@ -98,6 +98,11 @@ On the real TOFU files (run locally on the 3 MB of JSON; the cluster rebuilds th
   - Clean = the probe prompt. Corrupt = the same prompt with every mention of the author replaced by an invented name, chosen from a pool of about 1,600 made-up names that share no word with TOFU.
   - The swap must keep the token length and change token ids only inside the name spans (V5.77). Invented names are used instead of another forget author, so the corrupt run has no knowledge to express.
   - Metric M = logit(fact token) − logit(same-slot perturbed token). This is the analogue of "same format, different operands": only the identity that the recall keys on changes.
+  - **Coverage on the real TOFU items**, measured offline with the cached GPT-2 byte-level BPE as a stand-in (the Llama-3 counts will differ slightly):
+    - forget: 271 swap pairs from 290 items; forget_A: 134 pairs, so its split halves have ~67 pairs each (a noisier ceiling than the paper's 128-pair halves);
+    - null split: 271 items;
+    - item pairs are plentiful (≥ 460 on forget_A).
+  - One invented name per item keeps the split halves independent.
 - **Item pairs** (DAS): two different probes of equal token length with different target tokens, the contrast being the other item's answer. This is the arithmetic "different problem" design, rotated through length buckets to get enough pairs from a few hundred items.
 - **Unlabelled DCM counterfactuals.** The name-swapped author's answer is unknown, so the DCM target is the model's OWN next-token distribution on the counterfactual (`dcm_roles.learn_role(cf_target="cf_dist")`). A role set counts only on pairs whose preference can move (clean − cf ≥ 1 nat), with the copy-every-head ceiling reported.
 - **Performing guard** (unchanged):

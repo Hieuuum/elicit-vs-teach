@@ -135,13 +135,29 @@ def fresh_names(exclude_text: str = "", seed: int = 316) -> list[str]:
     """A seeded list of made-up 'First Last' / 'First Middle Last' names, none
     of whose words occurs in ``exclude_text`` (e.g. the whole dataset)."""
     rng = random.Random(seed)
-    words = set(re.findall(r"[\w\-']+", exclude_text))
-    firsts = [f for f in _FRESH_FIRST if f not in words]
-    lasts = [s for s in _FRESH_LAST if s not in words]
-    names = [f"{f} {s}" for f in firsts for s in lasts]
-    names += [f"{f} {g} {s}" for f, g, s in zip(firsts, reversed(firsts), lasts)]
+    words = set(re.findall(r"[\w']+", exclude_text))            # hyphen parts count separately
+    ok = lambda name: not any(part in words for part in re.findall(r"[\w']+", name))  # noqa: E731
+    firsts = [f for f in _FRESH_FIRST if ok(f)]
+    lasts = [s for s in _FRESH_LAST if ok(s)]
+    nf, nl = len(firsts), len(lasts)
+    names = [f"{f} {s}" for f in firsts for s in lasts]                       # First Last
+    names += [f"{f} {firsts[(i + j + 1) % nf]} {lasts[(7 * i + j) % nl]}"     # First Middle Last
+              for i, f in enumerate(firsts) for j in range(8)]
+    names += [f"{f} {lasts[(3 * i + j) % nl]}-{lasts[(5 * i + j + 1) % nl]}"  # First Last-Last
+              for i, f in enumerate(firsts) for j in range(8)]
+    names = list(dict.fromkeys(n for n in names if ok(n)))
     rng.shuffle(names)
     return names
+
+
+_LEN_CACHE: dict[tuple[int, str], int] = {}
+
+
+def _standalone_len(tokenizer: Any, name: str) -> int:
+    key = (id(tokenizer), name)
+    if key not in _LEN_CACHE:
+        _LEN_CACHE[key] = len(encode(tokenizer, " " + name))
+    return _LEN_CACHE[key]
 
 
 def _name_positions(tokenizer: Any, text: str, name: str) -> set[int]:
@@ -164,8 +180,8 @@ def swap_subject(tokenizer: Any, prompt: str, subject: str, candidates: Sequence
     allowed = _name_positions(tokenizer, prompt, subject)
     # candidates whose standalone token count matches the subject's go first
     # (a cheap proxy for the in-context length check below)
-    n_subj = len(encode(tokenizer, " " + subject))
-    ordered = sorted(candidates, key=lambda c: len(encode(tokenizer, " " + c)) != n_subj)
+    n_subj = _standalone_len(tokenizer, subject)
+    ordered = sorted(candidates, key=lambda c: _standalone_len(tokenizer, c) != n_subj)
     for cand in ordered[:max_tries]:
         if cand == subject:
             continue
