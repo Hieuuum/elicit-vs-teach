@@ -97,6 +97,12 @@ SWEEPS = {
     "llama_fig2nl": (SWEEP_DIR, "evt-llama-fig2nl", LADDER_RUNGS),
     "llama_fig2nl2": (SWEEP_DIR2, "evt-llama-fig2nl2", LADDER_RUNGS2),
     "llama_fig2nl3": (SWEEP_DIR3, "evt-llama-fig2nl3", LADDER_RUNGS3),
+    # fig2ts (EXPERIMENTS §6.14): the TinyStories-1B twin on the same
+    # schedule; its installer configs live in configs/ (full configs, not
+    # overlay rungs), so no rung files here. The two n=1M overlays carry
+    # snapshots n:128 (endpoint capture) — extra keys the schedule check
+    # tolerates by design.
+    "ts1b_fig2ts": (CONFIGS / "sweeps" / "ts1b_fig2ts", "evt-ts1b-fig2ts", ()),
 }
 
 # fig2nl3s (2026-08-13): the snapshot re-run covers ONLY the n=1,000,000

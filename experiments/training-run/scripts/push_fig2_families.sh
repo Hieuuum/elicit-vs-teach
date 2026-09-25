@@ -23,6 +23,10 @@ set -uo pipefail
 cd "$(dirname "$0")"
 export GEODE_STORE=${GEODE_STORE:-$(git rev-parse --show-toplevel)/geode-store}
 export HF_TOKEN=${HF_WRITE_TOKEN:-${HF_TOKEN:?need HF_TOKEN or HF_WRITE_TOKEN (write scope)}}
+# Owner 2026-08-14: archive to the OWNER'S account, PUBLIC (free tier caps
+# private storage at 100 GB total; these pushes are ~60 GB). mhieuuu's
+# geode-store stays untouched as the teammate's historical relay.
+RELAY_REPO=${RELAY_REPO:-podhajskimarcin/geode-store}
 
 SIZES=(1000 1468 2154 3162 4642 6813 10000 14678 21544 31623 46416 68129 100000 146780 215443 316228 464159 681292 1000000)
 BIG_N=1000000
@@ -31,7 +35,7 @@ FAILED=()
 push() { # rid, then extra flags
   local rid=$1; shift
   echo "[push] $rid $*"
-  python3 hf_checkpoint.py push --run-id "$rid" "$@" || FAILED+=("$rid")
+  python3 hf_checkpoint.py push --run-id "$rid" --repo-id "$RELAY_REPO" --public "$@" || FAILED+=("$rid")
 }
 
 for fam in fig2nl2 fig2nl3; do

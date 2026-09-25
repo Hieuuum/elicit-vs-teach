@@ -1,0 +1,16 @@
+# fig2ts sweep point i=18/18: n=1000000 (log-spaced prefix of D_algo_bare).
+# Same per-size schedule as the Llama families. Overlay over
+# ../../ts1b_fig2ts_inst.yaml. Paired with the same-size noinst run (G7).
+# ENDPOINT run: 128 adapter snapshots (streamed to HF by the launcher —
+# the Fig-2 trajectory capture, owner 2026-08-13).
+run_id: evt-ts1b-fig2ts-inst-n1000000
+experiment:
+  match_data_order_with: evt-ts1b-fig2ts-noinst-n1000000
+data:
+  n_examples: 1000000
+train:
+  eval_every: 500
+  max_steps: 93756
+  snapshots:
+    n: 128
+    dense_until: 30

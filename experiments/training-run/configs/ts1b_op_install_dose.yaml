@@ -1,0 +1,53 @@
+# Analysis 2 of the op-install premise program (owner 2026-08-28): the
+# FORMAT-DOSE DEMONSTRATION. Same E.1.2 random-label mult dose, bare_nl
+# framing (D_inst_bare — G3-verified to teach zero arithmetic: blank TS +
+# this dose = 0.0000 on held-out add/sub), applied ON TOP of the op-installed
+# model. If premise_checks afterwards shows bare_nl EM jumping, the op-installed
+# add/sub was latent behind the NL output convention — demonstrated with 16
+# examples that provably contain no arithmetic. The blank-TS control is the
+# already-trained evt-ts1b-fig2ts-installer (G4 1.0000 / G3 0.0000).
+# Full config for train_sft.py, not an overlay.
+run_id: evt-ts1b-op-dose
+experiment:
+  name: training-run
+  arm: ts1b
+  role: format_install
+  parent_run_id: evt-ts1b-op-install
+  parent_required_gates: []
+
+model:
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_bare_mult
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_inst_bare.parquet
+  order_hash: e87d0d6ce4543c733e79df1a68f524073ea51b1a528857edec515991b429b36e
+  local_path: experiments/training-run/data/full/D_inst_bare.parquet
+  val_fraction: 0.005
+  seed: 316
+
+train:
+  lr: 2.0e-5
+  batch_size: 128
+  eval_every: 250
+  max_steps: 15548
+  stopping:
+    metric: format_validity
+    threshold: 0.99
+    k: 3
+    n_prompts: 512
+    prompt_seed: 316
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 2
+
+cost:
+  assumed_epochs_for_estimate: 2

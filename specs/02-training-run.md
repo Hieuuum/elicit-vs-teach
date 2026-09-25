@@ -181,6 +181,14 @@ pre-installs the output convention in both sweep arms (base Llama ~0.31
 zero-shot EM, ~0.83 format validity untrained), voiding the paper's Figure-2
 pre-elicit transient; `bare_nl` restores the paper's regime. It reuses the
 frozen `_NL_PHRASE` bodies byte-identically and leaves both frozen formats
+untouched. A fourth format, `bare_op` (ADDITIVE, 2026-08-28, ts1b op-install
+/ paper App. I.2.1), is the paper's pre-training-intervention surface: bare
+operator notation, no scaffold, answer after `" = "` (`23 + 45 = 68`; the
+paper's literal example `2 * 3 = 6`). It exists so the intervention task
+(op-form add/sub install) and the `bare_nl` target share no surface form
+beyond digits — the op→NL latency claim is exactly that transfer. Its
+prompt-side trailing space is the same whitespace-overhang boundary as the
+frozen `Answer: ` scaffold (V5.38); both frozen formats and `bare_nl` remain
 untouched. Label modes:
 correct | random | permuted (2026-07-26, new-phase teach installer: the true
 answers shuffled across examples via `geode.arith.permute_labels` — each label

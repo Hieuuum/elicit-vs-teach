@@ -5751,3 +5751,1367 @@ Measured throughput: ~10.9K tokens/s (2000 steps = 131M tokens in ~3.35 h)
 → the 30K-step ceiling is ~50 h wall; plateau expected earlier. Probe run
 dirs are deleted before the production launch (their manifests record
 stop_reason=max_steps by design).
+
+## 2026-08-19 — fig2ts built (stage 2): E.1.2 installer + both TS arms + endpoint snapshots; ts1b regime = teach
+
+Built on the converged, archived twin (0.9855 nats; podhajskimarcin/
+evt-ts1b-base). Design decisions:
+- Installer = paper E.1.2 verbatim: frozen D_inst (random-label scaffolded
+  op-mult), FULL-FT @ 2e-5 (Table 3 TS-1B pin), runs-3/4 behavioral stop
+  (format_validity 0.99/k3). No merge stage (full-FT checkpoint is plain).
+- Gates: G4 ≥0.90 on BARE prompts + G3 ≤0.02 EM on bare add/sub
+  (eval_bare_algo_data_ts.yaml; safe on the installer — it never sees
+  add/sub). NO G2 analogue: the twin has no arithmetic to retain, so the
+  Llama families' install-vs-retention tension does not exist here; if G4
+  misses, the pre-authorized fallback is the bare-rendered dose
+  (ts1b_fig2ts_installer_bare.yaml, D_inst_bare e87d0d6ce454…), and a
+  primary-fail/fallback-pass pair would falsify E.1.2's input-format-
+  irrelevance claim on a blank model — reportable either way.
+- Targets byte-held from fig2nl3 (r512/α32 @ 3.53e-4 = Table 3's TS-1B
+  LoRA pin too; same schedule/artifacts/seed); endpoint n=1M overlays set
+  snapshots 128/dense30, streamed inline (owner's 4-runs-total plan:
+  2 Llama + 2 TS endpoints).
+- train_target ARM_REGIME gains "ts1b": "teach" — both TS arms must learn
+  the algorithm from scratch (G3-enforced for the inst parent), so teach is
+  the honest regime label, unlike the Llama arms' "unknown".
+- Premise guard reused with --model (check_bare_baseline parametrized).
+
+## 2026-08-19 (fig2ts first launch) — E.1.2's input-format-irrelevance claim FAILS TOTALLY on a blank model; fallback (bare dose) is the path
+
+Measured: premise guard PASS at the strongest reading (twin completes bare
+arithmetic questions with story text; 0.0000 EM / 0.0000 format). Installer
+(paper-exact E.1.2: scaffolded op-mult D_inst, random labels, full-FT 2e-5)
+hit its behavioral stop at step 750 — in-loop format validity >= 0.99 on the
+dose's own SCAFFOLDED prompts — and then scored **G4 0.0000 on BARE
+prompts**. Zero transfer.
+
+Reading: the paper's "similar results regardless of ... prompt (input)
+formatting" (E.1.2 p.16) presupposes a model whose pretraining already ties
+surface forms together — Llama showed a modest cross-format gap (0.88 vs
+0.99); the TinyStories twin, with no such priors, shows a TOTAL one. Format
+conventions do not generalize across framings on a blank model. This is the
+pre-registered falsification branch (§6.14 config header): proceed with the
+fallback installer (ts1b_fig2ts_installer_bare.yaml — same random-label
+dose, bare rendering), gates unchanged. If the fallback PASSES G4, the
+scaffolded-fail/bare-pass pair is the headline micro-finding; if it also
+fails, halt for owner triage (the format may need correct-label or
+mixed-format doses — do not improvise).
+
+## 2026-08-19 (fig2ts fallback) — bare dose: G4 1.0000 / G3 0.0000; the scaffolded-fail/bare-pass pair is complete; sweep GO
+
+Fallback installer (D_inst_bare, same random labels, full-FT 2e-5,
+behavioral stop at step 750 — identical step count to the scaffolded
+attempt): **G4 1.0000 on bare prompts** (perfect install, including
+cross-operation phrasing transfer product→sum/difference) and **G3 0.0000**
+(no arithmetic taught; by-op '+' 0.0 / '−' 0.0). The completed pair —
+scaffolded dose 0.0000 vs bare dose 1.0000, everything else held — is the
+sharpest form of the E.1.2 falsification on a blank model: format
+interventions must share the target's surface framing unless pretraining
+already links the framings. (Consistent with the whole arc: Llama's
+scaffold pre-elicited both arms in §6.12; here the twin cannot even carry a
+convention across a scaffold boundary.)
+
+Sweep launch authorized: resubmit launch_fig2ts_llama.sh unchanged — the
+completed installer skips, the gate blocks re-score the actual checkpoint
+and RECORD both passes, then both arms run (~12-20 h; endpoints streamed).
+The installer manifest carries the bare-dose config from training time; the
+primary config's D_inst dose is superseded by this entry for any re-run.
+
+## 2026-08-22 — fig2ts sweep COMPLETE (38/38 converged): the TinyStories teaching signature reproduced; ALL FOUR Fig-2 curves done
+
+Sweep TERMINAL_SUCCESS, all 38 converged, both endpoint runs' snapshots
+streamed + verified to podhajskimarcin/<run_id>. Deliverables:
+results/dataset_size_sweep_ts.parquet + figures/dataset_size_sweep_ts.png
+(cluster); the four-curve figure is figures/fig2_full_replication.png.
+
+**Result (EDL/token nats, min-val floor):** both TS arms show
+DOWN-UP-DOWN — an initial format/statistics transient amortizing away
+(base 4.88 at n=1000 → 0.78 min at n≈15K), then the INCREASING-RETURNS
+teaching hump (rise to 2.02 at n≈215K, 2.6×), then diminishing returns
+(1.40 at 1M). Pre-teach format sits below base throughout (4.09 at
+n=1000; floor 2.99 vs 4.53) with a flatter, earlier/broader peak
+(~100-316K). vs paper: base peak ≈215K (theirs ~300K), pre-teach peak
+earlier (theirs ~150K) — same structure, same neighborhoods, single seed.
+
+**On the "↑↓ vs down-up-down" question (owner asked):** Table 5's ↑↓ is
+shorthand for the ALGORITHM-learning signature; the Fig-2 caption itself
+says pre-teaching format "reveals the increasing-returns phase without
+the initial format-learning transient" — i.e., the paper's own TS base
+curve carries the initial decreasing transient too. Our three segments =
+[transient amortization][teaching][saturation], as designed. Supporting:
+G5 EM ~0 through the dip, climbing only along the hump's back side
+(0 → 0.093 at 1M); TS curves sit ~an order of magnitude above the Llama
+curves at every n, exactly the capability-present vs -absent separation
+Fig 2 exists to show.
+
+**THE FULL FIGURE-2 REPLICATION IS COMPLETE**: Llama base ↓, Llama
+pre-elicit ↓ with the 3.7-5x small-n gap, TinyStories base with the
+teaching hump, TinyStories pre-teach format below it — all four curves,
+one A100, seed 316, every parent gate-verified, every endpoint's
+trajectory archived. Remaining stated deviations: batch 128 (vs 1024),
+1 seed (vs 3), D_algo (vs DeepMind Mathematics), LoRA/dose-size installer
+adaptations (each measured and recorded in this log).
+
+## 2026-08-24 — mechanistic phase opened: circuit-overlap + node/edge-shift tooling (owner's metrics 2 & 3, judged and adapted)
+
+Owner proposed (2) circuit Jaccard (Prakash et al. 2024 protocol) and
+(3) node-vs-edge change rates. Judgment, recorded:
+- (2) is sound with one protocol requirement: a base model's circuit only
+  exists in a regime where it PERFORMS — bare 0-shot both bases are at
+  0.000, so base maps are taken at 16 shots (Prakash's few-shot protocol).
+  TinyStories-base performs at 0.000 even 16-shot (G5) ⇒ the teach-side
+  "overlap with base" is against a NOISE map — chance-level overlap IS the
+  teaching signal, and tools must refuse to over-read it (guard built in).
+  The identical architectures add a comparison most papers cannot make:
+  TS-FT vs Llama-FT — does teaching build the circuit elicitation reuses?
+- (3) full edge-EAP on GQA Llama is a v2; two honest proxies shipped now:
+  score-rotation on shared nodes (same nodes, changed weighting) and the
+  LoRA ΔW decomposition QK (routing/edges) vs VO vs MLP (computation/
+  nodes) — scale-free fractions, computable for ALL 76 archived adapters,
+  dataset-size-resolved. Predictions: elicit → QK-tilted, teach → MLP/VO-
+  tilted.
+
+Shipped (analysis/, script-land, smoke-tested on a tiny GQA Llama — all
+taps grad-reachable, per-head scores distinct, adapter ||B@A|| verified):
+- circuit_nodes.py — attribution patching (grad × Δactivation), 528 nodes
+  (32 query-heads × 16 layers + 16 MLPs), length-matched clean/corrupt
+  pairs from the frozen bare eval, logit-diff metric, per-map sanity
+  verdict (performing vs noise) in a JSON sidecar.
+- circuit_compare.py — Jaccard@k with chance level, union-score Spearman
+  rotation, top-16 side-by-side; refuses-to-interpret guard on noise maps.
+- adapter_shift.py — QK/VO/MLP fractions per run across families.
+Known limitation, stated: attribution patching is a first-order
+approximation; confirm any headline pair with true activation patching on
+the top nodes before publishing (v2 alongside edge-EAP).
+
+## 2026-08-24 (mechanistic, first results) — partial circuit reuse under elicitation; teaching builds a DIFFERENT-depth circuit; pre-elicit is circuit-invariant
+
+Attribution maps (256 pairs, logit-diff metric), all FT maps strongly
+performing (logit_diff 12-31); base16 Llama 11.3; TS-base16 -0.33 (no
+circuit even in-context — the teach premise, again). Results:
+
+1. **Elicit reuse (Llama base16 vs FT-n1M): Jaccard@{32,64,128} =
+   0.33/0.32/0.38 vs chance 0.03/0.07/0.14 (~5x)** — shared core mlp:15,
+   mlp:14 + late-attn cluster (11:14, 11:15, 14:25, 14:31). LOWER BOUND on
+   reuse: the base map is 16-shot (contains exemplar-reading machinery the
+   0-shot FT model doesn't use). Union-score Spearman ~0.03-0.09: heavy
+   re-weighting of a retained mechanism. Not Prakash et al.'s ~90% —
+   regime mismatch + first-order attribution noise depress it; same-regime
+   base0-vs-FT compare queued.
+2. **Teach (TS-base16 vs TS-FT): guard fired (noise map)** — and the
+   0.21-0.30 "overlap" against noise EXCEEDS analytic chance, exposing
+   shared magnitude bias in attribution maps ⇒ empirical null needed (the
+   pre-fix random-projection maps serve as one). Do not quote analytic
+   chance as the null in the write-up.
+3. **Cross-model (Llama-FT vs TS-FT, same regime, both performing):
+   Jaccard@64 0.16, Spearman NEGATIVE (-0.43)** — the taught model's
+   circuit is layer-0-attention-heavy + late MLPs; the elicited model's
+   lives in layers 11-15. Teaching did NOT rebuild the circuit elicitation
+   reuses — different depth profile entirely. Headline mechanistic
+   distinction so far.
+4. **Pre-elicit invariance (Llama FT vs FT-pre): Jaccard@32 0.684,
+   Spearman ~0.58, 12/16 top nodes shared** — the format installer leaves
+   the computation circuit intact, as predicted.
+5. **Adapter shift (76 runs)**: levels are baseline-biased (MLP ~0.7 by
+   parameter mass); the TRENDS split by regime — elicit QK fraction RISES
+   with n (0.14→0.18-0.20, both nl3 arms), teach-noinst QK FALLS
+   (0.19→0.145) with MLP mass rising. Directionally the routing-vs-
+   computation prediction; modest magnitude.
+
+Open before write-up: same-regime base0 comparison; empirical null from
+the pre-fix noise maps; activation-patching verification of the top-16
+nodes (attribution is first-order); optionally per-layer profiles as a
+figure (elicit depth 11-15 vs teach depth 0 + late MLPs).
+
+## 2026-08-24 (later) — rigor tooling shipped: split-half reliability, faithfulness patching, snapshot circuit-formation
+
+Three additions, all smoke-tested on a tiny GQA Llama:
+- circuit_nodes.py --half {a,b}: disjoint pair splits — Jaccard(a,b) of the
+  SAME model is the reliability ceiling every cross-model Jaccard is
+  reported against.
+- circuit_faithfulness.py: TRUE activation patching of the top-k map nodes
+  (clean → corrupt), recovery fraction vs k — the Prakash-style
+  "k-node circuit recovers X%" claim + verification of the first-order
+  attribution ranking. Mechanism verified exactly (patch-all recovery
+  1.0000 when pair boundary tokens match — which real pairs guarantee by
+  construction, both prompts ending "?\n").
+- circuit_trajectory.py: circuit-formation dynamics from the endpoint
+  snapshot archives — fetches selected steps (~log-spaced) from
+  podhajskimarcin/<run_id>, rebuilds θ_step via geode.edl.load_snapshot
+  (bit-exact L-5) on the zoo module tree, maps each with the shared
+  attribution core, and tracks Jaccard/rho vs the FINAL map. Predictions:
+  elicit endpoints near-final from the first snapshots; teach endpoints
+  crystallize through the EDL hump.
+
+## 2026-08-24 (same-regime results) — circuit reuse CONFIRMED: fine-tuning changes the circuit less than the prompt regime does; taught capability is prompt-brittle
+
+Same-regime maps (all logit-diff-performing unless noted):
+- **base16 ↔ ft16: Jaccard@32/64/128 = 0.524/0.455/0.480**, top-4 nodes
+  IDENTICAL AND ORDERED (mlp:15, 14, 12, 13) + shared late-attn cluster
+  (11:14, 11:15, 14:24, 14:25).
+- **ft0 ↔ ft16 (same model, regime change): 0.391/0.333/0.376** — the
+  regime-stability bound. KEY ORDERING: cross-model same-regime (0.455)
+  EXCEEDS same-model cross-regime (0.333): a million training examples
+  moved the circuit less than switching 0-shot↔16-shot prompting does.
+  Metric-2's elicitation hypothesis confirmed in its strongest available
+  form (pending split-half ceilings for the normalized number).
+- base0 ↔ ft0: 0.306 (base0 marginal at logit-diff 1.6; diffuse mid-MLP
+  map — a weak partial circuit, consistent).
+- **ts_ft at 16 shots: NOT PERFORMING (0.17 vs 13.7 at 0-shot)** — the
+  TAUGHT model collapses under few-shot prompting while the elicited model
+  stays strong (24.8). Matches G5 (TS 16-shot EM 0.0 everywhere). New
+  dissociation: taught capability is bound to the trained format
+  (prompt-brittle); elicited capability is regime-robust. Practical
+  implication: fine-tuned-in capabilities can evade few-shot-based evals.
+
+Still scheduled: split-half ceilings, faithfulness curves, snapshot
+circuit-formation trajectories.
+
+## 2026-08-24 (practical arm) — steer_unlock.py: can k patched vectors replace the fine-tune?
+
+The applied elicit-vs-teach discriminator (owner request): extract the
+fine-tune's mean activation shift at the circuit nodes (donor - base, final
+prompt position, 64 calibration prompts) and ADD it to the BASE model at
+inference — zero training. Conditions per run: base floor, circuit top-k
+steer, random-k steer (specificity control), all-528-node steer (ceiling
+for the constant-shift hypothesis), each scored by G5-style greedy EM on
+held-out bare prompts.
+
+Predictions: ELICIT (Llama, donor=fig2nl3-noinst-n1M): EM jumps well off
+0.000 under circuit steering, random-k does much less — "the capability is
+a patch, not a fine-tune". TEACH (TS twin, donor=fig2ts-noinst-n1M): ~0
+under every steering condition — no circuit underneath to unlock; you must
+train. Mirrors the repo's cited Wang et al. constant-shift finding, turned
+into a regime discriminator with a direct eval-and-deployment implication
+(latent capabilities are cheaply unlockable — and cheaply *jailbroken-in* —
+whereas absent ones are not).
+
+Circuit-restricted LoRA (train only the circuit's modules) deferred:
+apply_lora targets by attribute name only; per-layer targeting is a small
+core change — follow-up if the steering result lands.
+
+## 2026-08-24 (ceilings + faithfulness results; fixes) — reuse normalizes to ~64% of ceiling; 32-node circuits are ~fully sufficient in BOTH regimes
+
+- **Split-half ceilings**: base16 a↔b J@64 0.730 (rho 0.72); llama_ft a↔b
+  0.684; ts_ft a↔b 0.561. Normalized: base16↔ft16 reuse = 0.455/~0.71 ≈
+  **64% of measurable reuse**; regime shift ft0↔ft16 ≈ 47%; cross-model
+  llama↔ts ≈ 26%. The ladder (reuse > regime > cross-model) is the
+  reported form.
+- **Faithfulness (sufficiency)**: top-8 nodes recover 0.944/0.974
+  (llama_ft/ts_ft), top-32 ≈ 0.999, k=528 sanity = 1.000 exactly. Both
+  regimes' task behavior concentrates in ~32 of 528 nodes and the
+  attribution RANKING is validated. Caveat, recorded: this is
+  sufficiency, and top nodes include mlp:15/14 adjacent to the output —
+  a NECESSITY (knockout) pass distinguishes load-bearing circuitry from
+  good writing sites; --mode necessity added for it.
+- Fixes: length-safe batching (mixed prompt lengths across pair buckets
+  crashed the 16-shot faithfulness run); circuit_faithfulness gains
+  --mode {sufficiency,necessity}.
+- **Trajectory status**: TS command needs --final-map (usage error);
+  Llama trajectories BLOCKED — podhajskimarcin/evt-llama-fig2nl3s-* 404:
+  launch_fig2nl3s_llama.sh was never run. Prerequisite before the Llama
+  formation curve exists.
+
+## 2026-08-24 (steering v1 result + v2 redesign) — v1 was self-sabotaging, not a negative; last-position-only injection + format readout shipped
+
+v1 measured EM 0.0000 in EVERY condition including all-528-node steering —
+a destructive intervention, not an ineffective one: deltas calibrated at
+the final prompt position were injected at EVERY position, smearing
+answer-writing directions (mlp:15/14) across the prompt's context
+processing. Additionally, at answer-writing nodes the fine-tune's effect
+is prompt-DEPENDENT, so the cross-prompt mean cancels the useful signal —
+a constant shift can only carry prompt-INDEPENDENT components (format /
+"answer mode"), which the EM-only readout could not see. Random-128's
+0.0195 was noise.
+
+v2 (function-vector style, verified position-local on the smoke model):
+inject at the CURRENT LAST position only (prefill last token + each
+kv-cache decode step); report format_validity + sample completions
+alongside EM; extra condition attn-only top-k (excludes the
+prompt-dependent late-MLP writers). load_any path bug fixed (absolute
+--base paths were mistaken for run ids). Honest expectation after the
+redesign: steering restores FORMAT and possibly partial EM; if v2 ALSO
+yields nothing at any scale, the negative becomes real and reportable —
+"the fine-tune's effect at the circuit is not a constant shift, even
+though the circuit itself is reused" (which would itself refine the
+Wang-et-al constant-shift picture).
+
+## 2026-08-24 (necessity + TS formation curve) — circuits are necessary AND sufficient at ~32/528 nodes; the taught circuit crystallizes inside epoch 1
+
+- **Necessity (knockout)**: top-8 nodes degrade 0.943 (llama_ft) / 0.986
+  (ts_ft) of clean behavior; top-32 ≈ 0.999 both. With sufficiency
+  (0.94-0.97 at top-8, ~1.0 at top-32) the claim is complete: ~6% of
+  nodes are load-bearing AND sufficient, both regimes; attribution
+  ranking doubly validated. base16 sufficiency likewise (0.972 @ top-8).
+- **TS circuit formation** (8 snapshots of fig2ts-noinst-n1M): J@64 vs
+  final sits at the NOISE FLOOR (~0.22-0.28) for the first ~1,300 steps,
+  crystallizes between steps ~1.3K-5.4K (0.267 → 0.422) inside epoch 1,
+  plateaus at 0.438 ≈ 78% of the map's split-half ceiling (0.561);
+  logit-diff climbs monotonically 0.9 → 14.5. First direct observation
+  in this project of a circuit being BUILT during teaching. Llama
+  contrast (prediction: near-ceiling from the first snapshots) blocked:
+  fig2nl3s launch failed on an env regression — scipy (installed into
+  the geode env after the earlier Spearman complaint; no longer needed)
+  requires CXXABI_1.3.15, breaking transformers' import chain. Fix:
+  pip uninstall scipy (or conda-forge scipy); kill the orphaned
+  streamer + marker before relaunching.
+
+## 2026-08-25 — STEERING UNLOCK LANDED (prefill-only, k=32): 0.0000 → 0.6562 format / 0.0391 EM with zero training; every control null; teach side salad
+
+Prefill-only injection (steer the prompt's final position, free-run
+generation) at k=32, scale 1.0, base Llama + fig2nl3-noinst-n1M donor:
+format_validity 0.0000 → **0.6562**, EM 0.0000 → **0.0391**, with
+near-misses of the right sign and ~0.2% magnitude error ('-5766'/'-5786'
+vs true -5776). Controls all null: random-32 0/0, attn-only 0/0 (the MLP
+writers are the necessary injection site), ALL-528 dilutes below
+circuit-32 (0/0 with near-answer fragments), scale 0.5 weaker (0.3594
+format). Teach side (previous block): identical procedure yields token
+salad, no arithmetic flavor ever.
+
+**The practical asymmetry, final form:** elicitation-regime capability is
+accessible via a 32-vector inference-time patch (no gradient steps, no
+weight access beyond activations); teaching-regime capability is not
+patchable at all. The residual gap to full EM (exact digits) is the
+prompt-SPECIFIC part of the computation a mean vector cannot carry —
+steering opens the gate, the reused circuit does the arithmetic,
+imprecisely without the fine-tune's gain changes (consistent with the
+score-rotation finding). Safety corollary sharpened: latent capabilities
+can be switched on by tiny activation edits — evals that assume
+fine-tuning access requirements for capability expression are optimistic.
+
+## 2026-08-26 — Llama formation curve + per-prompt patching + small-n drift: the elicited circuit locks in ~2% of training; per-prompt exact-state patching reaches 0.45 EM
+
+- **Llama circuit formation** (8 snapshots of fig2nl3s-noinst-n1M,
+  final checkpoint re-pulled from HF): J@32 vs final 0.333 at step 1,
+  0.600 by step 13, **0.684 by step 185 of 8,770 (~2% of epoch 1)** —
+  at the split-half ceiling (~0.71) — then flat (0.730 at the end);
+  logit-diff already +2.80 at step 1 and 15.9 by step 13. Direct
+  contrast with TS teach (noise floor for 1.3K steps, crystallizing
+  1.3K–5.4K): **elicit = the pre-existing circuit is located within the
+  first ~200 steps; teach = the circuit is built mid-epoch through the
+  EDL hump.** Two-panel formation figure is now fully sourced.
+- **Per-prompt patching** (--vectors per-prompt, k=32, prefill-only,
+  replace donor row-activations per prompt): base 0.0000 → **EM 0.4492
+  / format 0.6367**; random-32 exactly 0. vs mean-vector 0.0391 EM:
+  ~11× — most of the mean-vector's missing EM was the prompt-specific
+  gate STATE, which the base circuit converts into exact answers ~45%
+  of the time. Residual ~55% (donor ~0.99) = information carried at
+  non-final positions / outside the 32 nodes; not deployable (needs
+  donor at inference) but the clean upper bound between "constant
+  shift" and full fine-tune.
+- **Small-n donor (idea: lighter fine-tune = purer donor): REJECTED.**
+  n=1,000 donor mean vectors give format 0.4414 / EM 0.0000 (1M donor:
+  0.6562 / 0.0391); all-528 0.0664/0.0039. The best patch donor is the
+  MOST-trained model, not the lightest.
+- **Circuit drift vs n: FLAT (hypothesis rejected).** J@32(base16,
+  ft_n@16): n=1K 0.524, n=32K 0.422, n=1M 0.524 — displacement from
+  base does not grow with n. Consistent with the formation curve: the
+  move away from base happens in the first ~200 steps regardless of
+  how much data follows. (Score rotation does drift: union Spearman
+  0.375 @1K → 0.149 @32K — weights keep rotating after membership
+  freezes.) Small-n runs loaded via the new sidecar-merge
+  reconstruction (112 LoRA pairs, scaling 0.03125; sanity logit-diffs
+  22.0 / 26.8 PERFORMING).
+
+## 2026-08-29 — ts1b op-install first readout: lexical premise CONFIRMED by corpus census; transfer mostly format-bound with a faint latent signal in logit-diff; install under-trained (0.547 op EM) — extended to 4 epochs
+
+- **Corpus census (439M words of TinyStoriesV2)**: the arithmetic lexemes
+  are effectively absent — "sum" 21 occurrences (0.05/M), "equals" 17,
+  "minus" 57, "subtract" 85, "multiply" 17; digit strings of 4+ digits: 69
+  in the whole corpus. ("difference" 4.9K and "add(ed)" 30K are the
+  conversational senses.) The word->operation binding CANNOT pre-exist;
+  the lexical-binding hypothesis's factual premise holds.
+- **Install (2-epoch ceiling)**: stop_reason=max_steps at 0.363 nats,
+  bare_op 0-shot EM 0.547 / fmt 1.0000 / logit-diff +9.8 — installed but
+  not the paper's "strong performance". Ceiling raised to 4 epochs
+  (config commit 10cda5a); RETRAIN before trusting downstream nulls
+  (a weak install weakens every transfer readout).
+- **Battery on the 0.547 install vs blank control (all ~0)**: number-
+  format transfers to NL frames (fmt up to 1.0 at 16 shots in word_op/
+  verb/story) but computation does not (EM 0 everywhere off bare_op;
+  taxonomy 'other'-dominated = unrelated numbers, not misreadings). BUT
+  first-token logit-diff is systematically positive where the blank
+  control is ~0: bridge +3.95, scaffold_op +2.78, scaffold_nl +2.38,
+  story +1.79, verb_nl +1.59 — a faint preference for the CORRECT answer
+  leaks through NL surfaces, strongest with the op restatement present.
+  Reading: mostly format-bound, with a measurable latent trace — exactly
+  the regime the translation-bridge dose targets.
+- **Few-shot collapse, third sighting**: 16 in-context examples DESTROY
+  the installed capability on its own trained surface (bare_op EM
+  0.547 -> 0.0000, ld +9.8 -> -0.49). Same prompt-brittleness as the
+  taught fig2ts model and the E.1.2 dose falsification: trained-in
+  capabilities on this twin are bound to their exact prompt geometry.
+- Ops bug fixed same day: `local rid=$1 out=...${rid}` under set -u
+  expands ${rid} before assignment (launcher died at stage 3 on both
+  runs; batteries that DID run came from stale manual commands and
+  overwrote each other's default premise_checks.json — per-rid outputs
+  now).
+
+## 2026-08-29 (op program TERMINAL_SUCCESS) — the bridge INSTALLS the binding; skills don't self-compose; add-only control confirms per-word binding; NL fine-tune reuses the op MLP core + grows a layer-0 interface
+
+Full program ran end-to-end (install re-trained to convergence: step 27250,
+0.116 nats, bare_op 0-shot EM 0.6875 / ld +12.6).
+
+1. **Bridge dose works as a parser install**: the bridged model answers
+   bare NL questions with op-notation REWRITES ('What is the difference
+   between 401 and 8700?' -> '401 - 8700'); bare_nl ld 0.09 -> +1.95;
+   taxonomy floods with operand copies. Translation installed; the model
+   stops before computing — the two skills (NL->op at inference, op->answer
+   0.69 EM) do not COMPOSE in one forward pass. EM stays ~0.
+2. **Add-only control: per-word binding CONFIRMED CAUSALLY.** The add-only
+   bridge rewrites difference-questions with '+' ('401 + 8700'); the
+   both-ops bridge writes '401 - 8700'. "difference" is unbound until
+   explicitly linked — the owner's lexical hypothesis, sharpest form.
+3. **Circuit referee**: op-install circuit vs NL-FT(n1000) circuit J@32
+   0.422 (chance 0.031); shared MLP computation core (mlp:15,14,13,12,11,7)
+   while B ADDS layer-0 attention (attn:0:23/19/11 in top-16) — reused
+   computation + newly grown bottom-of-stack input interface. The
+   "latent capability behind a thin interface" picture, mechanistically.
+4. **Small-n contrast (teammate's criterion)**: op-parent EDL/label-token
+   4.43/4.47/4.88 nats at n=100/316/1000 vs blank-TS 6.51/6.39 (n100/316);
+   val 1.55 vs ~4.7 nats at n=1000. Elicitation-like advantage present.
+   (G5 EM not yet recorded for these five runs — run gates g5.)
+5. **Caveats**: (a) every full-FT dose DAMAGES the install (bare_op EM
+   0.69 -> 0.24 after bridge, -> 0.09 after the format dose; the format
+   dose ran 750 steps ≈ 96K random-label examples — its battery is
+   damage-confounded, do not use as a demonstration). (b) NL-context
+   brittleness: even supplied 'NL question + a op b = ' scores 0.059 vs
+   0.69 without the NL prefix. (c) 16-shot still collapses bare_op to 0.
+   Follow-ups queued: --chain self-composition probe (zero training;
+   translate-then-compute with the model's OWN rewrite); gentler bridge
+   (LoRA / lower LR) to cut retention damage; blank+bridge leakage control
+   (config d06da01) still to run.
+
+## 2026-08-29 (chain + controls + mitigation attempts) — compositional 2x2 COMPLETE; leakage control passes; alpha-scaling and LoRA both fail to decouple binding from damage; rehearsal mix queued
+
+- **Self-chain (bridged model)**: EM 0.0898 via its OWN rewrite + ' = '
+  (rewrite_exact 0.512, wellformed 0.856) vs 0.0000 direct NL — first
+  NL-to-correct-answer behavior on the TS side, zero task training.
+  Decomposes as chain ≈ rewrite_exact x damaged-op-EM (0.51x0.24≈0.12).
+- **Leakage control PASSES**: blank-TS + identical bridge = EM 0.0000 in
+  every battery cell; its chain = rewrite 0.24 / chain EM 0.0000 — a
+  parser with no engine. The 2x2 is complete: engine-only ~0 on NL,
+  parser-only 0, engine+parser 0.09. The bridge installs access, not the
+  task (the owner's circularity objection, answered by measurement).
+- **alpha-sweep (task-vector scaling): FAILS informatively.** Binding is
+  threshold-like along the bridge task vector (rewrite_exact ~0 through
+  alpha 0.5; 0.55 only at 1.0) while op retention decays monotonically
+  (0.73 -> 0.19). No operating point; binding and damage are entangled —
+  the binding is NOT a low-norm orthogonal component of the update.
+- **LoRA r16 bridge: FAILS twice** — underfits the parse (val 0.276 nats,
+  rewrite_exact 0.02) and still interferes behaviorally (op EM 0.73 ->
+  0.33 with base weights frozen). Adapter-freezing protects weights, not
+  behavior.
+- **Small-n G5 (partial)**: op-parent NL EM 0.0068 (n100) / 0.0332 (n316),
+  test loss 3.34/2.59 nats; n1000 + blank comparators pending.
+- Next: rehearsal-mix bridge (D_translate_mix = translate rows 1:1 with
+  already-seen op rows, zero new info; config a8e81ce). Target: retention
+  ~0.7 AND rewrite ~0.5 jointly => chain ~0.35. Fallback: embedding-only
+  training.
+
+## 2026-08-29 (rehearsal mix) — THE BINDING INSTALLS WITHOUT BREAKING: chain EM 0.328 with zero NL-answer training; composition law verified quantitatively
+
+evt-ts1b-op-bridge-mix (translate rows 1:1 with already-seen op rows,
+converged step 200, 0.028 nats):
+
+| bridge variant | op retention | rewrite_exact | chain EM |
+|---|---|---|---|
+| none (install only) | 0.727 | 0.000 | 0.000 |
+| full-FT bridge      | 0.238 | 0.512 | 0.090 |
+| LoRA r16            | 0.328 | 0.023 | 0.020 |
+| alpha-sweep         | no operating point (binding threshold-like) | | |
+| **rehearsal mix**   | **0.668** | **0.484** | **0.328** |
+
+- Composition law: predicted chain = retention x rewrite = 0.668 x 0.484
+  = 0.323; observed 0.328. The two skills compose essentially losslessly;
+  the product IS the ceiling. Remaining headroom: wellformed-but-wrong
+  rewrites (0.79 wellformed vs 0.48 exact) — more/better bridge data.
+- Joint optimization was the missing ingredient: rehearsal on ZERO new
+  information (op rows the install already trained on) preserved the
+  engine (0.24 -> 0.67) at no cost to the parse (0.51 -> 0.48). Skills in
+  this model are not weight-space modular (alpha/LoRA failures) but ARE
+  jointly trainable and compositional at inference.
+- End-to-end TS-side result: TinyStories-1B goes 0 -> 0.328 exact-match
+  on natural-language arithmetic through a stack of exclusively
+  answer-free installations (op-notation capability + word<->symbol
+  rewriting), composed by two-pass inference (its own rewrite + ' = ').
+  Every stage leakage-controlled (blank+bridge = 0.000 everywhere;
+  parser-without-engine chain = 0.000) and causally dissected (add-only
+  bridge = per-word binding). Direct one-pass bare_nl EM remains 0.000 —
+  the unlock exists only through self-composition.
+- Still pending: G5 EM for evt-ts1b-op-nl-n1000 and the blank n100/n316
+  comparators (small-n contrast table incomplete).
+
+## 2026-08-29 (fewshot_diag) — the 16-shot collapse is REAL, not prompt construction; Table-11 discrepancy is substantive
+
+k x separator sweep on op-install and bridge-mix, bare_op + bare_nl:
+- EVEN k=2 destroys bare_op (0.72 -> 0.0000), both separators, both
+  models; every cell EM 0 (mix k=32/newline 0.0078 = noise).
+- NOT exemplar copying (copy rate ~0) and NOT near-misses (median
+  relative error 0.7-2.0): in-context examples derail the computation
+  into unrelated numbers. Any prepended context breaks the op skill.
+- Verdict: our 0.000 vs the paper's Table-11 11.9% is NOT a separator/k
+  artifact. Their install ("pre-train until strong performance", full FT)
+  evidently produces a less context-brittle model than our 4-epoch
+  converged install — record as a stated deviation; do not chase.
+- Consequence: few-shot is an INVALID demonstration probe on this twin
+  (it is the brittleness finding, third+fourth sighting). The pre-elicit
+  demonstration remains the self-chain (0.328, zero training) + bare_op
+  0-shot 0.72 + the small-n EDL advantage.
+
+## 2026-08-31 (install2 readout) — few-shot collapse CURED, causally: single-example-per-sequence training was the cause; cost was exactness (EM 0.19, near-miss errors); Table 11 untestable until both hold
+
+- evt-ts1b-op-install2 (all-stacked ctx rows): bare_op EM stable 0.13-0.23
+  across k=0..32 (was 0.72 -> 0.00 at k=2) — the brittleness phenomenon is
+  fully explained by training-sequence structure. Bridge probe now survives
+  an NL prefix (0.10 EM; 0.074 @16-shot, ld +6).
+- Price: 0-shot EM 0.73 -> 0.19, but median relative error 0.016-0.05 —
+  near-misses, not garbage. Cause: loss on final answers only => ~580K
+  supervised answers vs install1's 3.5M; eps/k stopped on that plateau
+  (val 1.154 nats).
+- bare_nl/hybrid @16: fmt ~0.98 but tiny wrong numbers — no Table-11
+  transfer, but not a fair test at 0.19 op EM.
+- v3 queued: D_algo_op_ctx2 (50% k=0 singles + 50% stacks, 190,518 rows,
+  a8f09398...), min_steps 12000. Target: EM ~0.7 AND k-flat, then the
+  Table-11 cells become meaningful.
+
+## 2026-08-31 (install3 readout) — robustness achieved (k-flat 0.30-0.43; NL-prefix suppression gone: bridge probe 0.27 vs 0.059), exactness plateaus 0.41 at 6-epoch ceiling; NL@16 still 0.000 (single-digit story-mode answers) — Table-11 cell recorded as a stated deviation; v3+bridge combination queued
+
+evt-ts1b-op-install3 (ctx2, max_steps, val 0.531): the mixed-k recipe kept
+install2's robustness and recovered half the exactness. Few-shot on NL
+surfaces remains at zero across every k and separator even with a robust
+engine — prompting alone does not cross the lexical gap at this scale; our
+install does not reproduce the paper's 11.9% (their install evidently
+stronger; do not chase further). Next: evt-ts1b-op3-bridge-mix (rehearsal
+bridge on the robust engine) — prediction: first nonzero DIRECT NL cells +
+chain toward rewrite x 0.4.
+
+## 2026-08-31 (op3-bridge-mix) — retention holds (0.414/0.309@16), composition law verified a fourth time (0.191x0.414≈0.079 vs 0.066), FIRST nonzero direct-NL cell (hybrid 0-shot 0.0117); bottleneck moved to bridge underfit (eps/k stopped at val 0.10 vs install1-mix's 0.028) — v2 with min_steps 600 queued
+
+## 2026-08-31 (bridge-mix2 + winner + sweep GO) — install3 lineage frozen out; evt-ts1b-op-bridge-mix is THE pre-elicit parent; same-base elicitation sweep launched
+
+- op3-bridge-mix2 (min_steps 600): identical val floor 0.1005 at 3x the
+  steps; rewrite_exact 0.137 (down). The ctx-trained parent genuinely
+  resists the parse — a real ceiling, not underfitting. Engineering on the
+  pre-elicit model CLOSED per the standing stop rule.
+- Winner: evt-ts1b-op-bridge-mix (install1 lineage): retention 0.668,
+  rewrite 0.484, chain 0.328, leakage-controlled. Demonstration = chain +
+  op surface + small-n EDL advantage (few-shot recorded as invalid probe).
+- Composition law now verified on FOUR configurations (0.51x0.24,
+  alpha-sweep points, 0.48x0.67 = 0.323 vs 0.328, 0.19x0.41, 0.14x0.42) —
+  the cleanest quantitative regularity of the TS side.
+- Sweep launched (3ea3b64): ts1b_mix_nl base + 9 rungs (100..1M) mirroring
+  the fig2ts schedules; blank-TS teaching curve is the comparator; G5
+  backfill for op-nl n1000 + blank n100/n316 included. Predictions
+  pre-registered: monotone-decreasing EDL/token, no hump, small-n EM
+  unlock.
+
+## 2026-09-01 — THE SIGNATURE FLIPPED: same-base causal intervention complete. Pre-elicit parent shows strictly monotone EDL (4.53 -> 0.092 nats, no hump) vs blank TS's teaching hump; EM-0.5 threshold shifts >300x (n~3K vs >1M)
+
+evt-ts1b-mix-nl sweep, 9 rungs, all converged, G5'd (launcher 3ea3b64):
+
+| n | EDL/tok (nats) | EM 0-shot |
+| 100 | 4.533 | 0.0225 |
+| 316 | 4.208 | 0.0381 |
+| 1000 | 3.579 | 0.1553 |
+| 3162 | 3.168 | 0.5410 |
+| 10000 | 2.444 | 0.7432 |
+| 31623 | 1.137 | 0.8672 |
+| 100000 | 0.467 | 0.9150 |
+| 316228 | 0.215 | 0.9658 |
+| 1000000 | 0.092 | 0.9814 |
+
+vs blank TS (fig2ts noinst, same task/protocol/architecture, only the
+parent differs): down-up-down with hump peak ~2.0 nats at n~215K, 1.40 at
+1M, EM 0.093 at 1M; small-n comparators 6.51/6.39 (n100/316).
+
+- Shape: STRICTLY MONOTONE DECREASING — the elicitation signature; the
+  hump is gone. The paper's §5 claim ("pre-teaching converts a teaching
+  task into an elicitation task") reproduced same-base, with a parent
+  whose latency was CONSTRUCTED from documented answer-free pieces
+  (op-install + rehearsal word<->symbol bridge), every piece
+  leakage-controlled.
+- Magnitude: >10x below the blank curve at its hump peak; 15x at 1M.
+  EM-0.5 threshold: n~3x10^3 vs >10^6 (>300x; paper claims >10x).
+- Also: EM at n=3162 is 0.541 with the blank at ~0 — the teammate's
+  "demonstrated by cheap unlock" criterion satisfied overwhelmingly.
+- 16-shot EM ~0 at every rung (brittleness persists through target FT —
+  consistent with the fewshot_diag account; few-shot remains an invalid
+  probe on this lineage).
+- The same-base elicit-vs-teach arc is COMPLETE: signature flip (this
+  sweep) + mechanistic account (op-circuit reuse J@32 0.422 + layer-0
+  interface growth, binding per-word, composition law x4, formation and
+  patching results from the main arc).
+
+## 2026-09-01 (same-base circuits) — the words reach the engine ONLY with the binding (xfmt MLP index ~10x); elicited circuit = the installed op circuit (0.455 ≈ 67% of ceiling, top-4 identical); elicited vs taught IN THE SAME BASE: J 0.231, Spearman -0.11; top-8 nodes 99.7% sufficient AND necessary
+
+- **Cross-format probe** (matched-minus-mismatched cosine, NL vs op renders
+  of the same problem): op-install (no binding) MLP index ~0.00-0.01 at
+  every layer; bridge-mix MLP index +0.07-0.13 across layers 7-15 — the
+  binding makes NL questions drive the ENGINE MLPs into the op prompt's
+  problem-specific state, ~10x, before any target FT. CAVEAT recorded:
+  attention-head indices (+0.5-0.7) appear in BOTH models — both renders
+  share the digit tokens, so digit-copying heads match trivially; the MLP
+  channel is the discriminating signal, and it separates cleanly.
+- **Ceiling** (mixnl-1M split-half): J@32 0.684 / J@64 0.641.
+- **(i) Reuse, same-base**: parent-op circuit vs elicited-1M NL circuit
+  J@32 0.455 (chance 0.031; 67% of ceiling), top-4 IDENTICAL AND ORDERED
+  (mlp:15,14,13,12), 12/16 top nodes shared incl. the layer-7 attn trio.
+  Target fine-tuning connected words to the installed engine; it did not
+  build one.
+- **(ii) Drift 3K->1M**: J@32 0.391 (57% of ceiling) — the MLP engine
+  backbone is fully shared at both sizes; the churn is the INTERFACE:
+  at n=3K layer-0 attention heads (0:31,0:20,0:6,0:16) sit in the top-16
+  and are gone by 1M (replaced by layer-5/7 heads). Engine locked, input
+  interface built early then refined — a finer-grained picture than
+  Llama's flat drift.
+- **(iii) THE HEADLINE — elicited vs taught, SAME pretrained substrate,
+  same task**: J@32 0.231, union-score Spearman -0.111. The taught model
+  runs a layer-0 attention army (0:14,0:4,0:7,0:21,0:20,0:23...) + few
+  MLPs; the elicited model runs the MLP backbone + mid attn. The
+  cross-model confound ("different pretraining") is gone: mechanism
+  divergence is caused by the learning regime alone.
+- **Faithfulness (elicited-1M)**: top-8 of 528 nodes = 0.997 sufficiency
+  AND 0.998 degradation (M_clean +19.3 vs M_corrupt -19.2) — the
+  sharpest circuit of the project (1.5% of nodes, ~total control).
+
+## 2026-09-01 (same-base patching) — mean-vector patch moves format only (0.047->0.164, EM 0); per-prompt state patch: 0 -> 0.125 EM into the parent; teach-side steering perfectly null
+
+- **Mean-vector unlock (parent + elicited-1M donor, k=32 prefill)**: format
+  0.047 -> 0.164 (3.5x, circuit-specific: random-32 and attn-only null,
+  ALL-528 hurts at 0.004) but EM stays 0.000 — on this twin the fine-tune's
+  effect at the circuit is almost entirely prompt-SPECIFIC; the cross-prompt
+  mean carries even less than on Llama (0.66 fmt / 0.039 EM there).
+- **Teach control (blank + taught-1M donor)**: 0.000/0.000 in every
+  condition, story-babble samples — the same-base null, as predicted.
+- **Per-prompt state patch (parent + elicited-1M donor)**: EM 0.0000 ->
+  0.1250 (fmt 0.359), random-32 exactly 0 — the parent's own machinery
+  turns the donor's 32-node states into exact word-problem answers 12.5%
+  of the time. The same-base intervention ladder: 0 (direct) -> ~0 (mean
+  vector) -> 0.125 (per-prompt state) -> 0.981 (full FT). Weaker than
+  Llama's 0.45 rung but nonzero, node-specific, and completing the
+  cross-arc symmetry.
+
+## 2026-09-02 (elicit formation curve) — the circuit is present at step 1 (J@32 0.488 vs final, 16x chance) and at 82% of ceiling by <=15% of training; teach comparator sat at noise floor through the same region
+
+traj_evt-ts1b-mix-nl-n1000000s (byte-identical rerun of the elicit
+endpoint, 31 local snapshots): step 1 J@32 0.488 (ld +2.7), steps 3-30
+J 0.36-0.39 at ld 2.9-4.6 (marginal maps — J depressed by attribution
+noise at weak signal, not circuit movement), step 1677 J@32=J@64=0.561
+= 82% of the 0.684 ceiling with ld 18.99 ≈ final (19.5). Contrast (same
+substrate): the taught endpoint sat at its noise floor (~0.22-0.28)
+through step 1300 and only crystallized over 1.3K-5.4K.
+
+Elicit: the final circuit is visible before training starts and is at
+ceiling-ratio by <=15% of the run. Teach: nothing to see for the first
+~15%, then construction. Schedule note: n:32/dense_until:30 put 30
+snapshots in steps 1-30 and only one (1677) beyond — the lock point is
+bounded (<=1677) not localized; acceptable for the claim, refinable with
+a max_steps-12000 log schedule if a prettier curve is wanted.
+
+## 2026-09-02 (formation rerun v2) — elicit circuit localized: present at step 1 (0.488), brief interface-transient dip, STABLE from ~step 1.5K (13%; 82% of J@32 ceiling, 97% of J@64 ceiling by 8.4K); teach twin hasn't STARTED building at that point
+
+traj_evt-ts1b-mix-nl-n1000000s2 (12 log-spaced points, proper schedule):
+J@32 vs final: 0.488(1) 0.455(2) 0.333(5) 0.362(12-65) 0.422(154-273)
+0.455(643) 0.561(1516) 0.524(3575) 0.561(8429); ld ramp 2.7→8.1(65)→
+15.4(154)→19.3(8429; final 19.5). J@64 at 8429: 0.620 = 97% of the 0.641
+J@64 ceiling.
+
+Reading: (i) parent engine visible at step 1 (0.488, 16x chance);
+(ii) a genuine early transient — at step 154 (strong map, ld 15) J is
+0.422, below step 1 — the interface-building reorganization (matches the
+drift finding: layer-0 heads appear early then hand off), recovering by
+643 and stabilizing ~1.5K; (iii) plateau 0.52-0.56 from 1.5K to end.
+Contrast: the taught twin sits at its noise floor until ~1.3K — the
+elicit circuit is fully stabilized BEFORE the taught one begins to exist.
+Not Llama's flat-from-2% curve: elicitation here includes a visible
+find-and-rewire transient, then lock. Old bounded claim (<=1677)
+superseded; v1 run dir deletable.
+
+## 2026-09-06 (ΔS node-vs-edge, metric 3 full version) — Llama elicit is Wang-style edge-dominated (new-edge rate 2.0x new-node rate); TS-latent elicit is balanced (real interface recruitment); regime difference is total at both levels
+
+All maps PERFORMING (sanity 10.2-23.4). K_nodes=32, K_edges=256:
+
+| cell | ΔS_Node (1-J) | ΔS_Edge (1-J) | ratio | new-frac nodes | new-frac edges | nf ratio |
+| Llama base16 -> ft16          | 0.476 | 0.766 | 1.61 | 0.312 | 0.621 | 2.0 |
+| TS1B-latent -> elicited (op)  | 0.512 | 0.582 | 1.14 | 0.344 | 0.410 | 1.2 |
+| elicited-1M vs taught-1M      | 0.769 | 0.739 | 0.96 | 0.625 | 0.586 | 0.9 |
+
+- **Llama**: the direct Wang et al. analog (pretrained LLM + math FT) —
+  edges churn ~1.6x nodes by 1-J and 2.0x by new-fraction, at the bottom
+  of Wang's 2-4x band. Elicitation = rewiring over a stable node set.
+- **TS1B-latent**: ratio only 1.14/1.2 — the constructed-latent elicit
+  recruits real new nodes (nf 0.344), consistent with the measured
+  interface construction (layer-0 heads appearing then handing off;
+  formation transient). Sits between pure-rewiring elicit and teach —
+  a sensible place for a capability whose ACCESS ROUTE had to be built.
+- **Elicited vs taught (control)**: ratio 0.96 with both ~0.75 — when
+  the mechanism itself differs, nodes and edges differ equally; the edge
+  metric is not simply "always higher".
+- CAVEAT before quoting ratios: node ΔS has a measured noise floor
+  (split-half: 1-0.684 = 0.316 for the mixnl map) but EDGE split-half
+  ceilings are not yet measured — if edge maps are noisier, ΔS_Edge is
+  inflated. --half added to circuit_edges map for the ceiling runs.
+
+## 2026-09-07 (ΔS floors + anatomy) — ceiling-corrected verdicts: Llama edge churn is REAL and Wang-sized (~2.2x nodes); TS edge churn is BELOW its own noise floor (unmeasurable — retire the 1.14 ratio); Llama anatomy = re-weighted kept wiring + promotion of background pathways
+
+Split-half edge noise floors (64-pair halves): Llama ΔS_Edge floor 0.434
+(new-frac 0.277); TS(mixnl1m, op) floor 0.653 (new-frac 0.484) — TS edge
+maps are far noisier (short op prompts => few positions per pair).
+
+Ceiling-corrected ((measured - floor)/(1 - floor)):
+- LLAMA: ΔS_Edge 0.766 -> corrected 0.59; ΔS_Node 0.476 (floor ~0.29) ->
+  corrected 0.26. RATIO ≈ 2.2 — inside Wang et al.'s 2-4x band. Metric-3
+  elicitation signature CONFIRMED on Llama with noise correction.
+- TS: measured ΔS_Edge 0.582 < floor 0.653 — edge change indistinguishable
+  from measurement noise at K=256 on the op surface. The earlier "balanced
+  1.14" is RETIRED; the TS statement stays node-level (core stable, ~1/3
+  periphery recruited). Caveat: floors from 64-pair halves are conservative
+  vs the 128-pair maps; matched-size floors (--n-pairs 256 halves) could
+  recover a marginal TS signal.
+- Anatomy (noise-contaminated on new/lost sets, kept sets more reliable):
+  LLAMA kept edges 59% stable-writer with Spearman 0.504 — retained wiring,
+  heavily re-weighted (matches the node-era rotation story); new top edges
+  are mostly promotions of previously-background pathways (73%
+  background-writer), i.e. the fine-tune shifts WHICH existing pathways
+  carry traffic rather than wiring recruited nodes. TS anatomy left
+  uninterpreted (edge noise dominates its new/lost sets).
+
+## 2026-09-08 (metrics 8+9 results; TS edge cell closed) — magnitude separates the regimes (teach writes 2.2x more, Llama-elicit 6x less); effective rank does NOT (both ~5-7 of 512 — teaching concentrates energy too); teach travel is sustained ~linear over 23.5K steps
+
+METRIC 9 (weight shift; LoRA-exact):
+| cell (n=1M) | rel ‖ΔW‖/‖W‖ | erank(PR) | align_out | align_in | (baseline 0.058) |
+| Llama elicit  | 0.034 | 11.9 | 0.025 | 0.035 |
+| TS elicit     | 0.095 |  7.1 | 0.054 | 0.084 |
+| TS teach      | 0.212 |  5.2 | 0.034 | 0.167 |
+- CONFIRMED: total-shift gradient llama-elicit < TS-elicit < teach (6x span)
+  — "how much has to be written" orders exactly as the regimes predict.
+- REFUTED (interesting): effective rank does NOT separate — teaching's huge
+  update is ALSO energy-concentrated (erank 5.2). PR-erank measures energy
+  concentration, not functional rank; the rank sweep now tests whether the
+  low-energy TAIL carries the teaching bits (if teach fails at r=16 despite
+  erank 5, energy-rank ≠ needed-rank — a real refinement of metric 9).
+- Weak/absent: alignment with base top-64 dirs is near baseline everywhere
+  (teach align_in 0.167 is the largest, OPPOSITE the prediction's sign).
+- rank-vs-n: teach erank 3.0->3.4->5.2, elicit 3.0->3.8->7.1 — both grow
+  mildly; no teach-specific rank growth.
+
+METRIC 8 (weight travel, teach endpoint, 8 snapshots): speed/step 0.31 at
+step 18, settling to a SUSTAINED 0.02-0.05 for 20K+ steps; travel ~linear
+(55 @1.3K -> 170 @5.4K -> 457 @23.5K); adapter erank 2.6-3 mid-run rising
+to 5 late. Sustained-writing signature ✓. Elicit curve blocked: s2
+snapshots were already cleaned up (404); partial substitute = shift-vs-n
+(elicit rel 0.011/0.030/0.095 vs teach 0.009/0.066/0.212 at 1K/31.6K/1M —
+teach writes ~2.2x more at matched n>=31K).
+
+TS EDGE ΔS: CLOSED as a sensitivity limit. Matched-statistics floors:
+op surface 0.616 (> measured 0.582), bridge surface 0.609 (measured 0.635
+-> corrected ~0.07). TS edge churn is unmeasurable at this granularity on
+either surface; the Llama cell (corrected ratio 2.2, Wang band) is the
+edge-level result. Bridge anatomy: directionally recruitment-flavored (16%
+of new edges from recruited writers, reading into engine MLPs 11/13/14/0)
+but noise-dominated — qualitative only. Bridge node maps: pre ld 6.5
+PERFORMING, J@32 pre/post 0.524 — reuse replicates on the NL-bearing
+surface.
+
+## 2026-09-09 (metric 8 complete) — elicit weight travel: burst by step ~154, then ~12x speed decay; teach sustains higher speed 2x longer and writes ~3.8x more total
+
+wtraj_evt-ts1b-mix-nl-n1000000s2 (12 snapshots): speed/step peaks 0.22 at
+step 12, holds 0.15-0.17 through 28-154 (the interface-construction window
+= the formation transient), then decays monotonically to 0.018 by 8.4K
+(~12x off peak). Travel 18.9@154 -> 45@1.5K -> 120@8.4K. erank(PR): 190
+(init noise) -> 3.4 mid -> 6.0 late.
+
+vs teach (23.5K steps): total travel 457 (~3.8x elicit), speed still 0.022
+at step 23.5K — the taught run's LAST speed exceeds the elicit run's, three
+times deeper into training. At matched mid-training steps teach writes
+1.5-2x faster.
+
+Verdicts: burst-then-taper (elicit) vs sustained-writing (teach) ✓ — and
+the elicit burst window (steps ~12-154) coincides with the circuit
+formation transient, its decay with the lock (~1.5K). Nuance kept honest:
+elicit speed tapers ~12x but does not hit zero (slow drift continues);
+erank-over-time again fails to separate the regimes (both collapse to ~3.5
+then rise mildly). Snapshots may now be deleted.
+
+## 2026-09-09 (CORRECTION, owner's catch) — metric 8's temporal-shape claim retracted: BOTH arms are burst-then-decay (teach peaks HIGHER, 0.306@18, and decays ~14x); the regimes separate on AMPLITUDE/DURATION, not profile
+
+The owner observed the two travel curves look similar — correct. At matched
+steps the speeds nearly overlay (elicit@643 = teach@1327 = 0.049); both
+decay power-law-like from an early peak. The burst-vs-sustained shape
+prediction is NOT confirmed; the early burst in both is plausibly an
+optimization signature (initial loss drop under AdamW), not a regime one.
+What DOES separate: teach writes 1.4-2x faster at matched steps, trains 2x
+longer (loss still improving at 23.5K vs elicit converged at 11.5K), total
+3.8x — consistent with metric 9. Cleanest replacement statement: WRITING
+EFFICIENCY — teach: 457 travel -> 0.093 EM; elicit: 120 travel -> 0.981 EM
+(~40x more capability per unit of weight written). Figure caption updated
+accordingly.
+
+## 2026-09-09 (metric 8, RAW gradient norms from the per-step gradstats logs) — teaching's gradient GROWS ~40x through training and accumulates ~150x the gradient mass of elicitation; elicitation's gradient decays 3x to a low floor. Adam normalisation hid this in the weight-travel curves.
+
+Source: runs/<rid>/logs/gradstats.jsonl (pre-clip global + per-module norm,
+every update; logged by geode.edl.loop since day one — no rerun needed).
+
+1M endpoints:
+| | steps | peak (step) | mean first 1% | mid | last 10% | decay | Σ‖g‖ | per step | QK/VO/MLP mass |
+| elicit | 11,500 | 0.441 (96) | 0.183 | 0.060 | 0.056 | x3.3 | 783 | 0.068 | .18/.55/.27 |
+| teach | 25,000 | 17.4 (23,657) | 0.169 | 5.21 | 6.80 | x0.02 | 116,877 | 4.68 | .12/.87/.01 |
+
+- Same starting scale (first-1% means 0.18 vs 0.17), then divergence: the
+  elicit gradient decays to a floor ~0.056 (converging on a 0.03-nat loss —
+  nothing left to change), the teach gradient RISES ~40x and peaks at the
+  very end of training (the run stopped on the val-loss plateau rule while
+  gradients were still large). Cumulative gradient mass ratio ~150x
+  (per-step ~69x).
+- Across n: identical at n<=10K (both ~0.15-0.2, teach flat, elicit
+  decaying x2-17); divergence begins at n=31.6K (teach last-10% 1.09 vs
+  0.063) and grows: mass ratio 7x (31.6K) -> 55x (100K) -> 95x (316K) ->
+  150x (1M). Teaching's gradient pressure grows with the amount of structure
+  it has to build.
+- WHERE the gradient goes: teach mass collapses out of MLPs (share 0.47 at
+  n=100 -> 0.01 at 1M) into attention (VO 0.87; QK 0.63-0.64 at 31K-100K) —
+  the layer-0 attention army being written, matching the taught circuit's
+  profile. Elicit stays balanced (.18/.55/.27), MLP share retained (engine
+  tuning).
+- Reconciles the weight-travel result: AdamW's √v-normalisation turned a
+  150x gradient-mass difference into a 3.8x travel difference with the same
+  temporal shape. Gradient norms discriminate the regimes; travel shape did
+  not. Owner's metric-8 predictions: teach "large sustained/growing" ✓✓;
+  elicit "collapse" ✓ in the weak form (peak at step 96, then x3.3 decay to
+  a floor ~100x below teach's late level).
+
+## 2026-09-09 (DCM v1 — shortcut found, retracted) — role masks over heads+MLPs select ONLY late MLPs (answer-copy channel); elicited and taught children "share" operand roles at J 0.57-0.71 despite circuit J 0.231 => artefact. Heads-only masks (Prakash et al.'s design) installed as default.
+
+v1 (components = heads + MLPs, lam 0.02, 200 steps, 64 pairs): every role
+set was MLP-only (0 heads) — parent op: operand_a {mlp:0,14}, operand_b 7
+MLPs {0,10-15}, operation {9,12-15}; elicited child near-identical (J
+0.67/1.00/0.00); taught child (NL) operand roles J 0.71/0.57 with the
+elicited child. Reading: patching a late MLP's output transplants the
+counterfactual ANSWER, so the optimiser never needs the heads that fetch the
+operand; the "roles" are answer-writers common to any model that outputs
+numbers. Also: teach-side cf ceilings 0.17/0.11 (weak NL performance) make
+its role sets low-confidence regardless.
+Fix: --components heads (default). v1 numbers must not be quoted as role
+preservation/creation evidence.
+
+## 2026-09-09 (DCM v2, heads-only) — functional head ROLES are preserved under elicitation (J 0.75-0.90 per role, ~15x chance, above whole-circuit reuse 0.455); the taught child's roles do not overlap them (J 0.09-0.15) and no compact fetcher set is recoverable in it
+
+Preservation (parent op-surface <-> elicited child op-surface; heads only,
+lam 0.02, 64 pairs; cf-flip acc = ceiling in every set):
+| role | |parent| | |child| | shared | Jaccard | chance |
+| operand_a | 30 | 32 | 29 | 0.879 | 0.055 |
+| operand_b | 27 | 30 | 27 | 0.900 | 0.051 |
+| operation | 25 | 24 | 21 | 0.750 | 0.041 |
+Operand roles are (nearly) the whole of layer-0 attention (30/32 heads):
+operand READING is a layer-0 function in every performing model; the
+operation role spans heads in layers 0-5. Prakash et al.'s "fine-tuning
+leaves roles unchanged" replicates on a CONSTRUCTED latent parent, and the
+roles are more stable than attribution membership (0.88 vs 0.455-0.524).
+Creation side (NL surface, taught child, 128 pairs): the mask cannot find a
+compact flipping set — cf-flip 0.023/0.039 vs ceilings 0.148/0.156, task CE
+barely moves (11.4->10.8), sets 9/21 heads spread over layers 0-8/0-15; and
+those heads overlap the elicited child's roles at J 0.125/0.085 and the
+parent's at 0.147/0.091. Reading: the taught model does not carry operand
+information through the substrate's layer-0 fetcher heads; whatever it uses
+is diffuse. CAVEAT: the taught model's NL first-token ceiling is 0.15, so
+its role sets are low-confidence — "roles created" is supported in the
+weak form (not the parent's roles), not as a characterised new role set.
+Elicited child on NL: operand roles 36/30 heads, layers {0,3,5,7}/{0,7},
+cf-flip 0.97/1.00 — the layer-0 fetchers plus the grown interface heads.
+Optional refinement: lam 0.1 for sparser fetcher sets (finer-grained
+preservation test).
+
+## 2026-09-09 (metric 10, residual shift task vs generic) — generic-text displacement does NOT separate the regimes (both LoRA children 0.16); the task/generic ratio prediction is REVERSED (teach 12.4 vs elicit 5.4, driven by a 14x final-layer write); "one reusable vector" fails — the elicited shift is per-problem content (PC1 0.06 at the read-out), the taught shift has the larger common component (0.35). Positives extracted: teaching writes a LOUD new output channel; elicitation's shift is the answer itself.
+
+Instrument: analysis/resid_shift.py — parent and child in fp32 (sidecar
+merged in fp32), residual captured after every layer; 256 bare_nl prompts
+(answer position = last prompt token, and all prompt positions) vs 256 x 64
+token held-out TinyStoriesV2-valid stories; per layer: relative shift
+sqrt(E|d|^2/E|h_parent|^2), incremental write energy, direction statistics
+(cos-to-mean, PC1 energy fraction) reported next to the SAME statistics on
+the parent's own states at the same positions (anisotropy reference — a
+fixed weight change on anisotropic states looks one-directional for free;
+CPU smoke test: random perturbation of every layer of a random model scores
+c2m 0.98).
+
+| cell | rel task ans (layer mean / L15) | rel task all pos | rel generic | ratio | eff. layers | PC1 task L15 (parent ref) | c2m task L15 (ref) | PC1 generic L15 (ref) |
+| elicit 1M (bridge-mix -> mix-nl-n1000000) | 0.866 / 1.72 | 0.547 | 0.160 | 5.4 | 3.3 | 0.063 (0.233) | 0.262 (0.509) | 0.381 (0.693) |
+| elicit 3162 (-> mix-nl-n3162) | 0.780 / 1.50 | 0.457 | 0.089 | 8.8 | 3.2 | 0.093 (0.233) | 0.319 (0.509) | 0.331 (0.693) |
+| teach 1M (base -> fig2ts-noinst-n1000000) | 1.927 / 14.13 | 0.999 | 0.156 | 12.4 | 1.2 | 0.351 (0.983) | 0.327 (0.991) | 0.315 (0.644) |
+| construction (base -> bridge-mix, full FT) | 0.605 / 1.10 | 0.774 | 1.118 | 0.54 | 3.2 | 0.603 (0.983) | 0.788 (0.991) | 0.342 (0.644) |
+
+1. Generic displacement: IDENTICAL (0.160 vs 0.156). Prediction "teaching
+   moves generic text, elicitation doesn't" ✗. Both r=512 LoRA children
+   barely touch stories. Dose-dependent within elicit: 0.089 (3162) ->
+   0.160 (1M), x1.8, while the task shift grows only x1.1 — training past
+   the elicitation point adds collateral, not capability. WHERE the generic
+   shift is written differs: elicit at layer 0 (55% of increment energy;
+   rel_gen then flat 0.15-0.19 through depth — the layer-0 interface heads
+   fire on any text), teach at layers 14-15 (78%; rel_gen grows 0.10 ->
+   0.32). The full-FT construction displaced generic text 7x more (1.12;
+   2.2 at layer 0): representations WERE displaced when the engine was
+   built — but full-FT-vs-LoRA and dose confound it; anchor, not regime
+   evidence.
+2. Ratio REVERSED: teach 12.4 vs elicit 5.4. Driven by the numerator: the
+   taught child's final-layer state at the answer position differs from the
+   base's by 14.1x the base's norm (L13 3.2x, L14 5.0x); the elicited
+   child's by 1.7x, built gradually from L9 (0.68 -> 1.66 at L14, small
+   final increment). On ALL prompt positions: 5.6x vs 0.96x at L15. An 8x
+   louder final write for a model with 10x lower EM (0.093 vs 0.981). This
+   is where R6's growing gradient and R7's 3.8x travel went: a large-norm
+   output channel written into the last layers.
+3. Depth: both arms write the task shift in the last three layers (elicit
+   82% of increment energy, centroid L13.4; teach 99.6%, centroid L14.9).
+   "Elicit = few late layers" ✓; "teach = spread over many layers" ✗ —
+   teaching is MORE concentrated. Caveat: increment-energy shares are in
+   absolute units, hence weighted toward late layers where the residual
+   norm is large; the normalised cumulative profiles give the same reading.
+4. Direction: NEITHER shift is one vector at the read-out. Elicit PC1 0.063
+   / c2m 0.262 at L15, BELOW the parent-state reference (0.233 / 0.509):
+   the elicited child's shift is almost entirely example-specific — it is
+   the ANSWER (per-problem content routed to the output), not a mode
+   switch. This is why the mean-vector patch (steer_unlock) delivered
+   format only and per-prompt states were needed. Teach PC1 0.351 / c2m
+   0.327: the larger common component (an "emit a number here" channel) —
+   confounded with its low EM (little problem-specific content to vary).
+   Early/mid layers: both deltas are as coherent as the parent states
+   (anisotropy), and through L12 the two children's PC1 profiles nearly
+   coincide (0.42 vs 0.47 at L10) — the taught child does carry
+   problem-specific information mid-stack.
+5. Bonus, about the PARENTS: the reference column is a geometry readout of
+   the latent state. Final layer, answer position, 256 problems: the latent
+   parent's states are problem-specific (c2m 0.51, PC1 0.23), the blank
+   base's problem-blind (0.99, 0.98). Complements the xfmt index (R8).
+
+Verdict: metric 10 as proposed (surgical vs diffuse) is a non-discriminator
+on generic displacement and depth, and reversed on ratio and direction.
+Two positives go to the paper: (a) teaching writes a loud new output
+channel (14x vs 1.7x final-layer relative shift); (b) elicitation's shift
+is per-problem content, not a reusable vector (PC1 0.06), consistent with
+the steering ladder. (5) folds into the latent-state result. JSONs on the
+cluster: resid_{elicit_1m,elicit_3162,teach_1m,construct}.json.
+
+## 2026-09-10 (lens depth: logit lens, J-lens, R-lens) — the latent parent already carries the answer in its verbalizable space (J-rank 2.6K@L12 -> 174 at the read-out while it emits a rewrite); the blank base carries nothing (chance rank, logit-diff 0.00 at every layer). Elicitation forms the answer at the engine's own depth (L13-14, trajectory identical to the parent's op-surface trajectory); teaching forms it only at the last layer (J-rank 20K@L14 -> 8@L15). A sign-token artefact retracted: the taught child's apparent layer-5 formation was a comparison circuit predicting '-'.
+
+Instrument: analysis/lens_depth.py. Residual after every layer at the answer
+position of 256 problems, decoded with (i) the logit lens, (ii) the J-lens
+(Anthropic 2026 global-workspace paper): J_l = E[d h_final,t'/d h_l,t] over
+24 held-out TinyStories x 128 tokens, source positions t, target positions
+t' >= t, formed EXPLICITLY (d x d per layer) by batched reverse-mode
+cotangents (one backward per output coordinate gives that row for every
+layer), TF32, identity at the last layer exact (4e-16); (iii) the R-lens
+(LessWrong 2026): same transport with an LRP backward (RMSNorm denominator
+detached, SiLU gradient -> sigmoid, gated product split half/half;
+attention and linear maps untouched). ||R-J||/||J|| 0.04-0.21 across
+layers, 0 at the last. Scored token = first DIGIT chunk (Llama-3 3-digit
+chunks); for the 60 negative answers the sign token is appended to the
+prompt and the magnitude token scored. Mismatched-problem distractor for
+the logit-diff. Jacobians saved (fp16) and reused.
+
+J-lens median rank of the answer token (chance = 64K of 128K) and logit-diff:
+| model / surface | own acc | rank L8 | L12 | L14 | read-out | first layer ld>1 | settled median |
+| latent parent / NL | 0.047 | 7,668 | 2,606 | 510 | 174 | L13 | L14 (n=12) |
+| elicited child / NL | 0.957 | 7,801 | 139 | 1 | 1 | L8 | L14 |
+| blank base / NL | 0.000 | 72,568 | 80,840 | 77,320 | 75,441 | never | -- |
+| taught child / NL | 0.109 | 60,160 | 41,677 | 19,933 | 8 | L12 | L14 (n=28) |
+| latent parent / op | 0.836 | 5,913 | 122 | 1 | 1 | L8 | L14 |
+| elicited child / op | 0.855 | 5,613 | 131 | 1 | 1 | L8 | L14 |
+
+1. J-SPACE BEFORE TRAINING (the J-lens question). Latent parent on the NL
+   target: the answer's J-rank falls from ~8K at L8 to 2.6K at L12, 1.5K at
+   L13, 510 at L14 and 174 in the actual output distribution (top 0.1%),
+   logit-diff rising from L8 to +2.1 — while the model emits a rewrite, not
+   a number. Blank base: 55-80K at every layer, logit-diff 0.00 at every
+   layer, in all three lenses. Elicitation-side prediction ("already in
+   J-space") holds in the graded sense (top 0.1-2%, not top-10);
+   teaching-side prediction ("nothing at any layer") holds exactly.
+2. THE TRAJECTORY BARELY MOVES. Op surface, parent vs elicited child,
+   J-rank by layer: 5913/5613 (L8), 1317/1187 (L10), 122/131 (L12), 6/9
+   (L13), 1/1 (L14) — identical. NL surface: same onset (L8: 7668 vs
+   7801), the child then amplifies the same rising signal in L10-14 (2606
+   -> 139 at L12; 510 -> 1 at L14). Elicitation did not move where the
+   answer forms; it amplified the late-layer read-out of the parent's
+   signal — consistent with the residual shift being written in L13-15.
+3. FORMATION DEPTH. Elicited child: settled median L14 (q25 L13), rank<=10
+   at L13, top-1 0.27@L13 -> 0.73@L14 -> 0.96@L15 — the SAME depth as the
+   parent's engine on symbols (0.25/0.63/0.84). Taught child: rank 39K@L13,
+   20K@L14, 8@L15; top-1 0.02/0.08/0.11 — the answer exists only at the
+   last layer. Owner's prediction: "teach = final layers only" ✓; "elicit =
+   middle layers" ✗ in the literal sense (L13-14 of 16), ✓ relative to
+   teaching (onset L8 vs L12, settled one layer earlier, rank<=10 two
+   layers earlier). Depth is inherited from the engine under elicitation
+   and pinned to the last layer under teaching.
+4. Lenses agree. Logit, J and R lenses give the same conclusions; the
+   J-lens shows presence 1-2 layers earlier than the logit lens (elicited
+   L12 rank 139 vs 1584), the R-lens sits between (464). Rank at L0-L5 in
+   J-space (~7-20K for models that have seen arithmetic, ~55-60K for the
+   blank/taught) is a "a number comes next" prior, not answer-specific
+   (logit-diff ~0 there) — use the logit-diff for specificity.
+5. RETRACTED artefact (first pass, scoring tokenizer(str(ans))[0]): the
+   taught child scored 0.312 first-token accuracy with 48 problems
+   "settled" at L5-6 — all subtractions with a < b, whose first token is
+   '-'. A layer-5 comparison circuit predicts the sign; it is not
+   arithmetic. Scoring the first digit: 0.109, settled L14, no early route.
+   The elicited child and both parents were unaffected (they resolve the
+   sign late, with everything else). lens_breakdown.py (copy / carry-free /
+   negative / op / length crosstabs) found it.
+
+## 2026-09-10 (teach-4M program OPENED) — the taught 1M endpoint solves 0.093 (stopped on validation convergence mid-hump, where the paper's Fig. 2 puts the TS base at 1M); every teach-side mechanistic number so far is measured on a model that has not finished learning. Fix: the paper's recipe — one pass over 4M UNIQUE examples — then rerun every teach-side result with the same scripts.
+
+Owner's question (2026-09-10): "so you are saying that in the teaching arc
+the final accuracy is 10%??? is that the case in the paper?" — yes and yes
+in the sense available: the paper never tabulates the TinyStories base's
+accuracy at 1M, but its Fig. 2 has that base at 1-2 nats/token at 1M (hump
+peak ~300K, Table 5) declining toward ~1 only by 4M, and App. I.3.2/J.4 say
+the base "stalls before discovering efficient algorithms ... hits capacity
+limits at lower accuracy" under matched compute. Our teach curve is the same
+shape at lower amplitude (peak 2.0 nats @215K, 1.40 @1M, EM 0.093). The 1M
+run stopped by the protocol's own eps/k rule after 25K steps = 3.2 passes,
+gradients still large (R6).
+
+Decision: build `evt-ts1b-fig2ts-noinst-n4000000` — blank base, LoRA
+r=512, same lr/batch/seed, on D_algo_bare_4m (rows 0..1M = D_algo_bare
+verbatim; rows 1M..4M = 3M new unique problems disjoint from
+D_algo ∪ D_algo_eval ∪ probe, built with the family's streaming writer and
+seed 20260717), min_steps = one full epoch (31,250), max 2 epochs, 128
+snapshots streamed. Pin b05a65dfe217a9018997f61b31e2982a883ebd46b1789c8a8a1e2b6382fd98ff
+(deterministic; first-1M-rows hash == D_algo_bare pin; 4,000,000 unique;
+extension ∩ eval = ∅). Not more epochs over the same 1M: that is the
+memorising regime the plateau rule already caught.
+
+KNOWN DEVIATION: the exclusion exhausts six small operand-length cells and
+leaves ~57K in four more, so the extension is ~92% from the six largest
+cells (2x4, 3x3, 3x4, 4x2, 4x3, 4x4) vs 57% in the 1M prefix. Task, eval
+set and protocol unchanged; recorded in the overlay header, the builder's
+docstring and D_algo_bare_4m.report.json.
+
+Replication battery (scripts/launch_teach4m.sh stage 3, same flags as the
+1M endpoint): circuit map + split-half + compares, faithfulness, DCM roles,
+steering donor (mean + per-prompt), weight shift, gradient strength,
+residual shift v2, lens depth (logit/J/R) + breakdown, formation curve,
+weight travel, plus the R1 point (EDL/tok, G5 EM). Checklist with the
+current teach-side numbers: notes/teach4m_plan.md. Elicit-side numbers come
+from unchanged checkpoints and are not rerun. Results_ts.tex carries an
+"Endpoint caveat" paragraph in Setup until the 4M results land.
+
+## 2026-09-10 (teach-4M stage 1 result) — 4x unique data does NOT fix the teach arm under LoRA: evt-ts1b-fig2ts-noinst-n4000000 converged at step 39,500 (1.3 passes) with EDL/tok 0.930, val 1.42 nats, EM 0.139 (1M: 1.40 / 0.093). The paper's Fig. 2 shape exactly. Full-FT teach endpoint added (stage 4).
+
+- Stopped by the protocol's eps/k rule 8,250 steps into pass 2; 515 min at
+  1.28 steps/s; 16-shot EM 0.000 (brittleness as before). The taught
+  circuit's split-half ceiling J@32 0.524 / J@64 0.662 (same reliability as
+  the elicited maps); top nodes = late MLPs (15, 14, 12, 13) + layer-0
+  heads + mlp:0 — the 1M taught profile.
+- Reading: with four times the unique problems the blank twin is still on
+  the back side of its hump, 40x the elicited child's loss. This is not a
+  data-volume artefact and it matches the paper (Fig. 2: TS base ~1
+  nat/token at 4M; App. I.3.2/J.4 "stalls ... at lower accuracy"). Under
+  the LoRA protocol the teach arm does not reach a performing model; the
+  4M endpoint is the fair "teach at convergence" comparator the protocol
+  produces, and the battery on it (stage 3) is the honest replication.
+- Decision (owner: "run the first script; can you prepare second?"): a
+  full-FT teach endpoint, evt-ts1b-teach-ft-n4000000 (configs/
+  ts1b_teach_ft.yaml, train_sft.py, lr 2e-5 = the symbol-install recipe
+  that reached 0.67-0.73 EM; same 4M file, batch, seed, one-pass minimum,
+  two-pass ceiling). One change vs the LoRA-4M run: adapter -> full FT.
+  The paper says teaching, unlike elicitation, is method/capacity
+  sensitive (§6.2, Table 6), so both taught models go in the write-up.
+  No gradstats / snapshots from that trainer: gradient strength,
+  formation curve and weight travel are LoRA-only results.
+
+## 2026-09-10 (teach-FT endpoint: THE FIRST PERFORMING TAUGHT MODEL) — evt-ts1b-teach-ft-n4000000 (blank twin, full FT lr 2e-5, 4M unique, 2 passes) reaches G5 EM 0.771 (val 0.244, test loss 0.204; still improving at the 62,500-step ceiling; 16-shot 0.001; 242 min at 4.3 steps/s). LoRA teach endpoints: 0.093 (1M) / 0.139 (4M). Teaching on this base needs full FT; several teach-side conclusions change.
+
+Interim battery on it (map-INDEPENDENT items; the circuit map / compares /
+faithfulness / steering-with-own-map of the first stage-5 pass used the
+LoRA-4M map by a stem collision and are being redone — stale guard added):
+
+- DCM roles (heads only, NL surface, 128 pairs): operand_a 37 heads (layers
+  0, 7, 8), operand_b 37 heads (layers 0, 5, 7), cf-flip 0.805 / 0.789 AT
+  the ceilings (0.805 / 0.797) — a compact fetcher set IS recoverable in a
+  taught model that works. Overlap with the elicited child's NL roles J
+  0.587 / 0.763 and with the latent parent's op-surface roles 0.763 /
+  0.684 (chance ~0.055). REVISES R3: "no compact set / roles do not
+  overlap (J 0.09-0.15)" was a property of the non-performing 1M taught
+  child. Operand reading is a layer-0 substrate function shared by every
+  performing model; elicitation preserves the parent's roles better (0.88 /
+  0.90) than independent teaching reproduces them (0.59-0.76) — a graded,
+  not categorical, difference.
+- Residual shift (base -> teach-FT): final-layer shift at the answer
+  position 1.42x (LoRA-1M teach: 14.1x; elicit 1.7x) — the "loud final
+  write" of R8 was the LoRA-1M model's, NOT a teach property. Generic-text
+  shift 0.464 (LoRA children 0.16; full-FT construction 1.12). v2
+  functional numbers: KL(parent||child) 22.2 nats at the answer position vs
+  1.15 nats/token on stories (ratio 19); story NLL 1.02 -> 2.15 nats/token
+  (+1.13): the full-FT taught model displaced the language capability. PC1
+  of the final-layer shift 0.521 (parent states 0.983), unchanged after
+  removing answer content (0.520): a large SHARED direction — teaching
+  installs a common "answer-mode" component that elicitation's shift (PC1
+  0.063) lacks. Both of these are confounded with FT-vs-LoRA until the
+  FT-elicit control (stage 6) exists.
+- Lens depth (first digit token): settled median L15 (q25 L15!), acc 0.12
+  @L14 -> 0.80 @L15; J-rank 4,196 / 1,916 / 79 at L12 / 13 / 14 (elicited:
+  139 / 6 / 1); onset ld>1 at L8-9 (same as elicited). With a PERFORMING
+  taught model the "teach = final layer" prediction holds cleanly: the
+  taught model computes the answer one layer later than the engine (L15
+  vs L14), with 0.12 vs 0.73 top-1 at L14. Breakdown: no shortcut subset
+  (all groups settle at L15).
+- Steering (taught-FT donor into the blank twin, k=32; map to be redone):
+  0.000 EM in every condition, mean and per-prompt (format 0.008) — the
+  teach-side null of R11 replicates with a performing donor.
+- Weight shift (full-FT diff): rel 0.094 (LoRA-1M teach 0.212, LoRA elicit
+  0.095), erank(PR) 571 of 2048 — the rank statistic now reflects FT vs
+  LoRA, not regime; alignment near baseline (0.067 / 0.127).
+- Cross-check that fell out of the collision: the LoRA-4M model's node
+  ranking is 0.968 sufficient / 0.979 necessary at top-8 IN the FT model —
+  the two taught models share their top nodes (late MLPs 15,14,13,12 +
+  layer-0 heads + mlp:0).
+- LoRA-4M battery (stage 3, partial): split-half J@32 0.524; vs elicited
+  child J@32 0.391 (1M taught child: 0.231) — the taught circuit converges
+  toward the elicited one's MLP set as it learns (shared: mlp 15,14,13,12,
+  10,8,7,6,0); its attention side stays layer-0 (elicited: layers 5-7).
+  (The first pass compared against the 16-shot NOISE map of the 1M child
+  by a discovery bug; fixed to prefer performing 0-shot maps.)
+
+Next: stage 3 resume (faithfulness now loads pruned runs via sidecar),
+stage 5 redo of map-dependent items, stage 6/7 FT-elicit control
+(configs/ts1b_elicit_ft.yaml: latent parent, full FT, min_steps 0), stage 8
+residual v2 for the four original cells. Then the write-up is revised
+against BOTH taught endpoints; R3 and R8 already need rewording.
+
+## 2026-09-10 (teach-4M program COMPLETE: the 2x2 regime x method) — elicit-FT converges at 21,500 steps / EM 0.986 (test loss 0.015) vs teach-FT at the 62,500-step ceiling / 0.771 (0.204); with two performing taught models the teach-side results sort into REPLICATES (R1, R2, R6, R7 magnitude, R8 direction, R10, R11) and REVISED (R3 roles, R4 "total", R8 "loud write"); write-up rewritten against both matched pairs.
+
+Endpoints: elicit LoRA 1M 0.981 | teach LoRA 1M 0.093 | teach LoRA 4M 0.139
+| teach FT 4M 0.771 (ceiling, still improving) | elicit FT 4M 0.986 (converged
+at 0.7 pass). Every endpoint ~0 at 16 shots.
+
+REPLICATES (method-independent):
+- R2 reuse: elicit-FT vs elicit-LoRA circuit J@32 0.641 (ceilings 0.56 /
+  0.68) — the elicited circuit is the same machine under both methods.
+- R4 machine difference, now graded: matched FT pair J@32 0.333 (ceilings
+  0.56 / 0.42, Spearman 0.16); LoRA-4M pair 0.391 (0.68 / 0.52); LoRA-1M
+  0.231; taught-vs-taught across methods 0.391. Shared: the late-MLP engine
+  (mlp 15, 14, 12/13, 7). Different: taught adds mlp 0/10/11 and its own
+  attention (LoRA: eight layer-0 heads; FT: heads in layers 5-7 and 15);
+  elicited uses mlp 8/9 + the layer-7 trio. ~60% of the ceiling vs 100% for
+  elicit-vs-elicit. The "layer-0 army" was a LoRA-teach feature.
+- R6 gradients (LoRA only): teach-4M peak 22.0 @36,931, last-10% 7.78,
+  mass 220,685 = 282x elicit; VO share 0.93.
+- R7 write magnitude: FT pair rel 0.094 vs 0.050 (1.9x); LoRA 4M teach
+  0.264 vs 0.095 (2.8x). erank follows the method (FT 571 vs 554 of 2048;
+  LoRA 5-7 of 512) — non-discriminator in both.
+- R8 direction: PC1 at the read-out elicit 0.063 (LoRA) / 0.056 (FT) vs
+  teach 0.528 (LoRA 4M) / 0.521 (FT) / 0.351 (LoRA 1M); unchanged after
+  removing the answer-token directions (0.07 / 0.06 vs 0.52 / 0.52). The
+  elicited shift is per-problem content; the taught shift is half a shared
+  direction (the blank parent's answer-position state is problem-blind, so
+  the mode itself must move). Robust under both methods.
+- R10 lens: FT pair — elicit settled L14 (q25-q75 L14), rank 338/8/1 at
+  L12/13/14, top-1 0.80 @L14; teach settled L15 (q25 L15), rank
+  4,196/1,916/79, top-1 0.12 @L14 -> 0.80 @L15; onset ld>1 at L8-9 for
+  both. LoRA-4M taught: 41.7K/43.4K/17.2K -> 6, settled L15. Teaching
+  computes the answer one layer later than the engine, under either method.
+- R11 ladder: elicit-FT donor into the latent parent: per-prompt 0.121
+  (format 0.387), mean vector format only (0.105); teach-FT donor into the
+  blank: 0.000 every condition; teach LoRA-4M donor: 0.000.
+- Faithfulness: teach-FT top-8 0.950/0.966, elicit-FT 0.923/0.943, teach-4M
+  0.976/0.987 (top-32 >= 0.997 everywhere).
+
+REVISED:
+- R3 DCM: performing taught model (FT) has compact fetcher sets at the
+  ceiling; J vs elicited 0.587/0.763, vs parent 0.763/0.684; elicit-FT
+  keeps 0.811/0.833 (vs elicit-LoRA), 0.694/0.857 (vs parent); LoRA-taught
+  (1M, 4M): no compact set (cf-flip 0.008-0.04 vs ceilings 0.14-0.20).
+  Roles are substrate-level; elicitation preserves them more completely
+  (0.8-0.9 vs 0.6-0.76). Categorical "roles created" retracted.
+- R8 magnitude: the 14x (1M) / 28.6x (4M) final-layer write is LoRA-teach
+  specific; the FT-taught write is 1.42x (elicit 1.7-1.9x). Generic
+  displacement: LoRA teach 5-9x more (KL 0.33 vs 0.07; dNLL +0.32 vs
+  +0.04); FT: equal (+1.13 vs +1.04) — the method dominates. Both moved to
+  the non-discriminators.
+- R4 wording: "total" -> "partial, method-independent".
+
+Bookkeeping: the first stage-5 pass reused the LoRA-4M map for the FT
+model (stem collision; stale guard added, redone); the LoRA-4M formation
+curve / weight travel still pending (circuit_trajectory now rebuilds the
+wrapped tree from snapshots/base + adapter for pruned runs); resid v2 for
+the four original cells done (elicit-1M KL ratio 215, elicit-3162 369,
+teach-1M 94; construction dNLL +0.66). results_ts.tex rewritten: Endpoints
+table in Setup, R1-R4, R6-R8, R10-R11, validation and non-discriminators;
+paper assets (resid figure = FT pair, lens figure + FT pair, dcm/resid/lens
+tables) regenerated.
+
+## 2026-09-10 (FT-pair DCM + document scope) — full-FT elicit vs full-FT teach operand roles J 0.700 / 0.632 (28/31 and 24/25 of the elicited sets inside the taught ones; the taught sets add layer-0 heads 4,5,6,7,13,15 and layer-7/8 heads). Owner: skip negatives in the paper — the "Informative non-discriminators" section is removed from results_ts.tex (the record stays here: erank, travel profile, generic displacement/depth, loud write, reversed ratio, construction anchor, prompt brittleness, edge dS). Section E (matched FT pair at a glance) added. Stage-3 trajectory step hit a CUDA-init error on the box (no device visible); rerun when the GPU is back.
+
+## 2026-09-10 (format-installed teach comparator OPENED) — owner's question: was the format-install ("pre-teach format") twin ever the teach parent? No: only in R1's third learning curve. Every mechanistic teach-side number starts from the blank base. Stage 9/10 added: evt-ts1b-teach-ft-fmt-n4000000 = evt-ts1b-fig2ts-installer (random-label bare-format dose; format validity 1.000, accuracy 0.000) fully fine-tuned with the teach-FT recipe; battery with the installer as the reference parent; the installer's own lens depth.
+
+Why it matters: the elicit parent has produced number outputs during its
+construction (symbol install answers, rewriting dose); the blank base never
+has. So the teach side's "shared shift direction" (R8, PC1 0.52) may be
+partly format learning ("output a number here") rather than algorithm
+learning. The paper's Table 5 uses the pre-teach-format model to isolate
+exactly this. Predictions: the format-installed parent's answer-position
+states stay problem-blind (PC1 ~0.98) and its J-space empty; the taught
+child from it should show a SMALLER shared component than the blank-base
+taught child if the shared direction is format, and the same 0.52 if it is
+the algorithm's mode. Circuit / lens / donor results expected unchanged.
+
+## 2026-09-10 (R6 under full FT) — the full-FT trainer logs the pre-clip global norm per step in train_log.jsonl (clip_grad_norm_'s return value); grad_strength.py reads it as a fallback (no per-class split). FT pair: elicit peak 34.0 @ step 1, first-1% 4.80 -> mid 1.85 -> last-10% 1.39 (decays x3.4), mass 44,021 (2.05/step, 21,500 steps); teach first-1% 2.30 -> peak 32.0 @ 3,844 -> mid 5.31 -> last-10% 3.43 (grows x1.5), mass 353,277 (5.65/step, 62,500 steps) = 8x. Direction replicates (elicit decays by the same x3.3-3.4 under both methods; teach rises and stays high); the size of the gap is method-dependent (150-280x under LoRA, 8x total / 2.8x per step under full FT). Norms not comparable across methods (different parameter sets). results_ts.tex R6 + section E updated.
+
+## 2026-09-10 (MAIN RESULT redefined, owner) — headline comparison = elicit-FT (TS1B-latent, full FT) vs teach-FT-fmt (format-installed twin, full FT to convergence; stage 9, ceiling raised to 6 passes). The paper's pre-elicit vs pre-teach-format design on one substrate; blank-base and LoRA endpoints become robustness rows; R1 to use the two LoRA sweeps from the same two parents (mix-nl vs fig2ts-inst). Document restructure follows the stage-10 battery.
+
+## 2026-09-13 (stages 3, 9-12 COMPLETE: format-installed teach-FT, blank-base teach-FT converged, LoRA-4M formation) — the main pair's taught member converges LOW: evt-ts1b-teach-ft-fmt-n4000000 (installer twin, full FT, identical recipe) stops by the rule at 58,500 steps (1.9 passes), val 0.700, test 0.639, G5 EM 0.424 (16-shot 0.000); the blank-base teach-FT continued from its 62,500-step checkpoint (evt-ts1b-teach-ft-n4000000-cont, Adam restarted, seed 317) converges after +9,500 steps at val 0.173, test 0.154, EM 0.819. Every mechanistic conclusion is the same on both taught FT endpoints; the format control settles R8.
+
+Format-installed parent (evt-ts1b-fig2ts-installer) as reference: answer-position
+states problem-blind (cos-to-mean 0.993, PC1 0.988 — same as the blank base);
+lens: own first-digit acc 0.004, logit-diff +0.05 and 0.0 at every layer, J-rank
+4,036 @L12 / 997 @L14 / 452 read-out. The rank is a number prior (it emits a
+number after every question), not answer-specific — judge the parent by ld.
+
+teach-FT-fmt battery (vs the installer as parent): circuit split-half 0.524;
+J@32 vs elicit-FT 0.306 (Spearman 0.03), vs elicited-LoRA 0.333, vs teach-FT
+0.333, vs teach-FT-cont 0.362, vs LoRA-4M 0.333, vs base-16-shot 0.164;
+top-8 sufficiency/necessity 0.983/0.988 (top-32 0.997); DCM operand_a/b 32/41
+heads (layers 0,5,7 / 0,4,6,7,9), cf-flip 0.586/0.539 at ceilings 0.594/0.547;
+J vs parent-op engine 0.879/0.659, vs elicited-LoRA 0.659/0.690; steering:
+installer + its child's per-prompt states EM 0.016 (format 0.836; installer
+format 1.000), mean vector 0.000; weight shift rel 0.0857, erank 481 (MLP
+0.083 / QK 0.100 / VO 0.076); residual v2: final-layer 1.22x, generic 0.452,
+KL task 12.3 vs generic 1.57 (ratio 7.8), story dNLL +1.56, PC1 0.567 (parent
+0.988), content-removed 0.561, cos-to-mean 0.796; lens: settled L15
+(q25-q75 15, n=137), own acc 0.535, ld +14.2, J-rank 27,044 / 15,058 / 961 at
+L12/13/14 (logit 23,909 / 12,859 / 381), onset ld>1 at L8; breakdown: settled
+L15 in every cell (copyable 0.95 acc, 3-digit answers 0.20).
+
+teach-FT-cont battery: split-half 0.422; J@32 vs teach-FT 0.600 (Spearman
+0.57), vs elicit-FT 0.333 (0.28), vs elicited-LoRA 0.333, vs LoRA-4M 0.391;
+top-8 0.950/0.965; DCM 37/36 heads, cf-flip 0.852/0.805 at ceilings
+0.852/0.828, vs elicited 0.587/0.737, vs parent-op 0.763/0.658; steering
+0.000 (per-prompt 0.004); weight rel 0.1016, erank 580; grad (train_log
+fallback) first-1% 3.51 / mid 3.18 / last-10% 3.26 (x1.1), peak 13.4 @2,947,
+mass 30,954 (3.26/step); resid: final 1.36x, generic 0.562, KL 22.0 vs 1.79,
+story dNLL +1.76, PC1 0.526, content-removed 0.528, c2m 0.737; lens settled
+L15, own acc 0.844, ld +16.1, J-rank 4,123 / 1,832 / 138 (logit 18,988 /
+8,932 / 170).
+
+LoRA-4M formation curve (traj_ts_4m, endpoint map ref): J@32 0.333 @1, 0.255
+@4, 0.391 @20/90, 0.422 @400, 0.455 @1,758, 0.362 @8,366 and @36,807 (J@64
+0.28 -> 0.51; logit-diff 0.89 -> 13.6; rho 0.01 -> 0.30); weight travel 0.09
+@1, 5.0 @20, 18.8 @400, 80 @1,758, 230 @8,366, 619 @36,807; erank 153 -> 5.2.
+The LoRA-taught circuit is never far from its endpoint set: the top-32 is
+about a third shared from step 1 (noise-floor overlap with a non-performing
+model is ~0.03 chance), the rest keeps churning to the end.
+
+VERDICTS on the design-matched pair (elicit-FT 0.986 vs teach-FT-fmt 0.424):
+- R8: PC1 0.056 vs 0.567 (0.061 vs 0.561 content-removed). The prediction
+  "smaller shared component if the direction is format" is FALSIFIED: the
+  format-installed child has no output format left to learn and carries the
+  LARGEST shared component. The shared direction is the algorithm's mode.
+- R10: L14 vs L15 settled; J-rank 338/8/1 vs 27,044/15,058/961 at L12/13/14.
+- R2/R4: circuits 0.306 apart (ceilings 0.561 / 0.524), Spearman 0.03.
+- R3: fmt-taught operand_a set is the parent engine's set (0.879); roles are
+  substrate-level, as revised on 09-10.
+- R7: rel write 0.086 vs 0.050 (1.7x); erank 481 vs 554.
+- R11: donor nulls hold from the format-installed base too (0.016).
+- R1 caveat, reported honestly: from the format-installed base the taught
+  model converges at 0.42, not 0.82 — the random-label dose taught the base
+  that the number after a question is independent of the question, and
+  full FT has to unlearn it (val floor 0.70 vs 0.17). The blank-base pair is
+  the better-performing robustness row; both agree on every mechanism.
+
+Pending: the FT gradient comparison ran without the fmt run (launcher marker
+done_grad_ftall skipped it) — run grad_strength.py with all four FT ids to
+fill the R6 / section E cell; R1 headline on the two LoRA sweeps from the
+same two parents needs the per-rung inst numbers from
+results/dataset_size_sweep_ts.parquet (38/38 runs found, 228 rows).
+results_ts.tex: Endpoints table (7 rows), R1-R4, R6-R8, R10-R11, section E
+(three FT columns) and assets (resid figure = elicit-FT vs teach-FT-fmt thick,
+cont medium, LoRA thin; lens figure + installer parent + both taught FT;
+dcm/grad/resid/lens tables) updated.
+
+## 2026-09-13 (stage 13: the two pending cells) — (a) R6 from the format-installed parent: first-1% 2.69 -> peak 70.9 @ step 50,860 (the largest single update in any run) -> mid 4.86 -> last-10% 3.77 (grows x1.4), mass 378,170 (6.46/step, 58,500 steps) = 8.6x elicit-FT; the teach direction holds on all three taught FT runs. (b) R1 headline pair on the two LoRA sweeps from the same two parents (dataset_size_sweep_ts.parquet, 19+19 runs, all converged): the format-installed arm keeps the hump — EDL/tok 4.09 @1K, min 0.641 @10K, peak 1.333 @100K, 1.279 @215K, 1.285 @316K, 0.880 @1M; EM 0.079 @1M — lower than the blank arm everywhere (4.88 / min 0.775 @14.7K / peak 2.022 @215K / 1.399 @1M; EM 0.093) because the format cost is prepaid, with the same shape. The hump is the algorithm being built, not the format. results_ts.tex R1 (three-arm table, exact rungs), R6, section E; assets (signature figure gains the dashed format-installed arm; grad table) updated.
+
+## 2026-09-17 (stage 14: parent <-> child circuit overlap for the main pair) — the latent parent's symbol-task circuit (evt-ts1b-op-bridge-mix, eval_op_algo_data_ts, 0-shot, logit-diff 11.0, performing) vs the full-FT elicited child: J@32 0.391 (Spearman 0.44), J@64 0.407, J@128 0.422; vs the LoRA elicited child: 0.455 / 0.347 / 0.414 (Spearman 0.59). The parent's own split-half ceiling on the symbol surface is LOW: 0.306 / 0.333 / 0.399 (its map is less repeatable than the children's, logit-diff 11 vs 20-22), so 0.391 is at/above the parent map's ceiling — the elicited child runs the parent's circuit up to the parent map's own noise; shared top nodes mlp:15,14,13,12,7,8,9,11,6 + attn:7:0/7:1. The format-installed parent's own 0-shot map is NOT PERFORMING (logit-diff -1.46; verdict guard fired): its 0.231 against its taught child is noise overlap. M2 table: main rows = parent<->child per regime (elicit 0.391 at the parent ceiling; teach undefined), with ceilings for both maps. Section E gains the row. Not yet updated in the earlier "0.455 (67% of ceiling 0.684)" reading: that ceiling was the CHILD's; against the parent's own ceiling the elicited child is at ceiling, not 67%.
+
+## 2026-09-17 (stage 15: the elicit parent's circuit ON THE NL TARGET) — the parent answers 0.000 of NL questions but its answer logit-diff on them is 3.1 nats (performing threshold 1.0), so its NL map is defined and repeatable: split-half J@32 0.600 (0.58 / 0.55 at 64 / 128). Parent-NL <-> full-FT elicited child: J@32 0.455 (Spearman 0.22), J@64 0.455, J@128 0.347 — against ceilings 0.600 / 0.561, i.e. ~76-81% of "the same circuit". Parent-NL <-> parent-symbol: 0.524 (Spearman 0.44): the parent's task circuit is its symbol-arithmetic circuit (shared mlp:15,14,13,12,0,5,1). This replaces the symbol-surface map as the M2 main row (the symbol map's own ceiling was only 0.306, which made the earlier 0.391 hard to read); the teach row stays undefined (installer map non-performing). Owner rewrote results_ts.tex the same day; only the circuit-overlap numbers block and table were updated.
+
+## 2026-09-17 (pre-fine-tuning predictors OPENED) — owner: "think of metrics that tell me BEFORE fine-tuning whether I am about to elicit or teach" — mechanistic, not EDL. analysis/prefit_metrics.py (parent-only: pref, geometry, probe [helix ridge R² answer vs operands + first-digit logreg], das [causal answer subspace, logit-diff flip vs random/full], dcm [operand roles on the frozen parent, logit-diff flip], attn [answer-position attention mass onto operand digits], grad [per-example gradient coherence via count-sketch: cos, coherence, Gram erank, KTA], hessian [top eig, trace, gᵀHg/‖g‖², one-step gain], llc [SGLD estimator, exploratory]); scripts/launch_prefit.sh over five parents with known curves (blank, fmt, engine, latent, llama); plan + predictions in notes/prefit_plan.md. CPU smoke on a tiny random model passes every code path. Repeatable-circuit (P1) added to the paper as a "Before fine-tuning" section (owner's rewrite, uncommitted).
+
+## 2026-09-18 (pre-fine-tuning predictors: first run, five parents) — seven of nine metrics ran; probe crashed (first-digit class -1 for answer 0; fixed: 10 digit classes) and the Hessian's power iteration returns the largest-|lambda| end only (fixed: shifted power iteration reports both ends). Ground truth: latent and llama elicit; blank and fmt teach; engine (symbol arithmetic, words not bound) in between — faster than blank at n<=1000 (op program), bridging index ~0.
+
+| metric | latent | llama | engine | fmt | blank | verdict |
+|---|---|---|---|---|---|---|
+| hidden pref (nats) | 2.31 | 1.00 | 0.44 | 0.06 | 0.02 | ORDERS all five |
+| DAS full-patch flip gain over none (best layer) | +0.39 | +0.26 | +0.30 | +0.05 | +0.02 | separates {latent, llama, engine} from {fmt, blank} |
+| DAS k=64 subspace flip (best layer) / random | 0.64 / 0.41 | 0.51 / 0.31 | 0.68 / 0.42 | 0.52 / 0.47 | 0.57 / 0.55 | same split; learned subspace ~ full patch |
+| DCM operand_a heads (ld-flip / ceiling) | 22 (0.48 / 0.67) | 23 (0.59 / 0.61) | 0 | 0 | 0 | separates the two ELICIT parents from engine: the interface |
+| state PC1, last layer | 0.20 | 0.78 | 0.93 | 0.96 | 0.92 | latent/llama low; engine not separated from teach |
+| attn max head mass on operands; heads>0.25 | 0.98; 226 | 0.40; 6 | 0.87; 215 | 1.00; 198 | 0.93; 166 | NON-DISCRIMINATOR (short prompts: operand tokens dominate TS attention; Llama has a BOS sink) |
+| grad pairwise cos; Gram erank | 0.10; 17.7 | 0.47; 1.4 | 0.46; 3.5 | 0.15; 3.9 | 0.28; 9.7 | NON-DISCRIMINATOR (the two elicit parents sit at opposite extremes) |
+| KTA (first digit) | 0.26 | 0.08 | 0.18 | 0.11 | 0.17 | non-discriminator |
+| Hessian largest-|lambda|; g'Hg/|g|^2 | -718; -62 | -2.0e5; 5.3e4 | 80; 37 | 266; 143 | 317; 39 | only negative-dominated for the two elicit parents — suggestive, rerun with both ends |
+| LLC | -1.2e6 | -1.6e6 | -1.5e6 | -6.8e5 | -2.1e6 | INVALID (w0 not a minimum) |
+
+Reading: three parent-only mechanistic predictors order the ladder — the hidden preference (output), the causal answer subspace at the answer position (DAS; the full-residual swap is itself the cleanest version: the answer-position state of latent/llama/engine CARRIES the answer causally, blank/fmt's does not), and operand roles on the NL surface (DCM) — and the last one additionally separates the engine parent (arithmetic present, words not bound: DAS yes, DCM no) from the two elicit parents (both). Prediction misses recorded: gradient coherence (predicted coherent for elicit; latent is the LEAST coherent), attention interface (no separation), state PC1 (engine not separated). Pending: probe + Hessian rerun (`launch_prefit.sh --confirm-cost --metrics "probe hessian" --redo`).
+
+## 2026-09-18 (prefit rerun: curvature ORDERS the ladder; probe v1 invalid, v2 written) — Hessian of the task loss at the parent, both ends of the spectrum (16 examples, 20 power iterations each end):
+
+| parent | lambda_max | lambda_min | negative share -lmin/(lmax-lmin) |
+|---|---|---|---|
+| latent (elicit) | 0.19 | -718 | 1.00 |
+| llama (elicit) | 1.1e5 | -2.0e5 | 0.64 |
+| engine (between) | 76 | -69 | 0.48 |
+| fmt (teach) | 266 | -0.000 | 0.00 |
+| blank (teach) | 317 | -0.05 | 0.00 |
+
+The negative share orders all five in the known order. Reading: a parent about to be elicited sits on a saddle of the task loss — there are directions along which the loss falls faster than linearly (strong negative curvature: the latent capability is a "cliff" one push away); a parent about to be taught sits in a positively curved region with no such shortcut. Caveats: 16-example batch, power iteration (not Lanczos), Llama's scale is 100-1000x the TinyStories parents (different loss magnitude) — the ratio, not the raw eigenvalues, is the comparable quantity.
+
+Probe v1 is INVALID: its answer R^2 was 0.156 for every parent — the layer-0 state (last-token embedding) is two-valued because negative answers append '-', which predicts the answer's sign identically in every model; and first-digit decoding is largely operand copying. v1's operand R^2 (latent 0.84, engine 0.81, llama 0.77 vs fmt 0.28, blank 0.24) and first-digit accuracy (0.51 / 0.50 / 0.45 vs 0.27 / 0.18) do separate the arithmetic parents but measure presence of the inputs, not the answer. v2: addition only (no sign token), layers >= 1, units digit (a+b) mod 10 — not linear in the operands' own features — by 10-way logistic and T=10 helix ridge, against copy-only baselines fitted on the operands' own features. Needs one more run.
+
+## 2026-09-18 (probe v2 result + v3) — v2 (addition only, units digit): units digit NOT decodable in any parent (10-way acc 0.11-0.20 below the copy-only baseline 0.232; ridge R^2 negative everywhere). Uninformative by design: the Llama-3 tokenizer writes numbers in <=3-digit chunks from the left (5689 -> "568","9"), so at the answer position the model chooses the first chunk and the units digit is not due until a later token; and ~500 problems against a 2048-dim state overfits. v2's operand R^2, now free of the sign leak, is the clean separation: latent 0.74, engine 0.76, llama 0.62 vs fmt 0.005, blank -0.009 — the operands are present at the answer position in every parent with arithmetic and absent in both teach parents. v3: target = the first answer chunk's value (helix features), copy-only baseline from the operands' own helix features + the larger operand's leading chunk, ~2,000 addition problems (--n-probe 4096), regulariser chosen on a held-out slice.
+
+## 2026-09-18 (probe v3 result; pre-fine-tuning predictors CLOSED) — answer-chunk R^2 from the frozen state (best layer, ~2k addition problems): latent 0.139, engine 0.127, llama 0.120 vs fmt 0.024, blank -0.025 — but the copy-only baseline (the operands' own features) reaches 0.153, above every parent: no parent holds the answer chunk linearly beyond what copies of its inputs give. The hidden preference (2.3 nats for latent) is produced nonlinearly downstream, which is also what the lens showed (the answer surfaces at layers 12-14). Operand R^2 with 4x the data: latent 0.88, engine 0.90, llama 0.86 vs fmt 0.53, blank 0.49 — still separates arithmetic parents from teach parents, with a smaller gap than v2's (more data lets the teach parents' digit-token copies be read too).
+
+Final verdicts, parent-only (ground truth: latent, llama elicit; engine between; fmt, blank teach):
+- ORDER all five: hidden preference (2.31 / 1.00 / 0.44 / 0.06 / 0.02); curvature negative share (1.00 / 0.64 / 0.48 / 0.00 / 0.00).
+- SPLIT arithmetic vs teach: answer-state swap (full-residual flip gain +0.39 / +0.26 / +0.30 vs +0.05 / +0.02); operand presence (0.88 / 0.86 / 0.90 vs 0.53 / 0.49).
+- SPLIT the two elicit parents from the engine: number-reading heads on the NL surface (22 / 23 vs 0 / 0 / 0).
+- Repeatable task circuit: latent 0.600 split-half vs fmt noise (measured on the pair only).
+- Do not separate: attention onto operands, gradient coherence / erank / KTA, state PC1 (engine not separated), answer computed beyond copies (probe v3).
+- Invalid before fine-tuning: LLC.
+Owner's rule (no negatives in the paper): the paper section lists the separating metrics; this entry holds the rest.
+
+## 2026-09-21 (paper: one list, star marks; novel metric proposed: CLIFF DEPTH) — owner: do not separate the parent-only metrics, add them to the list and mark them (the lens one too). results_ts.tex: single M-list; metrics readable before fine-tuning carry a star (latent reach, answer depth [before-training half], repeatable parent circuit, hidden preference, curvature, answer state swap, number-reading heads, operands present) with one explanatory note before the list. Owner also asked for a new, clean, novel metric that works. Proposal, implemented as `prefit_metrics.py cliff` (UNTESTED on real parents): the Hessian metric says an elicit parent sits on a saddle of the task loss; cliff depth walks off the saddle — find v_min (most negative curvature eigenvector, shifted power iteration, 32 problems, no training), move the weights to w0 + alpha*|w0|*(+-v_min) over a grid of alpha, choose alpha on 64 validation problems, report on 128 disjoint test problems: loss drop fraction, hidden-preference gain, first-chunk top-1, greedy exact match. One parent-determined direction, ONE free number. Comparison: the step-0 gradient direction profiled the same way (expected to buy the output format on parents that never emitted a number — the confound cliff depth avoids, since format learning sits in a positively curved bowl: blank lambda_min -0.05). Pre-registered prediction: depth orders latent > llama > engine > fmt ~ blank ~ 0; exact match > 0 only for the elicit parents. If it fails, record and drop.
+
+## 2026-09-22 (teammate's circuit-metric review, checked against ours) — Their list (k-dependence, signed cancellation, MLP-vs-head size, nodes-not-wiring, first-order approximation) is correct in general; checked item by item against our pipeline. (1) Metric orientation: ours is per-pair (clean answer token − corrupt answer token), so a consistently useful node scores positive on every pair; their "mean absolute" fix and the 0.274→1.00 jump (top-16 = all 16 MLP blocks of a 16-layer model, Jaccard 1.00 by construction) point to an unoriented metric on their side, not a flaw in signed scoring. (2) Size confound is REAL for us too: MLP scores are dot products over 2048 dims, heads over 64, so every top-32 is MLP-heavy (elicit-FT top-16: 9 MLPs; teach-FT-fmt: 11). Consequence: the uniform chance level 0.031 understates the overlap two unrelated maps get from sharing MLPs. Added a TYPE-MATCHED chance to circuit_compare.py (expected Jaccard when each map keeps its MLP/head counts and members are random within type; analytic E[I]=ma·mb/16+(k−ma)(k−mb)/512, J≈E[I]/(2k−E[I]); simulation-checked): ~0.125 for 9/11 MLPs, 0.347 if both are all-MLP. Our conclusions are referenced to the split-half CEILINGS (0.42–0.68), not to chance, and validated by true patching (top-8 recovers 0.92–1.0), so nothing is invalidated; the table's chance column should show the type-matched value (needs the maps: rerun circuit_compare on the pairs in tab:overlap). (3) Edges: already done (circuit_edges.py; Llama edge churn real ~2.2× nodes; TS edge maps below their split-half floor, retired); the paper uses nodes only. (4) Their preservation/disruption tests = circuit_faithfulness.py sufficiency/necessity (done); specificity (circuit corrupted on plain text, perplexity unchanged) and single-node minimality are cheap additions, not yet run.
+
+## 2026-09-22 (cliff depth: FAILED its prediction — dropped) — walking the weights along the most-negative-curvature eigenvector (16 problems, step chosen on 64 validation problems, read on 128 test problems): loss-drop fraction latent 0.135, fmt 0.193, blank 0.124, engine 0.417, llama 0.314 — no ordering; hidden-preference gain latent −0.50 (the preference DEGRADES), fmt −0.10, blank −0.06, engine +0.45, llama +0.52; exact match 0.000 everywhere; the plain gradient direction lowers the loss more than v_min on four of five parents (latent 0.224 vs 0.135). Reading: the task loss at these parents is dominated by the output-format term (8–15 nats/token: the parent is not emitting numbers), so any descent direction buys format first; a 16-problem eigenvector of a 1B-dimensional Hessian is a noisy estimate; and the quadratic model that makes v_min meaningful holds only for steps far too small to change behaviour. The negative-curvature SHARE (a read-out at w0) stays a clean predictor; walking along it is not. Not added to the paper; kept in prefit_metrics.py as a recorded negative.
+
+## 2026-09-22 (type-matched chance measured: the two children's circuits overlap AT CHANCE) — every top-32 map holds 12–15 of the 16 MLP blocks (elicit-FT 13, teach-FT-fmt 15, latent-NL 14, installer 13, LoRA-elicited 12), so the type-matched chance for the paper's pairs is 0.20–0.27, not 0.031. Re-read: elicit parent (NL) <-> elicited child 0.455 vs chance 0.232, ceiling 0.600 — holds, 61% of the way from chance to ceiling; elicited FT <-> LoRA elicited 0.641 vs 0.196 — holds strongly; parent-NL <-> parent-op 0.524 vs 0.273 — holds; parent-op <-> elicited child 0.391 vs 0.250 — modest; teach parent <-> taught child 0.231 vs 0.250 — chance, as the noise guard said; ELICITED <-> TAUGHT 0.306 vs 0.250 (Spearman 0.03) — AT CHANCE: the "shared late-layer MLP engine" reading is retracted, the two children share only that both use many MLP blocks; taught-fmt <-> taught-blank 0.362 vs 0.273 — modest. results_ts.tex M1: chance column now uniform / type-matched, the two-children sentence rewritten. circuit_compare.py gains a heads-only Jaccard (top-k heads by |score|, chance k/(2·512−k)) — the attention heads are where circuits can differ; to be run on the same seven pairs.
+
+## 2026-09-22 (heads-only overlap, seven pairs + P1 halves; chance 0.032 at k=32) — parent-NL <-> elicited FT 0.333 (parent halves' heads-only ceiling 0.422: 79%); teach parent <-> taught child 0.016 (1/63); parent-NL <-> parent-op 0.280; parent-op <-> elicited FT 0.255; elicited FT <-> LoRA elicited 0.455; elicited FT <-> taught FT 0.103 (6/58; at k=8 and 16: 0.067); taught fmt <-> taught blank 0.208. Setting the MLP blocks aside makes the picture sharper in the same direction: the elicited child uses the parent's heads, the taught child uses none of its parent's and almost none of the elicited child's. results_ts.tex table gains the heads-only column; M1 and P1 numbers updated.
+
+## 2026-09-24 (circuit follow-ups from the eight-paper read; CPU-sized) — Full reads of Hanna 2024 (EAP-IG), Mueller 2025 (MIB), Shi 2024, Miller 2024, Kramár 2024 (AtP*), Bhaskar 2024 (Edge Pruning), Wang 2025, Prakash 2024 (one reader per paper, judged against our pipeline). None measures discovery stability across data halves/seeds; the field's own repeatability is J 0.5–0.7 (Edge Pruning, 12 mask seeds on the same data), Prakash's base-vs-FT overlap is 0.28 with no chance level, Hanna's EAP-IG agrees LESS with ground truth over the bulk ranking than EAP. So our split-half 0.42–0.68 is where the field is; the residual is interchangeable backup nodes at the rank boundary. Not adopted: EAP-IG (fixes a zero-gradient/edge-graph failure we cannot have: logit-diff metric, node circuit, top-8 already 0.92–1.00), GradDrop/QK fix (QK inapplicable to head-output nodes; GradDrop per-pair, the paper's own advice for distributions is plain AtP), Edge Pruning (same repeatability band, no faithfulness headroom, edge track failed on short prompts), MIB CPR/CMD (linear-k integral puts 76% of the weight where every model scores 1.0). Adopted, implemented, CPU-smoke-tested: (A) per-pair absolute aggregation (AtP* Eq. 5) as circuit_nodes.py --agg pairabs, both columns always written — the one change that plausibly moves the ceiling (cross-pair cancellation: a head that reads a different operand on different problems flips sign); (B) circuit_faithfulness.py --mode maintain (Miller's "maintain performance": clean input, complement ablated — the field-standard sufficiency; ours was the leakier "restore") + per-pair median/IQR/min/share-below-0.5; (C) functional reuse: --nodes-from <parent map> evaluates the parent's top-k in the child, --random-sets N type-matched random node sets with a one-sided binomial p at q*=0.9 (Shi) — recommended independently by the Prakash, Hanna and Shi reads as the set-identity-free form of "same circuit". Driver: scripts/run_circuit_cpu.sh (stages A/B/C, fp32 on CPU, skip-if-done). Smoke on a tiny random model: pairabs ≥ |sum| everywhere; maintain(k=all)=1.0; random-init model recovers only 0.30 at k=all (embeddings are not nodes) — on real models the k=all sanity is ≥0.996.
+
+## 2026-09-24 (circuit follow-ups A-C, CPU run; two of three proposals FAIL in an instructive way)
+A. Per-pair-absolute aggregation (AtP* Eq. 5) makes maps far more repeatable — split-half J@32 latent 0.600→0.829, elicit-FT 0.561→0.939, teach-FT-fmt 0.524→0.778 — but it also makes the NON-PERFORMING installer map repeatable at 0.939 (heads-only 0.939), puts all 16 MLP blocks in every top-32 (type-matched chance 0.347), and compresses the contrasts: parent→elicited child 0.524, teach parent→taught child 0.422 (noise), the two children 0.488 — the same effect the teammate saw with mean-|score| (all MLPs, J→1.0). pairabs ranks nodes by how much they move the answer in ANY direction per pair, which is a property of activation variance × gradient that every model shares; the signed sum is what separates the regimes. NOT adopted; kept as a column. Verdict on the teammate's stability claim: repeatability can be bought, but it is repeatability of the wrong thing.
+B. "Maintain" (clean input, complement resample-ablated at ALL positions): 0.000 at top-8 and 0.016 at top-32 for BOTH children. With a different-problem corruption at every position, the operand information that lives in the embeddings and in hundreds of heads is replaced, so no 32-node set carries the task; the metric collapses to the corrupt answer. Our restore-sufficiency (0.92-1.00) is the leaky direction: the late MLPs patched in at the answer position already hold the clean answer. Confirmed by the new type-matched random baselines in restore mode: random sets with the same MLP/head counts recover 0.947 (elicit-FT top-8; the real top-8 0.923 beats only 8/20) and 0.832 (teach-FT-fmt; 19/20). Restore-sufficiency of a node set that contains mlp:13-15 is not evidence that the set is special; it is evidence that the late MLPs write the answer, which is true of every model here. The necessity direction (top-8 destroys 0.94-0.99) remains the load-bearing statement and now needs its own random baseline.
+C. Functional reuse as restore-sufficiency is non-discriminative for the same reason: parent's nodes in the elicited child 0.998 (20/20 vs random, p=0.12 at n=20), but the NOISE parent's nodes in the taught child 0.961, the elicited circuit in the taught child 0.888, the taught circuit in the elicited child 0.996 — every set with late MLPs recovers the answer in every model. Maintain-mode reuse 0.000-0.015 everywhere.
+Consequences: (i) the paper's M1 claims (overlap vs split-half ceiling and type-matched chance; heads-only) are unaffected — they never rested on sufficiency; (ii) the informal "validated by true patching, top-8 recovers 0.92-1.00" sentence in earlier notes is withdrawn as evidence of circuit specificity; (iii) the discriminative content is in the heads (DCM roles; heads-only overlap 0.333 vs 0.016 vs 0.103), so the fair tests are heads-only necessity/sufficiency vs random heads, and maintain confined to the answer position (Miller: match the ablation to how the circuit is specified). Implemented: circuit_faithfulness.py --positions last, --heads-only; run_circuit_cpu.sh stage D (explicit; ~8 h CPU). Also: 20 random sets cannot reach p<0.05 at q*=0.9 (20/20 gives p=0.12); report the beats-count and the random mean, or raise N on a GPU.
+
+## 2026-09-25 (stage D: answer-position maintain still ~0; heads-only necessity/reuse is the discriminating test)
+Maintain confined to the answer position: 0.05 (elicit-FT) / 0.08 (teach-FT-fmt) at top-32 — corrupting the ~496 non-circuit nodes at the final position alone still injects the corrupt problem's answer (resample ablation is an active anti-signal, Miller et al.); no 32-node set is sufficient in the strict sense under a different-problem corruption. Sufficiency claims for node circuits are dropped entirely; the paper never made one.
+Heads-only true patching (512 heads; random head sets of the same size, 20 draws; every top-k beats 20/20, which at n=20 cannot pass p<0.05 at q*=0.9 — win counts and random means are the report):
+| set of 32 heads | evaluated in | necessity (destroy) | sufficiency (restore) | random heads |
+|---|---|---|---|---|
+| elicited child's own | elicited child | 0.883 | — | 0.04 |
+| elicit PARENT's (NL map) | elicited child | 0.726 | 0.730 | 0.04 |
+| taught child's own | taught child | 0.456 | — | 0.11 |
+| elicited child's | taught child | 0.719 | — | 0.10 |
+| taught child's | elicited child | 0.266 | — | 0.05 |
+Reading. (1) Functional reuse is real: the parent's 32 heads, identified on the parent before any target training, carry 0.73 of the elicited child's behaviour in both directions — 82% of what the child's own top heads carry (0.88). (2) The taught child's head-level machinery is diffuse: its own top-32 heads carry only 0.46, and they carry 0.27 in the elicited child. (3) The elicited child's heads carry 0.72 of the TAUGHT child's behaviour — both children lean on the same substrate reader heads (the DCM operand roles: taught vs engine 0.88/0.66), even though the taught child's attribution ranking does not put them on top (heads-only Jaccard between children 0.103). Overlap ≠ faithfulness (Hanna et al.), on our own data. So at the head level the regime difference is not "shared vs new heads" but "a compact, load-bearing, inherited head circuit (elicit) vs diffuse attention layered on the shared readers (teach)". M1 numbers block updated with (1) and (2)-(3); the set-overlap table is unchanged. Per-pair spread: elicited child heads-only necessity at top-32 median 0.90, IQR 0.80-0.97, min 0.52, no pair below 0.5; taught child median 0.44, 61% of pairs below 0.5.
+
+## 2026-09-25 (stage E: edges on the NL surface, 0-shot and 4-shot; GPU) — the edge track is REOPENED at 0-shot NL and the 2026-09-07 "TS edges unmeasurable" verdict is superseded (it was measured on the symbol surface only).
+Split-half floors at 0-shot NL (K=256 edges / K=32 nodes, 128-pair halves): elicit parent edges J 0.493 (ΔS 0.507), nodes 0.600; elicited child edges 0.510, nodes 0.561; taught child edges 0.446, nodes 0.524. Versus the symbol-surface edge floor J 0.347 (ΔS 0.653): 15-token NL prompts give usable edge maps.
+Elicit parent -> elicited child (0-shot): edges J 0.358 (ΔS 0.642) against floors 0.49/0.51 — 71% of the ceiling; nodes J 0.455 against 0.60/0.56 — 78%. Ceiling-corrected ΔS: edges 0.29, nodes 0.22, ratio 1.3 (Wang et al. 2-4×; our Llama base->FT 2.2×). Elicited vs taught child: edges J 0.267 (floors 0.51/0.45, 56% of ceiling), nodes 0.306 (56%); corrected ΔS 0.44 / 0.44, ratio 1.0. Reading: on this pair elicitation keeps the parent's WIRING about as much as its nodes (edge churn only 1.3× node churn), i.e. the TinyStories elicit is not Wang-style edge-dominated rewiring; the two children differ equally at both levels. The earlier uncorrected 1.14 (2026-09-06, symbol surface) is consistent with this now-measurable 1.3.
+Few-shot (4 exemplars, ~80 tokens) does NOT help: the elicit parent's logit-diff drops from 3.1 to 0.87 (below both guards — the rewriting parent is confused by worked examples), the taught child's to 2.0 (one half flagged), the elicited child's to 4.0; edge floors get WORSE (elicited child 0.442 vs 0.510 at 0-shot). Longer prompts via few-shot lower the signal more than they add positions. Not usable; recorded.
+M1: "How" gains an edges bullet; the overlap table gains two edge rows; numbers block gains one clause.

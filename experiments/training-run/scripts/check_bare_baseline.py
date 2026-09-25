@@ -43,7 +43,6 @@ from train import load_config  # scripts/ shared config loader (adds merge + pin
 from train_sft import load_frozen_parquet
 
 EVAL_CONFIG = Path(__file__).resolve().parent.parent / "configs" / "eval_bare_target_data_llama.yaml"
-BASE_MODEL = "meta-llama/Llama-3.2-1B"
 
 
 def main() -> int:
@@ -52,6 +51,12 @@ def main() -> int:
     ap.add_argument("--max-em", type=float, default=0.05, help="premise bar: base EM must be <= this")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--batch-size", type=int, default=64)
+    ap.add_argument(
+        "--model",
+        default="meta-llama/Llama-3.2-1B",
+        help="model under test: a hub id or a local checkpoint dir (e.g. the "
+        "ts1b pretrain's runs/evt-ts1b-base/model for the fig2ts premise)",
+    )
     args = ap.parse_args()
 
     cfg = load_config(EVAL_CONFIG, None)
@@ -78,8 +83,8 @@ def main() -> int:
     prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
     print(f"[premise] span alignment: PASS ({len(examples)} bare rows tokenized exactly)")
 
-    print(f"[premise] loading {BASE_MODEL} (base, no adapter) ...", flush=True)
-    model = AutoModelForCausalLM.from_pretrained(BASE_MODEL, torch_dtype=torch.bfloat16)
+    print(f"[premise] loading {args.model} (no adapter) ...", flush=True)
+    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
     model.to(args.device)
 
     completions = greedy_completions(

@@ -1,0 +1,360 @@
+"""Node attribution scores for the arithmetic task — one model, one regime.
+
+Mechanistic phase, metric 2/3 groundwork (owner 2026-08-24). Scores every
+attention head (query-head granularity: 32/layer under GQA) and every MLP
+block of a Llama-architecture model for its causal contribution to bare-NL
+addition/subtraction, via ATTRIBUTION PATCHING (grad x activation-delta, the
+first-order approximation of activation patching — Nanda 2023 / Syed et al.
+2023): score(node) = sum_pos (a_corrupt - a_clean) . dM/da_clean, where M is
+the logit difference metric below. One forward+backward per pair scores all
+528 nodes at once.
+
+Protocol:
+- Pairs: rows of the frozen eval file's REPORTING block, tokenized and
+  bucketed by exact prompt token length; within a bucket, consecutive rows
+  with different first answer tokens form (clean, corrupt) pairs — same
+  length, same format, different operands/answer.
+- Metric M = logit(clean's first answer token) - logit(corrupt's first
+  answer token) at the final prompt position (next-token prediction).
+- --shots K prepends K fully-rendered exemplars (rows before the query
+  range) to BOTH prompts of a pair, joined by blank lines (the G5 16-shot
+  convention): base models only perform the task in-context, so their
+  circuit exists only in that regime (Prakash et al. 2024's protocol).
+  Fine-tuned models run 0-shot.
+- SANITY line: mean M over clean runs. A model that cannot do the task in
+  the chosen regime has mean M ~ 0 and its scores are NOISE — the compare
+  step must not interpret Jaccard against such a map as circuit reuse.
+
+Output: parquet of (layer, node_type, head, score, abs_score) +
+a JSON sidecar with the sanity metric and config. GPU, box-only.
+
+Usage:
+    python3 circuit_nodes.py --model <dir-or-hub-id> --out <stem> \
+        [--shots 0] [--n-pairs 256] [--batch-size 8]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import defaultdict
+from pathlib import Path
+
+import pandas as pd
+import torch
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(REPO_ROOT / "experiments" / "training-run" / "scripts"))
+
+from train import load_config  # noqa: E402
+from train_sft import load_frozen_parquet  # noqa: E402
+
+from geode.arith import few_shot_prompt  # noqa: E402
+from geode.edl import EVAL_STOP_ROWS  # noqa: E402
+
+EVAL_CONFIG = REPO_ROOT / "experiments/training-run/configs/eval_bare_target_data_llama.yaml"
+
+
+def apply_sidecar(model, sidecar: dict, scaling: float) -> int:
+    """Merge LoRA A/B pairs from an adapter sidecar into a PLAIN model's
+    weights in-place: W += scaling * (B @ A). Returns pairs merged. Key
+    convention: <param-prefix>.A.weight / .B.weight -> <param-prefix>.weight
+    (matches geode's wrapped state dict against the HF parameter tree)."""
+    import torch as _torch
+
+    params = dict(model.named_parameters())
+    prefixes = {k[: -len(".A.weight")] for k in sidecar if k.endswith(".A.weight")}
+    n = 0
+    for pref in sorted(prefixes):
+        a = sidecar[f"{pref}.A.weight"].float()
+        b = sidecar[f"{pref}.B.weight"].float()
+        target = params.get(f"{pref}.weight")
+        if target is None:
+            raise KeyError(f"apply_sidecar: no parameter {pref}.weight on the model")
+        with _torch.no_grad():
+            target.add_((scaling * (b @ a)).to(target.dtype))
+        n += 1
+    return n
+
+
+def load_sidecar_merged(run_id: str, store: Path, device: str):
+    """Reconstruct a pruned LoRA run's model: parent base + adapter sidecar.
+
+    For runs whose model/model.safetensors was pruned (every non-endpoint
+    sweep run) but whose adapter survived. Parent resolution: external hub id,
+    or a zoo parent's model_merged/ (the installer convention), else its
+    model/. Scaling = alpha/(2*rank) from the manifest (V5.47 pin).
+    """
+    from safetensors.torch import load_file
+    from transformers import AutoModelForCausalLM
+
+    from geode.zoo import load_run
+
+    manifest = load_run(run_id, store=store)
+    lora = manifest.data["training"]["lora"]
+    scaling = lora["alpha"] / (2 * lora["rank"])
+    base_id = manifest.data["base_model"]["hf_id"]
+    if base_id.startswith("zoo-run/"):
+        parent = base_id.split("/", 1)[1]
+        cand = store / "runs" / parent / "model_merged"
+        base_id = str(cand if (cand / "model.safetensors").is_file()
+                      else store / "runs" / parent / "model")
+    model = AutoModelForCausalLM.from_pretrained(base_id, torch_dtype=torch.bfloat16)
+    sidecar = load_file(store / "runs" / run_id / "model" / "adapter.safetensors")
+    n = apply_sidecar(model, sidecar, scaling)
+    print(f"[circuit] {run_id}: reconstructed from parent + sidecar "
+          f"({n} LoRA pairs merged, scaling {scaling:.5f})")
+    return model.to(device)
+
+
+def build_pairs(df, tokenizer, n_pairs: int, shots: int):
+    """(clean_ids, corrupt_ids, clean_ans_tok, corrupt_ans_tok) tuples,
+    exact-length-matched within each pair."""
+    shot_rows = df.iloc[EVAL_STOP_ROWS : EVAL_STOP_ROWS + shots]
+    exemplars = shot_rows["full_text"].tolist() if shots else []
+    query_rows = df.iloc[EVAL_STOP_ROWS + shots : EVAL_STOP_ROWS + shots + n_pairs * 8]
+
+    buckets: dict[int, list] = defaultdict(list)
+    for _, r in query_rows.iterrows():
+        prompt = few_shot_prompt(exemplars, r["prompt_text"]) if shots else r["prompt_text"]
+        ids = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+        ans_tok = tokenizer(r["answer_text"], add_special_tokens=False)["input_ids"][0]
+        buckets[len(ids)].append((ids, ans_tok))
+
+    pairs = []
+    for bucket in buckets.values():
+        for a, b in zip(bucket[0::2], bucket[1::2]):
+            if a[1] != b[1]:  # first answer tokens must differ or M is degenerate
+                pairs.append((a[0], b[0], a[1], b[1]))
+            if len(pairs) >= n_pairs:
+                return pairs
+    return pairs
+
+
+class NodeTaps:
+    """Forward hooks exposing per-node residual-stream contributions.
+
+    attn node activation = the o_proj INPUT reshaped (B, T, n_heads, d_head)
+    (the concatenated per-query-head outputs, pre-mix — a per-head causal
+    handle); mlp node activation = the down_proj OUTPUT (B, T, d_model), the
+    block's full write into the residual stream.
+    """
+
+    def __init__(self, model):
+        self.acts: dict[tuple, torch.Tensor] = {}
+        self.handles = []
+        cfg = model.config
+        self.n_heads = cfg.num_attention_heads
+        self.d_head = cfg.hidden_size // cfg.num_attention_heads
+        for i, layer in enumerate(model.model.layers):
+            self.handles.append(
+                layer.self_attn.o_proj.register_forward_pre_hook(self._attn_hook(i))
+            )
+            self.handles.append(layer.mlp.down_proj.register_forward_hook(self._mlp_hook(i)))
+
+    def _attn_hook(self, i):
+        def hook(_mod, inputs):
+            x = inputs[0]  # (B, T, d_model) = concat heads
+            x = x.view(*x.shape[:-1], self.n_heads, self.d_head)
+            x.retain_grad() if x.requires_grad else None
+            self.acts[("attn", i)] = x
+            return (x.view(*x.shape[:-2], self.n_heads * self.d_head),)
+
+        return hook
+
+    def _mlp_hook(self, i):
+        def hook(_mod, _inputs, output):
+            output.retain_grad() if output.requires_grad else None
+            self.acts[("mlp", i)] = output
+            return output
+
+        return hook
+
+    def clear(self):
+        self.acts = {}
+
+    def remove(self):
+        for h in self.handles:
+            h.remove()
+
+
+def length_batches(pairs, batch_size: int):
+    """Batches of pairs with IDENTICAL prompt length (pairs are length-matched
+    within themselves, but lengths differ across bucket boundaries — stacking
+    mixed lengths into one tensor crashes; measured 2026-08-24 at 16 shots)."""
+    by_len: dict[int, list] = {}
+    for pr in pairs:
+        by_len.setdefault(len(pr[0]), []).append(pr)
+    for bucket in by_len.values():
+        for i in range(0, len(bucket), batch_size):
+            yield bucket[i : i + batch_size]
+
+
+def attribution_map(model, pairs, batch_size: int, device: str, return_pairabs: bool = False):
+    """(scores dict {(kind, layer, head): float}, mean logit-diff sanity)
+    or, with return_pairabs, (scores, sanity, pairabs) where pairabs is the
+    same dict aggregated as sum over pairs of |per-pair contribution|.
+
+    The shared attribution core: one corrupt pass (no grad) + one clean pass
+    (grad) per batch; score = sum (a_corr - a_clean) . dM/da_clean. Importable
+    by circuit_trajectory.py; hooks are removed before returning.
+
+    Aggregation (2026-09-24): the per-pair contribution of a node is its
+    signed effect summed over positions; `scores` sums those signed values
+    over pairs (a node used the same way on every pair adds up, a node used
+    both ways cancels), `pairabs` sums their absolute values (AtP* Eq. 5,
+    Kramar et al. 2024: the magnitude of a node's effect regardless of which
+    way it pushes on a given pair — robust to cross-pair cancellation, which
+    the type of head that reads a different operand on different problems
+    shows).
+    """
+    taps = NodeTaps(model)
+    n_layers = model.config.num_hidden_layers
+    n_heads = taps.n_heads
+    scores = {("attn", i, h): 0.0 for i in range(n_layers) for h in range(n_heads)}
+    scores.update({("mlp", i, -1): 0.0 for i in range(n_layers)})
+    pairabs = {k: 0.0 for k in scores}
+    sanity_m = []
+    try:
+        for batch in length_batches(pairs, batch_size):
+            clean_ids = torch.tensor([p[0] for p in batch], device=device)
+            corr_ids = torch.tensor([p[1] for p in batch], device=device)
+            c_tok = torch.tensor([p[2] for p in batch], device=device)
+            x_tok = torch.tensor([p[3] for p in batch], device=device)
+
+            taps.clear()
+            with torch.no_grad():
+                model(corr_ids)
+            corr_acts = {k: v.detach() for k, v in taps.acts.items()}
+
+            taps.clear()
+            with torch.enable_grad():
+                logits = model(clean_ids).logits[:, -1].float()
+                metric = (
+                    logits.gather(1, c_tok[:, None]) - logits.gather(1, x_tok[:, None])
+                ).sum()
+                metric.backward()
+            sanity_m.append((metric / len(batch)).item())
+            model.zero_grad(set_to_none=True)
+
+            for (kind, i), a_clean in taps.acts.items():
+                if a_clean.grad is None:
+                    continue
+                delta = (corr_acts[(kind, i)] - a_clean.detach()).float()
+                prod = delta * a_clean.grad.float()
+                if kind == "attn":
+                    per_pair = prod.sum(dim=(1, 3))          # (B, H): signed, per pair
+                    for h in range(n_heads):
+                        scores[("attn", i, h)] += per_pair[:, h].sum().item()
+                        pairabs[("attn", i, h)] += per_pair[:, h].abs().sum().item()
+                else:
+                    per_pair = prod.sum(dim=(1, 2))          # (B,)
+                    scores[("mlp", i, -1)] += per_pair.sum().item()
+                    pairabs[("mlp", i, -1)] += per_pair.abs().sum().item()
+    finally:
+        taps.remove()
+    sanity = sum(sanity_m) / max(len(sanity_m), 1)
+    if return_pairabs:
+        return scores, sanity, pairabs
+    return scores, sanity
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--model", default=None,
+                    help="PLAIN checkpoint dir or hub id (base models, full-FT runs)")
+    ap.add_argument("--run-id", default=None,
+                    help="zoo run id — REQUIRED for LoRA runs: their checkpoints are "
+                    "geode's WRAPPED format (q_proj.base/A/B), which from_pretrained "
+                    "silently random-inits (the 2026-07-22 incident); loads via "
+                    "geode.zoo.load_model instead")
+    ap.add_argument("--out", required=True, help="output stem: writes <stem>.parquet + <stem>.json")
+    ap.add_argument("--shots", type=int, default=0)
+    ap.add_argument("--n-pairs", type=int, default=256)
+    ap.add_argument("--half", choices=("a", "b"), default=None,
+                    help="use only even (a) / odd (b) pairs — disjoint splits for "
+                    "split-half reliability (the Jaccard ceiling any cross-model "
+                    "comparison can reach)")
+    ap.add_argument("--batch-size", type=int, default=8)
+    ap.add_argument("--eval-config", type=Path, default=EVAL_CONFIG,
+                    help="eval-data config to build pairs from (default: the "
+                    "llama bare-NL target eval; pass eval_op_algo_data_ts.yaml "
+                    "for op-notation pairs on the ts1b op-install track)")
+    ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--agg", choices=("sum", "pairabs"), default="sum",
+                    help="ranking column: 'sum' = |sum over pairs of the signed per-pair "
+                    "contribution| (original); 'pairabs' = sum over pairs of |per-pair "
+                    "contribution| (AtP* Eq. 5; immune to cross-pair cancellation). Both "
+                    "columns are always written; --agg picks which one fills abs_score")
+    args = ap.parse_args()
+
+    cfg = load_config(args.eval_config, None)
+    df = load_frozen_parquet(cfg)  # hash-verified
+
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"]["path"])
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    if (args.model is None) == (args.run_id is None):
+        raise SystemExit("[circuit] pass exactly one of --model (plain/hub) or --run-id (zoo LoRA run)")
+    if args.run_id is not None:
+        import os
+
+        store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
+        if (store / "runs" / args.run_id / "model" / "model.safetensors").is_file():
+            from geode.zoo import load_model as zoo_load_model
+
+            model = zoo_load_model(args.run_id, store=store, device=args.device)
+        else:
+            model = load_sidecar_merged(args.run_id, store, args.device)
+        model_name = args.run_id
+    else:
+        dtype = torch.float32 if args.device == "cpu" else torch.bfloat16
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=dtype)
+        model.to(args.device)
+        model_name = args.model
+    if args.device == "cpu":
+        model = model.float()  # bf16 matmuls are slow / partially unsupported on CPU
+    model.eval()
+    # Params stay grad-ENABLED: with everything frozen no activation would
+    # require grad and the metric backward would have nothing to reach the
+    # taps through. Param grads are zeroed (freed) after every batch; the
+    # transient cost is one extra model-size of grad memory.
+
+    pairs = build_pairs(df, tokenizer, args.n_pairs, args.shots)
+    if args.half is not None:
+        pairs = pairs[0::2] if args.half == "a" else pairs[1::2]
+    if len(pairs) < args.n_pairs // 4:
+        print(f"[circuit] WARNING: only {len(pairs)} length-matched pairs found")
+
+    scores, sanity, pairabs = attribution_map(model, pairs, args.batch_size, args.device,
+                                              return_pairabs=True)
+    rows = [
+        {"node_type": k, "layer": i, "head": h, "score": s, "pairabs_score": pairabs[(k, i, h)],
+         "abs_score": pairabs[(k, i, h)] if args.agg == "pairabs" else abs(s)}
+        for (k, i, h), s in scores.items()
+    ]
+    out = Path(args.out)
+    pd.DataFrame(rows).to_parquet(out.with_suffix(".parquet"), index=False)
+    meta = {
+        "model": model_name,
+        "shots": args.shots,
+        "n_pairs": len(pairs),
+        "half": args.half,
+        "mean_logit_diff": sanity,
+        "agg": args.agg,
+        "performing_regime": bool(sanity > 1.0),
+        "note": "scores from a non-performing model (mean_logit_diff ~ 0) are NOISE; "
+        "do not interpret circuit overlap against them as reuse",
+    }
+    out.with_suffix(".json").write_text(json.dumps(meta, indent=2))
+    print(f"[circuit] {model_name} shots={args.shots}: mean logit_diff {sanity:.3f} "
+          f"({'PERFORMING' if meta['performing_regime'] else 'NOT PERFORMING — scores are noise'})")
+    print(f"[circuit] wrote {out.with_suffix('.parquet')} ({len(rows)} nodes)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,18 @@
+# SNAPSHOT RERUN v2 (2026-09-02): same byte-identical training as
+# evt-ts1b-mix-nl-n1000000 (converges at step 11,500), but with max_steps
+# tightened to 12,000 so the 32-snapshot log schedule covers the REALIZED
+# range — v1 (n1000000s) inherited the 93,756 ceiling and dense_until 30,
+# which put 30 snapshots in steps 1-30 and only one (1,677) beyond, leaving
+# the elicit lock point bounded (<=1,677) instead of localized. This run
+# yields ~28 log-spaced points across steps 4..12,000. Snapshots stay
+# LOCAL (~23 GB; delete snapshots/ after circuit_trajectory).
+# Overlay over ../../ts1b_mix_nl.yaml.
+run_id: evt-ts1b-mix-nl-n1000000s2
+data:
+  n_examples: 1000000
+train:
+  eval_every: 500
+  max_steps: 12000
+  snapshots:
+    n: 32
+    dense_until: 4

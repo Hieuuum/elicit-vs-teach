@@ -307,8 +307,25 @@ def test_nl3_family_run_ids_are_disjoint_from_all_others() -> None:
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl3-noinst-n1000") is not None
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl3x-inst-n1000") is None
     assert dss.RUN_ID_RE.match("evt-llama-fig2nl4-inst-n1000") is None
-    # All four stems distinct (write_results is overwrite-by-name).
-    assert len({dss.FAMILIES[f][1] for f in dss.FAMILIES}) == 4
+    # All stems distinct (write_results is overwrite-by-name).
+    assert len({dss.FAMILIES[f][1] for f in dss.FAMILIES}) == len(dss.FAMILIES)
+
+
+def test_ts_family_run_ids_are_disjoint_and_snapshot_reruns_never_parse() -> None:
+    """--family ts (the TinyStories-1B twin, §6.14) never cross-matches the
+    Llama families, and the fig2nl3s snapshot re-run ids stay unparseable —
+    trajectory evidence must never leak into a sweep curve."""
+    llama_ids = set().union(*(dss.default_run_ids(f) for f in ("op", "nl", "nl2", "nl3")))
+    ts_ids = dss.default_run_ids("ts")
+
+    assert len(ts_ids) == 38
+    assert not set(ts_ids) & llama_ids
+    assert all(rid.startswith("evt-ts1b-fig2ts-") for rid in ts_ids)
+    assert dss.RUN_ID_RE.match("evt-ts1b-fig2ts-noinst-n1000") is not None
+    assert dss.RUN_ID_RE.match("evt-ts1b-fig2ts-inst-n1000000") is not None
+    assert dss.RUN_ID_RE.match("evt-ts1b-fig2nl3-inst-n1000") is None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2ts-inst-n1000") is None
+    assert dss.RUN_ID_RE.match("evt-llama-fig2nl3s-noinst-n1000000") is None
 
 
 def test_nl_family_writes_a_separate_table_from_the_shipped_op_one(tmp_path: Path) -> None:

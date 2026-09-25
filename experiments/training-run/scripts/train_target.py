@@ -60,7 +60,18 @@ from train import REPO_ROOT, git_commit, load_config, lora_adapter_state_dict, p
 # (spec 00: regime is design-known at creation; whether real Llama holds the
 # capability latent is exactly what that run measures — run-9 SFT precedent).
 # Explicit entry, not .get(default): a typo'd arm must still fail loudly.
-ARM_REGIME = {"A": "elicit", "B": "teach", "llama": "unknown", "warmstart": "unknown"}
+ARM_REGIME = {
+    "A": "elicit",
+    "B": "teach",
+    "llama": "unknown",
+    "warmstart": "unknown",
+    # fig2ts (2026-08-19): the TinyStories-1B twin arms are the TEACHING
+    # regime by design — the model provably lacks arithmetic (premise guard
+    # ~0 EM), and the pre-teach-FORMAT parent installs no algorithm either
+    # (G3 enforces that), so both arms must still learn add/sub from scratch
+    # (paper Table 5: both show the ↑↓ teaching signature).
+    "ts1b": "teach",
+}
 
 # EVAL_STOP_ROWS (spec 02 §5) is imported from geode.edl (V5.74) and re-exported
 # here so `from train_target import EVAL_STOP_ROWS` still resolves

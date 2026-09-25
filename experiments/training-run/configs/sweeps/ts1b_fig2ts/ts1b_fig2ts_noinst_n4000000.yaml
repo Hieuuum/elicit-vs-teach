@@ -1,0 +1,37 @@
+# teach-4M ENDPOINT (teach4m program, 2026-09-10): the blank twin on FOUR
+# million unique NL add/sub problems. Overlay over ../../ts1b_fig2ts_noinst.yaml
+# — identical protocol to the 1M endpoint (LoRA r=512/alpha 32, lr 3.53e-4,
+# batch 128, seed 316, eps/k convergence stop, 128 endpoint snapshots) except:
+#
+#   data      D_algo_bare_4m (datagen/make_algo_4m.py): rows 0..1M-1 are
+#             D_algo_bare verbatim (every fig2ts point is a prefix of this
+#             file), rows 1M..4M-1 are new unique problems disjoint from
+#             D_algo, D_algo_eval and the probe. LOCAL-ONLY like D_algo_bare
+#             (data.hf_id is inherited for the manifest name only; the file is
+#             not on the HF dataset repo). KNOWN DEVIATION: the extension is
+#             ~92% from the six largest operand-length cells (six small cells
+#             are exhausted by the exclusion) — see the builder's docstring.
+#   schedule  31,250 steps per epoch. stopping.min_steps = one full epoch
+#             (the paper's single-pass recipe); the eps/k rule may only fire
+#             after that; max_steps = 2 epochs (cost ceiling; stop_reason=
+#             max_steps here means "still improving at 2 epochs", not a bug).
+#
+# Why: the 1M endpoint stopped on validation convergence at 0.093 EM, mid-hump
+# (paper Fig. 2 puts the TinyStories base at 1-2 nats/token at 1M; App. J.4:
+# it "stalls ... at lower accuracy"). The paper's remedy is more UNIQUE data.
+run_id: evt-ts1b-fig2ts-noinst-n4000000
+data:
+  file: D_algo_bare_4m.parquet
+  order_hash: b05a65dfe217a9018997f61b31e2982a883ebd46b1789c8a8a1e2b6382fd98ff
+  local_path: experiments/training-run/data/full/D_algo_bare_4m.parquet
+  n_examples: 4000000
+train:
+  eval_every: 500
+  max_steps: 62500               # 2 x 31,250
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 31250             # one full pass over the 4M before eps/k may stop
+  snapshots:
+    n: 128
+    dense_until: 30
