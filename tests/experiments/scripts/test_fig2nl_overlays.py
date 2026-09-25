@@ -101,8 +101,19 @@ SWEEPS = {
     # schedule; its installer configs live in configs/ (full configs, not
     # overlay rungs), so no rung files here. The two n=1M overlays carry
     # snapshots n:128 (endpoint capture) — extra keys the schedule check
-    # tolerates by design.
-    "ts1b_fig2ts": (CONFIGS / "sweeps" / "ts1b_fig2ts", "evt-ts1b-fig2ts", ()),
+    # tolerates by design. The three extra files are ADDITIVE noinst overlays
+    # outside the 19-size grid: the n=100/316 small-n comparators (op-install
+    # premise program, 2026-08-28) and the n=4M teach endpoint (teach4m,
+    # 2026-09-09).
+    "ts1b_fig2ts": (
+        CONFIGS / "sweeps" / "ts1b_fig2ts",
+        "evt-ts1b-fig2ts",
+        (
+            "ts1b_fig2ts_noinst_n100.yaml",
+            "ts1b_fig2ts_noinst_n316.yaml",
+            "ts1b_fig2ts_noinst_n4000000.yaml",
+        ),
+    ),
 }
 
 # fig2nl3s (2026-08-13): the snapshot re-run covers ONLY the n=1,000,000

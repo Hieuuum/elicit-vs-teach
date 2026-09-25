@@ -1779,7 +1779,10 @@ TS1B_PP_LRSWEEP_FILES = [f"sweeps/ts1b/pp_lrsweep_{r}.yaml" for r in TS1B_PP_LRS
 TS1B_N_EXAMPLES = 4_000_000
 TS1B_VAL_FRACTION = 0.005
 TS1B_ONE_EPOCH_STEPS = 31093
-TS1B_PF_CEILING_STEPS = 3 * TS1B_ONE_EPOCH_STEPS  # 93,279 -- 3-epoch ceiling
+# pp was extended to one epoch + 5,000 steps after its op-EM gate near-miss
+# (commit e31a965, 2026-08-19); pf is pinned to exactly one epoch (owner,
+# commit c9f5f7e, 2026-08-19).
+TS1B_PP_PARENT_STEPS = TS1B_ONE_EPOCH_STEPS + 5000  # 36,093
 
 # Copied from ts1b_pretrain.yaml's own model block (exact Llama-3.2-1B
 # dims) -- both new parents must match the base checkpoint they warm-start
@@ -1809,8 +1812,8 @@ _TS1B_PP_VS_PF_ALLOWED_DIFF_PATHS = {
     "data.order_hash",
     "data.local_path",
     "train.max_steps",
+    "train.stopping.min_steps",
     "train.epochs_total_planned",
-    "cost.assumed_epochs_for_estimate",
 }
 
 
@@ -1881,26 +1884,23 @@ def test_ts1b_pp_parent_one_epoch_step_count() -> None:
     assert n_val == 20000
     assert n_train == 3980000
     assert steps_per_epoch == TS1B_ONE_EPOCH_STEPS
-    assert t["max_steps"] == TS1B_ONE_EPOCH_STEPS
-    assert t["stopping"]["min_steps"] == TS1B_ONE_EPOCH_STEPS
-    assert t["epochs_total_planned"] == 1
+    assert t["max_steps"] == TS1B_PP_PARENT_STEPS == 36093
+    assert t["stopping"]["min_steps"] == TS1B_PP_PARENT_STEPS
+    assert t["epochs_total_planned"] == 2
     assert cfg["cost"]["assumed_epochs_for_estimate"] == 1
 
 
 def test_ts1b_pf_parent_stopping_regime() -> None:
-    """pf trains UNTIL CONVERGENCE (unlike pp's pinned one-epoch): min_steps
-    is exactly one full epoch (same arithmetic as pp -- do not declare
-    'converged' before the model has seen the permuted-label corpus once),
-    max_steps is a genuine 3-epoch ceiling eps/k is expected to beat."""
+    """pf is pinned to exactly one epoch over the permuted-label corpus
+    (owner 2026-08-19: install the format, don't chase convergence):
+    min_steps == max_steps == one full epoch, same arithmetic as pp."""
     cfg = load_config(CONFIGS / TS1B_PF_PARENT_FILE, None)
     d, t = cfg["data"], cfg["train"]
     assert d["val_fraction"] == TS1B_VAL_FRACTION
     assert t["stopping"]["min_steps"] == TS1B_ONE_EPOCH_STEPS
-    assert t["max_steps"] == TS1B_PF_CEILING_STEPS == 93279
-    # genuinely load-bearing here, unlike pp's inert min_steps==max_steps copy
-    assert t["max_steps"] > t["stopping"]["min_steps"]
-    assert t["epochs_total_planned"] == 3
-    assert cfg["cost"]["assumed_epochs_for_estimate"] == 3
+    assert t["max_steps"] == TS1B_ONE_EPOCH_STEPS == 31093
+    assert t["epochs_total_planned"] == 1
+    assert cfg["cost"]["assumed_epochs_for_estimate"] == 1
 
 
 def test_ts1b_pp_vs_pf_differs_only_in_labels_and_step_count() -> None:
@@ -1970,10 +1970,10 @@ def test_ts1b_pp_lrsweep_overlay_values(rung: str) -> None:
     assert cfg["train"]["max_steps"] == 2000
     assert cfg["train"]["eval_every"] == 200
     assert cfg["train"]["lr"] == float(rung)
-    # merged with the base config: min_steps (inherited, one full epoch) is
+    # merged with the base config: min_steps (inherited from the pp parent) is
     # >> max_steps (this overlay's 2000), so the plateau rule stays inert
     # and stop_reason=max_steps is the EXPECTED outcome for every rung.
-    assert cfg["train"]["stopping"]["min_steps"] == TS1B_ONE_EPOCH_STEPS
+    assert cfg["train"]["stopping"]["min_steps"] == TS1B_PP_PARENT_STEPS
     assert cfg["train"]["stopping"]["min_steps"] > cfg["train"]["max_steps"]
 
 
