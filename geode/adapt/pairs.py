@@ -162,7 +162,11 @@ def swap_subject(tokenizer: Any, prompt: str, subject: str, candidates: Sequence
         return None
     clean_ids = encode(tokenizer, prompt)
     allowed = _name_positions(tokenizer, prompt, subject)
-    for cand in list(candidates)[:max_tries]:
+    # candidates whose standalone token count matches the subject's go first
+    # (a cheap proxy for the in-context length check below)
+    n_subj = len(encode(tokenizer, " " + subject))
+    ordered = sorted(candidates, key=lambda c: len(encode(tokenizer, " " + c)) != n_subj)
+    for cand in ordered[:max_tries]:
         if cand == subject:
             continue
         new = prompt.replace(subject, cand)

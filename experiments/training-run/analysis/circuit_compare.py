@@ -88,6 +88,8 @@ def main() -> int:
     heads_b = db[~db.index.astype(str).str.startswith("mlp")]["abs_score"]
     n_heads = len(heads_a)
     for k in (8, 16, 32):
+        if k >= n_heads:  # tiny test models have fewer heads than k
+            continue
         ta_, tb_ = set(heads_a.nlargest(k).index), set(heads_b.nlargest(k).index)
         j = len(ta_ & tb_) / len(ta_ | tb_)
         print(f"[compare] heads-only k={k:3d}: Jaccard {j:.3f} (chance ~{k / (2 * n_heads - k):.3f}) "
