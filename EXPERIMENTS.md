@@ -847,6 +847,17 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     curves archived at podhajskimarcin/<run_id>. Full record:
     decisions.md 2026-08-22.
 
+**Unlearning application (2026-09-25, branch `unlearn-elicit-teach`).** The
+M1–M16 instruments (+ M17, held-out relearning recovery) ported to TOFU:
+is an unlearned Llama-3.2-1B-Instruct (open-unlearning NPO / GradDiff / RMU /
+SimNPO, forget10) pre-elicit or pre-teach, against the original (`full`) and a
+never-learned (`retain90`) anchor. Plan, pinned Hub ids, predictions, costs:
+`experiments/unlearning/PLAN.md`; launcher `experiments/unlearning/launch_unlearn.sh`
+(stages 0 data+models, 1 parent-only ★, 2 relearning children, 3 child
+metrics, 4 verdict; ~10 GPU-h). Code + CPU smoke done; awaiting the owner's
+GPU run. Tools gained `--task` / model-family layouts (spec 02 §7.1,
+`geode.adapt`); arithmetic defaults unchanged.
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

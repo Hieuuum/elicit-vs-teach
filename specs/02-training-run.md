@@ -1134,6 +1134,50 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
   a dump aligns with the frozen probe parquet only when the two hashes agree,
   else parquet row i and dump row i are not the same probe example.
 
+### 7.1 `geode.adapt` — model-family layout + checked answer-token pairs (2026-09-25)
+
+Promoted for the unlearning experiment (`experiments/unlearning/PLAN.md`): the
+circuit / lens / patching tools in `experiments/training-run/analysis` take
+`--task` (default `arith` = the original code path) and find their nodes through
+`layout(model)` instead of Llama attribute paths. Task adapters live in
+`analysis/task_adapter.py` (script-land); the parts whose silent failure would
+corrupt every pair-based number are here.
+
+- `layout(model)`: per `config.model_type` family (llama/mistral/qwen2/qwen3 →
+  `o_proj`/`down_proj`; phi → `dense`/`fc2`, parallel block; gpt_neox; olmo2
+  post-norm) the attention-output and MLP-output projections, embedding, final
+  norm, pre-block norms; `supports_edges` / `supports_lrp` gate the edge map and
+  the R-lens. `weight_groups(model_type)` maps module leaves to QK/VO/MLP.
+- `first_answer_token(tok, prompt, answer)`: the answer's first token tokenized
+  IN CONTEXT; refuses (`AlignmentError`) unless the prompt's ids are an exact
+  prefix of prompt+answer ids. `score_item` aligns the answer and every
+  same-slot distractor at that boundary and drops distractors equal to it.
+- `swap_subject` / `swap_pairs`: name-swap counterfactuals with an invented
+  name (`fresh_names`, none sharing a word with the data) that keeps the token
+  length and changes ids only inside the name's token span.
+  `length_matched_pairs`: different-item pairs of equal prompt length.
+  `check_pairs`: equal lengths, different scored tokens (contrast `-1` =
+  unlabelled counterfactual, DCM only).
+
+Validation properties:
+- V5.75 layout identity: on a Llama model every accessor returns the module the
+  hard-coded path returned (attention/MLP output projections, norms, embedding,
+  head count and width), and `circuit_nodes.attribution_map` through the layout
+  equals the pre-adapter hook implementation; unknown families refuse.
+- V5.76 answer alignment: the scored token equals the token the SFT loss
+  supervises at that position (`tokenize_with_spans` on question + trained
+  answer); a BPE merge across the prompt/answer boundary raises; a distractor
+  whose first token equals the answer's is dropped (none left ⇒ raise).
+- V5.77 counterfactual pairs: every name-swap pair has equal lengths, contrast =
+  the item's same-slot distractor ≠ its target, and differs from the clean
+  prompt only at token positions overlapping the subject; a prompt without the
+  subject yields no pair; length-matched item pairs have equal lengths and
+  different targets; `check_pairs` rejects length or token violations.
+- V5.78 fact slot (`experiments/unlearning/data/prepare.py`): the scored word is
+  the first word where TOFU's paraphrased and perturbed answers differ that is a
+  content word, absent from the question, present in the original answer;
+  prefix + continuation reproduce the original answer exactly.
+
 ## 8. Verification gates
 
 Recorded per run in `experiment.gates` (§4); a child run refuses to start
