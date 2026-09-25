@@ -85,11 +85,6 @@ unrelated circuits with the same MLP/head mix share (0.20--0.27 here).
 differ (chance 0.03).
 \item \emph{Edges.} The same scoring for the connections between nodes (which node's output
 each node reads, $\approx$8.4K edges); the 256 strongest are the wiring, compared the same way.
-\item \emph{Functional check.} Overlap counts names; this counts effect. Corrupt a set of 32
-heads (write in their activations from a different problem) and read how much of the model's
-answer preference is destroyed, against random sets of 32 heads. A set identified on the
-\emph{parent} and evaluated in the \emph{child} tests reuse without depending on which names
-rank highest.
 \end{steps}}
 \numbers{Table~\ref{tab:overlap}.
 \begin{steps}
@@ -97,14 +92,10 @@ rank highest.
 $0.56$); heads only $0.333$ against the parent's own ceiling of $0.42$; wiring $0.358$ against
 ceilings of $0.49$ / $0.51$ --- the child keeps the parent's connections about as much as its
 nodes (edge change only $1.3\times$ node change after ceiling correction). \textbf{Teach:} the
-parent has no circuit for the task (its node-score map is noise, M10), so the child's is new;
+parent has no circuit for the task (its node-score map is noise, M11), so the child's is new;
 heads only $0.016$.
-\item Functional check: the parent's 32 heads, found before any target training, carry
-$0.73$ of the elicited child's behaviour (random heads $0.04$; the child's own top heads
-$0.88$). The taught child's own top heads carry only $0.46$ of its behaviour, and $0.27$ of
-the elicited child's: teaching layers diffuse attention on the shared number-reading heads (M2)
-instead of inheriting a compact head circuit. Set overlap between the two children is at chance
-($0.306$; heads only $0.103$).
+\item Set overlap between the two children is at chance ($0.306$; heads only $0.103$);
+whether the sets \emph{function} in each other's model is M2.
 \end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
@@ -128,7 +119,7 @@ wiring (256 edges): elicited child $\leftrightarrow$ taught child & 0.267 & 0.03
 \end{adjustbox}
 \caption{Circuit overlaps of the full-FT children and their parents, mapped on the word task
 (0-shot). Uniform chance is $0.031$ everywhere; ceilings are each map's own split-half
-repeatability; the teach parent's map fails the performing check (logit-diff $-1.5$ nats, M11),
+repeatability; the teach parent's map fails the performing check (logit-diff $-1.5$ nats, M12),
 so its overlap is noise. Wiring rows: Jaccard over the 256 strongest edges, each map's own
 split-half ceiling; edges change $1.3\times$ as much as nodes under elicitation here (Llama
 base$\to$fine-tune: $2.2\times$).
@@ -136,6 +127,54 @@ Bottom: the elicit parent's task circuit is its symbol-arithmetic circuit; the e
 is method-independent; the two children against each other; two taught circuits against each
 other.}
 \label{tab:overlap}
+\end{table}
+
+\metricsec{Head circuit: concentrated vs.\ diffuse}{a compact head circuit that transfers vs.\ diffuse attention that does not}
+\what{Do the child's top attention heads carry its behaviour --- and does the head set the
+child inherits from its parent carry more of it than the child's own (teach) or less (elicit)?}
+\how{
+\begin{steps}
+\item Overlap (M1) counts names; this counts effect. Take a set of 32 heads, corrupt them
+(write in their activations from a different problem, at every position) and read how much of
+the model's answer preference is destroyed: 1 $=$ the behaviour is gone, 0 $=$ nothing changed.
+\item Null: the same for 100 random sets of 32 heads; a set counts if it beats them (one-sided
+binomial test).
+\item Sets are taken from the model's own map, from its parent's map (a set found before any
+target training), and from the other child's map; each is evaluated inside the model in
+question.
+\end{steps}}
+\numbers{Table~\ref{tab:headfn}.
+\begin{steps}
+\item \textbf{Elicit:} the child's own 32 heads carry $0.88$ of its behaviour and its parent's
+32 heads carry $0.73$ (random $0.04$). \textbf{Teach:} the child's own 32 heads carry only
+$0.46$ --- less than the $0.54$ carried by its parent's heads or the $0.72$ carried by the
+elicited child's.
+\item Transfer is asymmetric: the elicited child's heads carry $0.72$ of the taught child, the
+taught child's carry $0.27$ of the elicited child. Every set beats all 100 random sets
+($p = 3\times10^{-5}$).
+\end{steps}}
+\begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{llcc}
+\toprule
+32 heads from & evaluated in & behaviour destroyed & random heads \\
+\midrule
+\textbf{elicited child's own map} & elicited child & \textbf{0.883} & 0.043 \\
+\textbf{elicit parent's map} & elicited child & \textbf{0.726} & 0.042 \\
+\textbf{taught child's own map} & taught child & \textbf{0.456} & 0.096 \\
+\textbf{teach parent's map} & taught child & \textbf{0.535} & 0.091 \\
+\midrule
+elicited child's map & taught child & 0.719 & 0.100 \\
+taught child's map & elicited child & 0.266 & 0.040 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Heads-only true patching, 128 problem pairs; ``random heads'' $=$ mean over 100 random
+sets of 32 heads; every top row beats all 100 ($p = 2.7\times10^{-5}$). The teach parent's top
+heads are the substrate's digit-reading heads (layer 0), which every model uses; that is why
+they carry the taught child too. The elicit parent's heads also restore $0.73$ of the elicited
+child's behaviour in the opposite direction (clean activations patched into a corrupted run).}
+\label{tab:headfn}
 \end{table}
 
 \metricsec{Head roles}{the same reader heads vs.\ rediscovered ones}
@@ -154,7 +193,7 @@ ceiling). Sets are compared across models by Jaccard (chance $\approx0.05$).
 \begin{steps}
 \item \textbf{Elicit:} the child's number-reading heads are the parent's, $0.69$ / $0.86$
 (first / second number; reference sets $=$ the elicit parent on symbols). \textbf{Teach}
-(against the same reference, since the teach parent has no reader heads, M14): the child finds
+(against the same reference, since the teach parent has no reader heads, M15): the child finds
 a larger set that still contains most of the same heads, $0.88$ / $0.66$ --- a graded
 difference, not an absence.
 \item A taught model that never learned the task has no compact set at all.
@@ -223,7 +262,7 @@ the gradient fades, below 1 means it grows. Also the total gradient accumulated 
 \item \textbf{Elicit:} fades $3.4\times$ from the first 1\% to the last 10\%. \textbf{Teach:}
 grows $1.4\times$, and accumulates $8.6\times$ the total gradient ($378$K vs $44$K).
 \item Under LoRA the gap is larger ($40\times$ growth, $150\times$ the mass), aimed at attention
-weights --- the number-reading heads of M2 being written. Figure~\ref{fig:grad} repeats both
+weights --- the number-reading heads of M3 being written. Figure~\ref{fig:grad} repeats both
 quantities across the sweep over training-set size $n$.
 \end{steps}}
 \begin{table}[h]\centering\small
@@ -462,7 +501,7 @@ blank base + blank-base taught child's states & every condition & $\le$0.02 & $\
 \begin{figure}[h]\centering
 \includegraphics[width=0.75\textwidth]{figures/fig_intervention_ladder.png}
 \caption{Donor patching on the elicit parent (right; left: the same on Llama-3.2-1B, the second
-elicit parent of M11--M15), weights frozen except the last bar: unpatched parent, mean vector,
+elicit parent of M12--M16), weights frozen except the last bar: unpatched parent, mean vector,
 per-prompt states, and the fine-tuned child for scale.}
 \label{fig:ladder}
 \end{figure}
@@ -568,7 +607,7 @@ compute already holds the answer in its state.
 words (elicit), or not (teach) --- and does having arithmetic suffice?}
 \how{
 \begin{steps}
-\item Head roles (M2) on the frozen parent with the word prompts, with one change: since the
+\item Head roles (M3) on the frozen parent with the word prompts, with one change: since the
 parent never answers, a head set counts when copying it from the twin problem moves the parent's
 \emph{preference} toward the twin's answer.
 \item Report the size of the set and its flip rate against the copy-every-head ceiling.
@@ -576,7 +615,7 @@ parent never answers, a head set counts when copying it from the twin problem mo
 \numbers{Table~\ref{tab:prefit}.
 \begin{steps}
 \item Elicit parent 22 heads, Llama-3.2-1B 23; symbol engine, format-installed and blank: none.
-The engine has the arithmetic (M13; the numbers are present, M15) but no heads carrying them
+The engine has the arithmetic (M14; the numbers are present, M16) but no heads carrying them
 from the words to it --- this is the metric that separates the two elicit parents from it.
 \end{steps}}
 \metricsecp{Operands present at the answer position}{the numbers are there vs.\ weakly there}
