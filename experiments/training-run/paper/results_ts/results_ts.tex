@@ -83,19 +83,15 @@ of the data (how repeatable a circuit is at all), and the \emph{type-matched cha
 unrelated circuits with the same MLP/head mix share (0.20--0.27 here).
 \item \emph{Heads only.} The same overlap over the 512 heads alone, where circuits can actually
 differ (chance 0.03).
-\item \emph{Edges.} The same scoring for the connections between nodes (which node's output
-each node reads, $\approx$8.4K edges); the 256 strongest are the wiring, compared the same way.
 \end{steps}}
 \numbers{Table~\ref{tab:overlap}.
 \begin{steps}
 \item \textbf{Elicit:} parent $\leftrightarrow$ child $0.455$ (chance $0.23$, ceilings $0.60$ /
-$0.56$); heads only $0.333$ against the parent's own ceiling of $0.42$; wiring $0.358$ against
-ceilings of $0.49$ / $0.51$ --- the child keeps the parent's connections about as much as its
-nodes (edge change only $1.3\times$ node change after ceiling correction). \textbf{Teach:} the
-parent has no circuit for the task (its node-score map is noise, M11), so the child's is new;
+$0.56$); heads only $0.333$ against the parent's own ceiling of $0.42$. \textbf{Teach:} the
+parent has no circuit for the task (its node-score map is noise, M12), so the child's is new;
 heads only $0.016$.
 \item Set overlap between the two children is at chance ($0.306$; heads only $0.103$);
-whether the sets \emph{function} in each other's model is M2.
+whether the sets \emph{function} in each other's model is M3.
 \end{steps}}
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
@@ -111,22 +107,62 @@ elicit parent on symbols $\leftrightarrow$ elicited child & 0.391 & 0.25 & 0.306
 elicited child, full FT $\leftrightarrow$ LoRA & 0.641 & 0.20 & 0.561 / 0.684 & 0.455 \\
 elicited child $\leftrightarrow$ taught child & 0.306 & 0.25 & 0.561 / 0.524 & 0.103 \\
 taught child $\leftrightarrow$ taught child from the blank base & 0.362 & 0.27 & 0.524 / 0.422 & 0.208 \\
-\midrule
-wiring (256 edges): elicit parent $\leftrightarrow$ elicited child & 0.358 & 0.03 & 0.493 / 0.510 & -- \\
-wiring (256 edges): elicited child $\leftrightarrow$ taught child & 0.267 & 0.03 & 0.510 / 0.446 & -- \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
 \caption{Circuit overlaps of the full-FT children and their parents, mapped on the word task
 (0-shot). Uniform chance is $0.031$ everywhere; ceilings are each map's own split-half
-repeatability; the teach parent's map fails the performing check (logit-diff $-1.5$ nats, M12),
-so its overlap is noise. Wiring rows: Jaccard over the 256 strongest edges, each map's own
-split-half ceiling; edges change $1.3\times$ as much as nodes under elicitation here (Llama
-base$\to$fine-tune: $2.2\times$).
+repeatability; the teach parent's map fails the performing check (logit-diff $-1.5$ nats, M13),
+so its overlap is noise.
 Bottom: the elicit parent's task circuit is its symbol-arithmetic circuit; the elicited circuit
 is method-independent; the two children against each other; two taught circuits against each
 other.}
 \label{tab:overlap}
+\end{table}
+
+\metricsec{Wiring}{the parent's connections kept vs.\ rewired}
+\what{Beyond which components are used (M1), does the fine-tuned model keep the parent's
+\emph{connections} between them (elicit) or rewire them (teach)?}
+\how{
+\begin{steps}
+\item An edge is one node reading another node's output; the model has about 8,400. Each edge
+is scored like a node in M1 (how much the answer would move if the writer's output, as seen by
+that reader, were swapped for its value on a different problem); the 256 strongest are the
+wiring.
+\item Wiring is compared by Jaccard@256, against each map's own split-half ceiling (chance
+$0.03$). Edge maps are noisier than node maps, so the ceiling matters more; on the 15-token
+word prompts it is $0.45$--$0.51$.
+\item Node change vs edge change, each corrected for its ceiling, gives the ratio Wang et al.\
+(2025) report at 2--4 for fine-tuning: rewiring over a stable node set.
+\end{steps}}
+\numbers{Table~\ref{tab:wiring}.
+\begin{steps}
+\item \textbf{Elicit:} parent $\leftrightarrow$ child wiring $0.358$ against ceilings of
+$0.49$ / $0.51$, 71\% of the way to identical --- the child keeps the parent's connections
+about as much as its nodes (78\%); edge change is only $1.3\times$ node change, not Wang's
+2--4 (which our Llama base$\to$fine-tune does show, at $2.2$). \textbf{Teach:} the parent has
+no wiring for the task to keep (its map is noise, M12).
+\item The two children share $0.267$ of their wiring, 56\% of the ceiling --- the same 56\% as
+their nodes: they differ equally at both levels.
+\end{steps}}
+\begin{table}[h]\centering\small
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{lcccc}
+\toprule
+Comparison & edges: Jaccard@256 & edge ceilings (A / B) & nodes: Jaccard@32 & node ceilings (A / B) \\
+\midrule
+\textbf{elicit parent $\leftrightarrow$ elicited child} & \textbf{0.358} & 0.493 / 0.510 & 0.455 & 0.600 / 0.561 \\
+\textbf{teach parent $\leftrightarrow$ taught child} & \textbf{undefined} (parent map is noise) & -- / 0.446 & undefined & -- / 0.524 \\
+\midrule
+elicited child $\leftrightarrow$ taught child & 0.267 & 0.510 / 0.446 & 0.306 & 0.561 / 0.524 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Wiring vs nodes on the word task, 0-shot, 128 pairs. Ceiling-corrected change,
+elicit parent$\to$child: edges $0.29$, nodes $0.22$ (ratio $1.3$); the two children: $0.44$ /
+$0.44$. Few-shot prompts do not lengthen the useful context: with four worked examples the
+elicit parent's answer preference drops below the noise guard ($3.1\to0.9$ nats).}
+\label{tab:wiring}
 \end{table}
 
 \metricsec{Head circuit: concentrated vs.\ diffuse}{a compact head circuit that transfers vs.\ diffuse attention that does not}
@@ -193,7 +229,7 @@ ceiling). Sets are compared across models by Jaccard (chance $\approx0.05$).
 \begin{steps}
 \item \textbf{Elicit:} the child's number-reading heads are the parent's, $0.69$ / $0.86$
 (first / second number; reference sets $=$ the elicit parent on symbols). \textbf{Teach}
-(against the same reference, since the teach parent has no reader heads, M15): the child finds
+(against the same reference, since the teach parent has no reader heads, M16): the child finds
 a larger set that still contains most of the same heads, $0.88$ / $0.66$ --- a graded
 difference, not an absence.
 \item A taught model that never learned the task has no compact set at all.
@@ -262,7 +298,7 @@ the gradient fades, below 1 means it grows. Also the total gradient accumulated 
 \item \textbf{Elicit:} fades $3.4\times$ from the first 1\% to the last 10\%. \textbf{Teach:}
 grows $1.4\times$, and accumulates $8.6\times$ the total gradient ($378$K vs $44$K).
 \item Under LoRA the gap is larger ($40\times$ growth, $150\times$ the mass), aimed at attention
-weights --- the number-reading heads of M3 being written. Figure~\ref{fig:grad} repeats both
+weights --- the number-reading heads of M4 being written. Figure~\ref{fig:grad} repeats both
 quantities across the sweep over training-set size $n$.
 \end{steps}}
 \begin{table}[h]\centering\small
@@ -501,7 +537,7 @@ blank base + blank-base taught child's states & every condition & $\le$0.02 & $\
 \begin{figure}[h]\centering
 \includegraphics[width=0.75\textwidth]{figures/fig_intervention_ladder.png}
 \caption{Donor patching on the elicit parent (right; left: the same on Llama-3.2-1B, the second
-elicit parent of M12--M16), weights frozen except the last bar: unpatched parent, mean vector,
+elicit parent of M13--M17), weights frozen except the last bar: unpatched parent, mean vector,
 per-prompt states, and the fine-tuned child for scale.}
 \label{fig:ladder}
 \end{figure}
@@ -607,7 +643,7 @@ compute already holds the answer in its state.
 words (elicit), or not (teach) --- and does having arithmetic suffice?}
 \how{
 \begin{steps}
-\item Head roles (M3) on the frozen parent with the word prompts, with one change: since the
+\item Head roles (M4) on the frozen parent with the word prompts, with one change: since the
 parent never answers, a head set counts when copying it from the twin problem moves the parent's
 \emph{preference} toward the twin's answer.
 \item Report the size of the set and its flip rate against the copy-every-head ceiling.
@@ -615,7 +651,7 @@ parent never answers, a head set counts when copying it from the twin problem mo
 \numbers{Table~\ref{tab:prefit}.
 \begin{steps}
 \item Elicit parent 22 heads, Llama-3.2-1B 23; symbol engine, format-installed and blank: none.
-The engine has the arithmetic (M14; the numbers are present, M16) but no heads carrying them
+The engine has the arithmetic (M15; the numbers are present, M17) but no heads carrying them
 from the words to it --- this is the metric that separates the two elicit parents from it.
 \end{steps}}
 \metricsecp{Operands present at the answer position}{the numbers are there vs.\ weakly there}
