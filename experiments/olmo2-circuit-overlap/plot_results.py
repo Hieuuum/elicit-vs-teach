@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import textwrap
 import time
 
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
@@ -28,7 +29,14 @@ from geode.circuits.artifacts import sha256_file, validate_matched_rows, write_j
 from geode.circuits.checkpoints import CHECKPOINTS
 from geode.circuits.report import _behavior_summary
 from geode.circuits.sanity import validate_probe_splits
-from geode.circuits.statistics import jaccard, paired_overlap_ci, topk_nodes
+from geode.circuits.statistics import (
+    jaccard,
+    node_type_jaccard_baseline,
+    paired_overlap_ci,
+    random_jaccard_baseline,
+    split_half_stability,
+    topk_nodes,
+)
 
 TASKS = [
     "ethics_commonsense",
@@ -137,8 +145,10 @@ def collect(run, pilot, output, n_bootstrap):
         del rows, identity
     csv_rows(output / "accuracy_and_scores.csv", behavior_csv)
     overlap_csv = []
+    data["stability"] = {}
     for task in TASKS:
         data["overlap"][task] = {}
+        data["stability"][task] = {}
         for left, right in zip(STAGES[:-1], STAGES[1:]):
             paths = [run / s / "circuits" / task for s in [left, right]]
             metas = [json.loads(p.with_suffix(".json").read_text()) for p in paths]
@@ -160,6 +170,20 @@ def collect(run, pilot, output, n_bootstrap):
             for array, meta in zip(arrays, metas, strict=True):
                 if topk_nodes(array, meta["node_names"], 16) != meta["top16"]:
                     raise ValueError(f"Saved top nodes disagree with attribution scores: {task}")
+            # Within-stage reliability of each stage's own top-16 (cached per stage).
+            for stage, array, meta in zip([left, right], arrays, metas, strict=True):
+                if stage not in data["stability"][task]:
+                    half = split_half_stability(
+                        array, meta["node_names"], meta["group_ids"], k=16, repeats=50, seed=0
+                    )
+                    data["stability"][task][stage] = {
+                        k: half[k] for k in ["mean_jaccard", "reference_interval_95", "repeats"]
+                    }
+            if "uniform_null" not in data:
+                data["uniform_null"] = random_jaccard_baseline(len(metas[0]["node_names"]), 16)
+            typed = node_type_jaccard_baseline(
+                metas[0]["top16"], metas[1]["top16"], metas[0]["node_names"], seed=0
+            )
             result = {
                 "jaccard": jaccard(metas[0]["top16"], metas[1]["top16"]),
                 "top_a": metas[0]["top16"],
@@ -167,7 +191,14 @@ def collect(run, pilot, output, n_bootstrap):
                 "n_groups": sensitivity["n_groups"],
                 "n_examples": sensitivity["n_examples"],
                 "group_weighted_sensitivity": sensitivity,
+                "type_matched_null": {
+                    k: typed[k]
+                    for k in ["mean", "reference_interval_95", "type_counts_a", "type_counts_b"]
+                },
             }
+            result["above_type_matched_null"] = (
+                result["jaccard"] > typed["reference_interval_95"][1]
+            )
             data["overlap"][task][f"{left} -> {right}"] = result
             overlap_csv.append(
                 {
@@ -178,6 +209,13 @@ def collect(run, pilot, output, n_bootstrap):
                     "group_weighted_jaccard": sensitivity["jaccard"],
                     "group_weighted_ci_low": sensitivity["ci"][0],
                     "group_weighted_ci_high": sensitivity["ci"][1],
+                    "type_matched_null_mean": typed["mean"],
+                    "type_matched_null_low": typed["reference_interval_95"][0],
+                    "type_matched_null_high": typed["reference_interval_95"][1],
+                    "above_type_matched_null": result["above_type_matched_null"],
+                    "uniform_null_mean": data["uniform_null"]["mean"],
+                    "split_half_from": data["stability"][task][left]["mean_jaccard"],
+                    "split_half_to": data["stability"][task][right]["mean_jaccard"],
                     "n_groups": result["n_groups"],
                     "shared_nodes": len(set(result["top_a"]) & set(result["top_b"])),
                 }
@@ -297,42 +335,116 @@ def plot(data, output):
         plt.close(fig)
 
     transitions = [f"{a} →\n{b}" for a, b in zip(LABELS[:-1], LABELS[1:])]
-    matrix = np.array(
-        [
-            [
-                data["overlap"][task][f"{a} -> {b}"]["jaccard"]
-                for a, b in zip(STAGES[:-1], STAGES[1:])
-            ]
-            for task in TASKS
-        ]
+    cells = [
+        [data["overlap"][task][f"{a} -> {b}"] for a, b in zip(STAGES[:-1], STAGES[1:])]
+        for task in TASKS
+    ]
+    matrix = np.array([[c["jaccard"] for c in row] for row in cells])
+    stability = np.array(
+        [[data["stability"][task][s]["mean_jaccard"] for s in STAGES] for task in TASKS]
     )
-    fig, ax = plt.subplots(figsize=(11, 6.3))
+    fig, (ax, ax_rel) = plt.subplots(
+        1, 2, figsize=(16, 6.6), sharey=True, gridspec_kw={"width_ratios": [6, 3.6], "wspace": 0.04}
+    )
     im = ax.imshow(matrix, cmap="YlGnBu", vmin=0, vmax=1, aspect="auto")
     ax.set(xticks=range(6), xticklabels=transitions, yticks=range(8), yticklabels=TITLES)
     ax.tick_params(length=0, pad=9)
-    for i in range(8):
-        for j in range(6):
+    n_within_null, daggers = 0, 0
+    for i, row in enumerate(cells):
+        for j, cell in enumerate(row):
+            color = "white" if matrix[i, j] > 0.55 else "#192b3a"
+            sens = cell["group_weighted_sensitivity"]
+            # The interval resamples source groups with equal-group weighting; its
+            # point estimate differs from the saved-set value only when groups are unequal.
+            mark = "†" if abs(sens["jaccard"] - cell["jaccard"]) > 1e-9 else ""
+            daggers += bool(mark)
             ax.text(
                 j,
-                i,
-                f"{matrix[i, j]:.2f}",
+                i - 0.13,
+                f"{matrix[i, j]:.2f}{mark}",
                 ha="center",
                 va="center",
-                color="white" if matrix[i, j] > 0.55 else "#192b3a",
+                color=color,
                 fontsize=12,
             )
-    fig.colorbar(im, ax=ax, pad=0.025, label="Jaccard@16 · |intersection| / |union|")
+            ax.text(
+                j,
+                i + 0.24,
+                f"[{sens['ci'][0]:.2f}, {sens['ci'][1]:.2f}]",
+                ha="center",
+                va="center",
+                color=color,
+                fontsize=8.5,
+            )
+            if not cell["above_type_matched_null"]:
+                n_within_null += 1
+                ax.add_patch(
+                    plt.Rectangle(
+                        (j - 0.5, i - 0.5),
+                        1,
+                        1,
+                        fill=False,
+                        hatch="///",
+                        edgecolor="#8a5a00",
+                        linewidth=0,
+                        alpha=0.55,
+                    )
+                )
+    # Fixed inset so the colorbar does not resize this panel away from the right one.
+    fig.colorbar(
+        im,
+        cax=ax.inset_axes([0.22, -0.19, 0.56, 0.035]),
+        orientation="horizontal",
+        label="Jaccard@16 · |intersection| / |union|",
+    )
     ax.set_title(
         "Top-node overlap between consecutive training stages",
         loc="left",
         pad=18,
         fontweight="bold",
     )
+    im_rel = ax_rel.imshow(stability, cmap="Greys", vmin=0, vmax=1, aspect="auto")
+    ax_rel.set(xticks=range(7), xticklabels=LABELS)
+    ax_rel.tick_params(length=0, pad=9, axis="x", labelrotation=35)
+    for i in range(8):
+        for j in range(7):
+            ax_rel.text(
+                j,
+                i,
+                f"{stability[i, j]:.2f}",
+                ha="center",
+                va="center",
+                color="white" if stability[i, j] > 0.55 else "#192b3a",
+                fontsize=11,
+            )
+    fig.colorbar(
+        im_rel,
+        ax=ax_rel,
+        pad=0.02,
+        fraction=0.06,
+        label="Split-half Jaccard@16 (mean of 50 splits)",
+    )
+    ax_rel.set_title(
+        "Within-stage reliability of each top-16 set", loc="left", pad=18, fontweight="bold"
+    )
+    null = data["uniform_null"]
+    caption_sentences = [
+        "Left: saved top-16 sets used for interventions. Cell text: observed Jaccard@16 with its 95% paired source-group bootstrap interval "
+        f"(2,000 draws, equal-group weighting; † marks {daggers} cells whose equal-group point estimate differs from the saved-set value, see CSV).",
+        f"Hatched ({n_within_null} of 48 cells): observed overlap lies inside the 95% range of the node-type-matched random null "
+        f"(uniform-node null mean {null['mean']:.3f}, 95% ≤ {null['reference_interval_95'][1]:.2f}).",
+        "Right: split-half reliability of each stage's own top-16 (two random halves of the source groups); a transition cannot be read as more stable than its stages. Not a strict ceiling.",
+    ]
+    # Wrapped to the panels' rendered width so this caption stops being the
+    # widest artist in the figure; an unwrapped long line was forcing
+    # bbox_inches="tight" to widen the saved image past the heatmap, leaving
+    # a blank strip to the right of the right-hand colorbar.
     fig.text(
         0.02,
-        -0.015,
-        "Actual saved top-16 sets used for interventions. CSV includes a separate equal-source-group weighting sensitivity.",
+        -0.11,
+        "\n".join(textwrap.fill(sentence, 155) for sentence in caption_sentences),
         fontsize=9,
+        va="top",
     )
     fig.tight_layout()
     save(fig, "jaccard16_transitions")
@@ -473,6 +585,14 @@ def plot(data, output):
 def report(data, output):
     math_values = [data["behavior"][s]["gsm_symbolic"]["accuracy"] for s in STAGES]
     values = [r["jaccard"] for task in data["overlap"].values() for r in task.values()]
+    n_clear = sum(
+        r["above_type_matched_null"] for task in data["overlap"].values() for r in task.values()
+    )
+    n_below_rel = sum(
+        r["jaccard"] < min(data["stability"][task][s]["mean_jaccard"] for s in key.split(" -> "))
+        for task, transitions in data["overlap"].items()
+        for key, r in transitions.items()
+    )
     lines = [
         f"GSM-Symbolic accuracy: {' → '.join(f'{100 * x:.1f}%' for x in math_values)} (Init → Stage 1 → Stage 2 → SFT → DPO → RLVR1 → RLVR2).",
         f"Consecutive-stage Jaccard@16 ranges from {min(values):.2f} to {max(values):.2f}; overlap describes node-set stability and does not by itself establish acquisition or elicitation.",
@@ -498,7 +618,8 @@ def report(data, output):
             "",
             "![Jaccard@16](jaccard16_transitions.png)",
             "",
-            "The heatmap uses the actual saved top-16 sets used for interventions, ranked by absolute mean signed attribution over saved examples. The CSV separately reports equal-source-group weighting and its 2,000-draw paired bootstrap interval. That sensitivity can change GSM rankings because source groups have unequal sizes; its interval is not an interval for the primary saved-set statistic. Overlap can also reflect a shared preference for whole MLP nodes rather than task-specific reuse.",
+            "The heatmap uses the actual saved top-16 sets used for interventions, ranked by absolute mean signed attribution over saved examples. Each cell carries the 2,000-draw paired source-group bootstrap interval (equal-group weighting; for GSM, whose groups are unequal, that weighting's point estimate differs from the saved-set value and is marked †). Hatched cells lie inside the 95% range of a node-type-matched random null, which fixes each set's observed whole-MLP and head counts; whole-MLP nodes are few and dominate many top-16 sets, so the uniform-node null alone understates chance overlap. The right panel gives each stage's split-half reliability, a within-stage reference that transitions should be read against; it is not a strict ceiling. "
+            + f"{n_clear} of 48 transitions exceed the type-matched null; {n_below_rel} of 48 fall below the split-half reliability of both their stages.",
             "",
             "Native accuracy across training stages",
             "",
