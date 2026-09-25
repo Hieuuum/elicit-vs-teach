@@ -1,5 +1,5 @@
 """Phase-0 mechanistic-interpretability drivers: ``logit_lens.py`` (test 6),
-``weight_diff.py`` (test 9), ``resid_shift.py`` (test 10), and their shared
+``weight_diff.py`` (test 9), ``resid_shift_ts38.py`` (test 10), and their shared
 ``mech_lib.py``.
 
 Silent failure modes guarded, one per driver:
@@ -16,7 +16,7 @@ Silent failure modes guarded, one per driver:
   exactly CLAUDE.md's "silent failure that would corrupt results" case. Pure
   ``module_metrics`` is checked against hand-planted rank-1 updates whose
   answer is known exactly.
-- ``resid_shift.py``: ``top_pc_evr`` is deliberately UNCENTERED (module
+- ``resid_shift_ts38.py``: ``top_pc_evr`` is deliberately UNCENTERED (module
   docstring) — a regression back to centered would make the constant-shift
   property silently read 0 instead of 1, so that case is checked explicitly
   against a real forward-hook-perturbed model, not just the pure function.
@@ -41,7 +41,7 @@ from tests._scriptloader import load
 
 ll = load("logit_lens")
 wd = load("weight_diff")
-rs = load("resid_shift")
+rs = load("resid_shift_ts38")
 mech = load("mech_lib")
 
 

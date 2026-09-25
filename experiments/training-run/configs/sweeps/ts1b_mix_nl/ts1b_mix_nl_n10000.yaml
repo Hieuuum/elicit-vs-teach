@@ -1,0 +1,9 @@
+# mix-parent elicitation sweep, rung n=10000 (prefix of D_algo_bare); schedule
+# mirrored from the same-size fig2ts rung for curve comparability. Overlay
+# over ../../ts1b_mix_nl.yaml.
+run_id: evt-ts1b-mix-nl-n10000
+data:
+  n_examples: 10000
+train:
+  eval_every: 10
+  max_steps: 2000

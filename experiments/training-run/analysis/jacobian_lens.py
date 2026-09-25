@@ -33,14 +33,14 @@ position. Per (model, set, layer) rows:
   unit-relative perturbation's effect, not a typical-case estimate — read
   it as a per-layer sensitivity CEILING.
 - Direction consistency of ``{J_{i,ℓ}}`` across examples: ``mean_cos_to_mean``
-  and ``top_pc_evr``, computed by ``resid_shift.shift_consistency`` UNVERBATIM
+  and ``top_pc_evr``, computed by ``resid_shift_ts38.shift_consistency`` UNVERBATIM
   reused on the ``[n, d_model]`` Jacobian matrix (same metric as test 10's,
   same UNCENTERED-top-PC choice and the same "0.0 not NaN" all-zero
   convention — see that module's docstring for why).
 
 **Bridge to test 10 (optional — only when both ``--model-a`` (θ0) and
 ``--model-b`` (θ_T) are given).** At each layer, the per-example residual
-shift ``d_i = h_{T,i} − h_{0,i}`` (``resid_shift``'s own quantity, at the
+shift ``d_i = h_{T,i} − h_{0,i}`` (``resid_shift_ts38``'s own quantity, at the
 task position) is compared against θ0's OWN Jacobian ``J^{θ0}_{i,ℓ}``:
 
 - ``mean_cos_shift_vs_jac0`` = mean_i cos(d_i, J^{θ0}_{i,ℓ}).
@@ -110,7 +110,7 @@ from mech_lib import (
     residual_modules,
     write_table,
 )
-from resid_shift import shift_consistency
+from resid_shift_ts38 import shift_consistency
 
 from geode.arith.spans import SftExample
 from geode.probe import residual_hook_names

@@ -13,7 +13,7 @@ below is copied verbatim from ``probes.py`` (multinomial LBFGS logistic
 regression on train-standardised features) rather than imported: importing
 ``probes.py`` pulls in ``matplotlib`` at module load, which is a ``dev``-only
 optional dependency (``pyproject.toml``), not a runtime one — the other three
-Phase-0 drivers (``logit_lens.py``/``weight_diff.py``/``resid_shift.py``,
+Phase-0 drivers (``logit_lens.py``/``weight_diff.py``/``resid_shift_ts38.py``,
 meant to run "as soon as any box exists") have no such dependency, and this
 one should not be the exception. ``probes.py``'s ``label_positions`` is not
 reused either: it decodes a position from a ``label_mask`` tensor written by

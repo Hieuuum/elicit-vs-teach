@@ -24,6 +24,19 @@ regime: the bare question, a newline, and the answer as plain continuation.
 - ``bare_nl`` — natural language, NO scaffold, add/sub/mult:
   ``"What is the sum of 23 and 45?\n68"``
 
+A fourth format (ts1b op-install, 2026-08-28 — spec 02 §5) is the paper's
+pre-training-intervention surface (App. I.2.1: ``"2 * 3 = 6"``): bare
+operator notation, no scaffold, the answer as the continuation after
+``" = "``. It exists so the intervention task (install add/sub in operator
+form) and the target task (``bare_nl`` add/sub) share NO surface form
+beyond the digits themselves — the op→NL latency claim under test is
+exactly that transfer. The prompt-side trailing space before the answer is
+the same whitespace-overhang boundary the frozen ``"Answer: "`` scaffold
+uses (V5.38), so span→token derivation is unchanged.
+
+- ``bare_op`` — operator notation, NO scaffold, add/sub/mult:
+  ``"23 + 45 = 68"``
+
 The two scaffolded formats stay byte-frozen exactly as on 2026-07-17;
 ``bare_nl`` is additive and reuses ``_NL_PHRASE`` verbatim, so its question
 bodies can never drift from the frozen NL sets'. The answer char span works
@@ -117,6 +130,17 @@ def render(a: int, b: int, op: str, shown_answer: int, fmt: str) -> tuple[str, t
         # a newline, the answer as plain continuation — the paper's regime.
         body = _nl_body(a, b, op)
         prompt = f"{body}\n"
+        answer_text = str(shown_answer)
+        full = prompt + answer_text
+        return full, (len(prompt), len(full))
+    elif fmt == "bare_op":
+        if op not in _OPERATOR_SYMBOL:
+            raise ValueError(f"unknown op {op!r}")
+        # Paper App. I.2.1 intervention surface: "2 * 3 = 6". No scaffold; the
+        # trailing "= " space is the same whitespace-overhang boundary as the
+        # frozen "Answer: " (module docstring).
+        body = _operator_body(a, b, op)
+        prompt = f"{body} = "
         answer_text = str(shown_answer)
         full = prompt + answer_text
         return full, (len(prompt), len(full))

@@ -54,7 +54,7 @@ for N in $SIZES; do
     fi
     out_rs="$O/resid_shift_$R.csv"
     if [[ ! -f "$out_rs" ]]; then
-      python3 resid_shift.py --model-a "dir:$S/$P" --model-b "run:$R" --task-parquet "$T" --generic-local /workspace/tinystories_val_2000.txt --device cuda --limit 2000 --out "$out_rs"
+      python3 resid_shift_ts38.py --model-a "dir:$S/$P" --model-b "run:$R" --task-parquet "$T" --generic-local /workspace/tinystories_val_2000.txt --device cuda --limit 2000 --out "$out_rs"
     fi
     echo "[t1] MILESTONE tier1_cell_done run=$R elapsed_s=$(( $(date +%s) - t0 ))"
   done

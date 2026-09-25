@@ -74,7 +74,7 @@ for M in "${MODELS[@]}"; do
   [[ -f $out_wd ]] || python3 weight_diff.py --model-a "$BASE" --model-b "$spec" --device cuda --out "$out_wd"
 
   out_rs="$O/resid_shift_${name}.csv"
-  [[ -f $out_rs ]] || python3 resid_shift.py --model-a "$BASE" --model-b "$spec" --task-parquet "$TASK" --generic-local "$GENERIC" --device cuda --limit 2000 --out "$out_rs"
+  [[ -f $out_rs ]] || python3 resid_shift_ts38.py --model-a "$BASE" --model-b "$spec" --task-parquet "$TASK" --generic-local "$GENERIC" --device cuda --limit 2000 --out "$out_rs"
   echo "[trm] MILESTONE weight_diff_resid_shift_done model=$name"
 
   out_jl="$O/jacobian_lens_${name}.csv"
@@ -135,7 +135,7 @@ for R in "${TARGET_RUNS[@]}"; do
 
   out_rs="$O/resid_shift_$R.csv"
   if [[ ! -f $out_rs ]]; then
-    python3 resid_shift.py --model-a "$P" --model-b "run:$R" --task-parquet "$TASK" --generic-local "$GENERIC" --device cuda --limit 2000 --out "$out_rs"
+    python3 resid_shift_ts38.py --model-a "$P" --model-b "run:$R" --task-parquet "$TASK" --generic-local "$GENERIC" --device cuda --limit 2000 --out "$out_rs"
   fi
 
   out_jl="$O/jacobian_lens_$R.csv"

@@ -157,6 +157,11 @@ FAMILIES: dict[str, tuple[str, str, str]] = {
         "dataset_size_sweep_ts38pp",
         "TinyStories 38.7M; base (teach) vs pre-teach 4M full-FT, D_algo_bare, r128 LoRA",
     ),
+    "ts": (
+        "evt-ts1b-fig2ts",
+        "dataset_size_sweep_ts",
+        "TinyStories-1B twin, scaffold-free NL; pre-teach-format installer",
+    ),
 }
 DEFAULT_FAMILY = "op"
 
@@ -218,15 +223,17 @@ TS38PP_ARM: dict[str, tuple[str, str]] = {
     "inst": ("pretaught", "pre-teach 4M full-FT"),
 }
 
-# All families in one pattern. The llama branch cannot cross-match itself
-# (the "nl"/"nl2"/"nl3" infix means an "evt-llama-fig2nl-..." id fails the op
+# All families in one pattern. The llama/ts branch cannot cross-match itself
+# (the "nl"/"nl2"/"nl3"/"ts1b-fig2ts" infix means an "evt-llama-fig2nl-..." id fails the op
 # reading and vice versa), the ts38 branch (disjoint prefixes), or the
 # ts38mw/ts38pp branches (evt-ts38mw-/evt-ts38pp- only ever match their own
 # pretaught arm; the ts38mw/ts38pp base id is the SHARED
 # evt-ts38-base-n<size>, which parses through the ts38 branch below), so
 # each id parses unambiguously without the caller declaring its family.
+# (The fig2nl3s snapshot re-run ids deliberately do NOT parse — that family
+# is trajectory evidence, never a sweep curve.)
 RUN_ID_RE = re.compile(
-    r"^evt-(?:llama-fig2(?:nl[23]?)?-(?P<llama_cond>noinst|inst)"
+    r"^evt-(?:(?:llama-fig2(?:nl[23]?)?|ts1b-fig2ts)-(?P<llama_cond>noinst|inst)"
     r"|ts38-(?P<ts38_cond>base|pretaught)"
     r"|ts38mw-(?P<ts38mw_cond>pretaught)"
     r"|ts38pp-(?P<ts38pp_cond>pretaught))-n\d+$"
@@ -278,7 +285,7 @@ def default_run_ids(family: str = DEFAULT_FAMILY) -> list[str]:
 
 
 def _parse_run_id(run_id: str) -> tuple[str, str]:
-    """``(condition, curve_label)`` parsed from a fig2/ts38/ts38mw/ts38pp sweep run id.
+    """``(condition, curve_label)`` parsed from a fig2/ts/ts38/ts38mw/ts38pp sweep run id.
 
     Parsed from the run id (not ``manifest.regime``, which is the closed
     elicit/teach/unknown enum and has no base/format-installed distinction) —
@@ -289,6 +296,7 @@ def _parse_run_id(run_id: str) -> tuple[str, str]:
         raise ValueError(
             f"{run_id!r} does not match any sweep run_id pattern "
             "('evt-llama-fig2{,nl,nl2,nl3}-{noinst,inst}-n<size>', "
+            "'evt-ts1b-fig2ts-{noinst,inst}-n<size>', "
             "'evt-ts38-{base,pretaught}-n<size>', "
             "'evt-ts38mw-pretaught-n<size>', or "
             "'evt-ts38pp-pretaught-n<size>')"

@@ -14,7 +14,7 @@ plus ``embed_tokens`` as its own row:
   through to the full-FT formula, correctly giving ΔW ≡ 0 when θ_T is a
   LoRA run (LoRA never touches the embedding).
 
-**Layer convention, different from ``logit_lens.py``/``resid_shift.py``**:
+**Layer convention, different from ``logit_lens.py``/``resid_shift_ts38.py``**:
 this script never touches the residual stream, so ``layer`` here is the
 transformer BLOCK index a weight tensor lives in (``-1`` for
 ``embed_tokens``, ``-2`` for the grand-total row — disambiguated from a real

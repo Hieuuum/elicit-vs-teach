@@ -68,7 +68,7 @@ for M in "${MODELS[@]}"; do
   out_wd="$O/weight_diff_${name}.parquet"
   out_rs="$O/resid_shift_${name}.csv"
   [[ -f "$out_wd" ]] || python3 weight_diff.py --model-a "dir:$S/evt-run1-base-v3-ext/model" --model-b "$spec" --device cuda --out "$out_wd"
-  [[ -f "$out_rs" ]] || python3 resid_shift.py --model-a "dir:$S/evt-run1-base-v3-ext/model" --model-b "$spec" --task-parquet "$TASK" --generic-local "$GENERIC" --device cuda --limit 2000 --out "$out_rs"
+  [[ -f "$out_rs" ]] || python3 resid_shift_ts38.py --model-a "dir:$S/evt-run1-base-v3-ext/model" --model-b "$spec" --task-parquet "$TASK" --generic-local "$GENERIC" --device cuda --limit 2000 --out "$out_rs"
   echo "[p0] MILESTONE weight_diff_resid_shift_done model=$name"
 done
 

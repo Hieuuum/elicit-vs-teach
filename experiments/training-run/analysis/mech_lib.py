@@ -1,14 +1,14 @@
 """Shared plumbing for the Phase-0 mechanistic-interpretability drivers
-(``logit_lens.py``, ``weight_diff.py``, ``resid_shift.py``): model loading
+(``logit_lens.py``, ``weight_diff.py``, ``resid_shift_ts38.py``): model loading
 that accepts either a zoo-registered run or a plain HF directory, the
-residual-stream forward-only capture both logit_lens.py and resid_shift.py
+residual-stream forward-only capture both logit_lens.py and resid_shift_ts38.py
 need, and the char-span -> label-position bridge from ``geode.arith.spans``.
 
 Residual-hook layer convention (pin this here, not per script, so a later
 session cross-reading these tables doesn't get burned): ``capture_residuals``
 names its rows the ``geode.probe.extract.residual_hook_names`` way —
 ``hook_embed`` is layer 0, ``blocks.{i}.hook_resid_post`` is layer ``i + 1``.
-``logit_lens.py`` and ``resid_shift.py`` both report ``layer`` in this sense.
+``logit_lens.py`` and ``resid_shift_ts38.py`` both report ``layer`` in this sense.
 ``weight_diff.py`` reports a DIFFERENT thing under the same column name — the
 transformer block index a weight tensor lives in (``-1`` for
 ``embed_tokens``) — because it never touches the residual stream; see its

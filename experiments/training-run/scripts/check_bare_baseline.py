@@ -99,9 +99,12 @@ def main() -> int:
         f"match the model under test (default: {EVAL_CONFIG.name})",
     )
     ap.add_argument(
+        "--model",
         "--base-model",
+        dest="model",
         default=BASE_MODEL,
-        help=f"hub id or local save_pretrained dir of the BASE model, no adapter "
+        help=f"model under test, no adapter: a hub id or a local checkpoint dir (e.g. "
+        f"the ts1b pretrain's runs/evt-ts1b-base/model for the fig2ts premise) "
         f"(default: {BASE_MODEL})",
     )
     ap.add_argument(
@@ -151,8 +154,8 @@ def main() -> int:
     prompt_ids = [ex.input_ids[: ex.label_span[0]] for ex in examples]
     print(f"[premise] span alignment: PASS ({len(examples)} bare rows tokenized exactly)")
 
-    print(f"[premise] loading {args.base_model} (base, no adapter) ...", flush=True)
-    model = AutoModelForCausalLM.from_pretrained(args.base_model, torch_dtype=DTYPES[args.dtype])
+    print(f"[premise] loading {args.model} (no adapter) ...", flush=True)
+    model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=DTYPES[args.dtype])
     model.to(args.device)
 
     completions = greedy_completions(
@@ -195,7 +198,7 @@ def main() -> int:
             json.dumps(
                 {
                     "created_utc": datetime.datetime.now(datetime.UTC).isoformat(),
-                    "base_model": str(args.base_model),
+                    "base_model": str(args.model),
                     "dtype": args.dtype,
                     "device": args.device,
                     "step0_label_loss_nats": step0_nats,

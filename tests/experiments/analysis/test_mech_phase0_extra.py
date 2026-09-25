@@ -1,5 +1,5 @@
 """Coverage audit for the Phase-0 mechanistic-interpretability drivers
-(``logit_lens.py`` test 6, ``weight_diff.py`` test 9, ``resid_shift.py`` test
+(``logit_lens.py`` test 6, ``weight_diff.py`` test 9, ``resid_shift_ts38.py`` test
 10, and shared ``mech_lib.py``): silent-failure modes NOT already exercised
 by ``test_mech_phase0.py``. That file is the baseline (dispatch branches,
 off-by-one position pins, planted-direction causal checks, LoRA-vs-full-FT
@@ -21,7 +21,7 @@ equivalence); this file adds:
   staying exactly zero on a genuinely LoRA-wrapped (not just identical)
   model B, an undocumented-but-current tolerance for a depth-mismatched
   model B, and ``top_sv``'s cap/order/no-padding behavior.
-- ``resid_shift.py``: pad-length insensitivity of the generic-set mean pool,
+- ``resid_shift_ts38.py``: pad-length insensitivity of the generic-set mean pool,
   the task row's exact read position (``p-1`` vs a plausible ``p-2`` bug),
   an exact 0.5 ``top_pc_evr`` split, the antipodal-cancellation clamp path
   for ``mean_cos_to_mean``, and ``print_summary``'s NaN-not-crash path.
@@ -51,7 +51,7 @@ from tests._scriptloader import load
 
 ll = load("logit_lens")
 wd = load("weight_diff")
-rs = load("resid_shift")
+rs = load("resid_shift_ts38")
 mech = load("mech_lib")
 
 
@@ -648,7 +648,7 @@ class TestMainSmoke:
         generic.write_text("t1 t2 t3\nt4 t5\nt6 t7 t8\n")
         out = tmp_path / "out.csv"
         argv = [
-            "resid_shift.py",
+            "resid_shift_ts38.py",
             "--model-a",
             f"dir:{model_a_dir}",
             "--model-b",

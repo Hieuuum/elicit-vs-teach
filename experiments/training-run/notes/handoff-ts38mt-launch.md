@@ -143,7 +143,7 @@ for M in "theta0:dir:$S/evt-run1-base-v3-ext/model" "s7773:dir:$S/evt-ts38pp-par
   python3 logit_lens.py --model "$spec" --model-name "$name" --prompt-parquet ../data/full/probe.parquet            --set-name op   --device cuda --limit 1024 --out $GEODE_STORE/results/ts38mt_phase0/logit_lens_${name}_op.csv
   [[ $name == theta0 ]] && continue
   python3 weight_diff.py --model-a "dir:$S/evt-run1-base-v3-ext/model" --model-b "$spec" --device cuda --out $GEODE_STORE/results/ts38mt_phase0/weight_diff_${name}.parquet
-  python3 resid_shift.py --model-a "dir:$S/evt-run1-base-v3-ext/model" --model-b "$spec" --task-parquet ../data/full/D_algo_eval_bare.parquet --generic-local /workspace/tinystories_val_2000.txt --device cuda --limit 2000 --out $GEODE_STORE/results/ts38mt_phase0/resid_shift_${name}.csv
+  python3 resid_shift_ts38.py --model-a "dir:$S/evt-run1-base-v3-ext/model" --model-b "$spec" --task-parquet ../data/full/D_algo_eval_bare.parquet --generic-local /workspace/tinystories_val_2000.txt --device cuda --limit 2000 --out $GEODE_STORE/results/ts38mt_phase0/resid_shift_${name}.csv
 done
 ```
 (`sft_snapshots` dir names are `step_%07d` — check with `ls`.) Each script
@@ -177,7 +177,7 @@ R=evt-ts38mt-${A}-n${N}; T=../data/full/D_algo_eval_bare.parquet; O=$GEODE_STORE
 python3 grad_dynamics.py --run-id $R --out $O/grad_dynamics_$R.csv                                   # test 8 (logs + snapshots)
 python3 resid_probe.py --run-id $R --prompt-parquet $T --set-name task --device cuda --limit 2000 --out $O/resid_probe_$R.csv   # test 1 across snapshots
 python3 weight_diff.py --model-a dir:$S/$P --model-b run:$R --device cuda --out $O/weight_diff_$R.parquet                # test 9 (LoRA path)
-python3 resid_shift.py --model-a dir:$S/$P --model-b run:$R --task-parquet $T --generic-local /workspace/tinystories_val_2000.txt --device cuda --limit 2000 --out $O/resid_shift_$R.csv   # test 10
+python3 resid_shift_ts38.py --model-a dir:$S/$P --model-b run:$R --task-parquet $T --generic-local /workspace/tinystories_val_2000.txt --device cuda --limit 2000 --out $O/resid_shift_$R.csv   # test 10
 python3 jacobian_lens.py --model-a dir:$S/$P --model-b run:$R --prompt-parquet $T --set-name task --device cuda --limit 2000 --out $O/jacobian_lens_$R.csv   # test 7 (+ bridge to 10)
 python3 cross_patch.py --model-a dir:$S/$P --model-b run:$R --prompt-parquet $T --device cuda --limit 1000 --out $O/cross_patch_$R.csv   # test 4
 python3 node_edge_delta.py --model-a dir:$S/$P --model-b run:$R --prompt-parquet $T --device cuda --limit 1024 --batch-size 1024 --out $O/node_edge_delta_$R.csv   # test 3

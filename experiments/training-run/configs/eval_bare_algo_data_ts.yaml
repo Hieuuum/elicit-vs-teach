@@ -1,0 +1,29 @@
+# G3 eval data for the fig2ts installer (EXPERIMENTS §6.14): zero-shot exact
+# match on BARE NL add/sub, expected ~0 — the E.1.2 integrity check that the
+# random-label mult dose did NOT teach arithmetic. Consumed by gates.py g3,
+# which samples n=1024 questions from this file's seeded val split
+# (split_indices over val_fraction/seed — the G1/G2 protocol, inverted bar:
+# PASS iff accuracy <= threshold).
+#
+# The file is D_algo_bare — the fig2ts TRAINING set. That is safe for G3 on
+# the INSTALLER specifically: the installer never sees any add/sub example
+# (its data is D_inst mult), so nothing here is trained-on at scoring time.
+# Do NOT reuse this config for gates on target runs (they train on prefixes
+# of this very file); target-side evidence uses eval_bare_target_data_llama.
+#
+# Tokenizer must match the model under eval (2026-07-24 incident) — the
+# ts1b twin uses the Llama tokenizer by construction.
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_bare_addsub
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  val_fraction: 0.005
+  seed: 316

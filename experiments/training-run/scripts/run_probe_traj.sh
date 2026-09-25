@@ -175,7 +175,7 @@ if [[ $SKIP_K7 != 1 ]]; then
   out="$O/weight_diff_$R.parquet"
   [[ -f $out ]] || python3 weight_diff.py --model-a "$P" --model-b "run:$R" --device cuda --out "$out" || fail "weight_diff $R"
   out="$O/resid_shift_$R.csv"
-  [[ -f $out ]] || python3 resid_shift.py --model-a "$P" --model-b "run:$R" --task-parquet "$TASK" --generic-local "$GENERIC" --device cuda --limit 2000 --out "$out" || fail "resid_shift $R"
+  [[ -f $out ]] || python3 resid_shift_ts38.py --model-a "$P" --model-b "run:$R" --task-parquet "$TASK" --generic-local "$GENERIC" --device cuda --limit 2000 --out "$out" || fail "resid_shift $R"
   out="$O/jacobian_lens_$R.csv"
   [[ -f $out ]] || python3 jacobian_lens.py --model-a "$P" --model-b "run:$R" --prompt-parquet "$TASK" --set-name task --device cuda --limit 2000 --out "$out" || fail "jacobian_lens $R"
   out="$O/cross_patch_$R.csv"

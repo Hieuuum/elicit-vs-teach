@@ -2085,6 +2085,50 @@ cap), and ten analysis drivers (`alignment.py`, `drift.py`,
     `tests/experiments/analysis/test_probe1b_digits.py`. Results to
     `geode-internals` `results/probe1b_phase1/` (feature tensors stay
     on-box). Cost ≤ 2 h on a 24 GB box ≈ $1.
+14. **Fig-2 TinyStories half (fig2ts) — BUILT 2026-08-19 on the converged
+    1B twin; launch pending.** Pretrain DONE: `evt-ts1b-base` converged at
+    step 29,000/30,000 ceiling, **0.9855 nats** val (~34 h A100; LR 3e-4
+    from the mini-sweep — 1e-3 unstable at 1B), archived at
+    `podhajskimarcin/evt-ts1b-base` (public). The family: the paper's two
+    remaining Fig-2 curves, protocol byte-held from §6.13 —
+    - **noinst (teach)**: twin → LoRA r512/α32 @ 3.53e-4 (= paper Table 3's
+      TS-1B pin) on `D_algo_bare`, 19 sizes. Prediction: the ↑↓ teaching
+      signature, peak n≈300K (Table 5 p.20).
+    - **inst (pre-teach format)**: + the E.1.2 installer — frozen `D_inst`
+      (random-label scaffolded op-mult), FULL-FT @ 2e-5 (Table 3),
+      runs-3/4 behavioral stop. Gates BOTH enforced: G4 ≥ 0.90 on BARE
+      prompts (tests the paper's input-format-irrelevance claim on a blank
+      model; pre-authorized fallback `ts1b_fig2ts_installer_bare.yaml` =
+      same dose re-rendered bare via `D_inst_bare`, order_hash e87d0d6c…)
+      and G3 ≤ 0.02 EM on bare add/sub (`eval_bare_algo_data_ts.yaml` —
+      random labels taught nothing). No G2 analogue exists (nothing to
+      retain). Prediction: ↑↓ with peak shifted to ≈150K.
+    Premise guard runs first (twin ~0 EM bare, measured not assumed). The
+    two n=1M endpoint runs carry 128 adapter snapshots, streamed to
+    `podhajskimarcin/<run_id>` (public) by the fig2nl3s machinery. Run ids
+    `evt-ts1b-fig2ts-*`; regime recorded as **teach** (ARM_REGIME);
+    launcher `scripts/launch_fig2ts_llama.sh` (~12–20 h GPU); figure
+    `dataset_size_sweep.py --family ts` → `_ts` stems. Completing this
+    family completes all four Fig-2 curves.
+
+    **OUTCOME 2026-08-22 — COMPLETE, 38/38 converged: THE TEACHING
+    SIGNATURE APPEARS, and with it the full four-curve Figure 2.**
+    Installer resolved on the BARE dose (scaffolded E.1.2 dose: G4 0.0000
+    — total input-format-transfer failure on the blank twin, falsifying
+    E.1.2's format-irrelevance claim; bare dose: G4 1.0000 / G3 0.0000).
+    Sweep: both TS arms show [format-transient ↓][teaching hump ↑]
+    [saturation ↓] — base 4.88→0.78→peak 2.02 nats/token at n≈215K
+    (paper ~300K) →1.40 at 1M; pre-teach format below base throughout
+    with a flatter earlier peak. The Fig-2 caption's own description
+    (pre-teach "reveals the increasing-returns phase without the initial
+    format-learning transient") confirms the base curve's initial
+    transient is expected. TS curves sit ~an order of magnitude above
+    the Llama curves at every n. Four-curve figure:
+    `figures/fig2_full_replication.png`; endpoint snapshots for all four
+    curves archived at podhajskimarcin/<run_id>. Full record:
+    decisions.md 2026-08-22.
+
+## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it
 silently (`--confirm-cost` everywhere). Spent to date: ≈ $2–3 (run-1

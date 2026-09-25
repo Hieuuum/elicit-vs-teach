@@ -40,7 +40,7 @@ from geode.arith.spans import SftExample
 from tests._scriptloader import load
 
 # Load order matters: jacobian_lens.py does `from logit_lens import ...` and
-# `from resid_shift import ...` as bare sibling imports, resolved through
+# `from resid_shift_ts38 import ...` as bare sibling imports, resolved through
 # sys.modules. Loading those two (and mech_lib, which both of them import)
 # BEFORE jacobian_lens means jacobian_lens's imports reuse the SAME module
 # objects rather than re-executing fresh copies under the same names -- the
@@ -48,7 +48,7 @@ from tests._scriptloader import load
 # only holds with this order.
 ll = load("logit_lens")
 mech = load("mech_lib")
-rs = load("resid_shift")
+rs = load("resid_shift_ts38")
 jl = load("jacobian_lens")
 
 
