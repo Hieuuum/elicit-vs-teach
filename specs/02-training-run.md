@@ -819,6 +819,9 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   `Answer:` into the sign token of negative answers, measured
   2026-07-20). Any inexact alignment raises; verified against the real
   frozen tokenizer artifact across both formats, all ops, negatives.
+  "Gapless" means each token starts no later than the previous one ends
+  and no earlier than it starts: byte-fallback tokens of one multi-byte
+  character share its offsets (2026-09-26, Mistral on MMLU text).
 - V5.39 example split (`geode.train.split_indices`): the index-list form
   of the frozen `train_val_split` partition — same permutation, same
   clamping, byte-exact against V5.18 when used to index rows — shared by

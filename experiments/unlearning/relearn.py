@@ -292,6 +292,9 @@ def main() -> int:
             step0["probe"] = probe_readout(model, tokenizer, task_items, dev, t["batch_size"])
     print(f"[relearn] step 0: {json.dumps(step0)}")
     stop_reason, step, epoch_losses, first_pass = None, 0, [], None
+    # Restore-best (2026-09-26): at lr 1e-4 val loss bottomed at ~1 epoch and the MCQ read-out
+    # degraded while training ran on to the stopping rule; the saved child is the min-val one.
+    best_val, best_step, best_state = step0["val_loss_nats"], 0, None
     n, bs = len(train_ex), t["batch_size"]
     g = torch.Generator().manual_seed(t["seed"])
     t_start = time.time()
@@ -354,6 +357,9 @@ def main() -> int:
                     print(f"[relearn] step {step}: train {loss.item():.4f} val {rec['val_loss_nats']:.4f}"
                           + "".join(f"  {k}: ld {v['logit_diff']:+.2f} top1 {v['top1']:.2f}"
                                     for k, v in rec.get("probe", {}).items()), flush=True)
+                    if rec["val_loss_nats"] < best_val:  # keep the min-val weights: the final model
+                        best_val, best_step = rec["val_loss_nats"], step
+                        best_state = [p.detach().to("cpu", copy=True) for p in params]
                     if tracker.update(rec["val_loss_nats"], step=step):
                         stop_reason = "converged"
                 if step >= steps_cap and stop_reason is None:
@@ -364,6 +370,11 @@ def main() -> int:
                 first_pass = sum(epoch_losses) / len(epoch_losses)
             epoch += 1
     wall = time.time() - t_start
+    if best_state is not None:
+        with torch.no_grad():
+            for p, b in zip(params, best_state):
+                p.copy_(b.to(p.device))
+    print(f"[relearn] restored min-val weights from step {best_step} (val {best_val:.4f})")
     if lora_cfg:
         from safetensors.torch import save_file
 
@@ -385,6 +396,7 @@ def main() -> int:
     manifest.update({"status": "complete", "result": {
         "final_step": step, "stop_reason": stop_reason, "epochs": epoch,
         "first_pass_mean_loss_nats": first_pass, "min_val_nats": tracker.min_nats,
+        "saved_step": best_step, "saved_val_nats": best_val,
         "best_val_nats": tracker.best_nats, "wall_s": wall}})
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
     print(f"[relearn] {args.run_id} done: {stop_reason} at step {step} ({epoch} epochs, {wall / 60:.1f} min); "
