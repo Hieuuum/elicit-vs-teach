@@ -249,6 +249,7 @@ def ridge_r2(X_tr, Y_tr, X_te, Y_te, lam_rel=1e-2):
 def logreg_acc(X_tr, y_tr, X_te, y_te, n_cls, steps=300):
     mu, sd = X_tr.mean(0), X_tr.std(0).clamp_min(1e-6)
     Xtr, Xte = (X_tr - mu) / sd, (X_te - mu) / sd
+    y_tr, y_te = y_tr.to(Xtr.device), y_te.to(Xte.device)  # labels built on CPU, states may be on GPU
     W = torch.zeros(Xtr.shape[1], n_cls, device=Xtr.device, requires_grad=True)
     b = torch.zeros(n_cls, device=Xtr.device, requires_grad=True)
     opt = torch.optim.Adam([W, b], lr=1e-2)
