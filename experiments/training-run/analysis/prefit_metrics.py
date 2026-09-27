@@ -1258,7 +1258,8 @@ def cmd_run(args):
     names = list(METRICS) if args.metric == "all" else [args.metric]
     if task is not None and args.metric == "all":
         names = [m for m in METRICS if m not in ("attn", "cliff", "llc")]
-    model = load(args.model, args.device, eager=("attn" in names))
+    # hessian: double backward through attention; the flash SDPA kernel has no second derivative
+    model = load(args.model, args.device, eager=bool({"attn", "hessian"} & set(names)))
     items = problems(max(args.n, args.n_probe, 512), tokenizer) if task is None else None
     out_dir = Path(args.out_dir)
     for name in names:
