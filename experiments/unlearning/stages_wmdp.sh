@@ -30,7 +30,7 @@ DOMS="bio cyber"
 
 # ------------------------------------------------------------------ sizes (7B, one 80 GB GPU, bf16)
 NP=128; NF=64; NE=64; KS="16 32"; K=32; NEVAL=256; MAXTOK=512
-PREFIT_X="--n 512 --n-probe 1024 --batch-size 8 --das-layers 12 20 28 --das-ks 16 --das-train 64 --das-test 64 --das-steps 30 --dcm-pairs 64 --dcm-steps 100 --hess-n 4 --power-iters 10 --hutch 2"
+PREFIT_X="--n 512 --n-probe 1024 --batch-size 8 --das-layers 12 20 28 --das-ks 16 --das-train 64 --das-test 64 --das-steps 30 --dcm-pairs 64 --dcm-steps 100 --hess-n 4 --hess-layers 20 28 --power-iters 10 --hutch 2"
 LENS_X="--n 256 --batch-size 8 --jac-prompts 12 --k-batch 32"
 RESID_X="--n 256 --batch-size 8 --gen-batch-size 8"
 RELEARN_X=""
@@ -38,7 +38,7 @@ GEN=${TS_VALID:+--generic-text $TS_VALID}
 if [[ $SMOKE == 1 ]]; then
   DATA=$SMK/data; MODELS=$SMK; TAGS="orig u1"; DEV=cpu; NRAND=2; DOMS="bio cyber"
   NP=16; NF=8; NE=8; KS="2 4"; K=4; NEVAL=16; MAXTOK=0
-  PREFIT_X="--n 16 --n-probe 40 --das-layers 1 --das-ks 2 --das-train 8 --das-test 4 --das-steps 2 --dcm-pairs 12 --dcm-steps 2 --hess-n 2 --power-iters 2 --hutch 1"
+  PREFIT_X="--n 16 --n-probe 40 --das-layers 1 --das-ks 2 --das-train 8 --das-test 4 --das-steps 2 --dcm-pairs 12 --dcm-steps 2 --hess-n 2 --hess-layers 1 --power-iters 2 --hutch 1"
   LENS_X="--n 16 --jac-prompts 2 --story-len 16 --k-batch 8"; RESID_X="--n 16 --seq-len 16"
   GEN="--generic-text $SMK/data/story.txt"; RELEARN_X="--max-steps 12"
 else

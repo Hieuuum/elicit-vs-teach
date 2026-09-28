@@ -76,6 +76,7 @@ import json
 import math
 import os
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -627,8 +628,14 @@ def batch_loss(model, tokenizer, items, device):
     return tot / len(items)
 
 
-def metric_hessian(model, tokenizer, items, device, n_ex, power_iters, hutch_probes, seed=316):
-    params = [p for _, p in _trainable(model)]
+def metric_hessian(model, tokenizer, items, device, n_ex, power_iters, hutch_probes, seed=316, layers=None):
+    """``layers``: restrict to the parameters of these decoder blocks (a block-diagonal slice of the
+    Hessian).  Full-parameter HVPs need ~5 parameter-sized buffers plus a double-backward graph,
+    which does not fit a 7B model on one 80 GB GPU (2026-09-28 OOM); the 1B paper runs use all."""
+    params = [p for n, p in _trainable(model)
+              if layers is None or (m := re.search(r"\.layers\.(\d+)\.", n)) and int(m.group(1)) in layers]
+    if not params:
+        raise SystemExit(f"[prefit] hessian: no parameters in layers {layers}")
     for p in params:
         p.requires_grad_(True)
     batch = items[:n_ex]
@@ -678,7 +685,7 @@ def metric_hessian(model, tokenizer, items, device, n_ex, power_iters, hutch_pro
             p.requires_grad_(False)
     n_par = sum(p.numel() for p in params)
     return {"n": len(batch), "loss": loss.item(), "grad_norm": math.sqrt(gnorm2),
-            "top_eigenvalue": lam, "lambda_max": lam_max, "lambda_min": lam_min,
+            "layers": sorted(layers) if layers else "all", "n_params": n_par, "top_eigenvalue": lam, "lambda_max": lam_max, "lambda_min": lam_min,
             "neg_share": (-lam_min / (lam_max - lam_min)) if lam_max > lam_min else float("nan"),
             "trace_hutchinson": tr, "trace_over_params": tr / n_par,
             "grad_sharpness_gHg_over_g2": gHg_unit, "one_step_gain_nats": one_step_gain,
@@ -1213,7 +1220,8 @@ def run_metric_task(name, model, tokenizer, task, args):
     if name == "grad":
         return metric_grad(model, tokenizer, loss_items, dev, args.grad_n, args.sketch_dim)
     if name == "hessian":
-        return metric_hessian(model, tokenizer, loss_items, dev, args.hess_n, args.power_iters, args.hutch)
+        return metric_hessian(model, tokenizer, loss_items, dev, args.hess_n, args.power_iters, args.hutch,
+                              layers=set(args.hess_layers) if args.hess_layers else None)
     if name == "llc":
         return metric_llc(model, tokenizer, loss_items, dev, args.llc_pool, args.llc_steps, args.llc_eps,
                           args.llc_gamma, args.llc_n_data, args.llc_batch)
@@ -1238,7 +1246,8 @@ def run_metric(name, model, tokenizer, items, args):
     if name == "grad":
         return metric_grad(model, tokenizer, items, dev, args.grad_n, args.sketch_dim)
     if name == "hessian":
-        return metric_hessian(model, tokenizer, items, dev, args.hess_n, args.power_iters, args.hutch)
+        return metric_hessian(model, tokenizer, items, dev, args.hess_n, args.power_iters, args.hutch,
+                              layers=set(args.hess_layers) if args.hess_layers else None)
     if name == "cliff":
         return metric_cliff(model, tokenizer, items, dev, args.cliff_curv, args.cliff_val, args.cliff_test,
                             args.power_iters, args.cliff_alphas, args.batch_size)
@@ -1334,6 +1343,8 @@ def main() -> int:
     ap.add_argument("--grad-n", type=int, default=64)
     ap.add_argument("--sketch-dim", type=int, default=8192)
     ap.add_argument("--hess-n", type=int, default=16)
+    ap.add_argument("--hess-layers", type=int, nargs="*", default=None,
+                    help="restrict the Hessian to these decoder blocks (7B models; default: all)")
     ap.add_argument("--power-iters", type=int, default=20)
     ap.add_argument("--hutch", type=int, default=8)
     ap.add_argument("--llc-pool", type=int, default=256)

@@ -7185,3 +7185,26 @@ U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` p
 - **Stale.** orig-rl and rmu-rl stage-3 maps, edges, faithfulness, snapshots, lens,
   resid, wshift and steer are from the discarded lr-1e-4 children (skip-if-exists).
   Rerun before quoting M1–M10 for RMU or the orig reference.
+
+## 2026-09-28 (evening) — WMDP pass complete except M13
+
+- Stage-3 metrics for orig-rl and rmu-rl were recomputed on the new relearning children.
+  The unlearned models were also scored on bio_B (pref, n=512): U accuracy RMU 0.31,
+  ELM 0.35, NPO 0.26, SimNPO 0.42; orig 0.67.
+- **M17u (an unrelated fine-tune unlocks bio_B).** RMU 0.31→0.35 (ABSENT). ELM
+  0.35→0.55 (r 0.64). NPO 0.26→0.62 (r 0.89). SimNPO 0.42→0.62 (r 0.81).
+- **M17 (recovery beyond that null).** RMU 0.68 vs null 0.35 (r 1.04); ELM 0.67 vs
+  0.55. NPO and SimNPO have no room above their null.
+- **Spectrum.**
+  - RMU: locked, and opened only by bio-specific relearning.
+  - ELM: in between.
+  - NPO and SimNPO: suppressed only at the output; any fine-tune restores the capability.
+  - Every method's capability is still in the weights.
+- **M18 (relearning cost over orig, net of the null).**
+  - RMU +0.15 ± 0.19 and ELM +0.03 ± 0.14 nats/token: indistinguishable from orig's
+    own relearning.
+  - SimNPO −0.31 ± 0.53.
+  - NPO +4.6 ± 9.0: dominated by the first steps (output repair), not informative.
+- **M13** needs full-parameter Hessian-vector products, which OOM on the 7B model
+  (80 GB). Now restricted to decoder blocks 20 and 28 (`--hess-layers`, a
+  block-diagonal slice). Not comparable to the 1B paper's full-parameter M13.
