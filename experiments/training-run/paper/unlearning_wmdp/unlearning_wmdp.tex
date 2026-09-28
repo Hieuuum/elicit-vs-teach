@@ -107,7 +107,7 @@ M15 & option-reading heads (heads; flip rate) & 22 / 0 heads & 15; 0.73 & \el{20
 M1$^\bigstar$ & original's 32 heads destroy U's answer (random 0.05) & -- & 0.93 & \el{0.99}$^\dagger$ & \na{no answer} & \na{no answer} & \el{0.89} \tabularnewline
 M10$^\bigstar$ & original's head states patched into U (accuracy) & -- & 0.49 & \pa{0.20$\to$0.30} & \el{0.27$\to$0.48} & \te{0.00$\to$0.00} & \pa{0.13$\to$0.25} \tabularnewline
 M2$^\bigstar$ & wiring, U vs original (J@256; ceiling 0.55) & 0.36 / -- & -- & \na{no answer} & \na{no answer} & \na{no answer} & \pa{0.23} \tabularnewline
-M13 & accelerating descent & 1.00 / 0.00 & \multicolumn{5}{c}{pending (block Hessian, decoder blocks 20 and 28)} \tabularnewline
+M13 & accelerating descent (negative share; blocks 20, 28) & 1.00 / 0.00 & 0.00 & \na{0.00} & \na{0.00} & \na{\textbf{1.00}} & \na{0.00} \tabularnewline
 \midrule
  & \multicolumn{2}{l}{\textbf{tally} (elicit / partly / teach)} & & 2 / 4 / 4 & 1 / 3 / 5 & 3 / 2 / 4 & \textbf{8 / 3 / 0} \tabularnewline
 \bottomrule
@@ -120,7 +120,7 @@ at the answer position makes the model prefer the other item's answer, minus the
 M10$^\bigstar$: accuracy of U before and after the original's states at its 32 top heads are
 written in (32 random heads: RMU $0.20$, ELM $0.34$, SimNPO $0.16$). $^\dagger$~RMU's remaining answer
 signal is small (logit difference $+0.75$ vs $+4.87$ in the original); the original's heads carry
-all of it. M8 (latent reach) has no WMDP analogue and is not run.}
+all of it. M13 cannot be called here: the original is at a minimum of its own bio loss (negative share $0.00$, unlike the main results' latent elicit parent at $1.00$), so the metric has no elicit reference; NPO alone sits on a strongly concave slope ($\lambda_{\min}=-1.5\times10^{5}$), where gradient ascent left it, and any descent step speeds up. Curvature is restricted to decoder blocks 20 and 28 (the full Hessian does not fit a 7B model on one GPU). M8 (latent reach) has no WMDP analogue and is not run.}
 \label{tab:before}
 \end{table}
 

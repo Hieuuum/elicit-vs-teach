@@ -7225,3 +7225,15 @@ U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` p
   range, at least 0.01 nats. One seed.
 - Verdict row M19. Stage 5 in `stages_wmdp.sh`. Sweep points write manifests only. About
   35 runs at 2–4 GPU-min each.
+
+## 2026-09-28 (late) — M13 on the 7B models (blocks 20 and 28)
+
+- Negative share: orig 1.8e-6, RMU 1.1e-4, ELM 1.0e-5, SimNPO 1.4e-5, NPO 1.00
+  (λ from −1.47e5 to +0.0077).
+- **No elicit reference in this design.** The original sits at a minimum of its bio loss
+  (it was trained on the capability), unlike the main results' latent parent (1.00).
+  M13 is reported, not called.
+- **NPO:** its gradient-ascent unlearning leaves it on a concave slope, so any descent
+  step accelerates. This agrees with how fast any fine-tune restores it (M17u).
+- The stage-3 orig-rl and rmu-rl outputs were regenerated again in this run. The numbers
+  are identical to the previous pass.
