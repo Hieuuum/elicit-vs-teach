@@ -23,6 +23,8 @@
 #                      orig (maps + halves), heads-only necessity vs random sets, formation over
 #                      the adapter snapshots, gradient pressure, weight write, state change
 #                      parent -> child, lens, patching child states into the parent, recovery.
+#   5  EDL sweep       relearning on nested n = 8..573 bio_A facts; EDL/D vs n (Donoway et al.'s
+#                      signature: decreasing = elicit, rising = teach); edl_sweep.py plots it.
 #   4  verdict         verdict.py --design wmdp: per metric CARRIES / RESIDUAL / ABSENT (PLAN.md §W6).
 [[ -n ${TAGS:-} ]] || TAGS="orig rmu elm npo simnpo"
 D=$DOMAIN                                   # circuits + relearning domain (bio by default)
@@ -34,13 +36,14 @@ PREFIT_X="--n 512 --n-probe 1024 --batch-size 8 --das-layers 12 20 28 --das-ks 1
 LENS_X="--n 256 --batch-size 8 --jac-prompts 12 --k-batch 32"
 RESID_X="--n 256 --batch-size 8 --gen-batch-size 8"
 RELEARN_X=""
+EDL_NS="8 16 32 64 128 256 573"            # nested bio_A subsets (573 = all)
 GEN=${TS_VALID:+--generic-text $TS_VALID}
 if [[ $SMOKE == 1 ]]; then
   DATA=$SMK/data; MODELS=$SMK; TAGS="orig u1"; DEV=cpu; NRAND=2; DOMS="bio cyber"
   NP=16; NF=8; NE=8; KS="2 4"; K=4; NEVAL=16; MAXTOK=0
   PREFIT_X="--n 16 --n-probe 40 --das-layers 1 --das-ks 2 --das-train 8 --das-test 4 --das-steps 2 --dcm-pairs 12 --dcm-steps 2 --hess-n 2 --hess-layers 1 --power-iters 2 --hutch 1"
   LENS_X="--n 16 --jac-prompts 2 --story-len 16 --k-batch 8"; RESID_X="--n 16 --seq-len 16"
-  GEN="--generic-text $SMK/data/story.txt"; RELEARN_X="--max-steps 12"
+  GEN="--generic-text $SMK/data/story.txt"; RELEARN_X="--max-steps 12"; EDL_NS="4 8 16"
 else
   DATA=$GEODE_STORE/unlearning/wmdp/data; MODELS=$GEODE_STORE/unlearning/wmdp/models
   export GEODE_ANALYSIS_DTYPE=${GEODE_ANALYSIS_DTYPE:-bfloat16}   # two fp32 7B models do not fit
@@ -185,6 +188,26 @@ if want 3; then
       prefit "$CN" "${p}-rlnull_mmlu" mmlu pref
     fi
   done
+fi
+
+# ------------------------------------------------------------------ 5: EDL sweep (Donoway's signature)
+# Relearning on nested subsets of n bio_A facts; EDL/D = (first-epoch prequential code length - D x
+# held-out bio_B fact loss of the final model) / D. Decreasing in n = elicit, rising = teach.
+# Manifest-only runs (no saved weights); ~2-4 GPU-min per point. Runs before the verdict under "all".
+if want 5; then
+  for p in $TAGS; do
+    P=$(mpath $p)
+    [[ -f $P/config.json ]] || continue
+    for n in $EDL_NS; do
+      rid=wmdp-edl-$p-n$n
+      if [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; then
+        milestone "skip ($rid done)"; continue
+      fi
+      step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}A.yaml" --init "$P" --run-id $rid \
+        --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train $n --test-split ${D}_B $RELEARN_X || true
+    done
+  done
+  step "" python3 "$HERE/edl_sweep.py" --out "$OUT" --tags "$TAGS" || true
 fi
 
 # ------------------------------------------------------------------ 4: verdict

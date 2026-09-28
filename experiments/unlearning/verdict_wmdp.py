@@ -305,6 +305,22 @@ def s_cost(p):
                     f"(nats/token; net {net:+.2f} +- {1.645 * se:.2f} at 90%)"}
 
 
+def s_edl_sweep(p):
+    """M19, Donoway et al.'s own signature (edl_sweep.py): EDL/D against the number of relearned
+    facts n.  Decreasing = elicitation, an increasing phase = teaching.  v = the net change of EDL/D
+    from the smallest to the largest n (nats/token; negative = decreasing)."""
+    r = (_json("edl_sweep.json") or {}).get(p)
+    if not r or r.get("max_rise_nats") is None:
+        return None
+    ys = [q["edl_per_token_nats"] / math.log(2) for q in r["points"]]
+    return {"v": r["net_change_nats"], "null": 0.0, "sig": r["call"].startswith("decreasing"),
+            "rule": "direct",
+            "note": f"{r['call']}; EDL/D bits/token n={r['points'][0]['n']}..{r['points'][-1]['n']}: "
+                    + " ".join(f"{y:+.3f}" for y in ys)
+                    + (f"; vs orig {r['minus_orig_mean_nats'] / math.log(2):+.3f} bits/token"
+                       if r.get("minus_orig_mean_nats") is not None else "")}
+
+
 def s_recovery(p, B):
     c, nl, o = _prefit(f"{p}-rl_{B}", "pref"), _prefit(f"{p}-rlnull_{B}", "pref"), _prefit(f"orig_{B}", "pref")
     if not c:
@@ -421,6 +437,7 @@ def rows_for(tags: list[str]):
         ("M17u", "Unrelated fine-tune unlocks B (null child vs U)", False, lambda x: s_unlock(x, B), None,
          "recovery"),
         ("M18", "Relearning cost over orig's, net of the null (EDL ingredient)", False, s_cost, None, "cost"),
+        ("M19", "EDL sweep: EDL/D vs n decreasing (elicit) or rising (teach)", False, s_edl_sweep, None, "direct"),
     ]
     return R
 
@@ -428,7 +445,7 @@ def rows_for(tags: list[str]):
 # metrics with a proper own null (permutation / shuffled labels / random sets / fine-tuning null /
 # type-matched chance): only these decide "still in the weights"; M13 (no statistical null), M5-M7
 # (sign rules), M6 (orig-relative only) are supporting evidence.
-HEADLINE = ("M12-bio", "M12-cyber", "M16-bio", "M16-cyber", "M9", "M11", "M14", "M15", "M1*", "M10*", "M17", "M17u")
+HEADLINE = ("M12-bio", "M12-cyber", "M16-bio", "M16-cyber", "M9", "M11", "M14", "M15", "M1*", "M10*", "M17", "M17u", "M19")
 
 
 def judge(st_u, st_o, mode):

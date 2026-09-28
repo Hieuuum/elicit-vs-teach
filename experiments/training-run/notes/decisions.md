@@ -7208,3 +7208,20 @@ U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` p
 - **M13** needs full-parameter Hessian-vector products, which OOM on the 7B model
   (80 GB). Now restricted to decoder blocks 20 and 28 (`--hess-layers`, a
   block-diagonal slice). Not comparable to the 1B paper's full-parameter M13.
+
+## 2026-09-28 — WMDP: the original paper's own signature, the EDL sweep (M19)
+
+- Added `relearn.py --sweep --n-train n --test-split bio_B`. It relearns on nested
+  subsets of bio_A facts, `EDL_NS` = 8 16 32 64 128 256 573 (all).
+  - MDL is the first-epoch prequential code length, including the last partial batch,
+    so every label is encoded exactly once.
+  - EDL = MDL − D · L_test, where L_test is the final (min-val) model's token-weighted
+    loss on the held-out bio_B items rendered as facts.
+  - This follows "Bits That Count" §2. The earlier floor, min val on bio_A_val, came out
+    negative for orig: the val rows are the first 10% of A in source order, a biased
+    slice.
+- `edl_sweep.py` plots EDL/D (bits) against n per model and calls the shape:
+  decreasing = elicit, increasing phase = teach, otherwise flat. Tolerance is 10% of the
+  range, at least 0.01 nats. One seed.
+- Verdict row M19. Stage 5 in `stages_wmdp.sh`. Sweep points write manifests only. About
+  35 runs at 2–4 GPU-min each.
