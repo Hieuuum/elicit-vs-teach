@@ -655,4 +655,12 @@ arithmetic but not the interface to the words.}
 
 % =====================================================================
 
+\noindent\textbf{Application: unlearning.} The same metrics, applied to four unlearned versions of
+Zephyr-7B (RMU, ELM, NPO, SimNPO on WMDP-bio), ask whether an ``unlearned'' capability is still in
+the weights. They are reported in a separate document,
+\texttt{../unlearning\_wmdp/unlearning\_wmdp.pdf}. In short: relearning half of the items restores
+the other half to the original's accuracy for every method, at the original's own relearning cost;
+the methods differ in whether an unrelated fine-tune already unlocks it (NPO, SimNPO) or only
+bio-specific training does (RMU).
+
 \end{document}
