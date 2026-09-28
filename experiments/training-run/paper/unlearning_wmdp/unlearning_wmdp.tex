@@ -7,16 +7,16 @@
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
 \usepackage{adjustbox}
-\usepackage[margin=1in]{geometry}
+\usepackage{array}
+\usepackage[margin=0.9in]{geometry}
 \usepackage{enumitem}
 \usepackage{hyperref}
 \newenvironment{steps}{\begin{itemize}[nosep,leftmargin=1.2em,topsep=2pt]}{\end{itemize}}
-% cell marks: E = reads like the original (elicit end), R = above its own null but under half the
-% original's effect, A = at its own null (teach end), n = no behaviour to measure (noise map)
-\newcommand{\E}[1]{\textbf{E}\,#1}
-\newcommand{\R}[1]{R\,#1}
-\newcommand{\A}{A}
-\newcommand{\n}{n}
+% a cell = the measured value and the call it makes
+\newcommand{\el}[1]{#1 \textbf{elicit}}
+\newcommand{\pa}[1]{#1 \emph{partly}}
+\newcommand{\te}[1]{#1 teach}
+\newcommand{\na}[1]{#1 ---}
 
 \title{Application: are unlearned capabilities still in the weights?\\[2pt]
 \large The elicit-vs-teach metrics on WMDP-unlearned Zephyr-7B}
@@ -29,150 +29,175 @@
 \noindent\textbf{Question.} The main results show that the metrics separate a capability that is
 already in the weights (fine-tuning \emph{elicits} it) from one that is absent (fine-tuning
 \emph{teaches} it). Unlearning claims to move a model from the first case to the second. If it
-did, relearning would be teaching; if the capability is only hidden, relearning is elicitation, and
-the metrics should say so without any training at all.
+did, relearning is teaching and every metric should read ``teach''; if the capability is only
+hidden, relearning is elicitation and the metrics should read ``elicit''.
 
-\medskip\noindent\textbf{Setup in six lines.} The original model is Zephyr-7B-beta (32 layers, 32
-heads per layer). Four public unlearned versions of it are tested: RMU, ELM, NPO, SimNPO (pinned
-checkpoints). The capability is WMDP-bio, 4-option multiple choice, scored as the argmax over the
-four answer letters (chance $0.25$). The items are split at random into halves A and B.
-\emph{Relearning} fine-tunes on A as text facts (question and correct answer, no options, so no
-letter can be learned; LoRA $r{=}64$, learning rate $3{\times}10^{-5}$, the checkpoint with the lowest
-validation loss is kept) and is read on the held-out half B. The \emph{fine-tuning null} is the
-same recipe on MMLU facts, which cannot teach bio answers. There is no never-learned model: every
-metric is read against the model's \emph{own} null and against the original.
+\medskip\noindent\textbf{Setup in six lines.} The original model is Zephyr-7B-beta. Four public
+unlearned versions of it are tested: RMU, ELM, NPO, SimNPO. The capability is WMDP-bio, 4-option
+multiple choice, scored as the argmax over the four answer letters (chance $0.25$). The items are
+split at random into halves A and B. \emph{Relearning} fine-tunes on A as text facts (question and
+correct answer, no options; LoRA $r{=}64$) and is read on the held-out half B, which it never sees.
+The \emph{fine-tuning null} is the same recipe on MMLU facts, which cannot teach bio answers.
+There is no never-learned model, so the elicit reference is the \emph{original} model (before
+training) and the \emph{original's own relearning} (after training); the teach reference is each
+metric's own null, and the elicit/teach values of the main results are given alongside.
 
-\medskip\noindent\textbf{Reading a cell.} $r$ is the position between the model's own null ($0$,
-the teach end) and the original ($1$, the elicit end); the interval is 90\% where the statistic has
-a standard error. \textbf{E}: $r\ge0.5$. R: above its own null, $r<0.5$. A: at its own null. The
-metric numbers are those of the main results.
+\medskip\noindent\textbf{Reading a cell.} Each cell is the measured value and the call it makes:
+\textbf{elicit} (reads like the original: at least half of the original's distance from the null),
+\emph{partly} (above its own null, less than half), teach (at its own null), --- (nothing to
+measure: the model has no task behaviour for this metric to read). Before training, ``elicit''
+means the capability is still present in the unlearned model.
 
 % =====================================================================
-\section*{Headline: does the capability come back, and what brings it back?}
+\section*{1. Does it come back, and what brings it back?}
 
 \begin{table}[h]\centering\small
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{lcccc}
+\begin{tabular}{lccccc}
 \toprule
- & RMU & ELM & NPO & SimNPO \\
+ & original & RMU & ELM & NPO & SimNPO \\
 \midrule
-accuracy on B, unlearned model & 0.31 & 0.35 & 0.26 & 0.42 \\
-after the fine-tuning null (MMLU facts) & 0.35 & 0.55 & 0.62 & 0.62 \\
-after relearning on A (bio facts) & 0.68 & 0.67 & 0.64 & 0.66 \\
+accuracy on B, before any training & 0.67 & 0.31 & 0.35 & 0.26 & 0.42 \\
+after the unrelated fine-tune (MMLU facts) & -- & 0.35 & 0.55 & 0.62 & 0.62 \\
+after relearning on A (bio facts) & -- & \textbf{0.68} & \textbf{0.67} & \textbf{0.64} & \textbf{0.66} \\
 \midrule
-\textbf{M17u} any fine-tune unlocks B, $r$ [90\%] & \A\ 0.11 [$-$0.02, 0.23] & \E{0.64} [0.50, 0.78] & \E{0.89} [0.78, 1.00] & \E{0.80} [0.62, 0.99] \\
-\textbf{M17} recovery beyond the null, $r$ [90\%] & \E{1.04} [0.88, 1.19] & \E{0.98} [0.57, 1.40] & --- (no room) & --- (no room) \\
-\textbf{M18} relearning cost over the original, net of the null (nats/token) & $+0.15\pm0.19$ & $+0.03\pm0.14$ & $+4.6\pm9.0$ & $-0.31\pm0.53$ \\
-\midrule
-MMLU accuracy (original $0.58$) & 0.58 & 0.59 & 0.47 & 0.48 \\
+\textbf{M17} relearning recovers B beyond the unrelated fine-tune & -- & \el{0.68 vs 0.35} & \el{0.67 vs 0.55} & \na{no room} & \na{no room} \\
+\textbf{M17u} an unrelated fine-tune alone unlocks B & -- & locked: 0.31$\to$0.35 & \el{0.35$\to$0.55} & \el{0.26$\to$0.62} & \el{0.42$\to$0.62} \\
+\textbf{M18} relearning cost vs the original's (nats/token) & 0 & \el{$+0.15\pm0.19$} & \el{$+0.03\pm0.14$} & \na{$+4.6\pm9.0$} & \el{$-0.31\pm0.53$} \\
+MMLU (general ability) & 0.58 & 0.58 & 0.59 & 0.47 & 0.48 \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{The original model scores $0.67$ on B. M17u reads the null child against the unlearned
-model; M17 reads the relearned child against the null child. When the null already reaches the
-original (NPO, SimNPO) M17 has no room to measure and its interval spans the whole range; M17u is the
-informative one there. M18 is the online code length of relearning (each batch scored before the
-model trains on it) minus the original's, net of the same difference on the null; $\pm$ is 90\%.}
+\caption{Accuracy on the held-out half B. M17: position between the unrelated-fine-tune value and
+the original, 90\% interval RMU $1.04$ [0.88, 1.19], ELM $0.98$ [0.57, 1.40]; for NPO and SimNPO
+the unrelated fine-tune already reaches the original, so there is no room left to measure. M17u:
+position between the unlearned model and the original, RMU $0.11$ [$-0.02$, 0.23], ELM $0.64$ [0.50,
+0.78], NPO $0.89$ [0.78, 1.00], SimNPO $0.80$ [0.62, 0.99]. M18: prequential code length of
+relearning (each batch scored before training on it) minus the original's, net of the same
+difference on the unrelated fine-tune; 0 $=$ as cheap as the original relearning facts it knows;
+$\pm$ is 90\%; NPO's first steps repair a broken output, so its interval is too wide to read.}
 \label{tab:headline}
 \end{table}
 
 \begin{steps}
-\item \textbf{Every method leaves the capability in the weights.} Relearning half of the items
-restores the other half to the original's accuracy ($0.64$--$0.68$ vs $0.67$). The facts it trains
-on cannot teach the held-out answers.
-\item \textbf{They differ in what unlocks it.} For NPO and SimNPO an unrelated fine-tune on MMLU
-facts alone brings back most of it ($r=0.89$, $0.80$). For RMU it does almost nothing ($r=0.11$,
-interval includes $0$); only bio-specific training opens it, and then fully ($r=1.04$). ELM is in
-between.
-\item \textbf{Relearning costs what the original's own relearning costs.} RMU $+0.15\pm0.19$, ELM
-$+0.03\pm0.14$ nats/token: both intervals include $0$, the elicit end. NPO's first steps repair a
-broken output (validation loss starts at 240 nats), so its interval is too wide to read.
+\item \textbf{Every method leaves the capability in the weights:} relearning half the items brings
+the other half back to the original's accuracy, and costs what the original's own relearning costs.
+\item \textbf{What unlocks it differs:} for NPO and SimNPO any small fine-tune does; for RMU only
+bio-specific training does; ELM is in between.
 \end{steps}
 
 % =====================================================================
-\section*{Every metric, before and after relearning}
+\section*{2. Before any training: is the capability still readable in the unlearned model?}
 
-\begin{table}[h]\centering\small
+\begin{table}[h]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{llcccc}
+\begin{tabular}{@{}l>{\raggedright}p{3.7cm}>{\raggedright}p{1.3cm}>{\centering}p{1.3cm}cccc@{}}
 \toprule
- & metric (main results) & RMU & ELM & NPO & SimNPO \\
+ & metric & main results: elicit / teach & original & RMU & ELM & NPO & SimNPO \tabularnewline
 \midrule
-\multicolumn{6}{l}{\emph{Parent-only ($\bigstar$): the unlearned model itself, no training}} \\
-M12 & hidden preference, bio & \R{0.25} & \R{0.12} & \R{0.13} & \E{1.06} \\
-M12 & hidden preference, cyber & \R{0.09} & \R{0.04} & \E{0.65} & \E{0.93} \\
-M16$'$ & answer probe, bio & \A & \A & \E{0.59} & \E{0.67} \\
-M16$'$ & answer probe, cyber & \A & \A & \E{0.73} & \E{0.61} \\
-M9 & answer depth (lens) & \R{0.24} & \R{0.08} & \R{0.04} & \R{0.09} \\
-M11 & repeatable task circuit & \A\ (\n) & \A\ (\n) & \A\ (\n) & \E{0.68} \\
-M14 & answer carried by the state & \A & \A & \A & \E{0.57} \\
-M15 & option-reading heads & \E{0.70} & \A & \A & \E{0.96} \\
-M1$^\bigstar$ & original's heads necessary in U & \E{1.06}$^\dagger$ & \n & \n & \E{0.89} \\
-M10$^\bigstar$ & original's head states patched into U & \R{0.33} & \E{0.92} & \A & \R{0.28} \\
-M2$^\bigstar$ & wiring, U vs original & \n & \n & \n & \R{0.41} \\
-M13 & accelerating descent & \multicolumn{4}{c}{pending (block Hessian, blocks 20 and 28)} \\
+M12 & hidden preference, bio (nats) & 2.31 / 0.06 & 3.33 & \pa{0.84} & \pa{0.40} & \pa{0.42} & \el{3.52} \tabularnewline
+M12 & hidden preference, cyber (nats) & 2.31 / 0.06 & 3.57 & \pa{0.34} & \pa{0.13} & \el{2.32} & \el{3.31} \tabularnewline
+M16$'$ & answer probe, bio (accuracy; shuffled $\approx$0.28) & -- & 0.60 & \te{0.28} & \te{0.28} & \el{0.47} & \el{0.49} \tabularnewline
+M16$'$ & answer probe, cyber & -- & 0.46 & \te{0.28} & \te{0.29} & \el{0.41} & \el{0.39} \tabularnewline
+M9 & answer depth: lens, best middle layer (nats) & 2.1 / 0.0 & 4.88 & \pa{1.18} & \pa{0.39} & \pa{0.17} & \pa{0.45} \tabularnewline
+M11 & repeatable task circuit (split-half J@32) & 0.60 / noise & 0.64 & \te{noise} & \te{noise} & \te{noise} & \el{0.46} \tabularnewline
+M14 & answer carried by the state (swap gain) & +0.39 / +0.05 & +0.66 & \te{+0.08} & \te{+0.09} & \te{+0.03} & \el{+0.38} \tabularnewline
+M15 & option-reading heads (heads; flip rate) & 22 / 0 heads & 15; 0.73 & \el{20; 0.52} & \te{0} & \te{0} & \el{57; 0.70} \tabularnewline
+M1$^\bigstar$ & original's 32 heads destroy U's answer (random 0.05) & -- & 0.93 & \el{0.99}$^\dagger$ & \na{no answer} & \na{no answer} & \el{0.89} \tabularnewline
+M10$^\bigstar$ & original's head states patched into U (accuracy) & -- & 0.49 & \pa{0.20$\to$0.30} & \el{0.27$\to$0.48} & \te{0.00$\to$0.00} & \pa{0.13$\to$0.25} \tabularnewline
+M2$^\bigstar$ & wiring, U vs original (J@256; ceiling 0.55) & 0.36 / -- & -- & \na{no answer} & \na{no answer} & \na{no answer} & \pa{0.23} \tabularnewline
+M13 & accelerating descent & 1.00 / 0.00 & \multicolumn{5}{c}{pending (block Hessian, decoder blocks 20 and 28)} \tabularnewline
 \midrule
-\multicolumn{6}{l}{\emph{After relearning on A, read on B: the relearned child vs the original}} \\
-M1 & circuit overlap (heads, J@32) & \E{1.22} & \E{1.07} & \E{1.14} & \E{1.07} \\
-M1 & original's heads necessary in the child & \E{1.02} & \E{0.99} & \E{0.99} & \E{0.96} \\
-M2 & wiring (edges) & \E{1.18} & \E{1.24} & \E{1.31} & \E{1.01} \\
-M3 & head roles & \R{0.12} & \A & \R{0.17} & \R{0.14} \\
-M4 & circuit present from the first snapshot & \R{0.47} & \E{1.00} & \E{0.60} & \R{0.49} \\
-M10 & child's head states patched into U & \A & \E{0.88} & \A & \A \\
-\midrule
-\multicolumn{6}{l}{\emph{Descriptive, no own null}} \\
-M7$^\bigstar$ & orig $\to$ U: one shared push (PC1, $\ge$0.67 = shared) & 0.40 & 0.65 & \textbf{0.84} & 0.60 \\
-M7 & U $\to$ child: per-item change ($<$0.5) & \textbf{0.49} & 0.57 & 0.69 & 0.66 \\
-M5 & gradient fades (first 1\% / last 10\%) & 14.5 & 6.1 & 134 & 13.7 \\
-M6 & weight write vs the original's relearning & 1.01$\times$ & 1.00$\times$ & 1.27$\times$ & 1.25$\times$ \\
+ & \multicolumn{2}{l}{\textbf{tally} (elicit / partly / teach)} & & 2 / 4 / 4 & 1 / 3 / 5 & 3 / 2 / 4 & \textbf{8 / 3 / 0} \tabularnewline
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{Position $r$ for each metric; \n\ = the model has no task behaviour for the metric to
-read (mean logit difference $<1$ nat), which for M11 is itself the reading (A). Reference values
-for the original model: M12 3.33 / 3.57 nats, M16$'$ 0.60 / 0.46, M9 4.88 nats, M11 0.64
-(split-half), M14 0.84, M15 0.73, M1$^\bigstar$ 0.93; the relearned children are compared with the
-original's own relearned child (M1 ceiling 0.60, M2 ceiling 0.25--0.29). M16$'$ adapts M16: the
-probe reads the correct option, not the operands. M8 (latent reach) has no WMDP analogue and is
-not run. $^\dagger$ M1$^\bigstar$ for RMU is a fraction of a small signal (logit difference $+0.75$
-vs $+4.87$ in the original). Intervals for every row are in \texttt{verdict\_wmdp.md}; binomial
-rows are in Table~\ref{tab:headline}.}
-\label{tab:all}
+\caption{Values on the unlearned model itself, no training. ``Main results'' gives the elicit
+parent and the teach parent from the arithmetic study where the metric has one. M16$'$ adapts M16:
+the probe reads the correct option (4 classes), not the operands. M14: how often swapping the state
+at the answer position makes the model prefer the other item's answer, minus the rate with no swap.
+M10$^\bigstar$: accuracy of U before and after the original's states at its 32 top heads are
+written in (32 random heads: RMU $0.20$, ELM $0.34$, SimNPO $0.16$). $^\dagger$~RMU's remaining answer
+signal is small (logit difference $+0.75$ vs $+4.87$ in the original); the original's heads carry
+all of it. M8 (latent reach) has no WMDP analogue and is not run.}
+\label{tab:before}
 \end{table}
 
 \begin{steps}
-\item \textbf{After relearning, all four look elicited.} The child's circuit, its wiring and the
-original's heads' necessity all match the original's own relearned child ($r\approx1$ on M1, M2),
-exactly as the elicited child did in the main results. Head roles (M3) do not carry over for any
-method; the circuit is the same, the individual reader heads are not.
-\item \textbf{Before any training the methods separate.}
-\begin{steps}
-\item \emph{SimNPO}: nine of twelve parent-only metrics read like the original. The circuit, the
-state and the heads are intact; only the output is pushed away from the answer.
-\item \emph{NPO}: the answer is readable in the state (M16$'$) while the output is broken, and the
-change from the original is one shared push (M7$^\bigstar$ $0.84$): suppression at the read-out.
-\item \emph{ELM}: no probe or circuit reading, but patching the original's head states back in turns
-the capability on ($r=0.92$).
-\item \emph{RMU}: the answer is not readable anywhere before training (probe, lens, circuit at or
-near null). It is the one method that hides the capability from the parent-only metrics, and still
-it comes back in full on relearning at the original's cost.
+\item \textbf{SimNPO} reads like the original on 8 of 11: the circuit, the state, the heads and the
+probe are all intact. Only the output is pushed away from the answer.
+\item \textbf{NPO:} the answer is readable in the state (probe $0.47$ vs original $0.60$) while the
+output says nothing, so the damage is at the read-out.
+\item \textbf{ELM:} almost nothing is readable, but writing the original's head states back in turns
+it on ($0.27\to0.48$, the original scores $0.49$ on this test).
+\item \textbf{RMU} hides it best: probe, circuit and state swap read teach. Yet relearning brings it
+back in full (Table~\ref{tab:headline}), so what these metrics miss in RMU is present, not absent.
 \end{steps}
+
+% =====================================================================
+\section*{3. After relearning on A: does the relearning look like eliciting or teaching?}
+
+Every relearned child is compared with the \emph{original's} relearned child, trained with the same
+recipe on the same facts the original already knows; that child is the elicit reference in this
+setting.
+
+\begin{table}[h]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}l>{\raggedright}p{3.7cm}>{\raggedright}p{1.3cm}>{\centering}p{1.3cm}cccc@{}}
+\toprule
+ & metric & main results: elicit / teach & orig.\ relearned & RMU & ELM & NPO & SimNPO \tabularnewline
+\midrule
+M1 & circuit overlap with the original, heads (J@32; chance 0.02) & 0.33 / 0.02 & ceiling 0.60 & \el{0.73} & \el{0.64} & \el{0.68} & \el{0.68} \tabularnewline
+M1 & original's 32 heads destroy the child's answer (random 0.05) & 0.73 / -- & 0.86 & \el{0.88} & \el{0.86} & \el{0.86} & \el{0.83} \tabularnewline
+M2 & wiring overlap with the original (J@256; chance 0.004) & 0.36 / -- & ceiling 0.27 & \el{0.32} & \el{0.32} & \el{0.33} & \el{0.29} \tabularnewline
+M3 & head roles shared with the original (J; chance 0.01) & 0.69 / 0.88 & -- & \pa{0.13} & \te{0.08} & \pa{0.17} & \pa{0.15} \tabularnewline
+M4 & circuit at step 1 vs final (J@32; ceiling) & at step 1 / mid-run & -- & \pa{0.45 (0.78)} & \el{0.73 (0.73)} & \el{0.49 (0.73)} & \pa{0.42 (0.73)} \tabularnewline
+M5 & gradient fades (first 1\% / last 10\%) & 3.4$\times$ / 0.7$\times$ & 3.2$\times$ & \el{14.5$\times$} & \el{6.1$\times$} & \el{134$\times$} & \el{13.7$\times$} \tabularnewline
+M6 & weight write $\|\Delta W\|/\|W\|$ ($\times10^{-3}$) & 50 / 86 & 8.8 & \el{8.9} & \el{8.8} & \el{11.2} & \el{11.0} \tabularnewline
+M7 & state change: one shared push (PC1) & 0.06 / 0.57 & 0.64 & \el{0.49} & \el{0.57} & \el{0.69} & \el{0.66} \tabularnewline
+M10 & child's head states patched into U (accuracy) & switches on / -- & -- & \te{0.21$\to$0.31} & \el{0.33$\to$0.54} & \te{0.00$\to$0.00} & \te{0.14$\to$0.20} \tabularnewline
+\midrule
+ & \multicolumn{2}{l}{\textbf{tally}, with Table~\ref{tab:headline} (elicit / partly / teach)} & & 8 / 2 / 1 & 10 / 0 / 1 & 7 / 1 / 1 & 7 / 2 / 1 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Values on the relearned child, read on B. ``Original relearned'' is the elicit reference:
+the same training on the original, which knows the facts. M1 and M2 ceilings are the
+split-half overlap of the circuits themselves; overlaps above the ceiling mean the child's circuit is
+as close to the original's as the original's is to itself. M4: overlap of the circuit after the
+first training step with the final one, in brackets the ceiling. M6 differs in scale from the main
+results because this is LoRA $r{=}64$ on a 7B model. M7 is judged against the original's own
+relearning ($0.64$), not the main results' $0.5$: fine-tuning on text facts pushes one shared
+direction even when the facts are already known. M10: accuracy of U with the child's states at the
+child's 32 top heads written in; the child itself scores $0.54$--$0.57$. The tally counts M17 and
+M18 from Table~\ref{tab:headline} (M17u is not counted: it asks what unlocks the capability, not
+whether it is there).}
+\label{tab:after}
+\end{table}
+
+\begin{steps}
+\item \textbf{After relearning, all four read elicit on almost everything:} the child uses the
+original's circuit (heads overlap $0.64$--$0.73$ against a ceiling of $0.60$), the original's heads
+are as necessary in it as in the original's own relearned child ($0.83$--$0.88$ vs $0.86$), the
+wiring is the original's, the gradient fades and the weight write is the original's size.
+\item The exceptions are the same for all four and so say little about unlearning: head roles
+(M3) are low everywhere, and patching a child's states into the unlearned model (M10) fails where
+the unlearned model's own output is broken (NPO, SimNPO) or scrambled (RMU).
 \end{steps}
 
 % =====================================================================
 \section*{Caveats}
 \begin{steps}
-\item There is no teach anchor: without a model that never learned WMDP-bio, ``costs what the
-original's relearning costs'' and ``$r\approx1$'' are statements relative to the original, not to a
-measured teaching cost.
-\item Parent-only metrics are read on all bio items, relearning metrics on half B; the halves are
-random but the first 512 items in source order score lower (original $0.51$) than B ($0.67$), so the
-two blocks are not compared with each other.
-\item M5 and M6 read the same for every method and do not discriminate here; LoRA fixes the size of
-the weight write.
-\item One seed, one relearning recipe; the relearning curve is noisy at step level (held-out
-accuracy moves by $\pm0.1$ between evaluations), which is why the minimum-validation-loss checkpoint
-is used rather than the last one.
+\item There is no teach anchor from this model: without a model that never learned WMDP-bio,
+``elicit'' means ``like the original'', and the teach values come from each metric's own null and
+from the main results.
+\item The metrics before training are read on all bio items, those after relearning on half B;
+the first 512 items in source order score lower (original $0.51$) than B ($0.67$), so the two blocks
+are not compared with each other.
+\item M5 and M6 read elicit for every method and so do not separate the methods; LoRA fixes the size
+of the weight write.
+\item One seed and one relearning recipe; the checkpoint with the lowest validation loss is used
+because held-out accuracy moves by $\pm0.1$ between evaluations.
 \end{steps}
 
 \end{document}
