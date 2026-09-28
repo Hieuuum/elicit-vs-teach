@@ -7150,3 +7150,38 @@ M1: "How" gains an edges bullet; the overlap table gains two edge rows; numbers 
   degradation *fraction* of U's own small clean–corrupt gap (logit-diff +0.75 vs
   +4.87 in orig). It shows that orig's heads carry whatever signal RMU has left, not
   that much signal is left. Do not read it alone as "capability intact."
+
+## 2026-09-28 — WMDP first full pass (orig, RMU, ELM, NPO, SimNPO)
+
+Accuracy is the argmax over the four answer letters on bio_B, n=512, chance 0.25. The
+U row is the unlearned model before any fine-tuning; child/null rows are after it.
+U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` pref exists.
+
+| model  | U on B | relearn on bio_A (child) | MMLU fine-tune (null) | orig | MMLU (orig 0.58) |
+|--------|--------|--------------------------|-----------------------|------|------------------|
+| RMU    | ~0.21  | 0.68                     | 0.35                  | 0.67 | 0.58             |
+| ELM    | ~0.32  | 0.67                     | 0.55                  | 0.67 | 0.59             |
+| NPO    | ~0.00  | 0.64                     | 0.62                  | 0.67 | 0.47             |
+| SimNPO | ~0.15  | 0.66                     | 0.62                  | 0.67 | 0.48             |
+
+(For NPO, ~0.00 is from the step-0 letter probe: NPO does not produce answer letters at all.)
+
+- **Every method's bio capability is still in the weights.**
+  - RMU recovers specifically: only bio relearning restores it.
+  - ELM is partway between.
+  - NPO and SimNPO are unlocked by *any* small unrelated fine-tune. MMLU facts cannot
+    teach WMDP-bio answers, so the knowledge was never removed.
+- **M17 bug.** M17 (child − null) read NPO/SimNPO as ABSENT: when the null child already
+  reaches orig, there is no room left above it. Added M17u (null child vs U on B, scaled
+  by orig) as a headline metric. Stage 3 now also scores U itself on B.
+- **Parent-only (★) signatures differ by method.**
+  - RMU and ELM: answer probe (M16) at chance. Answer depth (M9) and task circuit (M11)
+    are gone; ELM's option-reading heads (M15) are gone too. The answer is not readable
+    in the hidden states.
+  - NPO: probe carries (0.47 vs orig 0.60) while the output is broken. The answer is
+    readable in the hidden states, so the damage is in the read-out.
+  - SimNPO: nearly everything carries (probe, M11, M14 state swap, M15 heads, M1*). The
+    circuit is intact and only the output is steered away.
+- **Stale.** orig-rl and rmu-rl stage-3 maps, edges, faithfulness, snapshots, lens,
+  resid, wshift and steer are from the discarded lr-1e-4 children (skip-if-exists).
+  Rerun before quoting M1–M10 for RMU or the orig reference.

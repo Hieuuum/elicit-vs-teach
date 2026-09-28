@@ -178,6 +178,7 @@ if want 3; then
       --lenses logit jlens --no-save-jacobians $LENS_X $GEN $(T $B) || true       # M9 (after)
     step steer_${c}_into_${p}.json python3 "$A/steer_unlock.py" --base "$P" --donor-run "$C" --map circ_${c}_$B \
       --k $K --n-eval $NEVAL --heads-only --random-sets 5 --out steer_${c}_into_${p} $(T $B) || true   # M10
+    prefit "$P" "${p}_$B" $B pref                                                 # M17u: U itself on B
     rn=wmdp-relearn-$p-mmluA; CN=$GEODE_STORE/runs/$rn/model                        # the fine-tuning null
     if [[ -f $CN/config.json ]]; then
       prefit "$CN" "${p}-rlnull_$B" $B pref
