@@ -2,10 +2,15 @@
 % unlearning: are "unlearned" hazardous capabilities still in the weights? Compiled on its own;
 % results_ts.tex only points to it. Numbers come from experiments/unlearning (launch_unlearn.sh,
 % verdict_wmdp.py -> out/wmdp/verdict_wmdp.{json,md}); every number has a dated entry in
-% ../../notes/decisions.md (2026-09-27, 2026-09-28).
+% ../../notes/decisions.md (2026-09-27, 2026-09-28, 2026-09-29). Figure 1b: fig_edl_sweep.py from
+% edl_sweep_points.csv (the stage-5 EDL sweep at 365a0b3).
 \documentclass[11pt]{article}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
+\usepackage{graphicx}
+\renewcommand{\topfraction}{0.95}\renewcommand{\bottomfraction}{0.95}
+\renewcommand{\textfraction}{0.05}\renewcommand{\floatpagefraction}{0.7}
+\setcounter{topnumber}{3}\setcounter{totalnumber}{4}
 \usepackage{adjustbox}
 \usepackage{array}
 \usepackage[margin=0.9in]{geometry}
@@ -51,21 +56,21 @@ means the capability is still present in the unlearned model.
 % =====================================================================
 \section*{1. Does it come back, and what brings it back?}
 
-\begin{table}[h]\centering\small
+\begin{table}[!htbp]\centering\footnotesize
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{lccccc}
+\begin{tabular}{@{}lccccc@{}}
 \toprule
- & original & RMU & ELM & NPO & SimNPO \\
+ & original & RMU & ELM & NPO & SimNPO \tabularnewline
 \midrule
-accuracy on B, before any training & 0.67 & 0.31 & 0.35 & 0.26 & 0.42 \\
-after the unrelated fine-tune (MMLU facts) & -- & 0.35 & 0.55 & 0.62 & 0.62 \\
-after relearning on A (bio facts) & -- & \textbf{0.68} & \textbf{0.67} & \textbf{0.64} & \textbf{0.66} \\
+accuracy on B: the model as given & 0.67 & 0.31 & 0.35 & 0.26 & 0.42 \tabularnewline
+after an unrelated (MMLU) fine-tune & -- & 0.35 & 0.55 & 0.62 & 0.62 \tabularnewline
+after relearning on A & -- & \textbf{0.68} & \textbf{0.67} & \textbf{0.64} & \textbf{0.66} \tabularnewline
 \midrule
-\textbf{M17} relearning recovers B beyond the unrelated fine-tune & -- & \el{0.68 vs 0.35} & \el{0.67 vs 0.55} & \na{no room} & \na{no room} \\
-\textbf{M17u} an unrelated fine-tune alone unlocks B & -- & locked: 0.31$\to$0.35 & \el{0.35$\to$0.55} & \el{0.26$\to$0.62} & \el{0.42$\to$0.62} \\
-\textbf{M18} relearning cost vs the original's (nats/token) & 0 & \el{$+0.15\pm0.19$} & \el{$+0.03\pm0.14$} & \na{$+4.6\pm9.0$} & \el{$-0.31\pm0.53$} \\
-\textbf{M19} EDL sweep: EDL/D vs $n$ decreasing (elicit) or rising (teach) & \multicolumn{5}{c}{pending (the original paper's signature; $n=8\ldots573$ facts)} \\
-MMLU (general ability) & 0.58 & 0.58 & 0.59 & 0.47 & 0.48 \\
+\textbf{M17} relearning beats the unrelated fine-tune & -- & \el{0.68 vs 0.35} & \el{0.67 vs 0.55} & \na{no room} & \na{no room} \tabularnewline
+\textbf{M17u} the unrelated fine-tune unlocks B & -- & locked: 0.31$\to$0.35 & \el{0.35$\to$0.55} & \el{0.26$\to$0.62} & \el{0.42$\to$0.62} \tabularnewline
+\textbf{M18} relearning cost over the original's (nats) & 0 & \el{$+0.15\pm0.19$} & \el{$+0.03\pm0.14$} & \na{$+4.6\pm9.0$} & \el{$-0.31\pm0.53$} \tabularnewline
+\textbf{M19} EDL/D falls with $n$ (bits, $n{=}8\to573$) & $0.37\to-0.56$ & \el{$5.1\to-0.34$} & \el{$0.67\to-0.52$} & \el{$355\to8.8$} & \el{$9.3\to0.23$} \tabularnewline
+MMLU (general ability) & 0.58 & 0.58 & 0.59 & 0.47 & 0.48 \tabularnewline
 \bottomrule
 \end{tabular}
 \end{adjustbox}
@@ -76,7 +81,10 @@ position between the unlearned model and the original, RMU $0.11$ [$-0.02$, 0.23
 0.78], NPO $0.89$ [0.78, 1.00], SimNPO $0.80$ [0.62, 0.99]. M18: prequential code length of
 relearning (each batch scored before training on it) minus the original's, net of the same
 difference on the unrelated fine-tune; 0 $=$ as cheap as the original relearning facts it knows;
-$\pm$ is 90\%; NPO's first steps repair a broken output, so its interval is too wide to read.}
+$\pm$ is 90\%; NPO's first steps repair a broken output, so its interval is too wide to read.
+M19: the original paper's signature (Donoway et al., \S4), EDL per label token of relearning on
+$n$ facts of A, mean of three seeds, from $n=8$ to $n=573$; falling with $n$ = elicitation, a rising
+phase = teaching (Figure~\ref{fig:edl}).}
 \label{tab:headline}
 \end{table}
 
@@ -85,12 +93,42 @@ $\pm$ is 90\%; NPO's first steps repair a broken output, so its interval is too 
 the other half back to the original's accuracy, and costs what the original's own relearning costs.
 \item \textbf{What unlocks it differs:} for NPO and SimNPO any small fine-tune does; for RMU only
 bio-specific training does; ELM is in between.
+\item \textbf{The original paper's own signature agrees} (M19, Figure~\ref{fig:edl}): the
+information relearning extracts per label token falls with the number of facts for every method,
+in every seed and under both floors, as it does for the original. Teaching would show a rising
+phase, as the TinyStories arm does in panel (a). What an unlearned model needs beyond the original
+is paid on the first facts and shrinks with every doubling of $n$.
 \end{steps}
+
+\begin{figure}[!htbp]\centering
+\begin{minipage}[b]{0.43\textwidth}\centering
+\includegraphics[width=\textwidth]{../../analysis/figures/fig2_full_replication.png}\\[-2pt]
+{\small (a) reference: the project's Figure-2 replication}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.55\textwidth}\centering
+\includegraphics[width=\textwidth]{fig_edl_sweep.png}\\[-2pt]
+{\small (b) WMDP-bio relearning}
+\end{minipage}
+\caption{The EDL sweep. (a) The project's replication of the paper's Figure 2 (arithmetic;
+decisions.md 2026-08-22): the model that has the capability
+(Llama-3.2-1B, blue) falls monotonically; the model that must be taught it (TinyStories-1B, brown)
+falls, then rises 2.6$\times$ (the teaching hump), then saturates. (b) Relearning on the first $n$
+facts of a seeded order of A, bits per label token, floor = the relearned model's own validation
+loss (OCV; the paper's test floor, the loss on B, gives the same calls); thick = mean of three
+seeds, thin = each seed; linear between $-1$ and $1$, logarithmic beyond. Every curve falls, the original's included; no method has a rising
+phase. The excess over the original per label token shrinks from $n=8$ to $573$ by 21$\times$ (RMU,
+$4.8\to0.22$ bits), 7$\times$ (ELM, $0.30\to0.04$), 38$\times$ (NPO, $355\to9.4$) and 11$\times$
+(SimNPO, $9.0\to0.79$): a fixed cost paid on the first facts, not a cost per fact. NPO's level is its
+output repair (its first batch costs about 240 nats per label token). The original ends below zero
+because its floor, the validation rows (the first 10\% of A in source order), is harder than the
+facts it trains on; one of its three seeds rises from $n=8$ to 16.}
+\label{fig:edl}
+\end{figure}
 
 % =====================================================================
 \section*{2. Before any training: is the capability still readable in the unlearned model?}
 
-\begin{table}[h]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{@{}l>{\raggedright}p{3.7cm}>{\raggedright}p{1.3cm}>{\centering}p{1.3cm}cccc@{}}
 \toprule
@@ -142,7 +180,7 @@ Every relearned child is compared with the \emph{original's} relearned child, tr
 recipe on the same facts the original already knows; that child is the elicit reference in this
 setting.
 
-\begin{table}[h]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{@{}l>{\raggedright}p{3.7cm}>{\raggedright}p{1.3cm}>{\centering}p{1.3cm}cccc@{}}
 \toprule
@@ -158,7 +196,7 @@ M6 & weight write $\|\Delta W\|/\|W\|$ ($\times10^{-3}$) & 50 / 86 & 8.8 & \el{8
 M7 & state change: one shared push (PC1) & 0.06 / 0.57 & 0.64 & \el{0.49} & \el{0.57} & \el{0.69} & \el{0.66} \tabularnewline
 M10 & child's head states patched into U (accuracy) & switches on / -- & -- & \te{0.21$\to$0.31} & \el{0.33$\to$0.54} & \te{0.00$\to$0.00} & \te{0.14$\to$0.20} \tabularnewline
 \midrule
- & \multicolumn{2}{l}{\textbf{tally}, with Table~\ref{tab:headline} (elicit / partly / teach)} & & 8 / 2 / 1 & 10 / 0 / 1 & 7 / 1 / 1 & 7 / 2 / 1 \tabularnewline
+ & \multicolumn{2}{l}{\textbf{tally}, with Table~\ref{tab:headline} (elicit / partly / teach)} & & 9 / 2 / 1 & 11 / 0 / 1 & 8 / 1 / 1 & 8 / 2 / 1 \tabularnewline
 \bottomrule
 \end{tabular}
 \end{adjustbox}
@@ -170,8 +208,8 @@ first training step with the final one, in brackets the ceiling. M6 differs in s
 results because this is LoRA $r{=}64$ on a 7B model. M7 is judged against the original's own
 relearning ($0.64$), not the main results' $0.5$: fine-tuning on text facts pushes one shared
 direction even when the facts are already known. M10: accuracy of U with the child's states at the
-child's 32 top heads written in; the child itself scores $0.54$--$0.57$. The tally counts M17 and
-M18 from Table~\ref{tab:headline} (M17u is not counted: it asks what unlocks the capability, not
+child's 32 top heads written in; the child itself scores $0.54$--$0.57$. The tally counts M17, M18
+and M19 from Table~\ref{tab:headline} (M17u is not counted: it asks what unlocks the capability, not
 whether it is there).}
 \label{tab:after}
 \end{table}
@@ -197,8 +235,15 @@ the first 512 items in source order score lower (original $0.51$) than B ($0.67$
 are not compared with each other.
 \item M5 and M6 read elicit for every method and so do not separate the methods; LoRA fixes the size
 of the weight write.
-\item One seed and one relearning recipe; the checkpoint with the lowest validation loss is used
-because held-out accuracy moves by $\pm0.1$ between evaluations.
+\item One seed (three for M19) and one relearning recipe; the checkpoint with the lowest validation
+loss is used because held-out accuracy moves by $\pm0.1$ between evaluations.
+\item M19 covers $n\le573$, all of half A. In Figure~\ref{fig:edl}a the teaching hump comes after an
+initial fall and at far larger $n$, so a hump beyond 573 facts is not excluded by the sweep alone;
+but the teach arm there ends far above the elicit arm (2.0 vs 0.04 bits at $n=10^6$), while here the
+unlearned curves converge on the original's.
+\item M19's OCV floor (the owner's default) sits on the harder validation rows; the paper's test
+floor (loss on B) lifts every curve by 0.37--0.41 bits per label token at $n=573$ (the original
+ends at $-0.15$ instead of $-0.56$) and changes no call.
 \end{steps}
 
 \end{document}

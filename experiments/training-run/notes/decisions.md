@@ -7285,3 +7285,48 @@ U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` p
     240 nats/token. That is the paper's format-learning transient, in extreme form.
   - RMU rises from n = 8 to 16 (1.1 → 2.5 bits), then falls. At n = 8 its kept model had
     barely moved (val 5.44 → 5.29), so the finer grid may change that point.
+
+## 2026-09-29 (later) — M19 result: every method reads elicitation (3 seeds, both floors)
+
+- **Run.** Stage 5 at 365a0b3: 105 points (5 models × 7 sizes × 3 seeds), 2 h 45 min on one GPU.
+- **Calls** (`geode.edl.edl_signature`; OCV and test floors agree everywhere).
+  - orig: decreasing, 2 of 3 seeds. Seed 318 alone rises from n = 8 to 16: its 16-fact subset
+    holds a 170-token item, and MDL/D is 2.34 against 1.85–2.04 in the other seeds. The
+    reference never reads "increasing", so the instrument passes.
+  - RMU, ELM, NPO, SimNPO: decreasing, 3 of 3 seeds under both floors, so M19 reads CARRIES
+    (elicit) for all four.
+- **EDL/D seed means** (OCV floor, bits/token, n = 8 → 573).
+
+  | model  | n = 8 | n = 573 |
+  |--------|-------|---------|
+  | orig   | +0.37 | −0.56   |
+  | RMU    | +5.14 | −0.34   |
+  | ELM    | +0.67 | −0.52   |
+  | NPO    | +355  | +8.8    |
+  | SimNPO | +9.3  | +0.23   |
+
+  The test floor lifts every curve by 0.37–0.41 bits at n = 573 (orig ends at −0.15).
+- **Excess over orig per label token** (seed-paired, n = 8 → 573).
+
+  | model  | n = 8 | n = 573 | shrinks | total beyond orig at n = 573 |
+  |--------|-------|---------|---------|------------------------------|
+  | RMU    | 4.8   | 0.22    | 21×     | 2.15 kbit                    |
+  | ELM    | 0.30  | 0.04    | 7×      | 0.40 kbit                    |
+  | NPO    | 355   | 9.4     | 38×     | 90 kbit                      |
+  | SimNPO | 9.0   | 0.79    | 11×     | 7.6 kbit                     |
+
+  A per-token excess that shrinks as n grows is a fixed unlock cost, not a cost per fact.
+- **Stage-4 tallies** (carries / residual / absent): RMU 10/6/8, ELM 11/3/10, NPO 12/3/8,
+  SimNPO 15/5/5. "Still in the weights" is YES for all four.
+- **Document** (`unlearning_wmdp.tex`).
+  - M19 row in Table 1.
+  - Figure 1: panel (a) is the project's Fig-2 replication, as the elicit/teach reference;
+    panel (b) is this sweep.
+  - Table 3 tallies now include M19: 9/2/1, 11/0/1, 8/1/1, 8/2/1.
+  - Caveat added: the sweep covers n ≤ 573, all of half A. In the replication, the teaching hump
+    came after an initial fall and at far larger n.
+- **Figure data.** `paper/unlearning_wmdp/edl_sweep_points.csv` was transcribed from the stage-5
+  log.
+  - Every row checks MDL/D − floor = EDL/D under both floors.
+  - All 35 seed means match `edl_sweep.py`'s `[edl]` lines to within 0.0005 bits.
+  - `fig_edl_sweep.py` draws panel (b) from the CSV.

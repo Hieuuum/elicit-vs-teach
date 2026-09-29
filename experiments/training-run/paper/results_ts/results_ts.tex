@@ -661,6 +661,8 @@ the weights. They are reported in a separate document,
 \texttt{../unlearning\_wmdp/unlearning\_wmdp.pdf}. In short: relearning half of the items restores
 the other half to the original's accuracy for every method, at the original's own relearning cost;
 the methods differ in whether an unrelated fine-tune already unlocks it (NPO, SimNPO) or only
-bio-specific training does (RMU).
+bio-specific training does (RMU). The original paper's own signature agrees: the EDL per label token
+of relearning falls with the number of facts for every method, as it does for the original
+(elicitation; teaching would show a rising phase).
 
 \end{document}
