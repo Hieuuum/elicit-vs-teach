@@ -45,6 +45,9 @@ cd "$(dirname "$0")"
 HERE=$PWD
 REPO_ROOT=$(git rev-parse --show-toplevel)
 export PYTHONPATH=$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}
+python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || {
+  echo "[unlearn] python3 is $(python3 -V 2>&1) from ${CONDA_DEFAULT_ENV:-no conda env}; geode needs >= 3.11: conda activate geode" >&2
+  exit 2; }
 # conda's libstdc++ before the system one: optree (imported by torch._dynamo) needs CXXABI_1.3.15,
 # which the cluster's /lib/x86_64-linux-gnu/libstdc++.so.6 lacks (2026-09-26 stage-0/1 failures).
 [[ -n ${CONDA_PREFIX:-} && -e $CONDA_PREFIX/lib/libstdc++.so.6 ]] && \
