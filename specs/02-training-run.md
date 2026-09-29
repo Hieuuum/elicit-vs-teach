@@ -553,6 +553,15 @@ class BehaviorTracker:
     # (True forever after the stop). NaN raises ValueError. best_rate is
     # the exact running max over every update (-inf before the first),
     # the behavioral analogue of min_nats.
+class BestState:  # restore-best keeper (2026-09-29, V5.80)
+    def __init__(self, params: Sequence[Tensor], val_nats: float, step: int = 0): ...
+    def offer(self, val_nats: float, step: int) -> bool
+    def restore(self) -> None
+    # Seeded with the starting weights + their val loss; offer keeps a
+    # detached CPU copy iff val_nats < kept (strict: ties keep the earlier
+    # step); restore copies the kept tensors back in place. NaN raises.
+    val_nats: float
+    step: int
 
 # geode/train/loop.py
 @dataclass(frozen=True)
@@ -968,6 +977,16 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   import the constants from `geode.edl`; `train_target.py` re-exports `EVAL_STOP_ROWS`
   so `from train_target import EVAL_STOP_ROWS` still resolves. The two leak-bar shell
   heredocs retire by archival.
+- V5.80 restore-best keeper (2026-09-29, `geode.train.BestState`, used by
+  `experiments/unlearning/relearn.py`): seeded with the run's starting weights
+  and their val loss; if no later eval is strictly lower, `restore()` returns
+  the starting weights bit-exactly (not the last ones); otherwise it returns
+  exactly the weights of the first eval at the minimum (ties keep the earlier
+  step); the kept copy is detached, so in-place training after an offer cannot
+  change it; NaN raises. (Motivation: relearn.py's keeper started empty and
+  skipped the restore when nothing beat step 0, while logging "restored ...
+  step 0"; six WMDP EDL-sweep points were scored on 20-80-epoch overfit
+  weights.)
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

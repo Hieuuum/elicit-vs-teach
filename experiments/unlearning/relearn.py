@@ -32,13 +32,16 @@ final model/ is the merged checkpoint (``save_dtype``) plus
 model/adapter.safetensors (weight_shift.py reads the exact factors from it).
 
 EDL sweep (--sweep, Donoway et al.'s own signature, "Bits That Count" §2-4): train on a
-nested subset of n relearning rows (--n-train, the first n of one seeded permutation), record the
-first-epoch prequential code length MDL = sum over label tokens of the loss BEFORE each update,
-then EDL = MDL - D * L_test, with D the first-epoch label-token count and L_test the final
-(min-val) model's token-weighted loss on the held-out facts (--test-split, e.g. bio_B: the B half
-as text facts, never trained on). EDL/D across n is the curve: low and monotonically decreasing =
-elicitation; an increasing phase = teaching. Sweep runs write manifest.json only (no probes,
-snapshots or saved weights).
+nested subset of n relearning rows (--n-train, the first n of one permutation seeded by --seed),
+record the first-epoch prequential code length MDL = sum over label tokens of the loss BEFORE each
+update, then EDL = MDL - D * floor, with D the first-epoch label-token count, under two floors of
+the final model (the kept min-val weights, restored): the OCV floor (owner default, decisions.md
+2026-08-06/08-11: that model's own val loss) and the paper's Eq. 3 test floor (its token-weighted
+loss on the held-out facts, --test-split, e.g. bio_B: the B half as text facts, never trained on).
+The sweep evaluates val at least once per epoch, so small n can keep an early model rather than
+one overfit for 20 epochs. EDL/D across n is the curve: monotonically decreasing = elicitation; an
+increasing phase = teaching (edl_sweep.py calls it). Sweep runs write manifest.json only (no
+probes, snapshots or saved weights).
 
 Usage:
   python3 relearn.py --config configs/relearn_forgetA.yaml --init <hub id or dir> \
@@ -71,7 +74,7 @@ sys.path.insert(0, str(REPO_ROOT / "experiments" / "training-run" / "analysis"))
 from geode.arith.spans import tokenize_with_spans  # noqa: E402
 from geode.edl.masking import TaskFormat  # noqa: E402
 from geode.train.sft import _mean_masked_ce_nats, _padded_inputs_and_mask, evaluate_sft_nll_nats  # noqa: E402
-from geode.train.stopping import ConvergenceTracker, StoppingRule  # noqa: E402
+from geode.train.stopping import BestState, ConvergenceTracker, StoppingRule  # noqa: E402
 
 TASK_FORMAT = TaskFormat(name="tofu_qa", format_version="llama3_chat_v1")
 
@@ -200,6 +203,7 @@ def main() -> int:
     ap.add_argument("--sweep", action="store_true", help="EDL sweep point: manifest only (see docstring)")
     ap.add_argument("--n-train", type=int, default=None, help="nested subset size of the training rows")
     ap.add_argument("--test-split", default=None, help="held-out MCQ split rendered as facts, e.g. bio_B")
+    ap.add_argument("--seed", type=int, default=None, help="override train.seed (EDL sweep replicates)")
     args = ap.parse_args()
     if args.materialize_step is not None:
         return materialize(args)
@@ -207,6 +211,8 @@ def main() -> int:
         ap.error("--config, --init and --data-dir are required for training")
     cfg = yaml.safe_load(args.config.read_text())
     t = cfg["train"]
+    if args.seed is not None:   # drives the nested subset, the LoRA init and the batch order
+        t["seed"] = args.seed
     if args.max_steps is not None:
         t["max_steps"] = args.max_steps
         t["stopping"]["min_steps"] = min(t["stopping"].get("min_steps", 0), args.max_steps)
@@ -233,6 +239,9 @@ def main() -> int:
         test_ex = examples_of(pd.DataFrame(_sft_rows(ev[ev["split"] == args.test_split])), tokenizer)
     if args.sweep:
         cfg["probe_splits"], cfg["snapshots"] = [], 0
+        # an eval at least once per epoch: at n=8 the first eval after step 0 came after 20 epochs,
+        # too late to keep anything but step 0 or an overfit model
+        t["eval_every"] = min(t["eval_every"], -(-len(train_ex) // t["batch_size"]))
     max_len = max(len(e.input_ids) for e in train_ex)
     print(f"[relearn] {args.run_id}: train {len(train_ex)} rows (max {max_len} tokens), "
           f"val {len(val_ex)}, init {args.init}")
@@ -319,7 +328,8 @@ def main() -> int:
     mdl_nats, mdl_tokens = 0.0, 0   # first-epoch prequential code length (EDL sweep)
     # Restore-best (2026-09-26): at lr 1e-4 val loss bottomed at ~1 epoch and the MCQ read-out
     # degraded while training ran on to the stopping rule; the saved child is the min-val one.
-    best_val, best_step, best_state = step0["val_loss_nats"], 0, None
+    # Seeded with step 0 (V5.80): when nothing beats step 0, step 0 is what gets restored.
+    best = BestState(params, step0["val_loss_nats"])
     n, bs = len(train_ex), t["batch_size"]
     g = torch.Generator().manual_seed(t["seed"])
     t_start = time.time()
@@ -389,9 +399,7 @@ def main() -> int:
                     print(f"[relearn] step {step}: train {loss.item():.4f} val {rec['val_loss_nats']:.4f}"
                           + "".join(f"  {k}: ld {v['logit_diff']:+.2f} top1 {v['top1']:.2f}"
                                     for k, v in rec.get("probe", {}).items()), flush=True)
-                    if rec["val_loss_nats"] < best_val:  # keep the min-val weights: the final model
-                        best_val, best_step = rec["val_loss_nats"], step
-                        best_state = [p.detach().to("cpu", copy=True) for p in params]
+                    best.offer(rec["val_loss_nats"], step)   # keep the min-val weights: the final model
                     if tracker.update(rec["val_loss_nats"], step=step):
                         stop_reason = "converged"
                 if step >= steps_cap and stop_reason is None:
@@ -402,21 +410,21 @@ def main() -> int:
                 first_pass = sum(epoch_losses) / len(epoch_losses)
             epoch += 1
     wall = time.time() - t_start
-    if best_state is not None:
-        with torch.no_grad():
-            for p, b in zip(params, best_state):
-                p.copy_(b.to(p.device))
-    print(f"[relearn] restored min-val weights from step {best_step} (val {best_val:.4f})")
+    best.restore()
+    print(f"[relearn] restored min-val weights from step {best.step} (val {best.val_nats:.4f})")
     edl = {}
     if test_ex is not None:
         with amp():
             l_test = evaluate_sft_nll_nats(model, test_ex, TASK_FORMAT, batch_size=bs, device=dev)
-        edl = {"n_train": len(train_ex), "mdl_nats": mdl_nats, "label_tokens": mdl_tokens,
-               "test_split": args.test_split, "n_test": len(test_ex), "test_loss_nats": l_test,
-               "edl_nats": mdl_nats - mdl_tokens * l_test,
-               "edl_per_token_nats": (mdl_nats - mdl_tokens * l_test) / max(1, mdl_tokens)}
-        print(f"[relearn] EDL n={len(train_ex)}: MDL/D {mdl_nats / max(1, mdl_tokens):.4f}, "
-              f"L_test {l_test:.4f} -> EDL/D {edl['edl_per_token_nats']:+.4f} nats/token")
+        d = max(1, mdl_tokens)
+        edl = {"n_train": len(train_ex), "seed": t["seed"], "mdl_nats": mdl_nats, "label_tokens": mdl_tokens,
+               "val_floor_nats": best.val_nats, "test_split": args.test_split, "n_test": len(test_ex),
+               "test_loss_nats": l_test,
+               "edl_ocv_per_token_nats": (mdl_nats - mdl_tokens * best.val_nats) / d,
+               "edl_test_per_token_nats": (mdl_nats - mdl_tokens * l_test) / d}
+        print(f"[relearn] EDL n={len(train_ex)} seed {t['seed']}: MDL/D {mdl_nats / d:.4f}; "
+              f"OCV floor {best.val_nats:.4f} -> EDL/D {edl['edl_ocv_per_token_nats']:+.4f}; "
+              f"test floor {l_test:.4f} -> EDL/D {edl['edl_test_per_token_nats']:+.4f} nats/token")
     if args.sweep:
         pass   # the sweep point needs only its numbers
     elif lora_cfg:
@@ -441,7 +449,7 @@ def main() -> int:
     manifest.update({"status": "complete", "result": {
         "final_step": step, "stop_reason": stop_reason, "epochs": epoch,
         "first_pass_mean_loss_nats": first_pass, "min_val_nats": tracker.min_nats,
-        "saved_step": best_step, "saved_val_nats": best_val, **edl,
+        "saved_step": best.step, "saved_val_nats": best.val_nats, **edl,
         "best_val_nats": tracker.best_nats, "wall_s": wall}})
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
     print(f"[relearn] {args.run_id} done: {stop_reason} at step {step} ({epoch} epochs, {wall / 60:.1f} min); "

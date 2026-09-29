@@ -31,13 +31,16 @@
 #                      held-out-author recovery.
 #   4  verdict         verdict.py: one PRE-ELICIT / PRE-TEACH verdict per metric per
 #                      unlearned model, against the two anchors.
+#   5  EDL sweep       (wmdp) relearning on nested subsets of n facts x EDL_SEEDS seeds;
+#                      edl_sweep.py calls Donoway et al.'s EDL/D-vs-n signature (M19).
 #
-# Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--stage 0|1|2|3|4|all]
+# Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--stage 0|1|2|3|4|5|all]
 #                                [--tags "orig rmu elm"] [--domain bio] [--holdout] [--nrand 100] [--threads N]
 #         bash launch_unlearn.sh --smoke [--dataset ...]   # CPU, tiny random models + synthetic data, no network
 # Env:    GEODE_STORE (store root; models + runs), UL_OUT (small outputs; default
 #         experiments/unlearning/out), TS_VALID (TinyStories valid .txt for the lens / residual
 #         generic text; else hub download), USD_PER_H (cost estimate, default 2.0), conda env geode.
+#         EDL_SEEDS (stage 5 replicate seeds, default "316 317 318").
 # Cost (80 GB GPU, 1B fp32 analysis): stage 1 ~40 min/parent, stage 2 ~10 min/child,
 #         stage 3 ~50 min/child -> ~10 GPU-h for the six default parents (~$20 at $2/h).
 set -uo pipefail

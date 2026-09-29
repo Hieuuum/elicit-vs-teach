@@ -37,13 +37,14 @@ LENS_X="--n 256 --batch-size 8 --jac-prompts 12 --k-batch 32"
 RESID_X="--n 256 --batch-size 8 --gen-batch-size 8"
 RELEARN_X=""
 EDL_NS="8 16 32 64 128 256 573"            # nested bio_A subsets (573 = all)
+EDL_SEEDS=${EDL_SEEDS:-"316 317 318"}       # replicates (subset, order, LoRA init); EDL_SEEDS=316 for one
 GEN=${TS_VALID:+--generic-text $TS_VALID}
 if [[ $SMOKE == 1 ]]; then
   DATA=$SMK/data; MODELS=$SMK; TAGS="orig u1"; DEV=cpu; NRAND=2; DOMS="bio cyber"
   NP=16; NF=8; NE=8; KS="2 4"; K=4; NEVAL=16; MAXTOK=0
   PREFIT_X="--n 16 --n-probe 40 --das-layers 1 --das-ks 2 --das-train 8 --das-test 4 --das-steps 2 --dcm-pairs 12 --dcm-steps 2 --hess-n 2 --hess-layers 1 --power-iters 2 --hutch 1"
   LENS_X="--n 16 --jac-prompts 2 --story-len 16 --k-batch 8"; RESID_X="--n 16 --seq-len 16"
-  GEN="--generic-text $SMK/data/story.txt"; RELEARN_X="--max-steps 12"; EDL_NS="4 8 16"
+  GEN="--generic-text $SMK/data/story.txt"; RELEARN_X="--max-steps 12"; EDL_NS="4 8 16"; EDL_SEEDS="316 317"
 else
   DATA=$GEODE_STORE/unlearning/wmdp/data; MODELS=$GEODE_STORE/unlearning/wmdp/models
   export GEODE_ANALYSIS_DTYPE=${GEODE_ANALYSIS_DTYPE:-bfloat16}   # two fp32 7B models do not fit
@@ -81,9 +82,10 @@ TAGS="orig $(echo "$TAGS" | tr ' ' '\n' | grep -v '^orig$' | tr '\n' ' ')"
 NPAR=$(echo $TAGS | wc -w)
 milestone "wmdp: repo $(git rev-parse --short HEAD) store=$GEODE_STORE out=$OUT stage=$STAGE dev=$DEV tags=[$TAGS] domain=$D smoke=$SMOKE dtype=${GEODE_ANALYSIS_DTYPE:-float32}"
 if [[ $SMOKE == 0 && $CONFIRM == 0 && $STAGE != 0 && $STAGE != 4 ]]; then
+  NSW=$(( $(echo $EDL_NS | wc -w) * $(echo $EDL_SEEDS | wc -w) ))
   echo "Estimated cost (7B, one 80 GB GPU): stage 1 ~$((NPAR * 90)) GPU-min, stage 2 ~$((NPAR * 40)) GPU-min," \
-       "stage 3 ~$((NPAR * 90)) GPU-min" >&2
-  awk -v n="$NPAR" -v u="$USD" 'BEGIN { printf "  ~ %.1f GPU-h, ~$%.0f at $%s/h for all stages\n", n*220/60, n*220/60*u, u }' >&2
+       "stage 3 ~$((NPAR * 90)) GPU-min, stage 5 ~$((NPAR * NSW * 2)) GPU-min ($NSW sweep points per model)" >&2
+  awk -v n="$NPAR" -v w="$NSW" -v u="$USD" 'BEGIN { m = n*(220 + 2*w)/60; printf "  ~ %.1f GPU-h, ~$%.0f at $%s/h for all stages\n", m, m*u, u }' >&2
   echo "Re-run with --confirm-cost (and --gpu on a GPU node)." >&2
   exit 2
 fi
@@ -192,19 +194,23 @@ fi
 
 # ------------------------------------------------------------------ 5: EDL sweep (Donoway's signature)
 # Relearning on nested subsets of n bio_A facts; EDL/D = (first-epoch prequential code length - D x
-# held-out bio_B fact loss of the final model) / D. Decreasing in n = elicit, rising = teach.
-# Manifest-only runs (no saved weights); ~2-4 GPU-min per point. Runs before the verdict under "all".
+# floor) / D under the OCV floor (the kept model's own val loss) and the Eq.-3 test floor (its held-out
+# bio_B fact loss). Decreasing in n = elicit, an increasing phase = teach. Manifest-only runs (no saved
+# weights), ~1.5-3 GPU-min per point, 35 per seed. Runs before the verdict under "all".
+# 2026-09-29: ids gained -s<seed>; the seedless wmdp-edl-<tag>-n<N> points predate the restore fix.
 if want 5; then
   for p in $TAGS; do
     P=$(mpath $p)
     [[ -f $P/config.json ]] || continue
-    for n in $EDL_NS; do
-      rid=wmdp-edl-$p-n$n
-      if [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; then
-        milestone "skip ($rid done)"; continue
-      fi
-      step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}A.yaml" --init "$P" --run-id $rid \
-        --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train $n --test-split ${D}_B $RELEARN_X || true
+    for s in $EDL_SEEDS; do
+      for n in $EDL_NS; do
+        rid=wmdp-edl-$p-n$n-s$s
+        if [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; then
+          milestone "skip ($rid done)"; continue
+        fi
+        step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}A.yaml" --init "$P" --run-id $rid \
+          --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train $n --seed $s --test-split ${D}_B $RELEARN_X || true
+      done
     done
   done
   step "" python3 "$HERE/edl_sweep.py" --out "$OUT" --tags "$TAGS" || true

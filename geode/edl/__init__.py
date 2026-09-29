@@ -14,6 +14,7 @@ from geode.edl.metrics import (
 )
 from geode.edl.prequential import PrequentialAccumulator, StepLoss, prequential_step
 from geode.edl.protocol import EVAL_STOP_ROWS, G5_N_SHOTS, g5_leak_ok
+from geode.edl.signature import edl_signature
 
 __all__ = [
     "EVAL_STOP_ROWS",
@@ -24,6 +25,7 @@ __all__ = [
     "edl_nats",
     "edl_per_label_token",
     "edl_per_param",
+    "edl_signature",
     "g5_leak_ok",
     "label_mask",
     "masking_config_hash",

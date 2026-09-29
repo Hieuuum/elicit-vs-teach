@@ -306,19 +306,26 @@ def s_cost(p):
 
 
 def s_edl_sweep(p):
-    """M19, Donoway et al.'s own signature (edl_sweep.py): EDL/D against the number of relearned
-    facts n.  Decreasing = elicitation, an increasing phase = teaching.  v = the net change of EDL/D
-    from the smallest to the largest n (nats/token; negative = decreasing)."""
+    """M19, Donoway et al.'s own signature (edl_sweep.py; geode.edl.edl_signature, specs/01 V1.12):
+    EDL/D against the number of relearned facts n, one curve per seed.  Decreasing = elicitation, an
+    increasing phase = teaching.  Called only where both floors (OCV, the owner's default, and the
+    paper's Eq.-3 test floor) agree; otherwise undetermined.  v = the largest rise of the seed-mean
+    OCV curve between consecutive sizes (bits/token; negative = it never rises)."""
     r = (_json("edl_sweep.json") or {}).get(p)
-    if not r or r.get("max_rise_nats") is None:
+    if not r:
         return None
-    ys = [q["edl_per_token_nats"] / math.log(2) for q in r["points"]]
-    return {"v": r["net_change_nats"], "null": 0.0, "sig": r["call"].startswith("decreasing"),
-            "rule": "direct",
-            "note": f"{r['call']}; EDL/D bits/token n={r['points'][0]['n']}..{r['points'][-1]['n']}: "
-                    + " ".join(f"{y:+.3f}" for y in ys)
-                    + (f"; vs orig {r['minus_orig_mean_nats'] / math.log(2):+.3f} bits/token"
-                       if r.get("minus_orig_mean_nats") is not None else "")}
+    fl = r["floors"]
+    calls = {f: fl[f]["call"] for f in ("ocv", "test")}
+    call = ("elicit" if set(calls.values()) == {"decreasing"} else
+            "teach" if set(calls.values()) == {"increasing"} else "undetermined")
+    d = r.get("delta_vs_orig")
+    return {"v": fl["ocv"]["max_rise_nats"] / math.log(2), "null": 0.0, "sig": call == "elicit", "call": call,
+            "teach": "increasing" in calls.values(), "rule": "signature",
+            "note": "; ".join(f"{f} {fl[f]['call']} ({fl[f]['agree']}/{fl[f]['n_seeds']} seeds)" for f in calls)
+                    + f"; EDL/D bits/token (ocv) n={r['ns'][0]}..{r['ns'][-1]}: "
+                    + " ".join(f"{y / math.log(2):+.3f}" for y in fl["ocv"]["mean_nats"])
+                    + (f"; beyond orig at n={d['ns'][-1]}: {d['ocv_nats'][-1] / math.log(2) / 1e3:+.2f} kbit"
+                       if d else "")}
 
 
 def s_recovery(p, B):
@@ -437,7 +444,8 @@ def rows_for(tags: list[str]):
         ("M17u", "Unrelated fine-tune unlocks B (null child vs U)", False, lambda x: s_unlock(x, B), None,
          "recovery"),
         ("M18", "Relearning cost over orig's, net of the null (EDL ingredient)", False, s_cost, None, "cost"),
-        ("M19", "EDL sweep: EDL/D vs n decreasing (elicit) or rising (teach)", False, s_edl_sweep, None, "direct"),
+        ("M19", "EDL sweep: EDL/D vs n decreasing (elicit) or rising (teach)", False, s_edl_sweep,
+         lambda: s_edl_sweep("orig"), "signature"),
     ]
     return R
 
@@ -453,6 +461,12 @@ def judge(st_u, st_o, mode):
         return "MISSING", None
     if mode == "cost":   # positive and significant = pays more than orig to relearn
         return ("COSTLY" if st_u["sig"] else "CHEAP"), None
+    if mode == "signature":   # M19: the elicit reference itself must not read teach
+        if st_o is None:
+            return "NO ORIG", None
+        if st_o["teach"]:
+            return "INSTRUMENT FAILS", None
+        return {"elicit": "CARRIES", "teach": "ABSENT"}.get(st_u["call"], "UNDETERMINED"), None
     if mode == "direct":
         if not st_u["sig"]:
             return "ABSENT", None

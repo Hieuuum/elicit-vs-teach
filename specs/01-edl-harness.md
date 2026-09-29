@@ -118,6 +118,21 @@ script, spec 02 §6).
   tensor-by-tensor, including under tied embeddings (the base save stores
   a shared-storage pair once; load restores the alias from its twin).
   (c) Legacy full `model.safetensors` snapshots still strict-load.
+- **V1.12 — Scaling-signature call** (2026-09-29, `geode.edl.edl_signature`,
+  used by `experiments/unlearning/edl_sweep.py`). Paper §4: EDL/D against n
+  is monotonically decreasing under elicitation and has an increasing phase
+  under teaching. Over per-seed curves on the same sizes, with
+  `tol = max(abs_tol, rel_tol · range of the seed-mean curve)`:
+  "increasing" iff the mean rises by more than `tol` at a consecutive pair
+  (or first to last) and every seed rises there; "decreasing" iff no such
+  rise, the mean ends more than `tol` below its start and every seed ends
+  below its start; "mixed" when a past-`tol` move is not shared by every
+  seed; "flat" otherwise; fewer than three sizes is no call. Tests: a
+  fixed-cost (∝ 1/n) curve reads decreasing, a hump reads increasing at its
+  steepest pair, a rise in two of three seeds reads mixed, sub-`abs_tol`
+  wiggles read flat, a constant shift (the floor's level) and nats → bits
+  leave the call unchanged, and bad input (unsorted sizes, ragged or
+  non-finite curves, no curves) raises.
 
 ## 5. Non-goals
 
