@@ -7456,3 +7456,66 @@ U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` p
   - M12-fact: the original well above its permutation null; SimNPO and NPO closer to the original
     than RMU and ELM, as on the probe; after relearning, M17-fact recovers to the original for all
     four, as M17 does.
+
+## 2026-09-30 (night) — controls RAN (a8353d4): which metrics read machinery, which read knowledge
+
+Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
+
+- **Multiple-choice machinery is intact in all four models.** On MMLU every before-training metric
+  reads like the original: hidden preference r 0.89–1.22, probe 0.90–1.05, state swap 0.57–0.96,
+  option-reading heads 0.70–0.98. NPO and SimNPO show partial read-out damage on MMLU (lens at
+  intermediate layers r 0.43 / 0.24; NPO's MMLU letter loss is 153 nats at the DCM start against
+  the original's 5.7, its top output token is not a letter although the letter preference is
+  kept), matching their 10-point MMLU accuracy drop.
+- **So the bio drops on the probe, the state swap and the option heads are knowledge-specific.**
+  RMU and ELM: MMLU reading at the original's level, bio reading at the null. NPO and SimNPO:
+  MMLU partly reduced, bio reduced more.
+- **The multiple-choice circuit metrics read machinery, not knowledge** (the caveat is confirmed):
+  - M1x (child vs the original's MMLU circuit) 0.52–0.60 vs M1 0.64–0.73; the original's own bio
+    circuit vs its MMLU circuit 0.56, at the split-half ceiling (0.50–0.60).
+  - M2x = M2 (0.31–0.34 vs 0.29–0.33; the original's own 0.27).
+  - The original's MMLU-circuit heads are as necessary as its bio-circuit heads: in U (M1★-mmlu
+    1.11 / 0.94 vs M1★ 1.06 / 0.89) and in every child (0.98–1.01 vs 0.96–1.02).
+  - Patching the original's states at MMLU-circuit heads restores ELM as much as at bio-circuit
+    heads (0.46 vs 0.48): the restoring content is in the states, the head set does not matter.
+  - Decision: M1, M2, M4, M1f (child necessity) and M1★ are graded but no longer tallied
+    (`MACHINERY` in verdict_wmdp.py); M1★ leaves HEADLINE.
+- **The fact surface (no options) carries bio-specific circuits.** M1-fact, child vs the original's
+  bio-fact circuit on B: 0.60 / 0.46 / 0.46 / 0.39, all above the split-half ceilings (0.31–0.37);
+  vs the original's MMLU-fact circuit 0.25–0.28, and the original's own bio-fact vs MMLU-fact 0.21.
+  M1-fact replaces M1 as the tallied circuit metric.
+- **The headline holds with no options shown.**
+  - M12-fact (correct answer preferred among the four candidates, none shown; own permutation
+    null): original top-1 0.43 (null 0.31). RMU 0.35 (p = 0.054), NPO 0.29, SimNPO 0.34
+    (p = 0.055): not read. ELM 0.40, r = 0.70: readable. ELM's suppression is bound to the
+    multiple-choice format; on the fact surface its answer is largely there (on B: 0.42 vs the
+    original's 0.44, before any training).
+  - M17-fact (held-out B, no options): every child at or above the original (0.46–0.48 vs 0.44).
+    RMU beyond its fine-tuning null (0.47 vs 0.39, r = 1.43); for ELM, NPO and SimNPO the unrelated
+    fine-tune already reaches the original (0.43–0.45), as on the multiple-choice surface.
+  - M17u-fact: the unrelated fine-tune unlocks NPO (0.32 → 0.43, r = 0.92) and SimNPO (0.32 → 0.45,
+    r = 1.09); RMU stays (0.39 → 0.39); ELM was already there (0.42 → 0.44).
+  - M9-fact: INSTRUMENT FAILS. The lens has no intermediate-layer signal on the fact surface even
+    for the original (first-token accuracy 0.12, logit difference +0.5), so this read is dropped.
+  - M11-fact (repeatable fact circuit): original 0.49; ELM 0.60 (carries); RMU 0.42 (a split half
+    below the performing bar), NPO 0.28, SimNPO 0.23 (absent). The fact-surface sanity metric
+    contrasts another item's answer, so "performing" there means topical relevance, not knowledge.
+- **Stage 6 (localization).**
+  - Readability by depth: probe retention RMU −0.03, ELM 0.04, NPO 0.63, SimNPO 0.67; lens
+    retention 0.25 / 0.12 / 0.04 / 0.12; read-out 0.28 / 0.09 / 0.09 / 1.04. NPO and SimNPO keep
+    the state readable and lose the output map; RMU and ELM lose the state.
+  - The unlearning edit: RMU 90% of the weight change in layers 5–7 (MLP only), ELM in layers 4–7
+    (the adapter), NPO and SimNPO spread over 29 of 32 layers plus the output head (SimNPO's
+    lm_head changes by 2.6% relative, its embeddings 0.6%).
+  - **Prediction falsified:** relearning does not write into the edit layers. Every child's LoRA
+    write puts the same share there as the original's relearning does (RMU 10% vs 10%, ELM 13% vs
+    13%, NPO 91% vs 91%). Relearning goes around the edit rather than undoing it, consistent with
+    the original's head states restoring ELM.
+- **Prediction outcomes.** MMLU intact for RMU/ELM with bio at null: confirmed. NPO/SimNPO partly
+  reduced on MMLU, more on bio: confirmed. M12-fact original above null: confirmed; "SimNPO and NPO
+  closer to the original than RMU and ELM" on the fact surface: wrong, ELM is the one that keeps
+  it. M1-fact near ceiling for all four: confirmed (above ceiling). Relearning writes into the
+  edit layers: falsified.
+- **Tallies now** (called, non-machinery rows): before training (readable / partly / not read)
+  RMU 1/4/6, ELM 3/3/5, NPO 3/2/6, SimNPO 7/3/2; after relearning (elicit / partly / teach)
+  RMU 5/0/1, ELM 5/0/0, NPO 2/0/1, SimNPO 3/0/1. Still in the weights: YES for all four.
