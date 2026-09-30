@@ -7393,3 +7393,33 @@ U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` p
   reading there shows the original's machinery in use, not the bio knowledge itself.
   - The knowledge-specific evidence is M16′ and M17–M19.
   - A check not yet run: overlap of the original's bio circuit with its MMLU circuit.
+
+## 2026-09-30 (later) — are the circuit metrics bio-specific? Two checks added (pending on the cluster)
+
+- **Owner:** add the MMLU circuit check, or make the circuit metrics about bio knowledge rather
+  than multiple-choice answering; keep the dataset selection automatic.
+- **Selection is automatic.** Both checks run on splits `prepare_wmdp.py` already builds (`mmlu`,
+  `bio_A`, `bio_B`); no item is chosen or inspected by hand.
+- **Check 1, cross-subject share.** `circ_<tag>_mmlu` (the multiple-choice circuit on MMLU) has
+  existed since stage 1. New: its split halves and edge map for the original. Verdict rows M1x and
+  M2x report, per child, its overlap with the original's MMLU circuit next to M1/M2's overlap with
+  the original's bio circuit; the original's column holds J(orig bio, orig MMLU), the share that is
+  answering machinery. If M1x ≈ M1, the circuit metrics do not see bio knowledge.
+- **Check 2, the fact surface.** New pair mode `fact` in `task_adapter.MCQTask`: prompt = the
+  relearning format (question and answer, no options), scored token = the first token of the
+  correct answer text, contrast = another item's answer at equal prompt length
+  (`length_matched_pairs`). A circuit found here cannot be option-reading. New maps (all with split
+  halves): every model on bio (M11-fact, before training), the original and every child on bio_B
+  (M1-fact), the original on MMLU facts (M1-fact-x: J(orig bio-fact, orig MMLU-fact), the cross-subject
+  share on this surface).
+- **Structural check** (smoke data, CPU): fact prompts are ~⅓ shorter than the MCQ prompts, and
+  16 pairs form on bio, bio_B and mmlu.
+- **Cost:** ~38 node maps and 3 edge maps on the 7B model, roughly 1.5–2.5 GPU-h; stage 1 and 3
+  skip everything that exists.
+- **Predictions, recorded before the run.**
+  - M1x well below M1 (say < 0.3 against M1's 0.64–0.73) means the relearned children reuse a
+    bio-specific part of the original's circuit; M1x ≈ M1 means the shared-machinery reading.
+  - The original's fact circuit should be repeatable (M11-fact performing, split-half J above chance)
+    if the model answers the facts without options; the unlearned models' fact maps are likely
+    noise before training (their output is suppressed), like M11.
+  - M1-fact near its ceiling for all four children is the bio-specific version of the M1 result.

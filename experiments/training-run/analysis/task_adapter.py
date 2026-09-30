@@ -23,9 +23,14 @@ Tasks
          bio_A, bio_B, cyber_A, ..., mmlu, mmlu_near. Pairs: ``swap`` (default:
          the same question with the correct option's text exchanged with the
          partner's; contrast = the partner letter, which is the counterfactual's
-         correct letter) or ``item`` (a different question of equal length).
-         DCM role ``option`` uses the swap with a LABELLED target. No subject
-         position; the probe is a 4-way linear probe of the correct letter.
+         correct letter), ``item`` (a different question of equal length) or
+         ``fact`` (2026-09-30: the RELEARNING surface, question and answer with
+         no options, prepare_wmdp._sft_rows' format; scored token = the first
+         token of the correct option's text, contrast = another item's answer
+         at equal prompt length; a circuit found here cannot be option-reading
+         machinery). DCM role ``option`` uses the swap with a LABELLED target.
+         No subject position; the probe is a 4-way linear probe of the correct
+         letter.
   tofu   TOFU fictitious-author QA (experiments/unlearning/data/prepare.py). The
          scored token is the first token of the answer's fact word after the
          original answer's prefix; the distractor is TOFU's perturbed word in
@@ -81,8 +86,9 @@ def add_task_args(ap, split_default: str = "forget") -> None:
                     "bio_A bio_B cyber_A cyber_B mmlu mmlu_near")
     ap.add_argument("--max-prompt-tokens", type=int, default=0,
                     help="wmdp: drop items whose prompt exceeds this many tokens (0 = no cap)")
-    ap.add_argument("--pair-mode", choices=("swap", "item"), default="swap",
-                    help="tofu: corrupt = author name swapped (default) or a different item")
+    ap.add_argument("--pair-mode", choices=("swap", "item", "fact"), default="swap",
+                    help="corrupt = the swap counterfactual (default), a different item of equal "
+                         "length, or (wmdp) a different item on the no-options fact surface")
     ap.add_argument("--task-seed", type=int, default=316)
 
 
@@ -301,6 +307,36 @@ class MCQTask:
         items = self._cache[key]
         return items if n is None else items[:n]
 
+    def fact_items(self, tokenizer, n: int | None = None) -> list[ScoredItem]:
+        """The relearning surface: the item's question and its correct answer text, no options
+        (the exact format of prepare_wmdp._sft_rows).  The scored token is the first token of
+        the correct option's text; distractors are the other options' texts at the same boundary
+        (score_item drops those sharing the answer's first token)."""
+        key = ("fact", id(tokenizer))
+        if key not in self._cache:
+            out, too_long, bad = [], 0, 0
+            for r in self.df.itertuples():
+                choices = [str(c).strip() for c in r.choices]
+                prompt = f"{r.description}\n\n{r.question.strip()}\nAnswer:"
+                ci = int(r.correct_idx)
+                meta = {"split": r.split, "correct_idx": ci, "surface": "fact"}
+                try:
+                    it = score_item(tokenizer, r.item_id, prompt, " " + choices[ci],
+                                    [" " + c for j, c in enumerate(choices) if j != ci], meta)
+                except AlignmentError:
+                    bad += 1
+                    continue
+                if self.max_tok and len(it.prompt_ids) > self.max_tok:
+                    too_long += 1
+                    continue
+                out.append(it)
+            if too_long or bad:
+                print(f"[task] wmdp/{self.split}/fact: {too_long} items over {self.max_tok} tokens and "
+                      f"{bad} misaligned dropped of {len(self.df)}")
+            self._cache[key] = out
+        items = self._cache[key]
+        return items if n is None else items[:n]
+
     def _swapped(self, tokenizer, it: ScoredItem):
         m = it.meta
         choices = swap_options(m["choices"], m["correct_idx"], m["partner_idx"])
@@ -326,6 +362,8 @@ class MCQTask:
                     break
             if skipped:
                 print(f"[task] wmdp/{self.split}: {skipped} option swaps changed the token length (skipped)")
+        elif mode == "fact":
+            pairs = length_matched_pairs(self.fact_items(tokenizer), n_pairs, self.seed, partners=8)
         else:
             pairs = length_matched_pairs(items, n_pairs, self.seed, partners=8)
         check_pairs(pairs)

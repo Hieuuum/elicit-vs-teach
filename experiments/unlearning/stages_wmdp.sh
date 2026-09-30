@@ -67,6 +67,11 @@ maps() {  # maps <model> <stem> <split>: node map + split halves
   step $2_a.json python3 "$A/circuit_nodes.py" --model "$1" --out $2_a --half a --n-pairs $NP $(T $3) || true
   step $2_b.json python3 "$A/circuit_nodes.py" --model "$1" --out $2_b --half b --n-pairs $NP $(T $3) || true
 }
+fmaps() {  # fmaps <model> <stem> <split>: node map on the FACT surface (no options) + split halves
+  step $2.json   python3 "$A/circuit_nodes.py" --model "$1" --out $2   --n-pairs $NP --pair-mode fact $(T $3) || true
+  step $2_a.json python3 "$A/circuit_nodes.py" --model "$1" --out $2_a --half a --n-pairs $NP --pair-mode fact $(T $3) || true
+  step $2_b.json python3 "$A/circuit_nodes.py" --model "$1" --out $2_b --half b --n-pairs $NP --pair-mode fact $(T $3) || true
+}
 edges() {  # edges <model> <stem> <split> [halves]
   step $2.json python3 "$A/circuit_edges.py" map --model "$1" --out $2 --n-pairs $NE --fast-edges $(T $3) || true
   if [[ ${4:-} == halves ]]; then
@@ -83,9 +88,9 @@ NPAR=$(echo $TAGS | wc -w)
 milestone "wmdp: repo $(git rev-parse --short HEAD) store=$GEODE_STORE out=$OUT stage=$STAGE dev=$DEV tags=[$TAGS] domain=$D smoke=$SMOKE dtype=${GEODE_ANALYSIS_DTYPE:-float32}"
 if [[ $SMOKE == 0 && $CONFIRM == 0 && $STAGE != 0 && $STAGE != 4 && $STAGE != 6 ]]; then
   NSW=$(( $(echo $EDL_NS | wc -w) * $(echo $EDL_SEEDS | wc -w) ))
-  echo "Estimated cost (7B, one 80 GB GPU): stage 1 ~$((NPAR * 90)) GPU-min, stage 2 ~$((NPAR * 40)) GPU-min," \
-       "stage 3 ~$((NPAR * 90)) GPU-min, stage 5 ~$((NPAR * NSW * 2)) GPU-min ($NSW sweep points per model)" >&2
-  awk -v n="$NPAR" -v w="$NSW" -v u="$USD" 'BEGIN { m = n*(220 + 2*w)/60; printf "  ~ %.1f GPU-h, ~$%.0f at $%s/h for all stages\n", m, m*u, u }' >&2
+  echo "Estimated cost (7B, one 80 GB GPU): stage 1 ~$((NPAR * 100)) GPU-min, stage 2 ~$((NPAR * 40)) GPU-min," \
+       "stage 3 ~$((NPAR * 100)) GPU-min, stage 5 ~$((NPAR * NSW * 2)) GPU-min ($NSW sweep points per model)" >&2
+  awk -v n="$NPAR" -v w="$NSW" -v u="$USD" 'BEGIN { m = n*(240 + 2*w)/60; printf "  ~ %.1f GPU-h, ~$%.0f at $%s/h for all stages\n", m, m*u, u }' >&2
   echo "Re-run with --confirm-cost (and --gpu on a GPU node)." >&2
   exit 2
 fi
@@ -118,6 +123,12 @@ if want 1; then
       --lenses logit jlens --no-save-jacobians $LENS_X $GEN $(T $D) || true      # M9
     maps "$P" circ_${p}_$D $D                                                       # M11 (and M1 reference)
     step circ_${p}_mmlu.json python3 "$A/circuit_nodes.py" --model "$P" --out circ_${p}_mmlu --n-pairs $NP $(T mmlu) || true
+    fmaps "$P" circ_${p}_${D}fact $D                                                # M11f: fact surface, no options
+    if [[ $p == orig ]]; then                                                       # 2026-09-30: cross-subject references
+      maps "$P" circ_orig_mmlu mmlu                                                 # (+ halves: ceiling for M1x)
+      edges "$P" edge_orig_mmlu mmlu halves                                         # M2x
+      fmaps "$P" circ_orig_mmlufact mmlu                                            # M1fx
+    fi
     edges "$P" edge_${p}_$D $D $([[ $p == orig ]] && echo halves)                  # M2 (orig vs unlearned)
     if [[ $p == orig ]]; then
       necessity "$P" circ_orig_$D circ_orig_$D faith_orig_own_$D $D                # M1 reference
@@ -153,6 +164,7 @@ if want 3; then
   B=${D}_B
   maps "$ORIG" circ_orig_$B $B                                                     # reference on B
   edges "$ORIG" edge_orig_$B $B halves
+  fmaps "$ORIG" circ_orig_${B}fact $B                                              # M1f reference (fact surface)
   prefit "$ORIG" "orig_$B" $B dcm pref
   for p in $TAGS; do
     P=$(mpath $p); rid=wmdp-relearn-$p-${D}A; C=$GEODE_STORE/runs/$rid/model; c=$p-rl
@@ -160,6 +172,7 @@ if want 3; then
     milestone "stage 3 child $c ($C) of $p"
     maps "$C" circ_${c}_$B $B                                                      # M1
     edges "$C" edge_${c}_$B $B halves                                              # M2
+    fmaps "$C" circ_${c}_${B}fact $B                                               # M1f: fact surface, no options
     prefit "$C" "${c}_$B" $B dcm pref                                              # M3 roles, M17 recovery
     prefit "$C" "${c}_${D}_A" ${D}_A pref
     prefit "$C" "${c}_mmlu" mmlu pref

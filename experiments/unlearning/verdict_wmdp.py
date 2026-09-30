@@ -154,10 +154,11 @@ def s_lens(x, stem=None):
             "note": f"peak L{j['layers'][i]} ({'J' if 'jlens' in pos else 'logit'} lens), read-out {ld[-1]:+.2f}"}
 
 
-def s_circuit(x):
-    da, ma = _map(f"circ_{x}_{DOMAIN}_a")
-    db, mb = _map(f"circ_{x}_{DOMAIN}_b")
-    _, m = _map(f"circ_{x}_{DOMAIN}")
+def s_circuit(x, stem=None):
+    stem = stem or f"circ_{x}_{DOMAIN}"
+    da, ma = _map(f"{stem}_a")
+    db, mb = _map(f"{stem}_b")
+    _, m = _map(stem)
     if da is None or db is None or m is None:
         return None
     k = min(32, len(da) - 1)
@@ -433,6 +434,29 @@ def rows_for(tags: list[str]):
         ("M2", "Wiring child vs orig (edges, B)", False,
          lambda x: s_overlap(f"edge_{x}-rl_{B}", f"edge_orig_{B}", 256, False, [f"edge_{x}-rl_{B}", f"edge_orig_{B}"]),
          None, "overlap"),
+        # 2026-09-30: is the circuit bio-specific or the multiple-choice machinery?  (a) the same
+        # overlaps against orig's MMLU circuit (orig column: orig's own bio circuit vs its MMLU
+        # circuit, the cross-subject share); (b) the fact surface, question + answer with no
+        # options, where option-reading heads play no part.
+        ("M1x", "Child's B circuit vs orig's MMLU circuit (heads; reported)", False,
+         lambda x: s_overlap(f"circ_{x}-rl_{B}", "circ_orig_mmlu", 32, True, [f"circ_{x}-rl_{B}", "circ_orig_mmlu"]),
+         lambda: s_overlap(f"circ_orig_{B}", "circ_orig_mmlu", 32, True, [f"circ_orig_{B}", "circ_orig_mmlu"]),
+         "report"),
+        ("M2x", "Child's B wiring vs orig's MMLU wiring (edges; reported)", False,
+         lambda x: s_overlap(f"edge_{x}-rl_{B}", "edge_orig_mmlu", 256, False, [f"edge_{x}-rl_{B}", "edge_orig_mmlu"]),
+         lambda: s_overlap(f"edge_orig_{B}", "edge_orig_mmlu", 256, False, [f"edge_orig_{B}", "edge_orig_mmlu"]),
+         "report"),
+        ("M11-fact", "Repeatable FACT circuit in U (no options; split-half vs chance)", True,
+         lambda x: s_circuit(x, f"circ_{x}_{DOMAIN}fact"), lambda: s_circuit("orig", f"circ_orig_{DOMAIN}fact"),
+         "retention"),
+        ("M1-fact", "FACT circuit overlap child vs orig (heads, B; no options)", False,
+         lambda x: s_overlap(f"circ_{x}-rl_{B}fact", f"circ_orig_{B}fact", 32, True,
+                             [f"circ_{x}-rl_{B}fact", f"circ_orig_{B}fact"]), None, "overlap"),
+        ("M1-fact-x", "FACT circuit vs orig's MMLU fact circuit (heads; reported)", False,
+         lambda x: s_overlap(f"circ_{x}-rl_{B}fact", "circ_orig_mmlufact", 32, True,
+                             [f"circ_{x}-rl_{B}fact", "circ_orig_mmlufact"]),
+         lambda: s_overlap(f"circ_orig_{DOMAIN}fact", "circ_orig_mmlufact", 32, True,
+                           [f"circ_orig_{DOMAIN}fact", "circ_orig_mmlufact"]), "report"),
         ("M3", "Head roles child vs orig (DCM, B; reported)", False,
          lambda x: s_roles(f"{x}-rl_{B}", f"orig_{B}"), lambda: s_roles(f"orig-rl_{B}", f"orig_{B}"), "report"),
         ("M4", "Circuit present from the first snapshot", False, lambda x: s_formation(f"{x}-rl", B), None, "overlap"),
