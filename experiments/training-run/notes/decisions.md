@@ -7423,3 +7423,36 @@ U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` p
     if the model answers the facts without options; the unlearned models' fact maps are likely
     noise before training (their output is suppressed), like M11.
   - M1-fact near its ceiling for all four children is the bio-specific version of the M1 result.
+
+## 2026-09-30 (later still) — the same bias check for every metric: MMLU controls and fact-surface reads
+
+- **Owner:** make sure the other metrics are not biased toward multiple-choice machinery either.
+- **Audit.** Every before-training metric except M13 is read on the multiple-choice prompt, and so
+  is every after-relearning metric except M18 and M19 (which already use the fact surface). A
+  multiple-choice reading needs both the machinery (read the options, write the letter) and the
+  knowledge; a drop can come from either. Two controls separate them.
+- **Control 1: the same metric on the MMLU split** (`-mmlu` rows, printed and graded, never
+  tallied). Machinery on another subject. If a method keeps the MMLU reading at the original's
+  level while its bio reading falls, the fall is knowledge-specific; if both fall, the machinery is
+  damaged (NPO and SimNPO lose 10 points of MMLU accuracy, so some of their bio drop may be that).
+  Added: probe, DAS and DCM blocks on `prefit_<tag>_mmlu` (pref existed), `lens_<tag>_mmlu`,
+  necessity of the original's MMLU-circuit heads in U (bio items) and in every child (B items),
+  the original's MMLU-circuit head states patched into U. Rows: M12-mmlu, M16-mmlu, M9-mmlu,
+  M14-mmlu, M15-mmlu, M1★-mmlu, M10★-mmlu, M1f-mmlu (plus M1x / M2x from the earlier entry).
+- **Control 2: the fact surface**, no options shown (`-fact` rows, tallied; M12-fact, M9-fact and
+  M17-fact are in HEADLINE). `MCQTask.items()` now follows the pair mode, so `pref` and `lens`
+  run on the fact prompts unchanged: the scored token is the first token of the correct answer,
+  the candidates are the four answers' first tokens, and the own permutation null reassigns which
+  candidate is "correct". Rows: M12-fact (before training, every model), M9-fact (lens depth),
+  M17-fact and M17u-fact (children, null children, U and the original on B facts), plus M11-fact,
+  M1-fact, M1-fact-x from the earlier entry. The probe, DAS and DCM stay multiple-choice-only:
+  their labels (option index, letter swap) have no meaning when the options are not shown.
+- **Cost:** roughly one more stage-1 worth of GPU time (~4 GPU-h); every existing output is
+  skipped.
+- **Predictions, before the run.**
+  - RMU and ELM: MMLU controls at the original's level (their MMLU accuracy is intact), bio
+    readings low → knowledge-specific suppression, consistent with edits before the answer forms.
+  - NPO and SimNPO: MMLU controls partly reduced (machinery damage) but bio reduced more.
+  - M12-fact: the original well above its permutation null; SimNPO and NPO closer to the original
+    than RMU and ELM, as on the probe; after relearning, M17-fact recovers to the original for all
+    four, as M17 does.

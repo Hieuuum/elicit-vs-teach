@@ -59,7 +59,7 @@ prefit() {  # prefit <model dir> <tag> <split> <metric...>
   for m in "$@"; do
     if has_block "$OUT/prefit_$tag.json" "$m"; then milestone "skip (prefit_$tag::$m done)"; continue; fi
     step "prefit_$tag::$m" python3 "$A/prefit_metrics.py" "$m" --model "$model" --tag "$tag" --out-dir "$OUT" \
-      $(T $split) $PREFIT_X || true
+      $(T $split) $PREFIT_X ${PX:-} || true
   done
 }
 maps() {  # maps <model> <stem> <split>: node map + split halves
@@ -116,11 +116,16 @@ if want 1; then
     [[ -f $P/config.json ]] || { milestone "skip parent $p: $P missing (stage 0)"; continue; }
     milestone "stage 1 parent $p ($P)"
     for dom in $DOMS; do prefit "$P" "${p}_$dom" $dom pref probe; done           # M12 M16
-    prefit "$P" "${p}_mmlu" mmlu pref                                              # sanity: general capability
+    prefit "$P" "${p}_mmlu" mmlu pref probe das dcm                                # sanity + cross-subject controls (2026-09-30)
     prefit "$P" "${p}_mmlu_near" mmlu_near pref                                    # sanity: neighbouring subjects
     prefit "$P" "${p}_$D" $D geometry das dcm hessian                             # M8(descr.) M14 M15 M13
+    PX="--pair-mode fact" prefit "$P" "${p}_${D}fact" $D pref                      # M12-fact: the answer with no options shown
     step lens_$p.json python3 "$A/lens_depth.py" run --run-id "$P" --out lens_$p --positions -1 \
       --lenses logit jlens --no-save-jacobians $LENS_X $GEN $(T $D) || true      # M9
+    step lens_${p}_mmlu.json python3 "$A/lens_depth.py" run --run-id "$P" --out lens_${p}_mmlu --positions -1 \
+      --lenses logit jlens --no-save-jacobians $LENS_X $GEN $(T mmlu) || true    # M9-mmlu (control)
+    step lens_${p}_${D}fact.json python3 "$A/lens_depth.py" run --run-id "$P" --out lens_${p}_${D}fact --positions -1 \
+      --lenses logit jlens --no-save-jacobians $LENS_X $GEN --pair-mode fact $(T $D) || true   # M9-fact
     maps "$P" circ_${p}_$D $D                                                       # M11 (and M1 reference)
     step circ_${p}_mmlu.json python3 "$A/circuit_nodes.py" --model "$P" --out circ_${p}_mmlu --n-pairs $NP $(T mmlu) || true
     fmaps "$P" circ_${p}_${D}fact $D                                                # M11f: fact surface, no options
@@ -132,8 +137,12 @@ if want 1; then
     edges "$P" edge_${p}_$D $D $([[ $p == orig ]] && echo halves)                  # M2 (orig vs unlearned)
     if [[ $p == orig ]]; then
       necessity "$P" circ_orig_$D circ_orig_$D faith_orig_own_$D $D                # M1 reference
+      necessity "$P" circ_orig_$D circ_orig_mmlu faith_origmmlu_own_$D $D          # M1*-mmlu reference (control)
     else
       necessity "$P" circ_${p}_$D circ_orig_$D faith_orig_in_${p}_$D $D           # M1★: orig's heads in U
+      necessity "$P" circ_${p}_$D circ_orig_mmlu faith_origmmlu_in_${p}_$D $D     # M1★-mmlu: orig's MMLU heads in U (control)
+      step steer_${p}_from_orig_mmluheads.json python3 "$A/steer_unlock.py" --base "$P" --donor-run "$ORIG" \
+        --map circ_orig_mmlu --k $K --n-eval $NEVAL --heads-only --random-sets 5 --out steer_${p}_from_orig_mmluheads $(T $D) || true  # M10★-mmlu
       step steer_${p}_from_orig.json python3 "$A/steer_unlock.py" --base "$P" --donor-run "$ORIG" \
         --map circ_orig_$D --k $K --n-eval $NEVAL --heads-only --random-sets 5 --out steer_${p}_from_orig $(T $D) || true  # M10★
       step resid_orig_to_${p}.json python3 "$A/resid_shift.py" run --parent "$ORIG" --child "$P" \
@@ -164,7 +173,8 @@ if want 3; then
   B=${D}_B
   maps "$ORIG" circ_orig_$B $B                                                     # reference on B
   edges "$ORIG" edge_orig_$B $B halves
-  fmaps "$ORIG" circ_orig_${B}fact $B                                              # M1f reference (fact surface)
+  fmaps "$ORIG" circ_orig_${B}fact $B                                              # M1-fact reference (fact surface)
+  PX="--pair-mode fact" prefit "$ORIG" "orig_${B}fact" $B pref                     # M17-fact reference
   prefit "$ORIG" "orig_$B" $B dcm pref
   for p in $TAGS; do
     P=$(mpath $p); rid=wmdp-relearn-$p-${D}A; C=$GEODE_STORE/runs/$rid/model; c=$p-rl
@@ -178,6 +188,8 @@ if want 3; then
     prefit "$C" "${c}_mmlu" mmlu pref
     necessity "$C" circ_${c}_$B circ_${c}_$B faith_${c}_own $B                   # M1 functional
     necessity "$C" circ_${c}_$B circ_orig_$B faith_orig_in_${c} $B
+    necessity "$C" circ_${c}_$B circ_orig_mmlu faith_origmmlu_in_${c} $B          # M1f-mmlu (control)
+    PX="--pair-mode fact" prefit "$C" "${c}_${B}fact" $B pref                      # M17-fact: held-out B, no options
     for sd in "$GEODE_STORE/runs/$rid"/snapshots/step_*; do                       # M4 formation
       [[ -d $sd ]] || continue
       s=${sd##*step_}
@@ -197,9 +209,11 @@ if want 3; then
     step steer_${c}_into_${p}.json python3 "$A/steer_unlock.py" --base "$P" --donor-run "$C" --map circ_${c}_$B \
       --k $K --n-eval $NEVAL --heads-only --random-sets 5 --out steer_${c}_into_${p} $(T $B) || true   # M10
     prefit "$P" "${p}_$B" $B pref                                                 # M17u: U itself on B
+    PX="--pair-mode fact" prefit "$P" "${p}_${B}fact" $B pref                      # M17u-fact: U on B, no options
     rn=wmdp-relearn-$p-mmluA; CN=$GEODE_STORE/runs/$rn/model                        # the fine-tuning null
     if [[ -f $CN/config.json ]]; then
       prefit "$CN" "${p}-rlnull_$B" $B pref
+      PX="--pair-mode fact" prefit "$CN" "${p}-rlnull_${B}fact" $B pref            # M17-fact / M17u-fact null
       prefit "$CN" "${p}-rlnull_mmlu" mmlu pref
     fi
   done

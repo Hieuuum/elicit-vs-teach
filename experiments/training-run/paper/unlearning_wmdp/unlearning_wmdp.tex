@@ -314,10 +314,13 @@ are not compared with each other.
 machinery that answers a four-option question. Much of it, reading the options and writing the
 letter, is likely shared across subjects, so an elicit reading there shows that the original's
 answering machinery is in use, not that the bio knowledge is. The knowledge-specific evidence is the
-probe (M16$'$) and the recovery tests (M17 to M19). Two checks are queued (stage 1 and 3 additions,
-2026-09-30, pending): the same overlaps against the original's MMLU circuit, whose value is the
-cross-subject share, and the circuits on the relearning surface itself (question and answer, no
-options), where option-reading heads play no part.
+probe (M16$'$) and the recovery tests (M17 to M19). The same question applies, more weakly, to every
+metric read on the multiple-choice prompt. Two controls are queued for all of them (stage 1 and 3
+additions, 2026-09-30, pending): each metric run on the MMLU split, where a method that keeps the
+MMLU reading while losing the bio reading has lost knowledge and one that loses both has damaged
+the machinery; and, where the metric allows it, the same read on the relearning surface itself
+(question and answer, no options shown), where option-reading plays no part: the preference for the
+correct answer among the four candidates, the lens depth, the circuits, and the held-out recovery.
 \item One seed (three for M19) and one relearning recipe; the checkpoint with the lowest validation
 loss is used because held-out accuracy moves by $\pm0.1$ between evaluations.
 \item M19 covers $n\le573$, all of half A. In Figure~\ref{fig:edl}a the teaching hump comes after an

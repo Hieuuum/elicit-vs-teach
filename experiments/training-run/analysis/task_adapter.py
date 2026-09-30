@@ -276,6 +276,11 @@ class MCQTask:
         self._cache: dict = {}
 
     def items(self, tokenizer, n: int | None = None) -> list[ScoredItem]:
+        """The scored items of the current surface: MCQ prompts, or the no-options fact prompts
+        under pair mode ``fact`` (2026-09-30) so that pref / lens / resid read that surface."""
+        return self.fact_items(tokenizer, n) if self.pair_mode == "fact" else self.mcq_items(tokenizer, n)
+
+    def mcq_items(self, tokenizer, n: int | None = None) -> list[ScoredItem]:
         key = ("items", id(tokenizer))
         if key not in self._cache:
             out, too_long, bad = [], 0, 0
@@ -345,7 +350,7 @@ class MCQTask:
 
     def pairs(self, tokenizer, n_pairs: int, mode: str | None = None):
         mode = mode or self.pair_mode
-        items = self.items(tokenizer)
+        items = self.mcq_items(tokenizer)
         if mode == "swap":
             import random as _random
 
@@ -381,7 +386,7 @@ class MCQTask:
 
     def loss_items(self, tokenizer, n: int | None = None) -> list[LossItem]:
         """SFT loss on the correct letter (the MCQ answer the model is scored on)."""
-        return [LossItem(it.prompt_ids, [it.target]) for it in self.items(tokenizer, n)]
+        return [LossItem(it.prompt_ids, [it.target]) for it in self.mcq_items(tokenizer, n)]
 
     def subject_last_position(self, tokenizer, item: ScoredItem) -> int | None:
         return None

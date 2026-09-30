@@ -35,6 +35,8 @@
 #                      edl_sweep.py calls Donoway et al.'s EDL/D-vs-n signature (M19).
 #   6  localization    (wmdp, CPU) localize.py: readability by depth, the unlearning edit per
 #                      layer, the relearning write per layer.
+#   Controls (2026-09-30, inside stages 1 and 3): every multiple-choice metric also on the MMLU
+#                      split (-mmlu rows) and, where it applies, on the no-options fact surface (-fact).
 #
 # Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--stage 0|1|2|3|4|5|6|all]
 #                                [--tags "orig rmu elm"] [--domain bio] [--holdout] [--nrand 100] [--threads N]
