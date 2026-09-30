@@ -7577,3 +7577,26 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   circuit, improves on B), as the controls showed; those rows need the reference, and ideally a
   teach model this design does not have. The recovery tests carry them because their null (an
   unrelated fine-tune) and reference (the original) are both measured.
+
+## 2026-09-30 (verification, part 2) — the cluster outputs rerun and recomputed locally
+
+- `experiments/unlearning/out/wmdp/` (466 files, 31 MB, no weights; git-ignored) copied to the
+  laptop by the owner.
+- **Rerun.** `verdict.py --design wmdp` on the copy reproduces the cluster verdict row for row: 38
+  of 40 rows identical; M6 and M18 read MISSING locally because their inputs are the training logs
+  in the store, which were not copied.
+- **Independent recomputation.** With separate code and the raw `prefit_*.json` /
+  `edl_sweep.json`: r for M12 (bio, cyber, MMLU, fact), M16 (bio, cyber, MMLU), M17, M17u,
+  M17-fact, M17u-fact and the M19 calls: 0 mismatches against `verdict_wmdp.json`.
+- **Accuracies in the tables confirmed** from the files (B, multiple choice: original 0.668; as
+  given / null child / bio child RMU 0.309 / 0.348 / 0.682, ELM 0.350 / 0.555 / 0.668, NPO
+  0.264 / 0.625 / 0.641, SimNPO 0.422 / 0.621 / 0.662; no options: original 0.443, null 0.314,
+  RMU 0.390 / 0.387 / 0.467, ELM 0.424 / 0.443 / 0.477, NPO 0.316 / 0.432 / 0.456, SimNPO
+  0.324 / 0.454 / 0.462).
+- **Graded summary** (verdict_wmdp.md, headline metrics, ABSENT = 0): median r RMU 0.17 (IQR
+  0.00–0.79), ELM 0.02 (0.00–0.66), NPO 0.00 (0.00–0.61), SimNPO 0.64 (0.07–0.90). Wide intervals
+  worth quoting: M12-fact ELM 0.70 [0.33, 1.07]; M17-fact RMU 1.43 [0.11, 2.75].
+- **Localization figure** (`localize.png`) added to the write-up as Figure 2. Detail from the
+  JSON: RMU's relearning write at layers 5–6 is 0.035 per layer against the original's flat 0.031
+  (13% above), a bump inside the edited block but 10% of the write in total, the same as the
+  original's; SimNPO's and NPO's writes rise toward the last layers (0.046 and 0.038 at layer 31).

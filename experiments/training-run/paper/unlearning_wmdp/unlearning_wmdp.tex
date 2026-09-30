@@ -103,8 +103,9 @@ $n$ facts of A, mean of three seeds, from $n=8$ to $n=573$; falling with $n$ = e
 phase = teaching (Figure~\ref{fig:edl}). The no-options rows score the correct
 answer's first token against the other three answers', none shown (the relearning format); the null
 reassigns the ``correct'' candidate at random. The picture is the same there: every relearned model
-reaches the original, RMU beyond its unrelated fine-tune ($0.47$ vs $0.39$), the others already
-there after it; ELM is largely there before any training.}
+reaches the original, RMU beyond its unrelated fine-tune ($0.47$ vs $0.39$; position $1.43$, 90\%
+interval $[0.11, 2.75]$, the surface has little room), the others already there after it; ELM is
+largely there before any training.}
 \label{tab:headline}
 \end{table}
 
@@ -195,8 +196,9 @@ With no options shown the answer is not read either.
 \item \textbf{NPO:} the answer is readable in the state (probe $0.47$ vs original $0.60$) while the
 output says nothing, on either surface, so the damage is at the read-out.
 \item \textbf{ELM:} nothing is readable on the multiple-choice prompt, but with no options shown ELM
-still prefers the correct answer ($0.40$; original $0.43$, null $0.31$), and its circuit on that
-surface is repeatable: the suppression is bound to the format. Writing the original's head states
+still prefers the correct answer ($0.40$; original $0.43$, null $0.31$; position $0.70$, 90\%
+interval $[0.33, 1.07]$), and its circuit on that surface is repeatable: the suppression is bound to
+the format. Writing the original's head states
 in turns the multiple-choice answer on ($0.27\to0.48$; the original scores $0.49$ on this test).
 \item \textbf{RMU} hides it best: the probe, the circuit and the state swap cannot read it, and
 with no options shown it is at the edge of the null ($0.35$, $p=0.05$). Yet relearning brings it
@@ -297,8 +299,27 @@ writing the original's head states into ELM restores its accuracy to $0.48$ (ori
 ELM still answers with no options shown ($0.40$; original $0.43$), so its suppression is bound to the
 multiple-choice format. Relearning restores both, and it does not repair the edit: every child's
 LoRA write puts the same share into the edited layers as the original's own relearning does (RMU
-$10\%$, ELM $13\%$).
+$10\%$, ELM $13\%$; RMU's write is $13\%$ above the flat per-layer share at layers 5--6, a bump, not a
+repair). Figure~\ref{fig:loc} shows all of this by layer.
 \end{steps}
+
+\begin{figure}[!htbp]\centering
+\includegraphics[width=0.92\textwidth]{fig_localize.png}
+\caption{Where each method acts, by layer, from the stage-1 files and the checkpoints. Top left: the
+answer probe's accuracy over its shuffled-label null at every layer; NPO and SimNPO follow the
+original from layer 13 at about two thirds of its height, RMU and ELM stay at zero. Top right: the
+correct-letter logit difference read through the model's own output map; only the original rises
+from layer 18, SimNPO's jumps at the last layer (its output-level preference is intact, its state
+readable, and its accuracy still low: the pushed-away answer is a matter of which letter wins).
+Bottom left: the relative weight change of the unlearning edit per layer, log scale; RMU in layers
+5--7 and ELM in 4--7 at ten times the level of NPO's and SimNPO's spread-out changes. Bottom
+right: the share of each relearned child's LoRA write per layer, next to the original's own
+relearning (black, flat at $1/32$); no child concentrates its write where its parent was edited.
+Across the headline metrics the median position between the null and the original is $0.17$ (RMU),
+$0.02$ (ELM), $0.00$ (NPO) and $0.64$ (SimNPO), with absent readings counted as zero: a measure of
+how well each method hides the capability, not of how much remains.}
+\label{fig:loc}
+\end{figure}
 
 \medskip\noindent\textbf{Machinery or knowledge?} A multiple-choice reading needs the machinery that
 reads the options and writes the letter as well as the knowledge, so every metric read on that prompt
