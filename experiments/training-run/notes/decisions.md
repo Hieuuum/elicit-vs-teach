@@ -7330,3 +7330,66 @@ U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` p
   - Every row checks MDL/D − floor = EDL/D under both floors.
   - All 35 seed means match `edl_sweep.py`'s `[edl]` lines to within 0.0005 bits.
   - `fig_edl_sweep.py` draws panel (b) from the CSV.
+
+## 2026-09-30 — WMDP: which single values can be called; why the calls are mixed
+
+- **Question (owner).** Some metrics are judged from one value (e.g. M6's weight write). What
+  says whether that one value means elicit or teach? And does it make sense that before training
+  some metrics read elicit and others teach?
+- **Audit of every WMDP metric.** A value can be placed on the elicit–teach scale only when this
+  design measures both its null and the original's value.
+  - Called (null and elicit reference both measured here):
+    - M12, M16′, M9, M11, M14 and M15 (the original as reference).
+    - M1★ and M10★ (random head sets; the original as reference or donor).
+    - M2★, M1, M2 and M4 (chance and the split-half ceiling).
+    - M1 necessity (the original's relearned child as reference).
+    - M10 (the donor child as reference).
+    - M17, M17u and M18 (the fine-tuning null and the original); M18 is one-sided.
+    - M19 (the shape rule and the original's own curve).
+  - Not callable here:
+    - M5, M6 and M7 used thresholds imported from the main results, and that scale (full FT, 1B)
+      does not carry over. On M7 the original's own relearning reads 0.64, beyond the main
+      results' teach value of 0.57. LoRA with the same stopping rule fixes the size of M6's
+      write. M5's first steps are inflated by repairing the unlearned output.
+    - M3 did not separate elicit from teach in the main results either (0.69 vs 0.88).
+    - M13 has no elicit reference; the original sits at a minimum.
+    - M7★ describes the unlearning, not the relearning.
+  - These rows are now REPORTED (`verdict_wmdp.py` mode "report"): shown beside the original's own
+    value, neither called nor tallied. This settles the open M7 question: no call.
+- **Bug fixed.** `judge()` tested U against its null before testing the instrument on the
+  original, so M13 read ABSENT (and was tallied) for RMU, ELM and SimNPO although it has no elicit
+  reference. The instrument check now comes first.
+- **Doc tallies after relearning** (Table 3 with M17–M19, called metrics only): RMU 6/1/1, ELM 8/0/0,
+  NPO 5/0/1, SimNPO 5/1/1. Before-training tallies are unchanged, relabelled
+  readable / partly / not read.
+- **Mixed calls are expected before training.** A before-training call is one-sided: what a metric
+  reads is present, but what it cannot read may still be present, hidden before or after where the
+  metric looks.
+  - The owner's reading ("the output is suppressed, the capability is still inside") fits NPO and
+    SimNPO. Their probe reads the answer in the state (0.47 and 0.49; original 0.60) while the
+    output is pushed away. NPO-WMDP was trained on bio only, and its cyber answers still show at
+    the output (hidden preference 2.32; original 3.57).
+  - It does not fit RMU and ELM: the probe reads nothing at any layer (0.28, the shuffled level),
+    so their suppression acts before the answer forms. ELM is a LoRA adapter on layers 4–7, and RMU
+    steers layer-7 activations according to the WMDP paper.
+  - The capability shows only when the edit is bypassed: patching the original's head states into
+    ELM gives 0.48 (original 0.49), and relearning restores both.
+  - "Still in the weights" therefore rests on the restoration tests (M17, M17u, M18, M19, M10★),
+    which read elicit for all four. Doc section 4 and Table 4 ("how each metric is judged") are new.
+- **New stage 6** (`localize.py`, CPU, no training) tests this directly, per layer and from existing
+  files:
+  - the probe's accuracy over its shuffled null, and the lens read-out;
+  - the unlearning edit ‖W_U − W_orig‖/‖W_orig‖, streamed from the checkpoints, including the
+    embeddings, final norm and output head;
+  - each relearned child's LoRA write, as a share of the child's total, against the original's
+    relearning.
+  - Predictions, before running:
+    - NPO and SimNPO keep a probe close to the original's through the middle layers while their
+      read-out falls.
+    - RMU and ELM change only a few early-middle layers.
+    - Their relearning writes put more weight in those layers than the original's relearning does.
+- **Caveat recorded.** The circuit metrics (M1, M2, M4, M15, M1★) compare the machinery that
+  answers a four-option question. That machinery is likely shared across subjects, so an elicit
+  reading there shows the original's machinery in use, not the bio knowledge itself.
+  - The knowledge-specific evidence is M16′ and M17–M19.
+  - A check not yet run: overlap of the original's bio circuit with its MMLU circuit.

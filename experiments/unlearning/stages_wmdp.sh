@@ -81,7 +81,7 @@ necessity() {  # necessity <model> <eval map stem> <ranking map stem> <out> <spl
 TAGS="orig $(echo "$TAGS" | tr ' ' '\n' | grep -v '^orig$' | tr '\n' ' ')"
 NPAR=$(echo $TAGS | wc -w)
 milestone "wmdp: repo $(git rev-parse --short HEAD) store=$GEODE_STORE out=$OUT stage=$STAGE dev=$DEV tags=[$TAGS] domain=$D smoke=$SMOKE dtype=${GEODE_ANALYSIS_DTYPE:-float32}"
-if [[ $SMOKE == 0 && $CONFIRM == 0 && $STAGE != 0 && $STAGE != 4 ]]; then
+if [[ $SMOKE == 0 && $CONFIRM == 0 && $STAGE != 0 && $STAGE != 4 && $STAGE != 6 ]]; then
   NSW=$(( $(echo $EDL_NS | wc -w) * $(echo $EDL_SEEDS | wc -w) ))
   echo "Estimated cost (7B, one 80 GB GPU): stage 1 ~$((NPAR * 90)) GPU-min, stage 2 ~$((NPAR * 40)) GPU-min," \
        "stage 3 ~$((NPAR * 90)) GPU-min, stage 5 ~$((NPAR * NSW * 2)) GPU-min ($NSW sweep points per model)" >&2
@@ -214,6 +214,16 @@ if want 5; then
     done
   done
   step "" python3 "$HERE/edl_sweep.py" --out "$OUT" --tags "$TAGS" || true
+fi
+
+# ------------------------------------------------------------------ 6: localization (CPU)
+# Where each method acts and where relearning writes (localize.py): readability by depth from the
+# stage-1 probe / lens files, the unlearning edit per layer (checkpoint diff against orig), the
+# relearning write per layer (the children's LoRA adapters). No GPU; reads the checkpoints once.
+if want 6; then
+  MX=""
+  for p in $TAGS; do MX="$MX --model $p=$(mpath $p)"; done
+  step "" python3 "$HERE/localize.py" --out "$OUT" --store "$GEODE_STORE" --tags "$TAGS" --domain $D $MX || true
 fi
 
 # ------------------------------------------------------------------ 4: verdict

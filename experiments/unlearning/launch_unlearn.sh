@@ -33,8 +33,10 @@
 #                      unlearned model, against the two anchors.
 #   5  EDL sweep       (wmdp) relearning on nested subsets of n facts x EDL_SEEDS seeds;
 #                      edl_sweep.py calls Donoway et al.'s EDL/D-vs-n signature (M19).
+#   6  localization    (wmdp, CPU) localize.py: readability by depth, the unlearning edit per
+#                      layer, the relearning write per layer.
 #
-# Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--stage 0|1|2|3|4|5|all]
+# Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--stage 0|1|2|3|4|5|6|all]
 #                                [--tags "orig rmu elm"] [--domain bio] [--holdout] [--nrand 100] [--threads N]
 #         bash launch_unlearn.sh --smoke [--dataset ...]   # CPU, tiny random models + synthetic data, no network
 # Env:    GEODE_STORE (store root; models + runs), UL_OUT (small outputs; default
