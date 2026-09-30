@@ -56,7 +56,9 @@ After relearning (Tables~\ref{tab:headline} and~\ref{tab:after}): \textbf{elicit
 original: at least half of the original's distance from the null), \emph{partly} (above its own
 null, less than half), teach (at its own null). Before training (Table~\ref{tab:before}) the only
 question is whether the capability can be read in the unlearned model: \textbf{readable},
-\emph{partly}, or not read. That reading is one-sided: what a metric reads is there, but what it
+\emph{partly}, or not read. Readable and partly both mean the capability is present (the value is
+significantly above the model's own null); the split at half of the original's excess says how
+much of it survives, not whether any does. That reading is one-sided: what a metric reads is there, but what it
 cannot read may still be there, hidden before or after the point the metric looks at
 (Section~4). --- means there is nothing to measure (the model has no task behaviour for this metric).
 A metric is called only where this design measures both its null and the original's value; the

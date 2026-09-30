@@ -7559,3 +7559,21 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   so its recovery test has little room for three of the four methods.
 - **Tests:** `tests/experiments/scripts/test_verdict_wmdp_rules.py` (pure functions, no data),
   alongside `test_signature.py` (V1.12) and `test_v5_80_*` (restore-best).
+
+## 2026-09-30 (late) — presence vs level: what r ≥ 0.5 is for
+
+- **Owner:** why r ≥ 0.5? Isn't any signal enough to say elicit?
+- **Two questions.** Presence ("is the capability still there?") is decided by any significant
+  signal above the model's own null (the detection gates: 3 SE, p < 0.01); RESIDUAL already means
+  present. The pre-registered r ≥ 0.5 (PLAN.md §W6) is the coarse midpoint for "reads like the
+  original": how much survives, not whether any does.
+- **Change.** The verdict summary now says "still in the weights" when any headline metric is
+  above its own null (CARRIES or RESIDUAL) and lists, on a second line, the metrics at the
+  original's level (r ≥ 0.5, the old rule). No answer changes: every model already had a CARRIES.
+  The tallies keep their three bins; the write-up's "Reading a cell" says readable and partly both
+  mean present.
+- **Where any signal is NOT enough:** the after-relearning elicit-vs-teach calls. A taught model
+  also reads above the null there (it uses the shared machinery, overlaps the original's MMLU
+  circuit, improves on B), as the controls showed; those rows need the reference, and ideally a
+  teach model this design does not have. The recovery tests carry them because their null (an
+  unrelated fine-tune) and reference (the original) are both measured.
