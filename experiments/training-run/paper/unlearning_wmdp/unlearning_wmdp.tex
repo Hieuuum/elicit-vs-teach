@@ -381,6 +381,25 @@ instead of $-0.56$) and changes no call. One of the original's three seeds rises
 % =====================================================================
 \section*{Appendix: how each metric is judged}
 
+Every call is a position between the model's own null (0) and a reference measured in this
+design (1), $r=(v-\text{null})/(\text{ref}-\text{null})$, with elicit at $r\ge0.5$; shifting or
+rescaling a statistic together with its null and reference changes nothing, and no row is called by
+a raw value (the rows that were, M3, M5, M6, M7, are reported only). The only absolute constants are
+detection gates, which decide whether there is anything to measure: 3 standard errors above the
+null (probe, state swap, lens, recovery), permutation $p<0.01$ (hidden preference; 2{,}000 draws),
+binomial $p<0.01$ against 100 random head sets (necessity), an overlap at least $0.05$ above
+type-matched chance ($0.10$ for split-half circuits), a performing map (mean logit difference above
+1 nat on its own pairs), and, for the option heads, the full model following the swap on at least
+half the pairs. A gate that fails on the original reads ``instrument fails'' before the unlearned
+model is judged. These rules, the reference modes, the tally exclusions and the presence of a bio
+twin for every MMLU control are property-tested on synthetic statistics
+(\texttt{tests/experiments/scripts/test\_verdict\_wmdp\_rules.py}); the EDL signature rule and the
+restore-best keeper have their own tests. Leakage checks: the halves are split by item with
+balanced letters; the relearning validation rows (the first 10\% of A) are disjoint from the
+training rows and B is never trained on; the fine-tuning null's MMLU items are excluded from the
+MMLU accuracy read; every model uses the original's tokenizer, so items, pairs and over-length
+drops are identical across models.
+
 \begin{table}[!htbp]\centering\scriptsize\setlength{\tabcolsep}{3pt}\renewcommand{\arraystretch}{0.95}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{@{}l>{\raggedright}p{4.6cm}>{\raggedright}p{4.0cm}>{\raggedright}p{4.6cm}l@{}}
