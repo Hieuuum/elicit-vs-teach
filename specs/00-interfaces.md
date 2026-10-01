@@ -1,5 +1,60 @@
 # specs/00-interfaces.md — Shared Interfaces and Storage Schemas
 
+## Offline circuit-evaluation extension (2026-09-10)
+
+Released-model evaluations do not fabricate training manifests. Each evaluation
+directory contains `run_metadata.json` (schema_version=1, kind=offline_circuit_eval,
+status, config, immutable checkpoint revisions, source/environment provenance,
+dataset manifest fingerprint, start/end timestamps), per-example JSONL records,
+and numeric NPZ arrays accompanied by JSON metadata identifying every row/node.
+JSON files are written atomically and reject NaN/Infinity. Derived long-format
+parquet results retain the eight required columns from section 7. Full model
+weights and credentials are never part of uploaded evaluation artifacts.
+
+Correctness properties for the OLMo circuit experiment (CPU offline fixtures):
+
+- C1: native task parsers/scorers retain ETHICS grouping and accept equivalent
+  numeric answers and any execution-valid CRUXEval input; timeouts are failures.
+- C2: ETHICS controls balance position/semantic mapping and use distinct
+  single-token labels without changing the underlying judgment.
+- C3: no original problem group crosses probe splits or statistical resamples;
+  preprocessing and hyperparameter selection never use the test fold.
+- C4: sequence likelihood masks exactly the complete answer tokens, handles
+  causal shifting/padding, and refuses tokenization boundary ambiguity.
+- C5: attribution uses OLMo2 residual contribution sites, is zero for identical
+  clean/corrupt inputs, agrees with small causal interventions to first order,
+  and removes hooks/gradients after success or failure.
+- C6: paired comparisons require identical ordered item/node IDs and token
+  protocols; bootstrap draws share groups across checkpoints and rerank nodes.
+- C7: top-k ties are deterministic; null overlap uses the actual node universe.
+  The conditional sensitivity
+  preserves each set's head/MLP counts and matches exact overlap expectations,
+  and split-half stability is not described as a strict ceiling.
+- C8: planted linearly separable features are recovered out of sample, and
+  shuffled-label/answer-only controls are explicitly reported for probes.
+- C9: every checkpoint has an immutable revision; outputs preserve source/data
+  hashes, failure/truncation counts and exact prompts/controls. A different
+  configuration cannot silently overwrite an existing run.
+- C10: compute commands require --confirm-cost, print an estimate, implement a
+  wall-time limit, and cannot silently start the full experiment after a pilot.
+- C11: a frozen CPU plan binds source data, tokenizer, planning code and sampling
+  settings to a content checksum; stale or modified plans fail before model
+  weights load. Reusing the plan preserves source pairs, token inputs and splits.
+- C12: pre-rental checkpoint metadata checks reject architecture, tokenizer or
+  immutable-revision mismatches without downloading pretrained weights.
+- C13: type-matched random interventions sample without replacement, preserve
+  the selected set's MLP/head counts, and save exact nodes and seeded draws.
+  Report comparisons keep uniform and type-matched controls distinct.
+- C14: post-run technical audits reject missing stages, nonfinite arrays,
+  unmatched examples/nodes/tokenizers, overlapping intervention sources and
+  inconsistent saved patch effects. Technical success is not capability evidence.
+- C15: full-workload projections preserve each checkpoint's measured task rates,
+  scale attribution and intervention counts separately, and reject incomplete or
+  incompatible timing protocols. Probe-growth assumptions remain explicit and
+  projections are not confidence intervals or guaranteed spending limits.
+
+Tests live in `tests/lib/circuits/`; no test downloads weights or uses a GPU.
+
 Everything downstream (EDL harness, training runs, probe extraction, analysis
 drivers) reads and writes through these schemas. External code
 (Donoway repo, Minder repo) is wrapped behind adapters that emit these
