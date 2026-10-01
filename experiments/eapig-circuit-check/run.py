@@ -170,6 +170,10 @@ def stage_sanity(model, graph, tok, data, out: Path, bs: int) -> dict:
         )[:, prompt.shape[1]:].cpu()
         for row, ans in zip(gen, val["answer_text"][s : s + bs]):
             ids = row.tolist()
+            # cut at EOS: skip_special_tokens alone would glue the post-EOS
+            # continuation ("9331<eot>Once" -> "9331Once") and zero out EM
+            if tok.eos_token_id in ids:
+                ids = ids[: ids.index(tok.eos_token_id)]
             text = tok.decode(ids, skip_special_tokens=True).split("\n")[0]
             em.append(text.strip() == ans)
             ans_ids = [t for t in ids if t != tok.eos_token_id]
