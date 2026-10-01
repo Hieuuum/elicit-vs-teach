@@ -156,3 +156,4 @@ Space token scored; counterfactual shares a token (asserted in code); non-standa
   the scores come from). If any model's digit-split share exceeds 1%, the
   excluded problems are taken from `sanity.json` per model (not yet needed).
 
+- 2026-10-01: checkpoints now on HF as `podhajskimarcin/<run_id>` (runs/<rid>/model/, fp32, 4.94 GB each; configs verified 16L/32q/8kv/2048/tied). Ready to run.
