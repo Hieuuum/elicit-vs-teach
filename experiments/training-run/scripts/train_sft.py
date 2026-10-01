@@ -177,7 +177,8 @@ def manifest_fields(
             "seed": t["seed"],
         },
         "trainable_param_count": n_params,
-        "snapshot_steps": [],  # runs 2-4: final checkpoint only (spec 02 §6)
+        # final checkpoint only unless train.snapshot_steps (spec 02 §6, V5.77)
+        "snapshot_steps": t.get("snapshot_steps") or [],
         "cost": {"gpu_type": cfg["gpu"]["type"], "est_usd": est_usd, "actual_usd": None},
         "status": "running",
         # Extras ride as preserved unknowns (spec 00 V0.2).
@@ -317,6 +318,7 @@ def main() -> int:
         print(f"[evt] parent '{parent}' complete, gates pass", flush=True)
 
     t = cfg["train"]
+    snapshot_steps = t.get("snapshot_steps") or []  # final checkpoint only unless set (V5.77)
     gpu = cfg["gpu"]
     epochs = cfg.get("cost", {}).get("assumed_epochs_for_estimate", 1)
     # Set-max right padding (geode.train.sft) means every row costs max_len.
@@ -433,6 +435,7 @@ def main() -> int:
         out_dir=out_dir,
         precision=precision,
         stopping_metric=("train_loss" if s.get("metric") == "train_loss" else "val_loss"),
+        snapshot_steps=snapshot_steps,
     )
     train_wall_s = time.time() - train_started
 
@@ -458,6 +461,32 @@ def main() -> int:
             },
         )
         print(f"[evt] adapter sidecar: {result.checkpoint_dir / 'adapter.safetensors'}", flush=True)
+    # Snapshot sidecars (V5.77, 2026-08-15): the same compact A/B-only sidecar,
+    # one per sft_snapshots/step_*/model.safetensors, so mid-run checkpoints
+    # stay cheaply recoverable too. Reads tensors straight off disk via
+    # safetensors' zero-copy accessor (no model instantiation) — seconds, not
+    # a GPU pass — and reuses lora_adapter_state_dict's key predicate (never
+    # re-implemented) so the filter can't drift from the final sidecar's.
+    if lora_cfg and snapshot_steps:
+        from safetensors import safe_open
+
+        snap_root = out_dir / "sft_snapshots"
+        for snap_model in sorted(snap_root.glob("step_*/model.safetensors")):
+            with safe_open(snap_model, framework="pt") as f:
+                keys = lora_adapter_state_dict({k: k for k in f.keys()}).keys()
+                tensors = {k: f.get_tensor(k) for k in keys}
+            sidecar = snap_model.parent / "adapter.safetensors"
+            save_file(
+                tensors,
+                str(sidecar),
+                metadata={
+                    "base_model": manifest.data["base_model"]["hf_id"],
+                    "base_revision": manifest.data["base_model"]["revision"],
+                    "lora_rank": str(lora_cfg["r"]),
+                    "lora_alpha": str(lora_cfg["alpha"]),
+                },
+            )
+            print(f"[evt] snapshot adapter sidecar: {sidecar}", flush=True)
     manifest.data["status"] = "complete"
     manifest.data["experiment"]["sft_result"] = {
         "final_step": result.final_step,

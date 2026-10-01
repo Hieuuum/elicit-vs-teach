@@ -1,0 +1,42 @@
+# ts1b pp-arm TARGET-STAGE LR mini-sweep, rung 1e-4. Overlay over
+# ../../ts1b_pp_target.yaml, run via scripts/launch_ts1b_pp_target_grid.sh
+# BEFORE the 5-size grid. THIS IS THE SHARED SWEEP for BOTH the pp-arm and
+# pf-arm target grids — see ts1b_pp_target.yaml's "*** LR IS SHARED ***"
+# header note. The winner gets pinned into both ts1b_pp_target.yaml's AND
+# ts1b_pf_target.yaml's train.lr field; ts1b_pf_target.yaml's own sweep
+# overlays (pf_target_lrsweep_*.yaml) are dead weight left in place for the
+# historical record only — scripts/launch_ts1b_pf_target_grid.sh no longer
+# runs them (retrofitted out, same commit as this file).
+#
+# Probed at n=21544 (mid-grid — big enough that a LoRA r512 adapter's
+# descent is measurable in a short budget, small enough to stay cheap; the
+# grid's own real n21544 overlay's max_steps is 5000 at this size, so 500
+# steps here is a clean 10% probe of that real budget). Parented on
+# evt-ts1b-pp-parent specifically because that arm finishes training (and
+# becomes launchable) well before evt-ts1b-pf-parent even starts (pf is
+# gated behind pp's own HALT check in scripts/launch_ts1b_stage12.sh) — NOT
+# because the pp-arm's LR "belongs" to it any more than pf's; both arms use
+# whatever this sweep picks, identically.
+#
+# min_steps 5000 >> max_steps 500 keeps the eps/k plateau rule inert, so
+# stop_reason=max_steps is the EXPECTED outcome for every rung here (same
+# mechanism as pp_lrsweep_*.yaml's own comment for the parent-stage sweep).
+#
+# Candidates {1e-4, 3.53e-4, 1e-3} bracket the paper's own Table 3
+# TinyStories-1B LoRA row (3.53e-4) — owner instruction 2026-08-19: center
+# the sweep on the paper's reported value rather than inventing candidates,
+# but still verify locally before committing the real grid's GPU hours.
+# The launcher auto-picks the winner (owner delegated the LR pick,
+# 2026-08-19 chat) — lowest rung with stable, non-diverging descent and the
+# best val loss at this budget; extend the bracket one rung further if the
+# winner sits at an endpoint (1e-4 or 1e-3), per the bracketing rule
+# already used for the parent-stage sweep.
+run_id: evt-ts1b-pp-target-lrsweep-1e-4
+data:
+  n_examples: 21544
+train:
+  lr: 1.0e-4
+  eval_every: 25
+  max_steps: 500
+  stopping:
+    min_steps: 5000

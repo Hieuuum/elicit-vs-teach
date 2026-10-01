@@ -1,0 +1,106 @@
+# ts38mt ("mechanistic tests") target-stage BASE arm. VERBATIM copy of
+# ts38_base.yaml — same task/data/lora/train recipe, byte-identical — with
+# only run_id and train.snapshots changed (snapshots ON here; ts38_base.yaml
+# itself stays snapshots-off and is NOT retrained). The three ts38mt target
+# arms (this file / ts38mt_pp.yaml / ts38mt_fmt.yaml) differ ONLY in theta0
+# (init/parent) and this shared snapshots setting — enforced by
+# test_config_completeness.py's ts38mt section (allowed-diff check against
+# ts38_base.yaml, and a cross-arm "shared recipe" check). BASE config for the
+# 10 log-spaced-prefix sizes (configs/sweeps/ts38/ts38mt_base_n<size>.yaml
+# overlays); never launched standalone. arm: B — teach (see ts38_base.yaml's
+# own ARM-LETTER NOTE for why "B" maps to ARM_REGIME["B"] == "teach").
+run_id: evt-ts38mt-base
+experiment:
+  name: training-run
+  arm: B                       # ARM_REGIME["B"] == "teach" — see ts38_base.yaml's note
+  role: target
+  parent_run_id: evt-run1-base-v3-ext  # TinyStories 38.7M floor-1, min_val 1.0718
+  parent_required_gates: []    # run 1 carries no required gates (G0 removed
+                                # 2026-07-20, spec 02 §8); mirrors every
+                                # run-1-based config in the repo
+                                # (run2_algo.yaml, run4_inst.yaml)
+  match_data_order_with: null  # this arm IS the G7 anchor; every same-size
+                                # ts38_pretaught overlay points back at the
+                                # matching evt-ts38-base-n<size> run
+  require_full_epoch1: true    # ts38-mini guard 1 (specs/02 V5.75/V5.76):
+                                # min_steps must equal exactly one
+                                # no-drop-last epoch so eps/k convergence can
+                                # never stop the run before epoch 1
+                                # completes — MDL needs the full first epoch.
+                                # Enforced per-size in the overlays
+                                # (train.stopping.min_steps = ceil(n/128)).
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_bare_addsub       # scaffold-free NL add/sub (D_algo_bare); TaskFormat
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet     # 1M bare NL add/sub — the frozen D_algo
+                                 # re-rendered by make_bare_sets.py
+  # Verified against llama_fig2nl3_{inst,noinst}.yaml's pin — identical
+  # 946b5d02... — the plan's hash matches the existing configs exactly; no
+  # deviation. LOCAL-ONLY (derived, never published to HF): local_path is
+  # load-bearing, resolved against REPO_ROOT via load_frozen_parquet (V5.70).
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 316228            # placeholder = largest size; every overlay
+                                 # sets its own prefix of the frozen order
+  eval_file: D_algo_eval_bare.parquet  # question-disjoint from D_algo_bare;
+                                # rows 0-2047 = stopping block, 2048+ =
+                                # reporting block (test loss)
+  # Verified against llama_fig2nl3_{inst,noinst}.yaml's pin — identical
+  # e419baa2... — no deviation.
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:                          # r/alpha restated from common.yaml for the
+  r: 128                       # record (2026-07-18 arch decision — owner:
+  alpha: 32                    # "not too small, not too big"; see the
+                                # ratified plan's rationale section)
+
+train:
+  lr: 1.0e-3                   # target-stage pin (2026-07-22, runs-5/6
+                                # sweep) — SAME across every ts38mt arm
+                                # (arms differ only in theta0)
+  precision: bf16
+  batch_size: 128
+  eval_every: 375               # placeholder = largest size's cadence; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  max_steps: 30000              # placeholder = largest size's ceiling; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2471              # placeholder = ceil(316228/128); every
+                                  # overlay sets its own exact
+                                  # ceil(n/128) (require_full_epoch1 guard)
+  snapshots:                     # ON here (ts38mt design pin — every other
+                                  # ts38(*) target leaves this off) so a
+                                  # later mechanistic-analysis pass can walk
+                                  # each arm's training trajectory.
+    n: 32                        # geode.probe.snapshot_steps(max_steps, n=32,
+                                  # dense_until=8), computed from THIS run's
+                                  # own train.max_steps at launch time
+                                  # (scripts/train_target.py ~466-480): a
+                                  # dense unit-stride prefix steps 1..8, then
+                                  # a log-then-uniform tail out to max_steps.
+                                  # At LoRA r128 over common.yaml's 7
+                                  # target_modules, each reached mark writes
+                                  # only snapshots/step_<k>/adapter.safetensors
+                                  # (trainable A/B tensors only, ~46 MB —
+                                  # decisions.md 2026-08-14/15 measured this
+                                  # exact rank/hidden_size combination —
+                                  # never a full model copy).
+    dense_until: 8
+  seed: 316

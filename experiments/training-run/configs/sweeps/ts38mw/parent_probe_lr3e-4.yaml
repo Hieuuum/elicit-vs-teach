@@ -1,0 +1,14 @@
+# ts38mw Stage 1 — the ONE falsification run (plan
+# docs/plan-ts38mw-multiwrap-install.md §3.3). Pins the winner LR (3e-4,
+# reused from the certified ts38 parent's own lane — see
+# ts38mw_pretaught_parent_lora.yaml's header) over the base file's `lr: null`
+# placeholder. snapshot_steps give mw_verdict.py a 14-point curve to apply
+# the persistence rule to; max_steps is a cost ceiling only (eps/k
+# convergence stops the run — snapshots past the stop simply do not
+# materialize, and the launcher scores whatever exists).
+run_id: evt-ts38mw-parent-probe-lr3e-4
+train:
+  lr: 3.0e-4        # dot-mantissa (bare exponent parses as a STRING)
+  max_steps: 160000 # cost ceiling only — ε/k convergence stops the run
+  snapshot_steps: [8000, 12000, 16000, 20000, 24000, 28000, 32000, 36000, 40000, 48000, 56000, 64000, 80000, 96000]
+  epochs_total_planned: 21

@@ -1,0 +1,15 @@
+# ts38 mini sweep point: n=4642. Paired with ts38_base_n4642.yaml (G7:
+# identical D_algo_bare stream, matched via match_data_order_with below).
+# Overlay over ../../ts38_pretaught.yaml. eval_every/max_steps copied
+# verbatim from the matching-size llama_fig2nl3 overlay. min_steps =
+# ceil(4642/128) = 37 (require_full_epoch1 guard, ts38-mini guard 1).
+run_id: evt-ts38-pretaught-n4642
+experiment:
+  match_data_order_with: evt-ts38-base-n4642
+data:
+  n_examples: 4642
+train:
+  eval_every: 5
+  max_steps: 1000
+  stopping:
+    min_steps: 37

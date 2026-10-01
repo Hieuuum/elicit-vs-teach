@@ -1,0 +1,139 @@
+# ts38pp — PAPER-PROTOCOL pre-teach parent (decisions.md 2026-08-16 "ts38pp
+# pre-registration"; scripts/launch_ts38pp_family.sh). Full FT on
+# D_target_4M (paper App. E.2: "full fine-tuning for a single epoch on 4
+# million unique examples"), from the base TinyStories floor, via
+# scripts/train_sft.py, for EXACTLY ONE epoch — the paper's literal recipe,
+# distinct from every earlier ts38 parent attempt (ts38_pretaught_parent.
+# yaml's multi-epoch-over-1M-unique full-FT ladder, and the certified
+# LoRA-installed parent it lost to) which trained multiple epochs over a
+# 1M-unique set instead. This checkpoint becomes theta0 for the
+# evt-ts38pp-pretaught (paper-protocol elicit) arm's LoRA targets; the
+# evt-ts38-base arm is REUSED unchanged as the teach-arm comparison — only
+# this parent and its target arm are new.
+#
+# ONE-EPOCH PIN is a pre-registered exception to run-until-convergence
+# (owner policy, [[feedback-run-until-convergence]]) — the same class of
+# exception as the certified parent's pinned-max_steps replay
+# (launch_ts38_certified_parent.sh). min_steps == max_steps == 31093 below
+# so the run ends exactly at the epoch boundary on purpose, not because
+# eps/k fired early or a ceiling cut it short; launch_ts38pp_family.sh
+# stage 4 hard-fails if the recorded final_step is anything else.
+#
+# NO GATES EVER RECORDED against this parent: G1/G8 are scored --no-record
+# only, evidence alongside a theta0 probe (op / scaffolded-NL / bare-NL vs.
+# the base) — see launch_ts38pp_family.sh stage 5; the only thing that can
+# HALT the family is the op-notation install itself failing (EM < 0.90),
+# not G8. Every child's parent_required_gates is [] (ts38pp_pretaught.
+# yaml), matching the ts38mw/ts38pf convention: a recorded FAIL here would
+# be V0.6 death for every child ([[feedback-gate-thresholds-are-task-
+# scoped]]).
+#
+# LR 3e-5 is PINNED, not swept here — the ladder already run for
+# ts38_pretaught_parent.yaml (same base checkpoint, same LR-scale/method,
+# arithmetic-only full FT) IS the sweep (owner policy,
+# [[feedback-lr-sweep-before-full-run]]): 3e-4 -> G1 .988 / G8 9.96,
+# 1e-4 -> G1 .986 / G8 3.60, 3e-5 -> G1 .979 / G8 1.207 (converged @40k
+# steps), 1e-5 -> G1 .940 FAIL / G8 1.190 (decisions.md 2026-08-14/15, "ts38
+# ladder CLOSED"). 3e-5 is the lowest rung that both converged inside its
+# ceiling and passed G1 outright; the paper's own protocol carries no
+# retention gate (EXPERIMENTS §6.16's "paper has no retention gate" note,
+# carried over here), so G8 failing at every rung does not disqualify it.
+#
+# NO top-level `lora:` block in this file, ON PURPOSE — same mechanism as
+# ts38_pretaught_parent.yaml's own guard note. train_sft.py's
+# own_lora_block() (2026-07-31 incident guard; see
+# test_llama_fig2nl_installer_opts_into_lora_via_own_lora_block) gates
+# training.method on whether THIS run's OWN yaml (or its --override)
+# declares a `lora:` key — verified directly in train_sft.py: `if "lora" in
+# own: return cfg["lora"]`, checked against the file's own un-merged
+# mapping, not the deep-merged cfg. common.yaml's shared default lora block
+# (r128/alpha32, inherited by every config via deep_merge) deliberately
+# does NOT count. Omitting the key here is what selects training.method:
+# full_ft in the manifest — matching the paper's literal "full fine-tuning"
+# (App. E.2); adding one by habit would silently switch this run to LoRA
+# and invalidate the whole paper-protocol comparison.
+#
+# BEFORE LAUNCH (owner): evt-run1-base-v3-ext must be status: complete
+# (V0.6) and actually load before spending
+# ([[feedback-verify-the-receiver-not-the-sender]]) — re-verified fresh by
+# launch_ts38pp_family.sh stage 1, mirroring every other ts38(*) launcher.
+run_id: evt-ts38pp-parent
+experiment:
+  name: training-run
+  arm: A                       # ARM_REGIME["A"] == "elicit" (train_target.py)
+                                # — this parent feeds the elicit-arm chain.
+                                # train_sft.py hardcodes regime: "unknown" for
+                                # full-FT runs and never looks this up, so the
+                                # value here is documentation only, kept
+                                # consistent with every other ts38(*) parent
+                                # config (see ts38_pretaught.yaml's header for
+                                # the family-wide arm-letter note).
+  role: pre_teach
+  parent_run_id: evt-run1-base-v3-ext  # TinyStories 38.7M floor-1, min_val 1.0718
+  parent_required_gates: []    # run 1 carries no required gates (G0 removed
+                                # 2026-07-20, spec 02 §8) — the launcher's
+                                # status: complete check is the only bar.
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_op_addsub         # operator-notation add/sub (D_target_4M); TaskFormat
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  # hf_id is unused for LOADING (local_path below takes precedence,
+  # geode/arith/load.py::load_frozen_parquet) — D_target_4M is NOT on this
+  # HF dataset repo, it is box-generated by datagen/make_data.py
+  # --preteach-4m into local_path, same pattern as D_preteachfmt.parquet in
+  # ts38_preteachfmt_parent.yaml. Kept here because manifest_fields reads
+  # cfg["data"]["hf_id"] unconditionally (bare subscript) to build the
+  # manifest's dataset name string ("<hf_id>:<file>") — dropping it would
+  # crash register_run, not skip a download.
+  file: D_target_4M.parquet     # 4,000,000 op-notation add/sub, correct
+                                 # labels, seed 20260816, generated by
+                                 # datagen/make_data.py --preteach-4m (paper
+                                 # App. E.2); same rendering/task as D_target.
+  order_hash: ba2d6efdd939f63e6da75420a93362fcf86a6adeaa66bf5b5cce01532fbec54c
+  local_path: experiments/training-run/data/full/D_target_4M.parquet
+  val_fraction: 0.005            # 20,000 held-out (run-2 convention;
+                                  # questions unique across the file, so the
+                                  # split cannot leak)
+  seed: 316
+
+train:
+  lr: 3.0e-5                    # pinned from the full-FT ladder — see header
+  batch_size: 128
+  eval_every: 1000
+  # ONE FULL EPOCH, exactly — see header. n_val = round(0.005 * 4,000,000) =
+  # 20,000 (geode.train.packing.split_indices); n_train = 3,980,000;
+  # steps_per_epoch = n_train // 128 = 31,093 (floor/drop-last — this is
+  # train_sft.py's OWN convention, verified against its
+  # `steps_per_epoch = len(train_examples) // t["batch_size"]` printout,
+  # NOT train_target.py's ceil/no-drop-last one). min_steps == max_steps so
+  # the run stops exactly here, never earlier (eps/k) or later (ceiling) —
+  # the one pre-registered exception to run-until-convergence.
+  max_steps: 31093
+  stopping:                    # loss branch of the V0.7 union (no `metric`)
+    eps_nats: 0.002
+    k: 5
+    min_steps: 31093
+  # 1/4, 1/2, 3/4 epoch (floor(31093 * {0.25, 0.5, 0.75}) = 7773 / 15546 /
+  # 23319) — train_sft.py reads this key directly (`t.get("snapshot_steps")
+  # or []`, phase 4/6/7) and writes a full save_pretrained dir under
+  # sft_snapshots/step_<k>/ at each one (geode/train/sft.py V5.77); no
+  # adapter sidecar is extracted for a full-FT run (train_sft.py's sidecar
+  # write is gated on lora_cfg, which is None here).
+  snapshot_steps: [7773, 15546, 23319]
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 1      # the paper's literal "single epoch" (App. E.2)
+
+cost:
+  assumed_epochs_for_estimate: 1  # quote the actual planned epoch count —
+                                   # there is no ceiling to overshoot here

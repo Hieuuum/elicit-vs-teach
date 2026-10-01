@@ -64,7 +64,12 @@ if [[ -d "$HOME/workspace" && ! /workspace -ef "$HOME/workspace" ]]; then
   echo "WARNING: /workspace and $HOME/workspace both exist and differ — using /workspace; check where the real data lives"
 fi
 
-BRANCH=cut-to-core
+# 2026-08-16 incident: this was pinned to cut-to-core (an old, superseded
+# branch missing ts38grid and other current work) — a box would clone code
+# that didn't have the launcher it was about to be asked to run. Track
+# whatever branch is currently checked out on the laptop that pastes this
+# script into the vast template; update by hand when that changes.
+BRANCH=ts38-mini
 cd /workspace
 [[ -d elicit-vs-teach ]] || git clone -b "$BRANCH" https://github.com/Hieuuum/elicit-vs-teach.git
 cd elicit-vs-teach
@@ -217,6 +222,6 @@ fi
 
 hash=$(git rev-parse --short HEAD)
 echo "ready: $hash suite=$suite gpu=$gpu venv=$venv (box hash must match laptop before any launch)"
-[[ -n ${NTFY:-} && ${NTFY_AUTO:-0} == 1 ]] && curl -sd "box ready: $hash suite=$suite gpu=$gpu venv=$venv" "$NTFY" >/dev/null
+[[ -n ${NTFY:-} && ${NTFY_AUTO:-0} == 1 ]] && curl -sd "ONSTART ONLY (not a run result): box environment ready, hash=$hash suite=$suite gpu=$gpu venv=$venv — training has not started yet" "$NTFY" >/dev/null
 echo "=== onstart done ==="
 exit 0

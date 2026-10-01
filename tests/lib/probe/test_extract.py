@@ -20,12 +20,14 @@ module under test's own storage path.
 from __future__ import annotations
 
 import dataclasses
+from types import SimpleNamespace
 
 import pytest
 import torch
 
 from geode.edl.masking import TaskFormat, label_mask
 from geode.probe import (
+    ProbeCapture,
     ProbeMeta,
     extract_probe,
     load_matched_probe_pair,
@@ -294,3 +296,78 @@ def test_v5_12_matched_load_guard(geode_store, tiny_llama):
         save_probe_dump(cap, dataclasses.replace(meta_b, **{field: bad_value}))
         with pytest.raises(ValueError, match=field):
             load_matched_probe_pair("run-a", 17, "run-b", 99)
+
+
+# ---------------------------------------------------------------------------
+# Loud-failure guards: non-Llama model, empty probe set, hooks never firing,
+# unsupported storage dtype
+# ---------------------------------------------------------------------------
+
+
+def test_extract_probe_rejects_non_llama_style_model():
+    """L124 (``_residual_modules``): a model whose ``get_input_embeddings()``
+    returns None (no ``model.layers`` to even look for) refuses with a clear
+    message naming the actual class, before any forward pass runs."""
+
+    class NotALlama(torch.nn.Module):
+        def get_input_embeddings(self):
+            return None
+
+    with pytest.raises(ValueError, match="expected a Llama-style causal LM"):
+        extract_probe(NotALlama(), _varied_examples(), _task_format(), device="cpu")
+
+
+def test_extract_probe_rejects_empty_probe_set(tiny_llama):
+    """L167: an empty probe set refuses before touching the model at all."""
+    model = tiny_llama(seed=MODEL_SEED)
+    with pytest.raises(ValueError, match="empty probe set"):
+        extract_probe(model, [], _task_format(), device="cpu")
+
+
+def test_extract_probe_raises_when_a_hook_never_fires():
+    """L209: a block hook that is registered but never invoked during the
+    forward pass raises a RuntimeError naming the missing hook(s) — the
+    guard against ``captured`` silently falling short of ``names``.
+
+    ``_FakeLlama`` has the shape ``_residual_modules`` expects
+    (``get_input_embeddings()`` + ``model.layers``) but its ``forward``
+    deliberately never calls the one decoder "block" module, so that block's
+    registered forward hook can never fire. This is the reachable way to hit
+    the guard without monkeypatching torch/transformers internals.
+    """
+
+    class _FakeLlama(torch.nn.Module):
+        def __init__(self, vocab_size: int, d_model: int):
+            super().__init__()
+            self.embed_tokens = torch.nn.Embedding(vocab_size, d_model)
+            self.model = torch.nn.Module()
+            self.model.layers = torch.nn.ModuleList([torch.nn.Linear(d_model, d_model)])
+            self.lm_head = torch.nn.Linear(d_model, vocab_size)
+
+        def get_input_embeddings(self):
+            return self.embed_tokens
+
+        def forward(self, input_ids):
+            x = self.embed_tokens(input_ids)
+            # self.model.layers[0] is never called: its forward hook cannot fire.
+            return SimpleNamespace(logits=self.lm_head(x))
+
+    model = _FakeLlama(vocab_size=20, d_model=8)
+    with pytest.raises(RuntimeError, match="hooks never fired"):
+        extract_probe(model, _varied_examples(), _task_format(), device="cpu")
+
+
+def test_save_probe_dump_rejects_unsupported_storage_dtype():
+    """L275: an unsupported ``meta.dtype`` refuses before any tensor cast or
+    disk write — a trivially empty ``ProbeCapture`` is enough, since the
+    guard fires on ``meta.dtype`` alone."""
+    capture = ProbeCapture(
+        acts={},
+        grads={},
+        input_ids=torch.zeros((1, 1), dtype=torch.long),
+        attention_mask=torch.ones((1, 1), dtype=torch.bool),
+        label_mask=torch.zeros((1, 1), dtype=torch.bool),
+        probe_loss_nats=torch.zeros(1),
+    )
+    with pytest.raises(ValueError, match="unsupported storage dtype"):
+        save_probe_dump(capture, _meta(dtype="float64"))

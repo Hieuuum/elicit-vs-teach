@@ -516,6 +516,38 @@ def test_roundtrip_preserves_unknown_extra_fields(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# RunManifest.load — malformed input on disk (missing file, corrupt JSON,
+# a parsed JSON root that isn't an object)
+# ---------------------------------------------------------------------------
+
+
+def test_load_missing_file_raises(tmp_path: Path) -> None:
+    """RunManifest.load on a nonexistent path fails loudly, naming the path."""
+    missing = tmp_path / "does_not_exist.json"
+    with pytest.raises(Exception) as excinfo:
+        RunManifest.load(missing)
+    assert str(missing) in str(excinfo.value)
+
+
+def test_load_corrupt_json_raises(tmp_path: Path) -> None:
+    """RunManifest.load on unparseable JSON content fails loudly."""
+    path = tmp_path / "corrupt_manifest.json"
+    path.write_text("{not valid json")
+    with pytest.raises(Exception):
+        RunManifest.load(path)
+
+
+@pytest.mark.parametrize("root", [[1, 2], "x"], ids=["list", "string"])
+def test_load_non_dict_root_rejected(tmp_path: Path, root: object) -> None:
+    """A parsed JSON root that isn't an object (a list, a bare string, ...)
+    is rejected by name, not fed into the object-shaped validator."""
+    path = tmp_path / "candidate_manifest.json"
+    path.write_text(json.dumps(root))
+    with pytest.raises(ManifestError, match="manifest root must be a JSON object"):
+        RunManifest.load(path)
+
+
+# ---------------------------------------------------------------------------
 # Registry: register/load under the spec 00 §1 layout
 # ---------------------------------------------------------------------------
 

@@ -1,0 +1,14 @@
+# ts38 CERTIFIED LoRA parent — the EARLIEST both-pass step of the 3e-4 probe
+# (decisions.md 2026-08-15 "certified-checkpoint parent" entry; owner
+# pre-authorized 2026-08-15). max_steps here IS the design: this run replays
+# ts38_pretaught_parent_lora.yaml @ 3e-4 (bit-exact, seed 316) and stops at
+# the probe-selected step, so stop_reason=max_steps is EXPECTED for this run
+# and is not a bug signal. Which of the 15 sibling overlays is used is decided
+# by launch_ts38_certified_parent.sh from results/ts38_parent_lora_probe.json
+# (rule: earliest S with G1 >= 0.95 at S and at S+1000, and G8 <= 1.1718 at S)
+# — never by hand. Neither bar moves; targets/arms unchanged.
+run_id: evt-ts38-pretaught-parent
+train:
+  lr: 3.0e-4      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)
+  max_steps: 23000
+  epochs_total_planned: 3

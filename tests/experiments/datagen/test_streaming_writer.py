@@ -66,6 +66,35 @@ def test_streaming_matches_in_memory(spec, cells, tmp_path):
     pd.testing.assert_frame_equal(got, pd.DataFrame(want), check_dtype=True)
 
 
+def test_streaming_matches_in_memory_permuted_labels(tmp_path):
+    """The permuted-label branch (added 2026-08-19, ts1b pf-parent B0.1) must
+    agree with ``build_dataset``'s own permuted branch row-for-row, the same
+    bar ``test_streaming_matches_in_memory`` holds correct-label mode to:
+    ``build_dataset`` applies ``permute_labels`` before its own order shuffle,
+    keyed by ``spec.name``; the streaming writer does the same over the bare
+    triples and carries the pairing through an equal-length shuffle with the
+    identical seed, which ``random.shuffle``'s position-only semantics make
+    equivalent regardless of what the shuffled elements are.
+    """
+    spec = md.P3_INST_SPEC  # DatasetSpec("D_p3_nl_mult", ("*",), "nl", "permuted")
+    n = 5_000
+    blocked: set[tuple[int, str, int]] = set()
+
+    want, want_plan = md.build_dataset(spec, n, blocked, SEED)
+    path = tmp_path / f"{spec.name}.parquet"
+    got_rep, got_plan = md.build_and_write_streaming(spec, n, blocked, SEED, path, chunk=512)
+
+    assert got_plan == want_plan
+    assert got_rep["order_hash"] == md.order_hash(want)
+    assert got_rep["n"] == len(want) == n
+
+    got = pd.read_parquet(path)
+    pd.testing.assert_frame_equal(got, pd.DataFrame(want), check_dtype=True)
+    # Not a no-op: permuted labels genuinely disagree with the true answer
+    # somewhere in a 5,000-row draw.
+    assert (got["shown_answer"] != got["true_answer"]).any()
+
+
 def test_streaming_chunk_size_does_not_change_output(tmp_path):
     """A chunk boundary must not perturb idx, order, or dtypes."""
     n = 1_000
@@ -81,10 +110,16 @@ def test_streaming_chunk_size_does_not_change_output(tmp_path):
         pd.testing.assert_frame_equal(frames[0], other, check_dtype=True)
 
 
-def test_streaming_refuses_non_correct_labels():
-    """The random/permuted modes key labels off the pre-shuffle index; refuse loudly."""
-    with pytest.raises(ValueError, match="correct-label only"):
-        md.build_and_write_streaming(md.P3_INST_SPEC, 16, set(), SEED, Path("unused.parquet"))
+def test_streaming_refuses_non_correct_or_permuted_labels():
+    """The random mode keys labels off the pre-shuffle index in a way the
+    streaming writer does not implement; refuse loudly. (Permuted mode IS
+    supported as of 2026-08-19, owner ts1b pf-parent B0.1 — see
+    test_preteach_4m.py's block/perm/blockperm sections — so this guard now
+    excludes only 'random'.)
+    """
+    random_spec = md.DatasetSpec("D_random_probe", ("+",), "operator", "random")
+    with pytest.raises(ValueError, match="correct/permuted-label only"):
+        md.build_and_write_streaming(random_spec, 16, set(), SEED, Path("unused.parquet"))
 
 
 def test_validate_triples_agrees_with_validate():

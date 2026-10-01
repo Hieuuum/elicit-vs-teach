@@ -1,0 +1,24 @@
+# LoRA-parent capability-vs-retention PROBE (decisions.md 2026-08-15, "LoRA
+# parent HALT" entry): ONE deterministic replay of the 3e-4 LoRA parent
+# (ts38_pretaught_parent_lora.yaml + parent_lora_lr_3e-4.yaml, seed 316) to
+# its converged step (24000), writing snapshots every 1000 steps from 10000
+# to 24000, each scored G1 + G8 --no-record by launch_ts38_lora_probe.sh.
+# Supersedes the four separate cut-and-replay overlays
+# (parent_lora_probe_lr3e-4_s{14000,16000,18000,20000}.yaml, deleted): same
+# GPU cost as those four combined (train_sft.py is bit-exact on replay, so
+# one run to 24000 with snapshot_steps reproduces every one of their
+# checkpoints plus 11 more points), one 15-point curve instead of a 4-point
+# one. max_steps here is the archived run's converged step, not a fresh
+# ceiling — replaying past it would just plateau; ε/k may still fire before
+# 24000 on a different GPU (numerics), in which case snapshots past the stop
+# simply do not exist and the launcher scores what exists.
+# stop_reason=max_steps OR converged at 24000 are BOTH expected here (probe
+# horizon), never a bug signal. This run is a curve of points, never a
+# parent; whether an earliest-certified checkpoint may serve as the parent
+# is the owner's call.
+run_id: evt-ts38-parent-loraprobe-lr3e-4
+train:
+  lr: 3.0e-4      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)
+  max_steps: 24000   # the archived run's converged step: replay ends where it did
+  snapshot_steps: [10000, 11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000, 21000, 22000, 23000, 24000]
+  epochs_total_planned: 4

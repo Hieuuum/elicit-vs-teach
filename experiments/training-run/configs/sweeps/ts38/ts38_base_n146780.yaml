@@ -1,0 +1,16 @@
+# ts38grid unified 3-arm grid extension (EXPERIMENTS.md §6.17), 2026-08-16 —
+# densification point: n=146780. This run IS the G7 anchor — same-size
+# ts38mw_pretaught_n146780.yaml/ts38pf_preteachfmt_n146780.yaml point
+# match_data_order_with here. Overlay over ../../ts38_base.yaml. eval_every
+# copied verbatim from llama_fig2nl3_noinst_n146780.yaml; its max_steps 14000 is
+# below 20 epochs, so max_steps is raised to 23000 — same >=20-epoch ceiling
+# rule as commit 6b735f1 (n100000/n316228). min_steps = ceil(146780/128) = 1147
+# (require_full_epoch1 guard, ts38-mini guard 1).
+run_id: evt-ts38-base-n146780
+data:
+  n_examples: 146780
+train:
+  eval_every: 175
+  max_steps: 23000
+  stopping:
+    min_steps: 1147

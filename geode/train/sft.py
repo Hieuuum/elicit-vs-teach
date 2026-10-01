@@ -163,6 +163,24 @@ def evaluate_sft_nll_nats(
     return loss_sum / n_labels
 
 
+def _validate_snapshot_steps(snapshot_steps: Sequence[int], max_steps: int | None) -> None:
+    """V5.77 guard: every entry an int >= 1, strictly increasing, and within
+    ``max_steps`` (when capped) — checked before any training or disk write."""
+    prev = 0
+    for s in snapshot_steps:
+        if not isinstance(s, int) or isinstance(s, bool) or s < 1:
+            raise ValueError(f"train_sft: snapshot_steps entry {s!r} is not an int >= 1")
+        if s <= prev:
+            raise ValueError(
+                f"train_sft: snapshot_steps {list(snapshot_steps)} is not strictly increasing"
+            )
+        prev = s
+    if snapshot_steps and max_steps is not None and max(snapshot_steps) > max_steps:
+        raise ValueError(
+            f"train_sft: snapshot_steps {list(snapshot_steps)} exceeds max_steps={max_steps}"
+        )
+
+
 def train_sft(
     model: torch.nn.Module,
     train_examples: Sequence[_SpanExample],
@@ -183,6 +201,7 @@ def train_sft(
     precision: Literal["fp32", "bf16"] = "fp32",
     behavioral_eval: Callable[[], float] | None = None,
     stopping_metric: Literal["val_loss", "train_loss"] = "val_loss",
+    snapshot_steps: Sequence[int] = (),
 ) -> TrainResult:
     """Label-masked SFT: ``train_full``'s contract, loss on label tokens only.
 
@@ -209,6 +228,20 @@ def train_sft(
     only mode where it may (V5.66); if provided, val loss is still evaluated
     and logged for the record. ``best_val_nats``/``min_val_nats`` then carry
     the stopping metric (train loss).
+
+    ``snapshot_steps`` (2026-08-15, specs/02 §6 V5.77): optional, strictly
+    increasing steps (each >= 1, and <= ``max_steps`` when capped — validated
+    up front, before any training or disk write) at which a full
+    ``save_pretrained`` dir is written to ``out_dir/sft_snapshots/step_{k:07d}``
+    immediately after that step's train-log record and before its eval (a
+    LoRA run's snapshot holds the wrapped state dict, loadable only via
+    ``geode.zoo.load_model(run_id, checkpoint=<dir>)``). Because training is
+    otherwise deterministic given the same seed and inputs, the snapshot at
+    step S is bit-identical to the final checkpoint of an otherwise-identical
+    run with ``max_steps=S`` (replay determinism) — a cheap way to recover
+    many intermediate checkpoints from one run instead of many truncated
+    reruns. The default ``()`` changes nothing: every existing caller's logs
+    stay byte-identical.
     """
     n_train = len(train_examples)
     if n_train < batch_size:
@@ -246,6 +279,8 @@ def train_sft(
     # Validate both splits before any training or disk write (V5.31).
     input_ids_all, mask_all = _padded_inputs_and_mask(train_examples, task_format)
     _validate_label_spans(val_examples)
+    _validate_snapshot_steps(snapshot_steps, max_steps)  # V5.77, same "before any write" rule
+    snapshot_set = set(snapshot_steps)
 
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -290,6 +325,9 @@ def train_sft(
             }
             train_f.write(json.dumps(train_record) + "\n")
             train_f.flush()
+
+            if step in snapshot_set:
+                model.save_pretrained(str(out_dir / "sft_snapshots" / f"step_{step:07d}"))
 
             is_periodic = step % eval_every == 0
             is_capped_final = max_steps is not None and step == max_steps
@@ -379,6 +417,7 @@ def train_sft(
                 }
             ),
             "task_format": asdict(task_format),
+            "snapshot_steps": list(snapshot_steps),
         },
     }
     (out_dir / "training_meta.json").write_text(json.dumps(meta, indent=2))

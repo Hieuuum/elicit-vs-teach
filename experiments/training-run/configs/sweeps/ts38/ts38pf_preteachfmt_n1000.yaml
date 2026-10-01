@@ -1,0 +1,15 @@
+# ts38pf target-stage sweep point: n=1000. Overlay over
+# ../../ts38pf_preteachfmt.yaml. Paired with ts38_base_n1000.yaml (G7:
+# identical D_algo_bare stream, matched via match_data_order_with below —
+# the base arm is reused, not retrained). eval_every/max_steps/min_steps
+# identical to ts38mw_pretaught_n1000.yaml (same recipe, different theta0).
+run_id: evt-ts38pf-preteachfmt-n1000
+experiment:
+  match_data_order_with: evt-ts38-base-n1000
+data:
+  n_examples: 1000
+train:
+  eval_every: 5
+  max_steps: 1000
+  stopping:
+    min_steps: 8

@@ -1,0 +1,96 @@
+# ts38pf target-stage arm ("pre-teach-format"; EXPERIMENTS.md §6.16,
+# decisions.md 2026-08-15 "ts38pf pre-registration"): the format-only
+# parent (evt-ts38pf-preteachfmt-parent — operator-notation, permuted
+# labels, NOT the algorithm, see ts38_preteachfmt_parent.yaml) -> LoRA
+# target fine-tune on D_algo_bare (scaffold-free NL "What is the sum of a
+# and b?" add/sub) — the paper's App. E.1.2 causal intervention: does
+# removing the format-learning transient before the real target run reveal
+# the teaching arm's "up-then-down" EDL/D hump (paper App. E.1.2/Table 5)
+# that the from-scratch base arm doesn't show on this grid? theta0 =
+# runs/evt-ts38pf-preteachfmt-parent/model_merged/ (folded via
+# scripts/merge_adapter.py; launched by scripts/launch_ts38pf_family.sh).
+# The base arm is REUSED, not retrained — this curve overlays the already-
+# measured evt-ts38-base-n<size> family (ts38_base.yaml); only this arm
+# trains. BASE config for 5 log-spaced-prefix sizes
+# (configs/sweeps/ts38/ts38pf_preteachfmt_n<size>.yaml overlays); never
+# launched standalone. Trains via scripts/train_target.py through the
+# prequential EDL harness.
+#
+# Deliberately-ungated parent: the format-only parent is never certified
+# under G1/G8 (it isn't a capability parent — it's a control), so
+# parent_required_gates is [] below, same convention as
+# ts38mw_pretaught.yaml's parent. The launcher's theta0 check
+# (results/ts38pf_family_theta0.json, gates.py g5 --no-record) is the
+# format-acquisition evidence and gates whether the 5-size sweep below even
+# launches — see launch_ts38pf_family.sh and decisions.md's pre-registered
+# read (format-learned / not-learned / algorithm-leaked branches).
+#
+# Everything else below is VERBATIM ts38_base.yaml / ts38mw_pretaught.yaml —
+# the four arms (base / pretaught / pretaught-mw / pretaught-format) differ
+# ONLY in theta0 (init/parent); enforced by test_config_completeness.py's
+# ts38pf section. See ts38_base.yaml's ARM-LETTER NOTE for why `arm: A`
+# here maps to ARM_REGIME["A"] == "elicit" (train_target.py) — not
+# duplicated here; it is a provenance tag (warm-started from a modified
+# parent), not a claim about this experiment's eventual verdict.
+run_id: evt-ts38pf-preteachfmt
+experiment:
+  name: training-run
+  arm: A                       # ARM_REGIME["A"] == "elicit" — see ts38_base.yaml's note
+  role: target
+  parent_run_id: evt-ts38pf-preteachfmt-parent
+  parent_required_gates: []    # parent deliberately ungated — see header.
+  match_data_order_with: null  # placeholder; every overlay points this at
+                                # the SAME-SIZE evt-ts38-base-n<size> run
+                                # (G7 — that arm is the anchor, reused not
+                                # retrained)
+  require_full_epoch1: true    # ts38-mini guard 1 — see ts38_base.yaml's
+                                # header; identical here (arms differ only
+                                # in theta0)
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_bare_addsub       # scaffold-free NL add/sub (D_algo_bare); TaskFormat
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:                           # VERBATIM copy of ts38_base.yaml's data block (G7)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 316228            # placeholder = largest size; every overlay
+                                 # sets its own prefix of the frozen order
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:                          # r/alpha restated from common.yaml for the
+  r: 128                       # record — SAME rank every arm (per-arm
+  alpha: 32                    # sizing would change training algorithm A
+                                # and confound EDL(D; theta0, A))
+
+train:
+  lr: 1.0e-3                   # target-stage pin — SAME as ts38_base.yaml
+                                # (arms differ only in theta0)
+  precision: bf16
+  batch_size: 128
+  eval_every: 375               # placeholder = largest size's cadence; every
+                                 # overlay sets its own
+  max_steps: 30000              # placeholder = largest size's ceiling; every
+                                 # overlay sets its own
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2471              # placeholder = ceil(316228/128); every
+                                  # overlay sets its own exact
+                                  # ceil(n/128) (require_full_epoch1 guard)
+  snapshots:
+    n: 0                         # snapshots OFF (plan pin)
+    dense_until: 30              # unused when n:0 (kept for parity)
+  seed: 316

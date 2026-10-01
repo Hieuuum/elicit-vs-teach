@@ -1,0 +1,97 @@
+# ts38mt ("mechanistic tests") target-stage PAPER-PROTOCOL PRE-TEACH arm.
+# VERBATIM copy of ts38pp_pretaught.yaml — same task/data/lora/train recipe,
+# byte-identical — with only run_id and train.snapshots changed (snapshots
+# ON here; ts38pp_pretaught.yaml itself stays snapshots-off and is NOT
+# retrained). theta0 = runs/evt-ts38pp-parent/model/ (NO merge stage — that
+# checkpoint is plain full-FT weights the moment training completes; see
+# ts38pp_pretaught.yaml's own header). The three ts38mt target arms (this
+# file / ts38mt_base.yaml / ts38mt_fmt.yaml) differ ONLY in theta0
+# (init/parent) and this shared snapshots setting — enforced by
+# test_config_completeness.py's ts38mt section. BASE config for the 10
+# log-spaced-prefix sizes (configs/sweeps/ts38/ts38mt_pp_n<size>.yaml
+# overlays); never launched standalone. arm: A — elicit (ARM_REGIME["A"] ==
+# "elicit", train_target.py; see ts38_base.yaml's ARM-LETTER NOTE).
+run_id: evt-ts38mt-pp
+experiment:
+  name: training-run
+  arm: A                       # ARM_REGIME["A"] == "elicit" — see ts38_base.yaml's note
+  role: target
+  parent_run_id: evt-ts38pp-parent
+  parent_required_gates: []    # parent deliberately ungated: gates never
+                                # recorded (measured --no-record only, see
+                                # ts38pp_parent.yaml's header) — a recorded
+                                # FAIL would block every child (V0.6) so
+                                # NEVER run gates.py g8 on this parent
+                                # without --no-record.
+  match_data_order_with: null  # placeholder; every overlay points this at
+                                # the SAME-SIZE evt-ts38-base-n<size> run
+                                # (G7 — that arm is the anchor, reused not
+                                # retrained)
+  require_full_epoch1: true    # ts38-mini guard 1 — see ts38_base.yaml's
+                                # header; identical here (arms differ only
+                                # in theta0)
+
+model:                         # must match the parent checkpoint (launcher guards)
+  hidden_size: 512
+  num_hidden_layers: 8
+
+tokenizer:
+  path: ../tokenizer            # frozen 2026-07-18; same artifact as the whole chain
+
+task:
+  name: arith_bare_addsub       # scaffold-free NL add/sub (D_algo_bare); TaskFormat
+  format_version: v1            # for label_mask + masking_config_hash
+
+data:                           # VERBATIM copy of ts38_base.yaml's data block (G7)
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_bare.parquet
+  order_hash: 946b5d02a8f9260fec00ce68a4db42a12f16966f6b49f685269382ae7b4b6ace
+  local_path: experiments/training-run/data/full/D_algo_bare.parquet
+  n_examples: 316228            # placeholder = largest size; every overlay
+                                 # sets its own prefix of the frozen order
+  eval_file: D_algo_eval_bare.parquet
+  eval_order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  eval_local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  seed: 316
+
+lora:                          # r/alpha restated from common.yaml for the
+  r: 128                       # record — SAME rank both arms (per-arm
+  alpha: 32                    # sizing would change training algorithm A
+                                # and confound EDL(D; theta0, A))
+
+train:
+  lr: 1.0e-3                   # target-stage pin — SAME across every ts38mt
+                                # arm (arms differ only in theta0)
+  precision: bf16
+  batch_size: 128
+  eval_every: 375               # placeholder = largest size's cadence; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  max_steps: 30000              # placeholder = largest size's ceiling; every
+                                 # overlay sets its own (copied verbatim from
+                                 # the matching-size llama_fig2nl3 overlay)
+  stopping:
+    eps_nats: 0.002
+    k: 5
+    min_steps: 2471              # placeholder = ceil(316228/128); every
+                                  # overlay sets its own exact
+                                  # ceil(n/128) (require_full_epoch1 guard)
+  snapshots:                     # ON here (ts38mt design pin — every other
+                                  # ts38(*) target leaves this off) so a
+                                  # later mechanistic-analysis pass can walk
+                                  # each arm's training trajectory.
+    n: 32                        # geode.probe.snapshot_steps(max_steps, n=32,
+                                  # dense_until=8), computed from THIS run's
+                                  # own train.max_steps at launch time
+                                  # (scripts/train_target.py ~466-480): a
+                                  # dense unit-stride prefix steps 1..8, then
+                                  # a log-then-uniform tail out to max_steps.
+                                  # At LoRA r128 over common.yaml's 7
+                                  # target_modules, each reached mark writes
+                                  # only snapshots/step_<k>/adapter.safetensors
+                                  # (trainable A/B tensors only, ~46 MB —
+                                  # decisions.md 2026-08-14/15 measured this
+                                  # exact rank/hidden_size combination —
+                                  # never a full model copy).
+    dense_until: 8
+  seed: 316

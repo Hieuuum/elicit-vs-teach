@@ -1,0 +1,33 @@
+# ts1b pp-parent (full-FT arithmetic install) LR mini-sweep BRACKET-
+# EXTENSION rung (3e-4). Added 2026-08-19 after the original 3-rung sweep
+# {1e-4, 3e-5, 1e-5} (pp_lrsweep_1e-4/3e-5/1e-5.yaml) came back monotonic —
+# min_val_nats 1.7667 (1e-4) < 2.0461 (3e-5) < 2.3690 (1e-5), all
+# stop_reason=max_steps (stable descent, no divergence at any rung; step0
+# val 10.39 nats for every rung) — with the winner (1e-4) sitting at the
+# TOP of the tested range. Per the pre-registration's own instruction
+# (launch_ts1b_stage12.sh stage 1's own printed message) and this project's
+# standing nulls-need-bracketing rule ([[feedback-nulls-need-bracketing]]):
+# an endpoint winner means the curve might still be descending outside the
+# tested window, so extend one rung further in that direction before
+# pinning anything — do not pin an untested edge.
+#
+# 3e-4 continues the same ~3.3x log-spacing the original three rungs used
+# (1e-4/3e-5 = 3.33, 3e-5/1e-5 = 3.0) one step further up, and is also the
+# ts1b PRETRAIN stage's own already-measured winner (configs/ts1b_pretrain.
+# yaml: "PINNED 2026-08-14 from the mini-sweep... winner was 3e-4") — a
+# useful anchor (same base model, same optimizer defaults) but not treated
+# as a transferable pin on its own authority; it's tested here on its own
+# evidence like every other rung, per [[feedback-scope-check-pins-before-
+# reuse]] (pretrain-stage stability doesn't establish arithmetic-install
+# stability at a 3-order-higher-loss task).
+#
+# Owner delegated the LR pick itself (2026-08-19 chat, live) — no manual
+# STOP-and-confirm gate applies to this decision; the orchestrator
+# evaluates this rung against the original three and pins the true winner
+# directly, extending the bracket again if 3e-4 also wins at this range's
+# edge, per the same rule.
+run_id: evt-ts1b-pp-lrsweep-3e-4
+train:
+  lr: 3.0e-4
+  max_steps: 2000
+  eval_every: 200

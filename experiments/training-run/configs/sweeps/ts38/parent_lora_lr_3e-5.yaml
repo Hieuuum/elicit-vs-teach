@@ -1,0 +1,6 @@
+# Winner overlay for the ONE full LoRA-parent run; selected by
+# launch_ts38_lora_parent.sh's sweep, never chosen by hand; run_id stays
+# evt-ts38-pretaught-parent from the base config
+# (ts38_pretaught_parent_lora.yaml).
+train:
+  lr: 3.0e-5      # dot-mantissa: a bare exponent parses as a STRING (YAML 1.1)

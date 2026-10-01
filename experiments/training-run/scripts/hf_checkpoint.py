@@ -24,8 +24,8 @@ Usage:
     # recoverable: the relay keeps the measurement, the weights die with
     # the box). Strictly stronger than --no-weights; the two are exclusive:
     python3 hf_checkpoint.py push --run-id <run-id> --metadata-only
-    # either direction: snapshots/ is SKIPPED by default (multi-GB, needed
-    # only for extraction) — opt in explicitly:
+    # either direction: snapshots/ and sft_snapshots/ are SKIPPED by default
+    # (multi-GB, needed only for extraction) — opt in explicitly:
     python3 hf_checkpoint.py pull --run-id <run-id> --with-snapshots
 
 The hub repo (default mhieuuu/geode-store, private) mirrors the local
@@ -126,7 +126,12 @@ def push(
     src = store / "runs" / run_id
     # Mirrors pull's ignore-list construction below: same two knobs, same
     # patterns, so push and pull can never silently drift apart.
-    ignore = [] if with_snapshots else ["snapshots/*"]
+    # sft_snapshots/ (train_sft.py's mid-run checkpoint dir, geode/train/sft.py
+    # — distinct from train_target.py's snapshots/, used by LoRA target runs)
+    # skips by the same default: a full-FT parent with train.snapshot_steps
+    # set would otherwise ship multi-GB intermediate checkpoints on every
+    # plain push.
+    ignore = [] if with_snapshots else ["snapshots/*", "sft_snapshots/*"]
     # model_merged/ (scripts/merge_adapter.py) is a derivable artifact — a
     # LoRA install run's base + adapter folded into plain weights, purely for
     # a later stage's --init-from — never worth shipping to the relay
@@ -158,7 +163,9 @@ def push(
         ckpt = find_checkpoint(store, run_id)
         print(f"[hf] local  model.safetensors sha256 {sha256_of(ckpt)}")
     if not with_snapshots:
-        print("[hf] snapshots/ skipped (default; pass --with-snapshots to include)")
+        print(
+            "[hf] snapshots/ and sft_snapshots/ skipped (default; pass --with-snapshots to include)"
+        )
     api = HfApi()
     api.create_repo(repo_id, private=not public, exist_ok=True)
     api.upload_folder(
@@ -181,11 +188,15 @@ def push(
 def pull(
     store: Path, run_id: str, repo_id: str, no_weights: bool = False, with_snapshots: bool = False
 ) -> int:
-    ignore = [] if with_snapshots else [f"runs/{run_id}/snapshots/*"]
+    ignore = (
+        [] if with_snapshots else [f"runs/{run_id}/snapshots/*", f"runs/{run_id}/sft_snapshots/*"]
+    )
     if no_weights:
         ignore.append("*.safetensors")
     if not with_snapshots:
-        print("[hf] snapshots/ skipped (default; pass --with-snapshots to include)")
+        print(
+            "[hf] snapshots/ and sft_snapshots/ skipped (default; pass --with-snapshots to include)"
+        )
     # The repo mirrors the store layout, so unpacking at the store root
     # puts runs/<run-id>/... exactly where train.py expects it.
     snapshot_download(
@@ -262,8 +273,8 @@ def main() -> int:
     parser.add_argument(
         "--with-snapshots",
         action="store_true",
-        help="include runs/<run-id>/snapshots/ (skipped by default both ways — "
-        "multi-GB, needed only for extraction)",
+        help="include runs/<run-id>/snapshots/ AND runs/<run-id>/sft_snapshots/ "
+        "(skipped by default both ways — multi-GB, needed only for extraction)",
     )
     args = parser.parse_args()
     if args.no_weights and args.with_snapshots:

@@ -1,0 +1,17 @@
+# ts38grid unified 3-arm grid extension (EXPERIMENTS.md §6.17), 2026-08-16 —
+# densification point: n=215443. Overlay over ../../ts38pf_preteachfmt.yaml.
+# Paired with ts38_base_n215443.yaml (G7: identical D_algo_bare stream, matched
+# via match_data_order_with below — the base arm is reused, not retrained).
+# eval_every/max_steps/min_steps identical to ts38mw_pretaught_n215443.yaml
+# (same recipe, different theta0; max_steps 34000 = the >=20-epoch cost-ceiling
+# floor).
+run_id: evt-ts38pf-preteachfmt-n215443
+experiment:
+  match_data_order_with: evt-ts38-base-n215443
+data:
+  n_examples: 215443
+train:
+  eval_every: 250
+  max_steps: 34000
+  stopping:
+    min_steps: 1684

@@ -351,3 +351,62 @@ def test_gradstat_records_streams_lazily(geode_store: Path) -> None:
         per_module_grad_norm={"model.layers.0.q_proj": 0.5},
         topk_grad_subspace_overlap=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# Implicit loud failures: missing log file, corrupt line, schema drift
+# ---------------------------------------------------------------------------
+
+
+def test_prequential_records_missing_file_raises(geode_store: Path) -> None:
+    """No logs/prequential.jsonl on disk fails loudly, naming the run."""
+    with pytest.raises(Exception) as excinfo:
+        list(prequential_records("run-no-log"))
+    assert "run-no-log" in str(excinfo.value)
+
+
+def test_prequential_records_corrupt_line_raises(geode_store: Path) -> None:
+    """A truncated/corrupt JSONL line fails loudly when the reader reaches it
+    (not just when it happens to be the very first line)."""
+    run_dir = _register(geode_store, "run-corrupt")
+    path = run_dir / "logs" / "prequential.jsonl"
+    good = json.dumps(
+        {"step": 0, "epoch": 1, "example_ids": [0], "label_token_count": 3, "loss_sum_nats": 2.5}
+    )
+    path.write_text(good + "\n" + "{this line is not valid json\n")
+
+    with pytest.raises(Exception):
+        list(prequential_records("run-corrupt"))
+
+
+def test_prequential_records_unknown_field_raises(geode_store: Path) -> None:
+    """An extra unknown key in a record line (schema drift) fails loudly via
+    the dataclass constructor rather than being silently dropped."""
+    run_dir = _register(geode_store, "run-extra-field")
+    path = run_dir / "logs" / "prequential.jsonl"
+    obj = {
+        "step": 0,
+        "epoch": 1,
+        "example_ids": [0],
+        "label_token_count": 3,
+        "loss_sum_nats": 2.5,
+        "unexpected_field": "surprise",
+    }
+    path.write_text(json.dumps(obj) + "\n")
+
+    with pytest.raises(Exception) as excinfo:
+        list(prequential_records("run-extra-field"))
+    assert "unexpected_field" in str(excinfo.value)
+
+
+def test_test_loss_unknown_field_raises(geode_store: Path) -> None:
+    """An extra unknown key in eval/test_loss.json (schema drift) fails loudly
+    via the dataclass constructor rather than being silently dropped."""
+    run_dir = _register(geode_store, "run-testloss-extra")
+    payload = _write_test_loss(run_dir, masking_config_hash=EVAL_HASH)
+    payload["unexpected_field"] = "surprise"
+    (run_dir / "eval" / "test_loss.json").write_text(json.dumps(payload))
+
+    with pytest.raises(Exception) as excinfo:
+        test_loss("run-testloss-extra")
+    assert "unexpected_field" in str(excinfo.value)

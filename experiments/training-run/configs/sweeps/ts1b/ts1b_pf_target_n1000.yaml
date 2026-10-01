@@ -1,0 +1,15 @@
+# ts1b pf-arm target-stage sweep point: n=1000. Overlay over
+# ../../ts1b_pf_target.yaml. No G7 anchor (match_data_order_with stays null
+# — see base config header, no ts1b base-arm grid exists). eval_every/
+# max_steps sourced from configs/sweeps/llama_fig2nl3/llama_fig2nl3_noinst_
+# n1000.yaml (same model, same r512/a32, same lr candidate, already run to
+# completion at this exact size); min_steps = ceil(1000/128) = 8, the
+# require_full_epoch1 pin (batch 128 unchanged from every other family).
+run_id: evt-ts1b-pf-target-n1000
+data:
+  n_examples: 1000
+train:
+  eval_every: 5
+  max_steps: 1000
+  stopping:
+    min_steps: 8

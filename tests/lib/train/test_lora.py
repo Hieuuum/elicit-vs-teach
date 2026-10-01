@@ -63,6 +63,17 @@ def _a_tensors(model: torch.nn.Module) -> dict[str, torch.Tensor]:
 
 
 # --------------------------------------------------------------------------
+# LoRALinear.__init__ — rank must be positive
+# --------------------------------------------------------------------------
+@pytest.mark.parametrize("rank", [0, -3])
+def test_lora_linear_rejects_nonpositive_rank(rank: int) -> None:
+    base = torch.nn.Linear(4, 4)
+    generator = torch.Generator().manual_seed(0)
+    with pytest.raises(ValueError, match="rank must be positive"):
+        LoRALinear(base, rank=rank, alpha=_ALPHA, generator=generator)
+
+
+# --------------------------------------------------------------------------
 # V5.47 — identity at init; forward implements base(x) + α/(2r)·B(A(x))
 # --------------------------------------------------------------------------
 def test_v5_47_identity_at_init_and_2r_scaling(tiny_llama):

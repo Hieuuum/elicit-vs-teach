@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 from geode.edl.metrics import prefix_edl_curve
-from geode.zoo import PrequentialRecord, register_run, write_jsonl
+from geode.zoo import ConsistencyError, PrequentialRecord, register_run, write_jsonl
 
 HASH_A = "a1" * 32
 
@@ -125,3 +125,18 @@ def test_v5_73_invalid_floor_raises(geode_store: Path) -> None:
     _build_run(geode_store, "run-bad-floor")
     with pytest.raises(ValueError, match="floor must be"):
         prefix_edl_curve("run-bad-floor", floor="bogus", store=geode_store)  # type: ignore[arg-type]
+
+
+def test_v5_73_test_floor_requires_masking_config_hash(geode_store: Path) -> None:
+    """L214 (``_fixed_test_floor_nats``): the 'test' floor enforces the same
+    D-1 masking-parity guard ``edl_nats`` uses — a manifest missing the
+    top-level ``masking_config_hash`` extra raises ``ConsistencyError``,
+    reached through ``prefix_edl_curve(floor="test")``."""
+    run_dir = _build_run(geode_store, "run-no-hash")
+    manifest_path = run_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    del manifest["masking_config_hash"]
+    manifest_path.write_text(json.dumps(manifest))
+
+    with pytest.raises(ConsistencyError, match="masking_config_hash"):
+        prefix_edl_curve("run-no-hash", floor="test", store=geode_store)

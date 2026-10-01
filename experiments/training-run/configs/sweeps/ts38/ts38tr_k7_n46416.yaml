@@ -1,0 +1,17 @@
+# ts38tr target-stage sweep point: n=46416, k7 (7-of-8 blocks kept) arm —
+# the positive-control row for the n=46416 probe-trajectory study
+# (decisions.md 2026-08-22 "probe trajectory"; EXPERIMENTS.md §6.24).
+# Overlay over ../../ts38tr_k7.yaml. G7-matched against the shipped
+# evt-ts38-base-n46416 run (train_target.py:411). eval_every/max_steps/
+# min_steps identical to the shipped ts38mt_pp_n46416.yaml overlay (same
+# recipe, only theta0/snapshots differ).
+run_id: evt-ts38tr-k7-n46416
+experiment:
+  match_data_order_with: evt-ts38-base-n46416
+data:
+  n_examples: 46416
+train:
+  eval_every: 55
+  max_steps: 11000
+  stopping:
+    min_steps: 363

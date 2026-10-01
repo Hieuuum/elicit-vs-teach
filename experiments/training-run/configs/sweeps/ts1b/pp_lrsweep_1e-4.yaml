@@ -1,0 +1,28 @@
+# ts1b pp-parent (full-FT arithmetic install) LR mini-sweep rung (1e-4) —
+# 2000-step probe, NOT a production run: this overlay is applied on top of
+# ../../ts1b_pp_parent.yaml (evt-ts1b-pp-parent), whose own train.stopping.
+# min_steps is 31093 >> this overlay's max_steps of 2000, so the eps/k
+# plateau rule stays inert and stop_reason=max_steps is the EXPECTED
+# outcome here — same shape as the sibling pretrain-stage lrsweep_*.yaml
+# files one level up (configs/sweeps/ts1b/lrsweep_*.yaml), deliberately
+# NAMED DIFFERENTLY (pp_lrsweep_* vs lrsweep_*) so the two sweeps can never
+# be confused: this one is a full-FT arithmetic-install sweep over the
+# pp parent, that one is the base-model TinyStories pretrain sweep.
+#
+# Compare the three rungs' printed min val at step 2000 (launch_ts1b_
+# stage12.sh stage 1 prints the table); pin the winner into BOTH
+# ts1b_pp_parent.yaml's AND ts1b_pf_parent.yaml's train.lr (identical-
+# pipeline ruling — see ts1b_pf_parent.yaml's header), then re-invoke the
+# launcher with PIN_CONFIRMED=1. The script itself never auto-pins.
+#
+# Rationale: ts38pp_parent.yaml's 3e-5 pin was measured at 38.7M and does
+# NOT transfer to 1.24B on authority ([[feedback-scope-check-pins-before-
+# reuse]]) — same rule ts1b_pretrain.yaml's own LR mini-sweep already
+# established for the PRETRAIN stage (1e-3 unstable at 1B, winner 3e-4, an
+# order of magnitude off the 38.7M run-1 pin). Rungs {1e-4, 3e-5, 1e-5}
+# bracket ts38pp's own 3e-5 pin one order up and one order down.
+run_id: evt-ts1b-pp-lrsweep-1e-4
+train:
+  lr: 1.0e-4
+  max_steps: 2000
+  eval_every: 200
