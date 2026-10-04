@@ -7600,3 +7600,53 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   JSON: RMU's relearning write at layers 5–6 is 0.035 per layer against the original's flat 0.031
   (13% above), a bump inside the edited block but 10% of the write in total, the same as the
   original's; SimNPO's and NPO's writes rise toward the last layers (0.046 and 0.038 at layer 31).
+
+## 2026-10-04 — M20, a before-training predictor of elicit vs teach: gradient transfer at init
+
+- **Owner:** a single score from the pre-fine-tuning weights and the dataset alone that says
+  whether the fine-tune will elicit or teach; the mixed before-training readings on WMDP are a
+  problem; calibrate it on a model that cannot know the facts (score 0) and on the TinyStories
+  pair of the main results.
+- **Why not combine the existing before-training metrics.** They read whether the answer is
+  computed in the current forward pass, and unlearning is an optimization against exactly that
+  (output probabilities, a layer's activations, a concept's representation); ELM reads 0.02 and
+  NPO 0.00 on the graded median and both elicit under training. Any combination of one-sided
+  readings stays one-sided.
+- **The predictor.** The training outcome we read later ("does a step on the A facts move the
+  held-out B facts?") has a first-order answer at the starting weights:
+  dL_B = −lr·⟨∇L_A, ∇L_B⟩. Measured in the fine-tune's own parametrization, the gradient w.r.t.
+  the LoRA B factors at their zero init (a seeded random projection of the full weight gradient,
+  on every projection of every layer); no update is taken.
+  - transfer = cos(G_A, G_B); null = cos(G_A-rotated, G_B), the same prompts with the answers
+    rotated across items by a seeded offset (same items, vocabulary and format, no knowledge),
+    three rotations for an sd; **score = transfer − null**, significant at 3 sd.
+  - Secondary: the far-domain (MMLU facts) null; the share of B's own steepest descent an A-step
+    delivers; per-item count-sketches (D = 4096): pairwise cosines, the effective rank of the
+    A-item gradients (how many directions the fine-tune needs) and the share of each B gradient on
+    the first principal direction of A (one shared "unsuppress" direction or many).
+  - `experiments/unlearning/grad_transfer.py`; tests `tests/experiments/analysis/
+    test_grad_transfer.py` (derangement, batch-invariance and the exact-gradient identity, cosine
+    bounds and symmetry, sketch fidelity).
+- **Anchors and twins (stage 7, `stages_wmdp.sh`; `data/shuffle_answers.py`,
+  `configs/relearn_wmdp_bioAshuf.yaml`).**
+  - Teach anchor: a model that cannot know the facts, default the TinyStories-1B twin
+    (`runs/evt-ts1b-base/model`), scored by the predictor on the same WMDP sets, and relearned on
+    n = 573 true and rotated answers (sweep points, read on the B facts).
+  - Every WMDP model also gets the rotated-answer relearning twin (M19-shuf: the EDL/D that format
+    alone produces; M17-shuf: B fact loss after rotated minus after true answers, the measured
+    knowledge-specific transfer).
+  - Main results: `scripts/grad_transfer_ts1b.sh` scores evt-ts1b-base, evt-ts1b-fig2ts-installer
+    (teach side) and evt-ts1b-op-bridge-mix (elicit side) on the arithmetic target (A = 600 seeded
+    training rows of D_algo_bare_4m, B = the frozen eval reporting block), before either 4M
+    fine-tune. Both outcomes are known there.
+- **Smoke check:** on the random tiny model the score is −0.0001 (transfer 0.803, null 0.803 ±
+  0.002) while the MMLU-null version leaves +0.10 of topic residue: the rotated-answer null is the
+  primary one.
+- **Predictions, recorded before the runs.**
+  - WMDP: orig score > 3 sd; NPO, SimNPO and ELM positive and large (one shared direction: high B
+    energy on A's first direction, low effective rank); RMU positive but lower; the TinyStories
+    anchor within 3 sd of zero. M19-shuf ≈ 0 for every model (no generalizable structure) and
+    M17-shuf > 0 for the Zephyr models, ≈ 0 for the anchor.
+  - TinyStories pair: op-bridge-mix score clearly positive; fig2ts-installer and base within noise
+    of zero. If the installer scores high, the predictor is reading format, not capability, and is
+    not fit for purpose.

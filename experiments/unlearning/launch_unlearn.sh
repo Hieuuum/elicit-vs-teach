@@ -35,10 +35,13 @@
 #                      edl_sweep.py calls Donoway et al.'s EDL/D-vs-n signature (M19).
 #   6  localization    (wmdp, CPU) localize.py: readability by depth, the unlearning edit per
 #                      layer, the relearning write per layer.
+#   7  predictor       (wmdp, GPU, no weight updates) grad_transfer.py: gradient transfer A->B at
+#                      the LoRA init net of rotated answers (M20); rotated-answer relearning twins;
+#                      the TEACH_ANCHOR model (default the TinyStories-1B twin) scored and relearned.
 #   Controls (2026-09-30, inside stages 1 and 3): every multiple-choice metric also on the MMLU
 #                      split (-mmlu rows) and, where it applies, on the no-options fact surface (-fact).
 #
-# Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--stage 0|1|2|3|4|5|6|all]
+# Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--stage 0|1|2|3|4|5|6|7|all]
 #                                [--tags "orig rmu elm"] [--domain bio] [--holdout] [--nrand 100] [--threads N]
 #         bash launch_unlearn.sh --smoke [--dataset ...]   # CPU, tiny random models + synthetic data, no network
 # Env:    GEODE_STORE (store root; models + runs), UL_OUT (small outputs; default

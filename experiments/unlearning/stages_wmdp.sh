@@ -45,6 +45,7 @@ if [[ $SMOKE == 1 ]]; then
   PREFIT_X="--n 16 --n-probe 40 --das-layers 1 --das-ks 2 --das-train 8 --das-test 4 --das-steps 2 --dcm-pairs 12 --dcm-steps 2 --hess-n 2 --hess-layers 1 --power-iters 2 --hutch 1"
   LENS_X="--n 16 --jac-prompts 2 --story-len 16 --k-batch 8"; RESID_X="--n 16 --seq-len 16"
   GEN="--generic-text $SMK/data/story.txt"; RELEARN_X="--max-steps 12"; EDL_NS="4 8 16"; EDL_SEEDS="316 317"
+  XFER_X="--n 8 --n-shuf 2 --sketch-dim 256 --batch-size 4"; TEACH_ANCHOR=${TEACH_ANCHOR:-$SMK/original}
 else
   DATA=$GEODE_STORE/unlearning/wmdp/data; MODELS=$GEODE_STORE/unlearning/wmdp/models
   export GEODE_ANALYSIS_DTYPE=${GEODE_ANALYSIS_DTYPE:-bfloat16}   # two fp32 7B models do not fit
@@ -251,6 +252,43 @@ if want 6; then
   MX=""
   for p in $TAGS; do MX="$MX --model $p=$(mpath $p)"; done
   step "" python3 "$HERE/localize.py" --out "$OUT" --store "$GEODE_STORE" --tags "$TAGS" --domain $D $MX || true
+fi
+
+# ------------------------------------------------------------------ 7: before-training predictor (GPU, no weight updates)
+# grad_transfer.py: cos(grad L_A, grad L_B) at the LoRA init, net of the same with A's answers
+# rotated across items (M20). Plus the no-knowledge relearning twin (answers rotated, n=573,
+# read on B facts: M19-shuf / M17-shuf), and a TEACH ANCHOR, a model that cannot know the facts
+# (default: the TinyStories-1B twin of the main results, if its checkpoint is in the store),
+# scored by the predictor and relearned on true and rotated answers.
+if want 7; then
+  XFER_X=${XFER_X:-}
+  step "$DATA/relearn_${D}Ashuf.parquet" python3 "$HERE/data/shuffle_answers.py" --data-dir "$DATA" --name ${D}A || true
+  for p in $TAGS; do
+    P=$(mpath $p)
+    [[ -f $P/config.json ]] || continue
+    step gradxfer_$p.json python3 "$HERE/grad_transfer.py" --init "$P" --data-dir "$DATA" --domain $D \
+      --out gradxfer_$p --device $DEV --confirm-cost $XFER_X || true                  # M20
+    rid=wmdp-edl-$p-shuf-n573-s316
+    if ! { [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; }; then
+      step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}Ashuf.yaml" --init "$P" --run-id $rid \
+        --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train 573 --seed 316 --test-split ${D}_B $RELEARN_X || true
+    fi
+  done
+  ANCHOR=${TEACH_ANCHOR:-$GEODE_STORE/runs/evt-ts1b-base/model}
+  if [[ -f $ANCHOR/config.json ]]; then
+    milestone "teach anchor: $ANCHOR"
+    step gradxfer_anchor.json python3 "$HERE/grad_transfer.py" --init "$ANCHOR" --data-dir "$DATA" --domain $D \
+      --out gradxfer_anchor --device $DEV --confirm-cost $XFER_X || true
+    for kind in ${D}A ${D}Ashuf; do
+      rid=wmdp-edl-anchor-${kind#${D}}-n573-s316
+      if ! { [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; }; then
+        step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${kind}.yaml" --init "$ANCHOR" --run-id $rid \
+          --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train 573 --seed 316 --test-split ${D}_B $RELEARN_X || true
+      fi
+    done
+  else
+    milestone "no teach anchor at $ANCHOR (set TEACH_ANCHOR=<model dir> to score one)"
+  fi
 fi
 
 # ------------------------------------------------------------------ 4: verdict

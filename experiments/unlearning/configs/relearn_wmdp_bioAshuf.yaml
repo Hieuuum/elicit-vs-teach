@@ -1,0 +1,31 @@
+# The no-knowledge twin of relearn_wmdp_bioA.yaml (2026-10-04): the same A prompts with the answers
+# rotated across items (data/shuffle_answers.py), so nothing true about half B can be learned.
+# Same recipe. Run as an EDL sweep point (relearn.py --sweep --n-train 573 --test-split bio_B): its
+# EDL/D and its held-out B loss are what the format alone produces; the gradient-transfer null
+# (grad_transfer.py) is the first-order version of the same comparison.
+data:
+  train_file: relearn_bioAshuf.parquet
+  val_file: relearn_bioAshuf_val.parquet
+probe_task: wmdp
+probe_splits: [bio_A, bio_B, mmlu]   # relearned / held-out / general capability
+probe_n: 256
+probe_max_tokens: 512
+snapshots: 8                         # adapter-only; materialized on demand for M4
+lora: {r: 64, alpha: 128}
+base_dtype: bfloat16
+save_dtype: bfloat16
+train:
+  lr: 3.0e-5                         # 1e-4 degraded the MCQ read-out of orig itself (2026-09-26)
+  batch_size: 8
+  betas: [0.9, 0.999]
+  weight_decay: 0.0
+  grad_clip: 1.0
+  max_steps: 600                     # ~8 passes over ~570 rows
+  eval_every: 20
+  stopping: {eps_nats: 0.002, k: 3, min_steps: 80}
+  precision: bf16
+  seed: 316
+gpu:
+  tflops_bf16: 312.0
+  utilization: 0.25
+  usd_per_hour: 2.0
