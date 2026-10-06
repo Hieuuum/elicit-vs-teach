@@ -318,7 +318,7 @@ def s_edl_sweep(p):
     paper's Eq.-3 test floor) agree; otherwise undetermined.  v = the largest rise of the seed-mean
     OCV curve between consecutive sizes (bits/token; negative = it never rises)."""
     r = (_json("edl_sweep.json") or {}).get(p)
-    if not r:
+    if not r or "floors" not in r:   # absent, or a pre-2026-09-29 single-floor file: not read
         return None
     fl = r["floors"]
     calls = {f: fl[f]["call"] for f in ("ocv", "test")}
@@ -335,25 +335,32 @@ def s_edl_sweep(p):
 
 
 def s_xfer(x, null="shuf"):
-    """M20, the before-training predictor (grad_transfer.py): cos(grad L_A, grad L_B) at the LoRA
-    init, minus the same with A's answers rotated across items (null="shuf", sd over rotations)
-    or minus the far-domain facts' cosine (null="mmlu", reported).  Retention against orig."""
+    """M20, the before-training predictor (grad_transfer.py v2): the alignment cos(K_A, K_B) of the
+    knowledge gradients at the LoRA init, K = grad(true answers) - mean grad(answers rotated across
+    items), against the rotation-vs-rotation null (null="shuf"; sd over rotation pairs); or the raw
+    transfer minus the far-domain facts' cosine (null="mmlu", reported).  Retention against orig.
+    v1 outputs (no knowledge_cos) are not read."""
     r = _json(f"gradxfer_{x}.json")
     if not r:
         return None
     if null == "mmlu":
         v = r.get("score_mmlu")
         return None if v is None or v != v else {"v": v, "null": 0.0, "sig": False, "rule": "report",
-                                                   "note": f"transfer {r['transfer_cos']:+.3f}, mmlu-facts null {r['mmlu_cos']:+.3f}"}
-    sd = r.get("null_cos_sd") or 0.0
-    pi = (r.get("per_item") or {}).get("AB") or {}
+                                                   "note": f"raw transfer {r['transfer_cos']:+.3f}, mmlu-facts null {r['mmlu_cos']:+.3f}"}
+    if "knowledge_cos" not in r:
+        return None
+    v, nm, sd = r["knowledge_cos"], r["knowledge_null_mean"], r["knowledge_null_sd"] or 0.0
+    sh = r["knowledge_share"]
+    kn = (r.get("per_item") or {}).get("knowledge") or {}
     an = _json("gradxfer_anchor.json")
-    note = (f"transfer {r['transfer_cos']:+.3f} vs rotated-answer null {r['null_cos_mean']:+.3f} +- {sd:.3f}; "
-            f"descent frac A->B {r['descent_frac']['bioA']:+.2f}"
-            + (f"; A-gradient effective rank {pi['A_effective_rank']:.1f}, B energy on A's first direction {pi['B_energy_on_A_pc1']:.2f}"
-               if pi else "")
-            + (f"; TEACH ANCHOR score {an['score']:+.3f} (null sd {an.get('null_cos_sd') or 0:.3f})" if an else ""))
-    return {"v": r["score"], "null": 0.0, "se": sd if sd else None, "sig": r["score"] > 3 * sd, "note": note}
+    note = (f"knowledge alignment {v:+.3f} vs rotation-vs-rotation null {nm:+.3f} +- {sd:.3f}; knowledge share of the "
+            f"gradient A {sh['bioA']:.3f} B {sh['bioB']:.3f}; raw transfer {r['transfer_cos']:+.3f} vs rotated "
+            f"{r['null_cos_mean']:+.3f} (raw score {r['raw_score']:+.4f})"
+            + (f"; per-item knowledge: A effective rank {kn['A_effective_rank']:.1f}, B energy on A's first direction "
+               f"{kn['B_energy_on_A_pc1']:.2f}" if kn else "")
+            + (f"; TEACH ANCHOR {an['knowledge_cos']:+.3f} (null {an['knowledge_null_mean']:+.3f} +- {an['knowledge_null_sd'] or 0:.3f})"
+               if an and "knowledge_cos" in an else ""))
+    return {"v": v, "null": nm, "se": sd if sd else None, "sig": (v - nm) > 3 * sd, "note": note}
 
 
 def _sweep_point(rid):
@@ -471,9 +478,9 @@ def rows_for(tags: list[str]):
          lambda: s_probe("orig", "mmlu"), "retention"),
         ("M12-fact", "Answer preferred with NO options shown (fact surface, own permutation null)", True,
          lambda x: s_pref(x, f"{DOMAIN}fact"), lambda: s_pref("orig", f"{DOMAIN}fact"), "retention"),
-        ("M20", "Gradient transfer A->B at init, net of rotated answers (PREDICTOR)", True, s_xfer,
+        ("M20", "Knowledge-gradient alignment A->B at init (PREDICTOR; vs rotation null)", True, s_xfer,
          lambda: s_xfer("orig"), "retention"),
-        ("M20-mmlu", "Gradient transfer, net of far-domain facts (reported)", True, lambda x: s_xfer(x, "mmlu"),
+        ("M20-mmlu", "Raw gradient transfer, net of far-domain facts (reported)", True, lambda x: s_xfer(x, "mmlu"),
          lambda: s_xfer("orig", "mmlu"), "report"),
         ("M9", "Answer depth: lens at intermediate layers", True, s_lens, lambda: s_lens("orig"), "retention"),
         ("M9-mmlu", "Lens depth on MMLU (control)", True, lambda x: s_lens(x, f"lens_{x}_mmlu"),

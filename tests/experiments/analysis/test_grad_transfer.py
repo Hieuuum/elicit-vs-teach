@@ -144,3 +144,112 @@ def test_transfer_cosine_bounds_symmetry_and_sketch_fidelity(tiny_llama, tiny_to
     st2 = GT.sketch_stats(SA, SB)
     assert st2["A_items"] == 10 and st2["B_items"] == 10
     assert 0.0 <= st2["B_energy_on_A_pc1"] <= 1.0
+
+
+# ---------------------------------------------------------------- knowledge-gradient alignment (v2)
+def test_knowledge_alignment_is_the_pairing_interaction_and_vanishes_without_pairing_information():
+    """<K_A, K_B> is the 2x2 interaction of the raw inner products (true/rotated x true/rotated),
+    the null has one value per rotation pair, and a set whose rotations leave the gradient
+    unchanged (no pairing information) has K = 0: knowledge_cos 0, share 0, no NaN."""
+    g = torch.Generator().manual_seed(7)
+    d, R = 500, 3
+    G = {k: torch.randn(d, generator=g) for k in ["bioA", "bioB", *(f"bioA_shuf{k}" for k in range(R)), *(f"bioB_shuf{k}" for k in range(R))]}
+    kv = GT.knowledge_vectors(G)
+    mA = torch.stack([G[f"bioA_shuf{k}"] for k in range(R)]).mean(0)
+    mB = torch.stack([G[f"bioB_shuf{k}"] for k in range(R)]).mean(0)
+    inter = (G["bioA"] @ G["bioB"] - mA @ G["bioB"] - G["bioA"] @ mB + mA @ mB).item()
+    KA, KB = G["bioA"] - mA, G["bioB"] - mB
+    assert kv["knowledge_cos"] == pytest.approx(inter / (KA.norm() * KB.norm()).item(), abs=1e-6)
+    assert kv["knowledge_descent_frac"] == pytest.approx(inter / (KB @ KB).item(), abs=1e-6)
+    assert kv["knowledge_share"]["bioA"] == pytest.approx((KA.norm() / G["bioA"].norm()).item(), abs=1e-6)
+    assert len(kv["knowledge_null"]) == R * R and all(-1.0 <= x <= 1.0 for x in kv["knowledge_null"])
+    # no pairing information: every rotation of A gives the same gradient as the true set
+    G0 = {**G, **{f"bioA_shuf{k}": G["bioA"].clone() for k in range(R)}}
+    kv0 = GT.knowledge_vectors(G0)
+    assert kv0["knowledge_cos"] == 0.0 and kv0["knowledge_share"]["bioA"] == 0.0
+    assert kv0["score"] == kv0["score"]   # not NaN
+    with pytest.raises(ValueError):
+        GT.knowledge_vectors({k: v for k, v in G.items() if k != "bioA_shuf0" and k != "bioA_shuf1"})
+
+
+def _rule_frame(n: int, seed: int, rule: str, lo: int = 10, hi: int = 120, distinct: bool = True) -> pd.DataFrame:
+    """n items 't5 q1..q5 t6 ' -> answer; rule 'copy': the answer is q1 (one mechanism serves every
+    item); 'arbitrary': an independent random token (each pairing on its own)."""
+    rng = torch.Generator().manual_seed(seed)
+    rows, used = [], set()
+    while len(rows) < n:
+        q = torch.randint(lo, hi, (5,), generator=rng).tolist()
+        a = q[0] if rule == "copy" else int(torch.randint(lo, hi, (1,), generator=rng))
+        if distinct and a in used:
+            continue
+        used.add(a)
+        prompt = "t5 " + " ".join(f"t{x}" for x in q) + " t6 "
+        rows.append({"item_id": f"i{len(rows)}", "prompt_text": prompt, "answer_text": f"t{a}", "full_text": prompt + f"t{a}",
+                     "answer_char_start": len(prompt), "answer_char_end": len(prompt) + len(f"t{a}")})
+    return pd.DataFrame(rows)
+
+
+def _train_copy_rule(model, tok, steps: int = 300, seed: int = 0) -> None:
+    """Teaches the tiny model the copy rule on items disjoint from the scored ones (Adam, CPU, ~2 s)."""
+    ex = GT.examples_of(_rule_frame(1500, 999, "copy", distinct=False), tok)
+    ids_all, mask_all = GT._padded_inputs_and_mask(ex, GT.TASK_FORMAT)
+    opt = torch.optim.Adam(model.parameters(), lr=3e-3)
+    g = torch.Generator().manual_seed(seed)
+    model.train()
+    for _ in range(steps):
+        idx = torch.randint(0, len(ex), (32,), generator=g)
+        ids, mask = ids_all[idx], mask_all[idx]
+        logits = model(ids).logits.float()
+        labels = ids.masked_fill(~mask, GT._IGNORE_INDEX)
+        loss = torch.nn.functional.cross_entropy(logits[:, :-1].reshape(-1, logits.shape[-1]), labels[:, 1:].reshape(-1),
+                                                 ignore_index=GT._IGNORE_INDEX)
+        opt.zero_grad()
+        loss.backward()
+        opt.step()
+    model.eval()
+
+
+def _knowledge(model, params, tok, A: pd.DataFrame, B: pd.DataFrame, n_shuf: int = 4) -> dict:
+    sets = GT.with_rotations({"bioA": A, "bioB": B}, n_shuf, seed=5)
+    G = {k: GT.set_gradient(model, params, GT.examples_of(df, tok), "cpu", 16, _amp)[0] for k, df in sets.items()}
+    return GT.knowledge_vectors(G)
+
+
+def test_knowledge_alignment_reads_a_shared_mechanism_and_not_arbitrary_pairings(tiny_llama, tiny_tokenizer):
+    """The predictor's semantics on a model whose mechanism is known: a model that has learned the
+    copy rule aligns the knowledge gradients of two fresh copy sets (elicit: one mechanism serves
+    both halves); the same model on arbitrary pairings, and a random model on arbitrary pairings,
+    stay within the rotation null (teach: nothing shared beyond format, which cancels)."""
+    tok = tiny_tokenizer()
+    trained = tiny_llama(0)
+    _train_copy_rule(trained, tok)
+    state = {k: v.detach().clone() for k, v in trained.state_dict().items()}
+
+    def lora_copy_of(state_dict):
+        m = tiny_llama(0)
+        if state_dict is not None:
+            m.load_state_dict(state_dict)
+        for p in m.parameters():
+            p.requires_grad_(False)
+        GT.apply_lora(m, rank=4, alpha=8.0, seed=11)
+        params = GT.lora_b_params(m)
+        for mod in m.modules():
+            if hasattr(mod, "A") and hasattr(mod, "B") and hasattr(mod, "scaling"):
+                mod.A.weight.requires_grad_(False)
+                mod.B.weight.requires_grad_(True)
+        return m, params
+
+    copyA, copyB = _rule_frame(96, 100, "copy"), _rule_frame(96, 200, "copy")
+    arbA, arbB = _rule_frame(96, 100, "arbitrary"), _rule_frame(96, 200, "arbitrary")
+    rule = _knowledge(*lora_copy_of(state), tok, copyA, copyB)
+    arb = _knowledge(*lora_copy_of(state), tok, arbA, arbB)
+    fresh = _knowledge(*lora_copy_of(None), tok, arbA, arbB)
+    assert rule["knowledge_cos"] > 0.5
+    assert rule["knowledge_cos"] > rule["knowledge_null_mean"] + 3 * rule["knowledge_null_sd"]
+    assert abs(arb["knowledge_cos"] - arb["knowledge_null_mean"]) < 3 * arb["knowledge_null_sd"]
+    assert arb["knowledge_cos"] < 0.5 * rule["knowledge_cos"]
+    assert abs(fresh["knowledge_cos"] - fresh["knowledge_null_mean"]) < 3 * fresh["knowledge_null_sd"]
+    # rotation changes nothing shared: the common part cancels, so the share is well below the
+    # raw cosine level the common part would give (and never NaN)
+    for kv in (rule, arb, fresh):
+        assert kv["score"] == kv["score"] and 0.0 < kv["knowledge_share"]["bioA"]

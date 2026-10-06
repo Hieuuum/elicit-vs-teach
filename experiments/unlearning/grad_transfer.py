@@ -15,31 +15,45 @@ relearning format: question, "Answer:", the correct answer text; no options).
 
 Sets:  bioA   the relearning facts (half A)
        bioA_shuf[k]   the same prompts with the answers rotated across items by a seeded offset
-                      (same items, same vocabulary, no knowledge): the NULL for transfer
-       bioB   the held-out facts (half B, never trained on)
+                      (same items, same vocabulary, no knowledge)
+       bioB   the held-out facts (half B, never trained on), and bioB_shuf[k] likewise
        mmluA  the far-domain fine-tuning null's facts (a second, topic-free null)
 --task arith (the main results' calibration, 2026-10-04): the same quantities on the arithmetic
 target, A = a seeded sample of the training file of --train-config, B = the frozen eval file's
-reporting block (question-disjoint), the null = A with the answers rotated; no mmlu set.  The
-TinyStories pair fixes both ends: the elicit parent (evt-ts1b-op-bridge-mix) should score high,
-the format-installed parent (evt-ts1b-fig2ts-installer) near zero, before either is fine-tuned.
+reporting block (question-disjoint; the eval block of --eval-config, default the train config);
+no mmlu set.  The TinyStories pair fixes both ends: the elicit parent (evt-ts1b-op-bridge-mix)
+should score high, the format-installed parent (evt-ts1b-fig2ts-installer) near zero, before
+either is fine-tuned.
 
-Reported (nats-free, all cosines):
-  transfer      cos(G_bioA, G_bioB)
-  null          cos(G_bioA_shuf, G_bioB), mean and sd over the shuffles
-  score         transfer - null            (the predictor; 0 at a model that cannot know the facts)
-  score_mmlu    transfer - cos(G_mmluA, G_bioB)
-  descent_frac  <G_bioA, G_bioB> / <G_bioB, G_bioB>: the share of B's own steepest descent that an
-                A-step delivers
-  per-item sketches (count-sketch, D dims): pairwise cosines within and across sets, the effective
-  rank of the A-item gradients (how many directions the fine-tune would need) and the share of each
-  B-item gradient on the first principal direction of the A-item gradients (one shared "unsuppress"
-  direction, or many).
+The headline (v2, 2026-10-06) is the alignment of the KNOWLEDGE gradients.  The raw gradient of
+a fact set is dominated by what every set shares -- format, vocabulary, topic, and the state the
+unlearning left the model in (NPO's loss is 246 nats/token on every bio prompt) -- so raw
+cosines sit at 0.87-0.99 for true and rotated answers alike, and "transfer minus null" shrinks
+as 1/|common|^2 (the v1 run: orig 0.112, RMU 0.011, NPO 0.005).  Subtracting the rotated twins
+removes the common part exactly:
+  K_X = G_X(true answers) - mean_k G_X(rotation k)      the pairing-dependent gradient of set X
+  knowledge_cos = cos(K_A, K_B)   a step that sharpens the model's knowledge of the A facts
+                                  sharpens its knowledge of the B facts (elicit: one shared
+                                  mechanism) or not (teach: each fact on its own; 0 at a model
+                                  that cannot know the facts)
+  null            under no knowledge the true pairing is just another rotation, so
+                  K_X^(j) = G_X(rotation j) - mean_{k!=j} G_X(rotation k) is distributed like K_X;
+                  the null sample is cos(K_A^(j), K_B^(j')) over the rotation pairs (dependent
+                  through shared terms: a sanity level; the anchor model is the empirical zero)
+  score           knowledge_cos - null mean, significant at 3 null sd
+  knowledge_share |K_X| / |G_X|: how much of the fine-tune's first step is about the pairings
+  knowledge_descent_frac  <K_A, K_B> / <K_B, K_B>
+Also reported: the raw transfer cos(G_A, G_B), its rotated-answer null and raw_score (v1), the
+far-domain score_mmlu, descent_frac, and per-item count-sketches (D dims) of the true items and
+of their knowledge gradients (true minus one rotation): pairwise cosines, the effective rank of
+the A-item cloud (one direction or many) and the share of each B-item gradient on A's first
+principal direction.
 
 Usage:
   python3 grad_transfer.py --init DIR --data-dir DATA --out gradxfer_rmu [--device cuda] --confirm-cost
-      [--rank 64 --alpha 128 --seed 316 --batch-size 8 --n 0 --n-shuf 3 --sketch-dim 4096 --no-per-item]
+      [--rank 64 --alpha 128 --seed 316 --batch-size 8 --n 0 --n-shuf 4 --sketch-dim 4096 --no-per-item]
   python3 grad_transfer.py --task arith --train-config ../training-run/configs/ts1b_elicit_ft.yaml \
+      --eval-config ../training-run/configs/ts1b_fig2ts_inst.yaml --tokenizer meta-llama/Llama-3.2-1B \
       --init $GEODE_STORE/runs/evt-ts1b-op-bridge-mix/model --out gradxfer_ts1b_bridge --confirm-cost
 """
 
@@ -103,15 +117,23 @@ def load_sets(data_dir: Path, domain: str, n: int, n_shuf: int, seed: int) -> di
     if n:
         a, b, m = a.iloc[:n], b.iloc[:n], m.iloc[:n]
     sets = {"bioA": a.reset_index(drop=True), "bioB": b.reset_index(drop=True), "mmluA": m.reset_index(drop=True)}
+    return with_rotations(sets, n_shuf, seed)
+
+
+def with_rotations(sets: dict[str, pd.DataFrame], n_shuf: int, seed: int) -> dict[str, pd.DataFrame]:
+    """Adds bioA_shuf[k] and bioB_shuf[k]: independent seeded rotations of each set's answers."""
     for k in range(n_shuf):
         sets[f"bioA_shuf{k}"] = rotate_answers(sets["bioA"], seed + 1000 + k)
+        sets[f"bioB_shuf{k}"] = rotate_answers(sets["bioB"], seed + 2000 + k)
     return sets
 
 
-def load_sets_arith(train_config: Path, n: int, n_shuf: int, seed: int) -> dict[str, pd.DataFrame]:
+def load_sets_arith(train_config: Path, eval_config: Path | None, n: int, n_shuf: int, seed: int) -> dict[str, pd.DataFrame]:
     """The arithmetic target (main results): A = a seeded sample of the training file, B = the
     frozen eval file's reporting block (question-disjoint, after EVAL_STOP_ROWS), both hash-verified
-    by the trainers' own loader; the null = A with the answers rotated."""
+    by the trainers' own loader.  The eval block (eval_file / eval_order_hash / eval_local_path)
+    is read from ``eval_config`` (default: the train config; the FT configs carry none, the
+    install configs do)."""
     sys.path.insert(0, str(REPO_ROOT / "experiments" / "training-run" / "scripts"))
     from train import load_config
     from train_sft import load_frozen_parquet
@@ -119,17 +141,20 @@ def load_sets_arith(train_config: Path, n: int, n_shuf: int, seed: int) -> dict[
     from geode.edl import EVAL_STOP_ROWS
 
     cfg = load_config(Path(train_config), None)
-    d = cfg["data"]
+    e = load_config(Path(eval_config), None)["data"] if eval_config else cfg["data"]
+    if "eval_file" not in e or "eval_order_hash" not in e:
+        raise SystemExit(f"[xfer] no eval block (eval_file, eval_order_hash) in {eval_config or train_config}; "
+                         "pass --eval-config, e.g. configs/ts1b_fig2ts_inst.yaml")
     tr = load_frozen_parquet(cfg)
     n = n or 600
     idx = sorted(torch.randperm(len(tr), generator=torch.Generator().manual_seed(seed))[:n].tolist())
-    ev = load_frozen_parquet({"data": {"hf_id": d["hf_id"], "file": d["eval_file"], "order_hash": d["eval_order_hash"],
-                                       "local_path": d.get("eval_local_path")}})
+    ev = load_frozen_parquet({"data": {"hf_id": e["hf_id"], "file": e["eval_file"], "order_hash": e["eval_order_hash"],
+                                       "local_path": e.get("eval_local_path")}})
+    if len(ev) < EVAL_STOP_ROWS + n:
+        raise SystemExit(f"[xfer] eval file has {len(ev)} rows < {EVAL_STOP_ROWS + n}")
     sets = {"bioA": tr.iloc[idx].reset_index(drop=True),
             "bioB": ev.iloc[EVAL_STOP_ROWS : EVAL_STOP_ROWS + n].reset_index(drop=True)}
-    for k in range(n_shuf):
-        sets[f"bioA_shuf{k}"] = rotate_answers(sets["bioA"], seed + 1000 + k)
-    return sets
+    return with_rotations(sets, n_shuf, seed)
 
 
 # ------------------------------------------------------------------ gradients
@@ -202,6 +227,41 @@ def cos(a: torch.Tensor, b: torch.Tensor) -> float:
     return float(torch.dot(a.double(), b.double()) / (a.double().norm() * b.double().norm()).clamp_min(1e-30))
 
 
+def _mean_sd(xs: list[float]) -> tuple[float, float]:
+    m = sum(xs) / len(xs) if xs else float("nan")
+    sd = (sum((x - m) ** 2 for x in xs) / (len(xs) - 1)) ** 0.5 if len(xs) > 1 else float("nan")
+    return m, sd
+
+
+def knowledge_vectors(G: dict[str, torch.Tensor], a: str = "bioA", b: str = "bioB") -> dict:
+    """The pairing-dependent part of each set's gradient and its alignment across the two sets.
+
+    K_X = G_X(true) - mean_k G_X(rotation k): everything the true and the rotated sets share
+    (format, vocabulary, topic, the model's state) cancels exactly, leaving the gradient of the
+    model's knowledge of which answer goes with which question.  knowledge_cos = cos(K_A, K_B).
+    Null: with no knowledge the true pairing is just another rotation, so
+    K_X^(j) = G_X(rotation j) - mean_{k != j} G_X(rotation k) is distributed like K_X; the null
+    sample is cos(K_A^(j), K_B^(j')) over all rotation pairs.  Needs >= 2 rotations per set."""
+    ra = sorted(k for k in G if k.startswith(a + "_shuf"))
+    rb = sorted(k for k in G if k.startswith(b + "_shuf"))
+    if len(ra) < 2 or len(rb) < 2:
+        raise ValueError("knowledge_vectors: need at least two rotations of each set")
+
+    def K(true: str, rots: list[str]) -> torch.Tensor:
+        return G[true].double() - torch.stack([G[r].double() for r in rots]).mean(0)
+
+    KA, KB = K(a, ra), K(b, rb)
+    nulls = [cos(K(j, [k for k in ra if k != j]), K(jj, [k for k in rb if k != jj])) for j in ra for jj in rb]
+    nm, nsd = _mean_sd(nulls)
+    kc = cos(KA, KB)
+    return {"knowledge_cos": kc, "knowledge_null": nulls, "knowledge_null_mean": nm, "knowledge_null_sd": nsd,
+            "score": kc - nm,
+            "knowledge_share": {a: float(KA.norm() / G[a].double().norm().clamp_min(1e-30)),
+                                b: float(KB.norm() / G[b].double().norm().clamp_min(1e-30))},
+            "knowledge_descent_frac": float(torch.dot(KA, KB) / torch.dot(KB, KB).clamp_min(1e-30)),
+            "knowledge_norm": {a: float(KA.norm()), b: float(KB.norm())}}
+
+
 def sketch_stats(SA: torch.Tensor, SB: torch.Tensor) -> dict:
     """Pairwise cosines and the shape of the A-item gradient cloud, from count-sketches."""
     def unit(S):
@@ -230,6 +290,8 @@ def main() -> int:
     ap.add_argument("--task", choices=("wmdp", "arith"), default="wmdp")
     ap.add_argument("--data-dir", type=Path, default=None, help="wmdp: prepare.py --out-dir")
     ap.add_argument("--train-config", type=Path, default=None, help="arith: the run config whose data block names the files")
+    ap.add_argument("--eval-config", type=Path, default=None,
+                    help="arith: the config whose data block carries eval_file / eval_order_hash (default: --train-config)")
     ap.add_argument("--tokenizer", default=None, help="override (default: the model dir's own)")
     ap.add_argument("--out", required=True, help="output stem: writes <out>.json")
     ap.add_argument("--domain", default="bio")
@@ -239,7 +301,7 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=316, help="LoRA A init, the sketch hash and the answer rotations")
     ap.add_argument("--batch-size", type=int, default=8)
     ap.add_argument("--n", type=int, default=0, help="cap per set (0 = all rows)")
-    ap.add_argument("--n-shuf", type=int, default=3, help="independent answer rotations (the null's sd)")
+    ap.add_argument("--n-shuf", type=int, default=4, help="independent answer rotations per set (>= 2; the null)")
     ap.add_argument("--sketch-dim", type=int, default=4096)
     ap.add_argument("--no-per-item", action="store_true", help="skip the per-item sketches (mean gradients only)")
     ap.add_argument("--confirm-cost", action="store_true")
@@ -257,13 +319,15 @@ def main() -> int:
     else:
         if args.train_config is None:
             ap.error("--task arith needs --train-config")
-        sets = load_sets_arith(args.train_config, args.n, args.n_shuf, args.seed)
+        sets = load_sets_arith(args.train_config, args.eval_config, args.n, args.n_shuf, args.seed)
+    if args.n_shuf < 2:
+        ap.error("--n-shuf must be >= 2 (the knowledge null needs rotation pairs)")
     ex = {k: examples_of(df, tokenizer) for k, df in sets.items()}
     n_items = sum(len(v) for v in ex.values())
     n_passes = sum(-(-len(v) // args.batch_size) for v in ex.values())
-    if not args.no_per_item:
-        n_passes += len(ex["bioA"]) + len(ex["bioB"]) + len(ex["bioA_shuf0"]) if args.n_shuf else len(ex["bioA"]) + len(ex["bioB"])
-    est_min = n_passes * 0.5 / 60   # ~0.5 s per forward+backward of a short batch on a 7B model, one 80 GB GPU
+    if not args.no_per_item:   # true items and one rotation of each set, one item per pass
+        n_passes += 2 * (len(ex["bioA"]) + len(ex["bioB"]))
+    est_min = n_passes * 0.25 / 60   # ~0.25 s per forward+backward of a short batch on a 7B model, one 80 GB GPU (measured 0.2)
     print(f"[xfer] {args.init}: {len(sets)} sets, {n_items} items, {n_passes} forward+backward passes; "
           f"estimated ~{est_min:.1f} GPU-min at 7B (no weights are updated)")
     if not args.confirm_cost:
@@ -300,36 +364,42 @@ def main() -> int:
     shuf = [k for k in ex if k.startswith("bioA_shuf")]
     transfer = cos(G["bioA"], G["bioB"])
     nulls = [cos(G[k], G["bioB"]) for k in shuf]
-    null_mean = sum(nulls) / len(nulls) if nulls else float("nan")
-    null_sd = (sum((x - null_mean) ** 2 for x in nulls) / (len(nulls) - 1)) ** 0.5 if len(nulls) > 1 else float("nan")
+    null_mean, null_sd = _mean_sd(nulls)
     mmlu = cos(G["mmluA"], G["bioB"]) if "mmluA" in G else float("nan")
     gb = G["bioB"].double()
-    res = {"init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
+    know = knowledge_vectors(G)
+    res = {"version": 2, "init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
            "n_params_B": int(sum(p.numel() for p in params)), "items": {k: len(v) for k, v in ex.items()},
-           "label_tokens": ntok, "loss_nats_per_token": loss,
+           "label_tokens": ntok, "loss_nats_per_token": loss, "task": args.task,
+           **know,
            "transfer_cos": transfer, "null_cos": nulls, "null_cos_mean": null_mean, "null_cos_sd": null_sd,
-           "mmlu_cos": mmlu, "score": transfer - null_mean, "score_mmlu": transfer - mmlu,
-           "task": args.task,
+           "mmlu_cos": mmlu, "raw_score": transfer - null_mean, "score_mmlu": transfer - mmlu,
            "descent_frac": {k: float(torch.dot(G[k].double(), gb) / torch.dot(gb, gb).clamp_min(1e-30))
                             for k in ("bioA", *(["mmluA"] if "mmluA" in G else []), *shuf)},
            "grad_norm": {k: float(G[k].norm()) for k in G},
            "self_cos_shuf_vs_bioA": [cos(G[k], G["bioA"]) for k in shuf]}
-    print(f"[xfer] transfer cos(A,B) {transfer:+.4f} | null (answers rotated) {null_mean:+.4f} +- {null_sd:.4f} | "
-          f"mmlu {mmlu:+.4f} | SCORE {res['score']:+.4f} (mmlu-null {res['score_mmlu']:+.4f}) | "
+    print(f"[xfer] KNOWLEDGE alignment cos(K_A,K_B) {know['knowledge_cos']:+.4f} | null (rotation vs rotation) "
+          f"{know['knowledge_null_mean']:+.4f} +- {know['knowledge_null_sd']:.4f} | SCORE {know['score']:+.4f} | "
+          f"knowledge share of |G|: A {know['knowledge_share']['bioA']:.3f} B {know['knowledge_share']['bioB']:.3f} | "
+          f"knowledge descent frac A->B {know['knowledge_descent_frac']:+.3f}")
+    print(f"[xfer] raw: transfer cos(A,B) {transfer:+.4f} | rotated-answer null {null_mean:+.4f} +- {null_sd:.4f} | "
+          f"mmlu {mmlu:+.4f} | raw score {res['raw_score']:+.4f} (mmlu-null {res['score_mmlu']:+.4f}) | "
           f"descent frac A->B {res['descent_frac']['bioA']:+.3f}")
     if not args.no_per_item:
         sk = Sketcher(params, args.sketch_dim, args.seed, dev)
         SA = item_sketches(model, params, ex["bioA"], dev, amp, sk)
         SB = item_sketches(model, params, ex["bioB"], dev, amp, sk)
-        per = {"AB": sketch_stats(SA, SB)}
-        if shuf:
-            SS = item_sketches(model, params, ex[shuf[0]], dev, amp, sk)
-            per["shufB"] = sketch_stats(SS, SB)
+        SAr = item_sketches(model, params, ex["bioA_shuf0"], dev, amp, sk)   # row i: the same prompt, another answer
+        SBr = item_sketches(model, params, ex["bioB_shuf0"], dev, amp, sk)
+        per = {"AB": sketch_stats(SA, SB), "shufB": sketch_stats(SAr, SB), "knowledge": sketch_stats(SA - SAr, SB - SBr)}
         res["per_item"] = {"sketch_dim": args.sketch_dim, **per}
-        a = per["AB"]
-        print(f"[xfer] per-item: cross A-B cos {a['cross_AB_cos']:+.4f} (rotated {per.get('shufB', {}).get('cross_AB_cos', float('nan')):+.4f}); "
+        a, kn = per["AB"], per["knowledge"]
+        print(f"[xfer] per-item raw: cross A-B cos {a['cross_AB_cos']:+.4f} (rotated {per['shufB']['cross_AB_cos']:+.4f}); "
               f"within A {a['within_A_cos']:+.4f}; A effective rank {a['A_effective_rank']:.1f} of {a['A_items']}; "
               f"B energy on A's first direction {a['B_energy_on_A_pc1']:.3f}")
+        print(f"[xfer] per-item knowledge (true minus one rotation): cross A-B cos {kn['cross_AB_cos']:+.4f}; "
+              f"within A {kn['within_A_cos']:+.4f}; A effective rank {kn['A_effective_rank']:.1f} of {kn['A_items']}; "
+              f"B energy on A's first direction {kn['B_energy_on_A_pc1']:.3f}")
     res["wall_s"] = time.time() - t0
     Path(args.out).with_suffix(".json").write_text(json.dumps(res, indent=1))
     print(f"[xfer] wrote {Path(args.out).with_suffix('.json')} ({res['wall_s'] / 60:.1f} min)")

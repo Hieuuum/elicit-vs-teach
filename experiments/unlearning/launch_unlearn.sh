@@ -35,9 +35,11 @@
 #                      edl_sweep.py calls Donoway et al.'s EDL/D-vs-n signature (M19).
 #   6  localization    (wmdp, CPU) localize.py: readability by depth, the unlearning edit per
 #                      layer, the relearning write per layer.
-#   7  predictor       (wmdp, GPU, no weight updates) grad_transfer.py: gradient transfer A->B at
-#                      the LoRA init net of rotated answers (M20); rotated-answer relearning twins;
-#                      the TEACH_ANCHOR model (default the TinyStories-1B twin) scored and relearned.
+#   7  predictor       (wmdp, GPU, no weight updates) grad_transfer.py: the alignment of the A and B
+#                      knowledge gradients at the LoRA init (M20; v2 2026-10-06, v1 outputs are set
+#                      aside as *.v1.json and recomputed); rotated-answer relearning twins; the
+#                      TEACH_ANCHOR model (default the TinyStories-1B twin, tokenizer
+#                      TEACH_ANCHOR_TOKENIZER, default meta-llama/Llama-3.2-1B) scored and relearned.
 #   Controls (2026-09-30, inside stages 1 and 3): every multiple-choice metric also on the MMLU
 #                      split (-mmlu rows) and, where it applies, on the no-options fact surface (-fact).
 #

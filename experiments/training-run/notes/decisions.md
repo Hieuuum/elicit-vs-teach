@@ -7650,3 +7650,81 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   - TinyStories pair: op-bridge-mix score clearly positive; fig2ts-installer and base within noise
     of zero. If the installer scores high, the predictor is reading format, not capability, and is
     not fit for purpose.
+
+## 2026-10-06 — M20 first run: the raw-cosine score is compressed by the common-mode gradient; v2 = knowledge-gradient alignment; the anchor and the TinyStories calibration failed and are fixed
+
+- **Run (cluster, 2026-10-05, stage 7 at 7b27d52).** The five WMDP models were scored (7.4 min
+  each); the teach anchor and the TinyStories calibration failed before computing anything (below).
+- **v1 result (raw transfer − rotated-answer null, raw cosines):**
+
+  | model | cos(G_A,G_B) | rotated null | score | sd | r vs orig |
+  |---|---|---|---|---|---|
+  | orig | 0.987 | 0.874 ± 0.0065 | +0.112 | 17 sd | — |
+  | RMU | 0.991 | 0.979 ± 0.0005 | +0.011 | 23 sd | 0.10 |
+  | ELM | 0.998 | 0.947 ± 0.0034 | +0.051 | 15 sd | 0.45 |
+  | NPO | 0.997 | 0.992 ± 0.0007 | +0.0045 | 6 sd | 0.04 |
+  | SimNPO | 0.989 | 0.941 ± 0.0036 | +0.048 | 13 sd | 0.42 |
+
+  Against the 2026-10-04 predictions: orig > 3 sd ✓; all four positive and significant ✓; "large"
+  ✗ (all four read RESIDUAL); RMU below ELM and SimNPO ✓, but NPO lowest of all ✗.
+- **Diagnosis: the raw cosine is not comparable across models.** True and rotated sets alike sit
+  at cos 0.87–0.99 with B: the gradient of every bio-fact set is dominated by a component the true
+  and the rotated sets share — format, vocabulary, topic, and above all the state the unlearning
+  left the model in (NPO's loss is 246 nats/token on every bio prompt, RMU 6.2, SimNPO 10.5, orig
+  2.3; the gradient norms 543 / 72 / 104 / 13.5). Writing G_A = C + a, G_A-rot = C + a', G_B = C + b
+  with |C| ≫ |a|, |b|: transfer − null ≈ [⟨a,b⟩ − ⟨a',b⟩]/|C|² + (|a'|² − |a|²)/(2|C|²). The score
+  shrinks with the square of the common part and carries a nuisance term from the rotated set's own
+  norm; its headroom 1 − null is 0.008 for NPO, of which the 0.0045 fills over half. The per-item
+  statistics read the same component: NPO's "effective rank 2.2 of 573" is the collapse direction,
+  not a knowledge direction. The v1 numbers stay in the record (`gradxfer_*.v1.json`) and are not
+  compared across models.
+- **v2 (grad_transfer.py, same runs, +4 min per model): the knowledge-gradient alignment.**
+  K_X = G_X(true answers) − mean_k G_X(rotation k) — everything shared by the true and the rotated
+  sets cancels exactly; what remains is the gradient of the model's knowledge of which answer goes
+  with which question. Headline **knowledge_cos = cos(K_A, K_B)**: a step that sharpens the
+  model's knowledge of the A facts sharpens its knowledge of the B facts (elicit: one shared
+  mechanism) or does not (teach: each fact on its own). It is the 2×2 interaction
+  [true A→true B] − [rot A→true B] − [true A→rot B] + [rot A→rot B] of the first-order loss changes.
+  Null by exchangeability: with no knowledge the true pairing is just another rotation, so
+  K^(j) = G(rot j) − mean of the other rotations is distributed like K; null sample =
+  cos(K_A^(j), K_B^(j')) over the rotation pairs (dependent through shared terms: a sanity level;
+  the anchor model is the empirical zero). Also: knowledge_share = |K|/|G| (how much of the first
+  step is about the pairings at all), knowledge_descent_frac, and per-item knowledge sketches (true
+  minus one rotation) for the one-direction-or-many read. B is rotated too; 4 rotations per set.
+  The raw transfer, its null and raw_score (v1) stay in the JSON as reported fields.
+- **Tiny-model check of the semantics (CPU, the test's setting, 96 items, 4 rotations):** a
+  2-layer model trained on a copy rule scores +0.80 / +0.91 (two seeds) on fresh copy items, null
+  0.00 ± 0.11–0.19; the same model on arbitrary pairings +0.16 / +0.26, within its null (± 0.17);
+  a random model on arbitrary pairings 0.01 / −0.02 (± 0.03–0.05). The random model on the copy
+  rule scores +0.35 / +0.24 — a copy rule has shared first-order gradient structure even at init,
+  so the predictor's zero is "no shared mechanism", not "untrained"; the anchor must therefore be
+  a model that cannot know the facts, not merely one that has not seen them in this format.
+- **Failures fixed.** (1) The anchor: `runs/evt-ts1b-base/model` carries no loadable tokenizer
+  (the TS1B family reads `meta-llama/Llama-3.2-1B` from the config); `relearn.py --tokenizer`
+  added, stage 7 passes `TEACH_ANCHOR_TOKENIZER` (default meta-llama/Llama-3.2-1B; "" = the dir's
+  own) to the predictor and the two anchor relearning runs. (2) The TinyStories calibration:
+  `ts1b_elicit_ft.yaml` has no eval block (`KeyError: 'eval_file'`); `--eval-config
+  configs/ts1b_fig2ts_inst.yaml` (D_algo_eval_bare, hash-pinned) added and passed by
+  `grad_transfer_ts1b.sh`. Stage 7 sets v1 outputs aside as `*.v1.json` and recomputes.
+- **The twins ran and stand (unaffected by v1/v2).**
+  - M19-shuf, EDL/D (OCV floor, bits/token) at n = 573 with rotated vs true answers: orig −0.287
+    vs −0.560; RMU −0.051 vs −0.335; ELM −0.263 vs −0.518; NPO +10.8 vs +8.84; SimNPO +0.593 vs
+    +0.232. The true answers code 0.27–0.36 bits/token cheaper (NPO 2.0) in every model. The
+    prediction "M19-shuf ≈ 0" was wrong in form: EDL against the OCV floor is not zero for a
+    knowledge-free set (the floor is the kept model's own val loss on rotated val items; the
+    first-pass code includes the format being learned); the meaningful quantity is the
+    true-minus-rotated difference.
+  - M17-shuf, held-out B fact loss after rotated minus after true answers (n = 573, same start,
+    same recipe): orig 0.578, RMU 0.567, ELM 0.594, NPO 0.574, SimNPO 0.569 nats/token — the same
+    to within 0.03 nats. 573 true facts improve the held-out facts by the same knowledge-specific
+    amount in every unlearned model as in the original. Reading pending the anchor's value: if
+    TinyStories-1B gains ≈ 0.57 too, the gap is answer-type learning, not knowledge (expected ≪).
+  - NPO's rotated-answer relearning takes the val loss from 241 to 2.59 nats/token in 20 steps: the
+    collapse is undone by any fine-tune (cf. M17u, where an MMLU fine-tune restores NPO's B
+    accuracy to 0.62).
+- **Predictions for v2, recorded before the rerun.** Knowledge alignment: orig highest; NPO and
+  SimNPO near orig (r ≳ 0.5: the knowledge path is intact up to the output); ELM high (M12-fact r
+  0.70); RMU lowest but above its null (the edit scrambles layers 5–7, the gradient must pass
+  through them); knowledge_share smallest for NPO. Anchor within 3 null sd of zero. TinyStories:
+  op-bridge-mix clearly positive; installer and base within noise of zero; an installer that scores
+  high means the predictor reads format and is unfit (criterion unchanged).

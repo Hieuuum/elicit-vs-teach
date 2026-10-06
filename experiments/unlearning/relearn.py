@@ -204,6 +204,8 @@ def main() -> int:
     ap.add_argument("--n-train", type=int, default=None, help="nested subset size of the training rows")
     ap.add_argument("--test-split", default=None, help="held-out MCQ split rendered as facts, e.g. bio_B")
     ap.add_argument("--seed", type=int, default=None, help="override train.seed (EDL sweep replicates)")
+    ap.add_argument("--tokenizer", default=None,
+                    help="tokenizer dir or hub id (default: --init's own; the TinyStories-1B anchor carries none loadable)")
     args = ap.parse_args()
     if args.materialize_step is not None:
         return materialize(args)
@@ -221,7 +223,7 @@ def main() -> int:
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(args.init)
+    tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.init)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     train_df = load_split(args.data_dir / cfg["data"]["train_file"])
