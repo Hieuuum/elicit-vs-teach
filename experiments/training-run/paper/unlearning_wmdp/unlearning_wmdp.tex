@@ -2,8 +2,9 @@
 % unlearning: are "unlearned" hazardous capabilities still in the weights? Compiled on its own;
 % results_ts.tex only points to it. Numbers come from experiments/unlearning (launch_unlearn.sh,
 % verdict_wmdp.py -> out/wmdp/verdict_wmdp.{json,md}); every number has a dated entry in
-% ../../notes/decisions.md (2026-09-27, 2026-09-28, 2026-09-29). Figure 1b: fig_edl_sweep.py from
-% edl_sweep_points.csv (the stage-5 EDL sweep at 365a0b3).
+% ../../notes/decisions.md (2026-09-27 .. 2026-09-30, 2026-10-04, 2026-10-06). Figure 1b:
+% fig_edl_sweep.py from edl_sweep_points.csv (the stage-5 EDL sweep at 365a0b3). The rotated-answer
+% twins, the TinyStories anchor and the before-training scores (M20, M21): stage 7 at f5f2617.
 \documentclass[11pt]{article}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
@@ -49,7 +50,10 @@ correct answer, no options; LoRA $r{=}64$) and is read on the held-out half B, w
 The \emph{fine-tuning null} is the same recipe on MMLU facts, which cannot teach bio answers.
 There is no never-learned model, so the elicit reference is the \emph{original} model (before
 training) and the \emph{original's own relearning} (after training); the teach reference is each
-metric's own null, and the elicit/teach values of the main results are given alongside.
+metric's own null, and the elicit/teach values of the main results are given alongside. A model
+that cannot know the facts, the main results' TinyStories-1B twin, is run on the same facts wherever
+a read allows a cross-model comparison (the rotated-answer twin in Section~1, the before-training
+scores in Section~4); it fixes a zero, not a scale.
 
 \medskip\noindent\textbf{Reading a cell.} Each cell is the measured value and the call it makes.
 After relearning (Tables~\ref{tab:headline} and~\ref{tab:after}): \textbf{elicit} (reads like the
@@ -86,6 +90,7 @@ after relearning on A & -- & \textbf{0.47} & \textbf{0.48} & \textbf{0.46} & \te
 \textbf{M17u} the unrelated fine-tune unlocks B & -- & locked: 0.31$\to$0.35 & \el{0.35$\to$0.55} & \el{0.26$\to$0.62} & \el{0.42$\to$0.62} \tabularnewline
 \textbf{M18} relearning cost over the original's (nats) & 0 & \el{$+0.15\pm0.19$} & \el{$+0.03\pm0.14$} & \na{$+4.6\pm9.0$} & \el{$-0.31\pm0.53$} \tabularnewline
 \textbf{M19} EDL/D falls with $n$ (bits, $n{=}8\to573$) & $0.37\to-0.56$ & \el{$5.1\to-0.34$} & \el{$0.67\to-0.52$} & \el{$355\to8.8$} & \el{$9.3\to0.23$} \tabularnewline
+M17s what the \emph{true} answers add on B after 573 facts (nats/token; cannot-know model 0.05) & 0.58 & 0.57 & 0.59 & 0.57 & 0.57 \tabularnewline
 MMLU (general ability) & 0.58 & 0.58 & 0.59 & 0.47 & 0.48 \tabularnewline
 \bottomrule
 \end{tabular}
@@ -105,13 +110,22 @@ answer's first token against the other three answers', none shown (the relearnin
 reassigns the ``correct'' candidate at random. The picture is the same there: every relearned model
 reaches the original, RMU beyond its unrelated fine-tune ($0.47$ vs $0.39$; position $1.43$, 90\%
 interval $[0.11, 2.75]$, the surface has little room), the others already there after it; ELM is
-largely there before any training.}
+largely there before any training. M17s: the loss on the held-out B facts after relearning the 573
+facts of A with every answer moved to another item (same prompts, same answers, no knowledge) minus
+the loss after the true answers: what the true answers add. The same recipe on a model that cannot
+know the facts (the main results' TinyStories-1B twin) adds $0.045$; a different model, so the row
+is reported, not called.}
 \label{tab:headline}
 \end{table}
 
 \begin{steps}
 \item \textbf{Every method leaves the capability in the weights:} relearning half the items brings
 the other half back to the original's accuracy, and costs what the original's own relearning costs.
+\item \textbf{What comes back is the knowledge, not the format:} with the answers rotated across
+items the same training lowers the held-out loss by $0.57$--$0.59$ nats per token less than the
+true answers do, in every unlearned model as in the original (M17s); for a model that cannot know
+the facts the true answers add $0.05$. Training on 573 true facts moves the other 637 by the same
+knowledge-specific amount whether or not the model was ``unlearned''.
 \item \textbf{What unlocks it differs:} for NPO and SimNPO any small fine-tune does; for RMU only
 bio-specific training does; ELM is in between.
 \item \textbf{The original paper's own signature agrees} (M19, Figure~\ref{fig:edl}): the
@@ -169,6 +183,7 @@ M1$^\bigstar$ & original's 32 heads destroy U's answer (random 0.05); machinery,
 M10$^\bigstar$ & original's head states patched into U (accuracy) & -- & 0.49 & \pa{0.20$\to$0.30} & \rd{0.27$\to$0.48} & \nr{0.00$\to$0.00} & \pa{0.13$\to$0.25} \tabularnewline
 M2$^\bigstar$ & wiring, U vs original (J@256; ceiling 0.55) & 0.36 / -- & -- & \na{no answer} & \na{no answer} & \na{no answer} & \pa{0.23} \tabularnewline
 M13 & accelerating descent (negative share; blocks 20, 28) & 1.00 / 0.00 & 0.00 & \na{0.00} & \na{0.00} & \na{\textbf{1.00}} & \na{0.00} \tabularnewline
+M21 & hidden preference, no options, full answer: loss with the answers rotated across items minus loss on the true answers (nats/token; reported, Section~4) & 1.15 / 0.09 & 1.58 & 1.30 & 1.24 & 2.52 & 2.64 \tabularnewline
 \midrule
  & \multicolumn{2}{l}{\textbf{tally} (readable / partly / not read)} & & 1 / 4 / 6 & 3 / 3 / 5 & 3 / 2 / 6 & \textbf{7 / 3 / 2} \tabularnewline
 \bottomrule
@@ -185,7 +200,7 @@ all of it, but its MMLU-circuit heads carry it equally (Section~4), so the row i
 and M11f are read with no options in the prompt (question, then ``Answer:''): M12f scores the
 correct answer's first token against the other three answers' first tokens, the null reassigns the
 ``correct'' candidate at random ($p<0.01$ counts as readable; RMU $p=0.05$, SimNPO $p=0.06$); M11f
-is M11 on that surface. M13 cannot be called here: the original is at a minimum of its own bio loss (negative share $0.00$, unlike the main results' latent elicit parent at $1.00$), so the metric has no elicit reference; NPO alone sits on a strongly concave slope ($\lambda_{\min}=-1.5\times10^{5}$), where gradient ascent left it, and any descent step speeds up. Curvature is restricted to decoder blocks 20 and 28 (the full Hessian does not fit a 7B model on one GPU). M8 (latent reach) has no WMDP analogue and is not run.}
+is M11 on that surface. M13 cannot be called here: the original is at a minimum of its own bio loss (negative share $0.00$, unlike the main results' latent elicit parent at $1.00$), so the metric has no elicit reference; NPO alone sits on a strongly concave slope ($\lambda_{\min}=-1.5\times10^{5}$), where gradient ascent left it, and any descent step speeds up. Curvature is restricted to decoder blocks 20 and 28 (the full Hessian does not fit a 7B model on one GPU). M8 (latent reach) has no WMDP analogue and is not run. M21 is M12f's full-answer form: the mean label-token loss on the B facts with each item's answer replaced by another item's (four rotations), minus the loss on the true answers, no training. It is reported, not tallied (it would double-count M12f); its ``main results'' column is the arithmetic elicit parent / the format-installed teach parent, and a model that cannot know the bio facts reads $0.22$ (Section~4). It reads NPO ($2.52$) where M12f reads nothing: NPO's loss is $246.7$ nats per token on the true answers and $249.3$ on the rotated ones; the unlearning moved every bio answer by about 244 nats and left the log-odds between true and other answers intact.}
 \label{tab:before}
 \end{table}
 
@@ -370,13 +385,69 @@ separates bio from MMLU.}
 \label{tab:controls}
 \end{table}
 
+\medskip\noindent\textbf{A single score before training?} The reads above are one-sided, so we
+asked for one number, from the weights and the data alone, that says whether fine-tuning will
+elicit or teach, and tested it where the answer is known. The candidate was the first-order
+transfer at the fine-tune's starting point (M20): a step on the A facts changes the B loss by
+$-\eta\langle\nabla L_A,\nabla L_B\rangle$, measured on the LoRA factors at their zero
+initialisation, with the knowledge part isolated by subtracting the gradients of the same prompts
+with the answers rotated across items ($K=\nabla L(\text{true})-\overline{\nabla L(\text{rotated})}$,
+score $\cos(K_A,K_B)$; the rotation-vs-rotation pairs give its null). It was pre-registered with a
+failure criterion and calibrated on every case with a known outcome (Table~\ref{tab:predictor}). The
+criterion fired: the arithmetic parent that must be \emph{taught} (format installed with random
+labels, accuracy $0.000$) scores $0.96$, above the parent that is \emph{elicited} ($0.74$), and the
+model that cannot know the bio facts scores $0.42$, fourteen null standard deviations above zero. A
+coherent first-order direction that improves the true pairings over the rotated ones for both halves
+exists for any regularity the halves share, whether it is already in the weights (the elicit parent,
+whose remaining gradient is diffuse: effective rank 122 over 600 items) or only learnable from there
+(the installer: rank 8, one direction). Gradient alignment reads ``a shared direction is available'',
+not ``the capability is there''; the elicit/teach distinction lives in the training trajectory
+(M19), not in the first step. The row stays in the record as a negative result. What does calibrate
+is the plainest hidden-preference read on the fact surface, M21 (Table~\ref{tab:before}): the loss
+on the true answers against the loss with the answers rotated, no training. Every known teach-side
+case is at or below $0.22$ nats per token, every elicit-side case at or above $1.15$, and the four
+unlearned models sit with the original ($1.24$--$2.64$). It is a sufficient sign, not a necessary
+one: knowledge invisible in every log-odds would read zero and could still be elicited, and the zero
+for a general 7B model without bio is unknown (none exists; the anchor's $0.22$ is the lexical
+coherence between a question and its true answer in a model that knows neither).
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{4pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}llccc@{}}
+\toprule
+model & facts & outcome & M20: $\cos(K_A,K_B)$ (null sd) & M21: gap (nats/token) \tabularnewline
+\midrule
+TinyStories-1B, base & arithmetic & teach & 0.85 (0.06) & 0.13 \tabularnewline
+TinyStories-1B, format installed, random labels & arithmetic & teach & \textbf{0.96} (0.34) & 0.09 \tabularnewline
+TinyStories-1B, capability latent (op-bridge) & arithmetic & elicit & 0.74 (0.07) & \textbf{1.15} \tabularnewline
+TinyStories-1B (cannot know the facts) & WMDP-bio & teach & \textbf{0.42} (0.03) & 0.22 \tabularnewline
+\midrule
+Zephyr-7B, original & WMDP-bio & elicit & 0.95 (0.03) & 1.58 \tabularnewline
+RMU & WMDP-bio & elicit (Table~\ref{tab:headline}) & 0.75 (0.18) & 1.30 \tabularnewline
+ELM & WMDP-bio & elicit & 0.99 (0.12) & 1.24 \tabularnewline
+NPO & WMDP-bio & elicit & 0.97 (0.30) & 2.52 \tabularnewline
+SimNPO & WMDP-bio & elicit & 0.94 (0.05) & 2.64 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Two before-training scores on every case whose outcome is known (the arithmetic rows are
+the main results' parents before their 4M-example fine-tunes; A = 600 training rows, B = the frozen
+eval block; the bio rows use halves A and B). M20 orders the arithmetic pair the wrong way round and
+is far from zero on the model that cannot know the facts; the same-model reference against unrelated
+knowledge (MMLU facts against bio B: original $0.66$, unlearned $0.17$--$0.71$) does not rescue it.
+M21 separates every known case. Bold marks the readings that decide.}
+\label{tab:predictor}
+\end{table}
+
 
 % =====================================================================
 \section*{Caveats}
 \begin{steps}
-\item There is no teach anchor from this model: without a model that never learned WMDP-bio,
-``elicit'' means ``like the original'', and the teach values come from each metric's own null and
-from the main results.
+\item There is no never-learned version of this model: ``elicit'' means ``like the original'', and
+the teach values come from each metric's own null and from the main results. The one cross-model
+anchor, the main results' TinyStories-1B twin on the same bio facts, is a 1B story model: it fixes a
+zero ($0.05$ nats on the rotated-answer twin, $0.22$ on M21), not a scale, and a 7B model without bio
+knowledge does not exist.
 \item The metrics before training are read on all bio items, those after relearning on half B;
 the first 512 items in source order score lower (original $0.51$) than B ($0.67$), so the two blocks
 are not compared with each other.
@@ -443,6 +514,8 @@ M10$^\bigstar$ & original's head states patched in & 32 random heads & original 
 M2$^\bigstar$ & wiring, U vs original & chance & split-half ceiling & yes \tabularnewline
 M13 & accelerating descent & none & none: the original sits at a minimum & no \tabularnewline
 M7$^\bigstar$ & state change, original to U & the parent's own states & describes the unlearning & no \tabularnewline
+M21 & hidden preference, no options, full answer & the answers rotated across items & original; cannot-know model $0.22$ & reported \tabularnewline
+M20 & knowledge-gradient alignment & rotation-vs-rotation pairs & TinyStories pair; cannot-know model & no: calibration failed \tabularnewline
 \midrule
 \multicolumn{5}{@{}l}{\emph{after relearning}} \tabularnewline
 M1f & circuit overlap, no options shown & type-matched chance & split-half ceiling & yes \tabularnewline
@@ -454,6 +527,7 @@ M17 & held-out recovery & the fine-tuning null & original & yes \tabularnewline
 M17u & an unrelated fine-tune unlocks B & U itself & original & yes \tabularnewline
 M18 & relearning cost & the fine-tuning null & original's relearning & one-sided \tabularnewline
 M19 & EDL sweep & the paper's shape rule & original's own curve & yes \tabularnewline
+M17s & what the true answers add on B & relearning on rotated answers & original's relearning; cannot-know model $0.05$ & reported \tabularnewline
 M3 & head roles & chance & none measured here & no \tabularnewline
 M5 & gradient fades & none & original's relearning, $3.2\times$ & no \tabularnewline
 M6 & weight write & none & original's relearning, $8.8\times10^{-3}$ & no \tabularnewline

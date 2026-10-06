@@ -7740,3 +7740,48 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   Prediction: for orig the MMLU reference is positive but below the bio A→B alignment; for the
   unlearned models the bio-specific excess stays positive (the unsuppress direction is bio-specific
   and absent from K_mmluA). Cost +1 min per model.
+
+## 2026-10-06 — M20 calibration FAILED (pre-registered criterion fired); what the data give instead
+
+- **Run (cluster, f5f2617; stage 7 v2 ≈ 15 min/model, anchor 5 min + 2 relearning twins, TinyStories
+  3 × 4 min).** Knowledge-gradient alignment cos(K_A, K_B): orig 0.953 (null 0 ± 0.032), RMU 0.752
+  (± 0.18), ELM 0.991 (± 0.12), NPO 0.971 (± 0.30), SimNPO 0.936 (± 0.05); MMLU-knowledge reference
+  0.66 / 0.22 / 0.17 / 0.24 / 0.71. **Teach anchor (TinyStories-1B on the bio facts): 0.418, 14 sd
+  above its null.** **TinyStories arithmetic pair: base 0.847, format-installed parent 0.964, elicit
+  parent 0.744** — the teach side scores highest, the elicit side lowest.
+- **Verdict on the predictor: not fit for purpose**, exactly by the criterion written on 2026-10-04
+  ("if the installer scores high, the predictor is reading format, not capability") and the owner's
+  requirement ("a model not knowing bio knowledge must score 0"). Why it fails: K_A and K_B align
+  whenever a *coherent first-order direction* improves true pairings over rotated ones for both
+  halves — which exists for any shared learnable regularity, latent or not. The installer (random
+  labels, accuracy 0.000, format in place) has a low-rank "make the digits depend on the operands"
+  direction (per-item knowledge effective rank 7.8, B energy on A's first direction 0.21); the elicit
+  parent, which already has the rule, has a diffuse residual (rank 122, 0.04). On the bio facts the
+  anchor's 0.42 is lexical/topical coherence between question and true answer (its true-vs-rotated
+  loss gap is 0.20 nats). The tiny-model check had shown the same thing in miniature (a *random*
+  model on the copy rule scored +0.3) and I under-weighted it. First-order alignment reads "a shared
+  direction is available from here", not "the capability is already in the weights"; the
+  elicit/teach distinction is about the training trajectory (Donoway's EDL/D vs n), not the first
+  step. M20 stays in the record as a negative result: verdict rule report, out of HEADLINE and the
+  tallies; `grad_transfer.py` kept (its set losses feed M21).
+- **What does calibrate: the hidden-preference gap on the fact surface, Δ = L(rotated) − L(true)
+  nats per label token on the held-out B facts (full answer, no options, no training; M21,
+  reported).** Zephyr: orig 1.58, RMU 1.30, ELM 1.24, NPO 2.52, SimNPO 2.64; anchor 0.22;
+  TinyStories arithmetic: elicit parent 1.15, format-installed parent 0.09, base 0.13. Every known
+  teach-side case ≤ 0.22, every known elicit-side case ≥ 1.15; the four unlearned models sit with the
+  original. NPO is the striking case: its loss is 246.7 nats/token on true and 249.3 on rotated bio
+  answers — the unlearning shifted every bio answer by ~244 nats and left the log-odds between true
+  and false answers intact (2.5 nats, above orig's 1.6). M12-fact (first token, four hard options)
+  read NPO, RMU and SimNPO as ABSENT; the full-answer gap against another item's answer is the more
+  sensitive read, at the price of a coherence component (the anchor's 0.2; a general 7B model's
+  floor is unknown — no bio-free 7B exists). Reading: Δ ≫ floor ⇒ the knowledge is expressed in the
+  log-odds ⇒ elicit (sufficient, not necessary: knowledge invisible in every log-odds would read 0
+  and could still elicit). Not tallied: it is M12-fact's cousin and would double count.
+- **The twins, now with the anchor.** M17-shuf: held-out B fact loss after 573 rotated minus after
+  573 true answers — orig 0.578, RMU 0.567, ELM 0.594, NPO 0.574, SimNPO 0.569 nats/token; **anchor
+  0.045** (7.540 vs 7.495). The same knowledge-specific transfer in every unlearned model as in the
+  original, and 13× less in a model that cannot know the facts. Anchor EDL/D at n = 573: +0.99 nats
+  (OCV), +1.59 (test floor) — positive, where every Zephyr model is at or below zero (M19).
+- **Verdict changes (f5f2617 → this commit):** M20 → report; M21 added (report); HEADLINE without
+  M20, so the tallies revert to the 2026-10-05 values. `grad_transfer_ts1b.sh` outputs are read from
+  `experiments/training-run/results/gradxfer/` when present (owner commits them from the cluster).
