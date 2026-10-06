@@ -7728,3 +7728,15 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   through them); knowledge_share smallest for NPO. Anchor within 3 null sd of zero. TinyStories:
   op-bridge-mix clearly positive; installer and base within noise of zero; an installer that scores
   high means the predictor reads format and is unfit (criterion unchanged).
+- **Third reference, added 2026-10-06 (owner: "do we have a no-bio-knowledge model to compare?").**
+  The anchor is the only certifiably bio-free model in the store but is a 1B story model, not a 7B
+  general model without bio (none exists); the rotation null is on Zephyr's own weights but
+  destroys the pairings. Neither answers "do any two fact sets the model knows align, through
+  shared recall machinery?" — the same objection the MCQ controls answered for the other metrics.
+  So mmluA is rotated too and `mmlu_knowledge` = cos(K_mmluA, K_bioB) with its own exchangeability
+  null is reported (verdict row M20-mmluK): the same model, true pairings of unrelated facts. The
+  bio-specific part of the headline is knowledge_cos − mmlu_knowledge; a headline no higher than
+  the MMLU reference would mean the predictor reads recall machinery, not the bio knowledge.
+  Prediction: for orig the MMLU reference is positive but below the bio A→B alignment; for the
+  unlearned models the bio-specific excess stays positive (the unsuppress direction is bio-specific
+  and absent from K_mmluA). Cost +1 min per model.

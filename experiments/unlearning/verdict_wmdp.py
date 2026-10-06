@@ -349,13 +349,23 @@ def s_xfer(x, null="shuf"):
                                                    "note": f"raw transfer {r['transfer_cos']:+.3f}, mmlu-facts null {r['mmlu_cos']:+.3f}"}
     if "knowledge_cos" not in r:
         return None
+    km = r.get("mmlu_knowledge") or {}
+    if null == "mmluK":   # the same model's unrelated knowledge -> bio B: what recall machinery alone aligns
+        if not km:
+            return None
+        return {"v": km["knowledge_cos"], "null": km["knowledge_null_mean"], "se": km["knowledge_null_sd"] or None,
+                "sig": False, "rule": "report",
+                "note": f"cos(K_mmluA, K_bioB) {km['knowledge_cos']:+.3f} vs null {km['knowledge_null_mean']:+.3f} +- "
+                        f"{km['knowledge_null_sd']:.3f}; bio A->B {r['knowledge_cos']:+.3f}: bio-specific excess "
+                        f"{r['knowledge_cos'] - km['knowledge_cos']:+.3f}"}
     v, nm, sd = r["knowledge_cos"], r["knowledge_null_mean"], r["knowledge_null_sd"] or 0.0
     sh = r["knowledge_share"]
     kn = (r.get("per_item") or {}).get("knowledge") or {}
     an = _json("gradxfer_anchor.json")
     note = (f"knowledge alignment {v:+.3f} vs rotation-vs-rotation null {nm:+.3f} +- {sd:.3f}; knowledge share of the "
-            f"gradient A {sh['bioA']:.3f} B {sh['bioB']:.3f}; raw transfer {r['transfer_cos']:+.3f} vs rotated "
-            f"{r['null_cos_mean']:+.3f} (raw score {r['raw_score']:+.4f})"
+            f"gradient A {sh['bioA']:.3f} B {sh['bioB']:.3f}"
+            + (f"; MMLU-knowledge reference {km['knowledge_cos']:+.3f} (bio-specific excess {v - km['knowledge_cos']:+.3f})" if km else "")
+            + f"; raw transfer {r['transfer_cos']:+.3f} vs rotated {r['null_cos_mean']:+.3f} (raw score {r['raw_score']:+.4f})"
             + (f"; per-item knowledge: A effective rank {kn['A_effective_rank']:.1f}, B energy on A's first direction "
                f"{kn['B_energy_on_A_pc1']:.2f}" if kn else "")
             + (f"; TEACH ANCHOR {an['knowledge_cos']:+.3f} (null {an['knowledge_null_mean']:+.3f} +- {an['knowledge_null_sd'] or 0:.3f})"
@@ -480,6 +490,8 @@ def rows_for(tags: list[str]):
          lambda x: s_pref(x, f"{DOMAIN}fact"), lambda: s_pref("orig", f"{DOMAIN}fact"), "retention"),
         ("M20", "Knowledge-gradient alignment A->B at init (PREDICTOR; vs rotation null)", True, s_xfer,
          lambda: s_xfer("orig"), "retention"),
+        ("M20-mmluK", "Knowledge alignment MMLU facts -> bio B (same model; recall-machinery level; reported)", True,
+         lambda x: s_xfer(x, "mmluK"), lambda: s_xfer("orig", "mmluK"), "report"),
         ("M20-mmlu", "Raw gradient transfer, net of far-domain facts (reported)", True, lambda x: s_xfer(x, "mmlu"),
          lambda: s_xfer("orig", "mmlu"), "report"),
         ("M9", "Answer depth: lens at intermediate layers", True, s_lens, lambda: s_lens("orig"), "retention"),

@@ -90,6 +90,13 @@ def test_rotated_answers_are_a_derangement_with_the_same_multiset():
     assert list(out2["answer_text"]) == list(out["answer_text"])
     with pytest.raises(ValueError):
         GT.rotate_answers(df.iloc[:1], seed=5)
+    # with_rotations: every set present gets its own derangements (mmluA included when given)
+    sets = GT.with_rotations({"bioA": _frame(6, 1), "bioB": _frame(6, 2), "mmluA": _frame(6, 3)}, 2, seed=9)
+    assert {k for k in sets if "_shuf" in k} == {f"{s}_shuf{k}" for s in ("bioA", "bioB", "mmluA") for k in range(2)}
+    for s in ("bioA", "bioB", "mmluA"):
+        for k in range(2):
+            assert (sets[f"{s}_shuf{k}"]["answer_text"].values != sets[s]["answer_text"].values).all()
+    assert "mmluA_shuf0" not in GT.with_rotations({"bioA": _frame(6, 1), "bioB": _frame(6, 2)}, 2, seed=9)
 
 
 def test_set_gradient_is_batch_invariant_and_is_the_mean_token_loss_gradient(tiny_llama, tiny_tokenizer):

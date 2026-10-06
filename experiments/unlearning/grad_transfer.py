@@ -43,6 +43,12 @@ removes the common part exactly:
   score           knowledge_cos - null mean, significant at 3 null sd
   knowledge_share |K_X| / |G_X|: how much of the fine-tune's first step is about the pairings
   knowledge_descent_frac  <K_A, K_B> / <K_B, K_B>
+  mmlu_knowledge  (wmdp) the same for mmluA -> bioB: the same model, true pairings of UNRELATED
+                  facts.  The alignment that shared fact-recall machinery alone produces; the
+                  bio-specific part of the headline is knowledge_cos - mmlu_knowledge.knowledge_cos
+Three references fix the scale: the rotation null (same weights, pairings destroyed: zero), the
+MMLU-knowledge reference (same weights, other knowledge: the machinery level) and the teach anchor
+(a model that cannot know the facts, scored on the same sets: the empirical zero on real data).
 Also reported: the raw transfer cos(G_A, G_B), its rotated-answer null and raw_score (v1), the
 far-domain score_mmlu, descent_frac, and per-item count-sketches (D dims) of the true items and
 of their knowledge gradients (true minus one rotation): pairwise cosines, the effective rank of
@@ -121,10 +127,13 @@ def load_sets(data_dir: Path, domain: str, n: int, n_shuf: int, seed: int) -> di
 
 
 def with_rotations(sets: dict[str, pd.DataFrame], n_shuf: int, seed: int) -> dict[str, pd.DataFrame]:
-    """Adds bioA_shuf[k] and bioB_shuf[k]: independent seeded rotations of each set's answers."""
-    for k in range(n_shuf):
-        sets[f"bioA_shuf{k}"] = rotate_answers(sets["bioA"], seed + 1000 + k)
-        sets[f"bioB_shuf{k}"] = rotate_answers(sets["bioB"], seed + 2000 + k)
+    """Adds <set>_shuf[k] for bioA, bioB and (if present) mmluA: independent seeded rotations of
+    each set's answers.  mmluA's rotations give the same-model, unrelated-knowledge reference
+    cos(K_mmluA, K_bioB): the alignment that shared recall machinery alone produces."""
+    for i, name in enumerate(("bioA", "bioB", "mmluA")):
+        if name in sets:
+            for k in range(n_shuf):
+                sets[f"{name}_shuf{k}"] = rotate_answers(sets[name], seed + 1000 * (i + 1) + k)
     return sets
 
 
@@ -368,10 +377,11 @@ def main() -> int:
     mmlu = cos(G["mmluA"], G["bioB"]) if "mmluA" in G else float("nan")
     gb = G["bioB"].double()
     know = knowledge_vectors(G)
+    know_m = knowledge_vectors(G, "mmluA", "bioB") if "mmluA_shuf0" in G else None
     res = {"version": 2, "init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
            "n_params_B": int(sum(p.numel() for p in params)), "items": {k: len(v) for k, v in ex.items()},
            "label_tokens": ntok, "loss_nats_per_token": loss, "task": args.task,
-           **know,
+           **know, "mmlu_knowledge": know_m,
            "transfer_cos": transfer, "null_cos": nulls, "null_cos_mean": null_mean, "null_cos_sd": null_sd,
            "mmlu_cos": mmlu, "raw_score": transfer - null_mean, "score_mmlu": transfer - mmlu,
            "descent_frac": {k: float(torch.dot(G[k].double(), gb) / torch.dot(gb, gb).clamp_min(1e-30))
@@ -382,6 +392,10 @@ def main() -> int:
           f"{know['knowledge_null_mean']:+.4f} +- {know['knowledge_null_sd']:.4f} | SCORE {know['score']:+.4f} | "
           f"knowledge share of |G|: A {know['knowledge_share']['bioA']:.3f} B {know['knowledge_share']['bioB']:.3f} | "
           f"knowledge descent frac A->B {know['knowledge_descent_frac']:+.3f}")
+    if know_m:
+        print(f"[xfer] MMLU-knowledge reference cos(K_mmluA,K_bioB) {know_m['knowledge_cos']:+.4f} | null "
+              f"{know_m['knowledge_null_mean']:+.4f} +- {know_m['knowledge_null_sd']:.4f} | knowledge share mmluA "
+              f"{know_m['knowledge_share']['mmluA']:.3f} | bio-specific excess {know['knowledge_cos'] - know_m['knowledge_cos']:+.4f}")
     print(f"[xfer] raw: transfer cos(A,B) {transfer:+.4f} | rotated-answer null {null_mean:+.4f} +- {null_sd:.4f} | "
           f"mmlu {mmlu:+.4f} | raw score {res['raw_score']:+.4f} (mmlu-null {res['score_mmlu']:+.4f}) | "
           f"descent frac A->B {res['descent_frac']['bioA']:+.3f}")
