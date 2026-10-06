@@ -339,8 +339,11 @@ def s_edl_sweep(p):
 
 
 def _gap(r, name):
-    """L(answers rotated) − L(true), nats per label token, for set ``name`` of a grad_transfer v2 output:
-    the model's hidden preference for the true pairings on the fact surface (full answer, no options)."""
+    """M21 for set ``name`` of a grad_transfer output: L(answers rotated) − L(true), nats per label
+    token (the script's ``gap`` field; for v2 files recomputed from the per-set losses)."""
+    g = ((r or {}).get("gap") or {}).get(name)
+    if g:
+        return g["gap_nats"]
     L = (r or {}).get("loss_nats_per_token") or {}
     rots = [v for k, v in L.items() if k.startswith(name + "_shuf")]
     return (sum(rots) / len(rots) - L[name]) if rots and name in L else None
@@ -353,61 +356,18 @@ def _ts_calib():
         f = TS_GRADXFER / f"gradxfer_{rid}.json"
         if f.is_file():
             r = json.loads(f.read_text())
-            out[role] = {"knowledge_cos": r.get("knowledge_cos"), "gap_B": _gap(r, "bioB"), "gap_A": _gap(r, "bioA")}
+            out[role] = {"gap_B": _gap(r, "bioB"), "gap_A": _gap(r, "bioA")}
     return out
-
-
-def s_xfer(x, null="shuf"):
-    """M20, the gradient predictor (grad_transfer.py v2): the alignment cos(K_A, K_B) of the knowledge
-    gradients at the LoRA init, K = grad(true answers) - mean grad(answers rotated across items), vs the
-    rotation-vs-rotation null (null="shuf"); the same for MMLU facts -> bio B (null="mmluK"); or the raw
-    transfer minus the far-domain cosine (null="mmlu").  All REPORTED: the pre-registered calibration
-    failed on 2026-10-06 (the format-installed TinyStories parent 0.96 > the elicit parent 0.74; the
-    bio-free anchor 0.42, 14 sd above its null) — a first-order shared direction exists for any shared
-    learnable regularity, latent or not.  v1 outputs (no knowledge_cos) are not read."""
-    r = _json(f"gradxfer_{x}.json")
-    if not r:
-        return None
-    if null == "mmlu":
-        v = r.get("score_mmlu")
-        return None if v is None or v != v else {"v": v, "null": 0.0, "sig": False, "rule": "report",
-                                                   "note": f"raw transfer {r['transfer_cos']:+.3f}, mmlu-facts null {r['mmlu_cos']:+.3f}"}
-    if "knowledge_cos" not in r:
-        return None
-    km = r.get("mmlu_knowledge") or {}
-    if null == "mmluK":   # the same model's unrelated knowledge -> bio B: what recall machinery alone aligns
-        if not km:
-            return None
-        return {"v": km["knowledge_cos"], "null": km["knowledge_null_mean"], "se": km["knowledge_null_sd"] or None,
-                "sig": False, "rule": "report",
-                "note": f"cos(K_mmluA, K_bioB) {km['knowledge_cos']:+.3f} vs null {km['knowledge_null_mean']:+.3f} +- "
-                        f"{km['knowledge_null_sd']:.3f}; bio A->B {r['knowledge_cos']:+.3f}: bio-specific excess "
-                        f"{r['knowledge_cos'] - km['knowledge_cos']:+.3f}"}
-    v, nm, sd = r["knowledge_cos"], r["knowledge_null_mean"], r["knowledge_null_sd"] or 0.0
-    sh = r["knowledge_share"]
-    kn = (r.get("per_item") or {}).get("knowledge") or {}
-    an = _json("gradxfer_anchor.json")
-    ts = _ts_calib()
-    note = (f"knowledge alignment {v:+.3f} vs rotation-vs-rotation null {nm:+.3f} +- {sd:.3f}; knowledge share of the "
-            f"gradient A {sh['bioA']:.3f} B {sh['bioB']:.3f}"
-            + (f"; MMLU-knowledge reference {km['knowledge_cos']:+.3f} (bio-specific excess {v - km['knowledge_cos']:+.3f})" if km else "")
-            + f"; raw transfer {r['transfer_cos']:+.3f} vs rotated {r['null_cos_mean']:+.3f} (raw score {r['raw_score']:+.4f})"
-            + (f"; per-item knowledge: A effective rank {kn['A_effective_rank']:.1f}, B energy on A's first direction "
-               f"{kn['B_energy_on_A_pc1']:.2f}" if kn else "")
-            + (f"; TEACH ANCHOR {an['knowledge_cos']:+.3f} (null {an['knowledge_null_mean']:+.3f} +- {an['knowledge_null_sd'] or 0:.3f})"
-               if an and "knowledge_cos" in an else "")
-            + ("; TinyStories calibration " + ", ".join(f"{k} {d['knowledge_cos']:+.3f}" for k, d in ts.items()) if ts else "")
-            + "; CALIBRATION FAILED (2026-10-06): not a before-training elicit/teach read")
-    return {"v": v, "null": nm, "se": sd if sd else None, "sig": False, "rule": "report", "note": note}
 
 
 def s_gap(x):
     """M21, hidden preference on the fact surface, full answer: L(rotated answers) - L(true answers) in
-    nats per label token on the held-out B facts (never trained on in this format), from the
-    grad_transfer v2 set losses; no training, no options shown.  Reported (its first-token, four-option
-    cousin M12-fact is the tallied read).  Calibration 2026-10-06: TinyStories elicit parent 1.15,
-    format-installed parent 0.09, base 0.13 (arithmetic); bio-free anchor 0.22 on the bio facts (its
-    lexical-coherence floor)."""
+    nats per label token on the held-out B facts (never trained on in this format; grad_transfer.py);
+    no training, no options shown.  Reported, not tallied: its within-model null (re-pairing) does not
+    contain the lexical-coherence floor a cross-model anchor measures (the cannot-know TinyStories-1B
+    reads 0.22 on these facts), and its first-token, four-option cousin M12-fact is the tallied read.
+    Calibration 2026-10-06: TinyStories arithmetic elicit parent 1.15, format-installed parent 0.09,
+    base 0.13; Zephyr original 1.58, RMU 1.30, ELM 1.24, NPO 2.52, SimNPO 2.64."""
     r = _json(f"gradxfer_{x}.json")
     gb = _gap(r, "bioB")
     if gb is None:
@@ -537,14 +497,8 @@ def rows_for(tags: list[str]):
          lambda: s_probe("orig", "mmlu"), "retention"),
         ("M12-fact", "Answer preferred with NO options shown (fact surface, own permutation null)", True,
          lambda x: s_pref(x, f"{DOMAIN}fact"), lambda: s_pref("orig", f"{DOMAIN}fact"), "retention"),
-        ("M20", "Knowledge-gradient alignment A->B at init (gradient predictor; CALIBRATION FAILED; reported)", True,
-         s_xfer, lambda: s_xfer("orig"), "report"),
         ("M21", "Hidden preference, fact surface, full answer: L(rotated) - L(true) on B, nats/token (reported)", True,
          s_gap, lambda: s_gap("orig"), "report"),
-        ("M20-mmluK", "Knowledge alignment MMLU facts -> bio B (same model; recall-machinery level; reported)", True,
-         lambda x: s_xfer(x, "mmluK"), lambda: s_xfer("orig", "mmluK"), "report"),
-        ("M20-mmlu", "Raw gradient transfer, net of far-domain facts (reported)", True, lambda x: s_xfer(x, "mmlu"),
-         lambda: s_xfer("orig", "mmlu"), "report"),
         ("M9", "Answer depth: lens at intermediate layers", True, s_lens, lambda: s_lens("orig"), "retention"),
         ("M9-mmlu", "Lens depth on MMLU (control)", True, lambda x: s_lens(x, f"lens_{x}_mmlu"),
          lambda: s_lens("orig", "lens_orig_mmlu"), "retention"),

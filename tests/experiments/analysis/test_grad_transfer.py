@@ -179,6 +179,21 @@ def test_knowledge_alignment_is_the_pairing_interaction_and_vanishes_without_pai
         GT.knowledge_vectors({k: v for k, v in G.items() if k != "bioA_shuf0" and k != "bioA_shuf1"})
 
 
+def test_preference_gap_is_rotated_minus_true_per_set_with_the_rotation_spread():
+    """M21 from the per-set losses: gap = mean over rotations of L(rotated) - L(true), one entry per
+    set that has rotations (mmluA included when rotated, the far-domain set without rotations
+    skipped), the sd over rotations as the noise level, and 0 when rotation changes nothing."""
+    loss = {"bioA": 2.0, "bioA_shuf0": 3.5, "bioA_shuf1": 4.5, "bioB": 1.0, "bioB_shuf0": 1.0, "bioB_shuf1": 1.0,
+            "mmluA": 3.0}
+    g = GT.preference_gaps(loss)
+    assert set(g) == {"bioA", "bioB"}
+    assert g["bioA"]["gap_nats"] == pytest.approx(2.0) and g["bioA"]["rotated_sd_nats"] == pytest.approx(0.5 ** 0.5)
+    assert g["bioA"]["n_rotations"] == 2 and g["bioA"]["true_nats"] == 2.0
+    assert g["bioB"]["gap_nats"] == 0.0 and g["bioB"]["rotated_sd_nats"] == 0.0
+    loss["mmluA_shuf0"], loss["mmluA_shuf1"] = 4.0, 5.0
+    assert GT.preference_gaps(loss)["mmluA"]["gap_nats"] == pytest.approx(1.5)
+
+
 def _rule_frame(n: int, seed: int, rule: str, lo: int = 10, hi: int = 120, distinct: bool = True) -> pd.DataFrame:
     """n items 't5 q1..q5 t6 ' -> answer; rule 'copy': the answer is q1 (one mechanism serves every
     item); 'arbitrary': an independent random token (each pairing on its own)."""

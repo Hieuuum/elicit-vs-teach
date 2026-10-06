@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# The before-training predictor (experiments/unlearning/grad_transfer.py, M20) on the main results'
+# The before-training fact-surface read (experiments/unlearning/grad_transfer.py: M21, and the M20
+# gradient candidate for the record) on the main results'
 # TinyStories-1B pair, where both outcomes are known (owner 2026-10-04: "double check it on the
 # TinyStories experiment"): the elicit parent should score high and the format-installed parent
 # near zero, from the weights and the training data alone, before either 4M fine-tune.
+# Outcome 2026-10-06: M21 1.15 / 0.09 / 0.13 (bridge / installer / base); M20 failed (0.74 / 0.96 / 0.85).
 #
 #   evt-ts1b-base              the pretrained twin (no arithmetic, no format)   -> near 0
 #   evt-ts1b-fig2ts-installer  the format-installed parent (teach side)         -> near 0
@@ -39,15 +41,18 @@ python3 - "$OUT" "${RUNS[@]}" <<'PY'
 import json, sys
 from pathlib import Path
 out = Path(sys.argv[1])
-print(f"{'run':<28} {'KNOWLEDGE':>9} {'null':>7} {'sd':>7} {'share A':>7} {'share B':>7} {'K erank':>8} {'B on K-pc1':>10} "
-      f"{'raw xfer':>9} {'raw null':>9} {'raw score':>9}")
+def gap(r, name):
+    g = (r.get("gap") or {}).get(name)
+    if g:
+        return g["gap_nats"], g["rotated_sd_nats"]
+    L = r["loss_nats_per_token"]; rots = [v for k, v in L.items() if k.startswith(name + "_shuf")]
+    m = sum(rots) / len(rots); sd = (sum((x - m) ** 2 for x in rots) / max(1, len(rots) - 1)) ** 0.5
+    return m - L[name], sd
+print(f"{'run':<28} {'M21 gap B':>9} {'rot sd':>7} {'gap A':>7} | {'M20 cos(K_A,K_B)':>16} {'null sd':>7}   (M20 failed calibration; record only)")
 for rid in sys.argv[2:]:
     f = out / f"gradxfer_{rid}.json"
     if not f.is_file():
         continue
-    r = json.loads(f.read_text()); kn = r.get("per_item", {}).get("knowledge", {}); sh = r["knowledge_share"]
-    print(f"{rid:<28} {r['knowledge_cos']:>+9.4f} {r['knowledge_null_mean']:>+7.3f} {r['knowledge_null_sd']:>7.3f} "
-          f"{sh['bioA']:>7.3f} {sh['bioB']:>7.3f} {kn.get('A_effective_rank', float('nan')):>8.1f} "
-          f"{kn.get('B_energy_on_A_pc1', float('nan')):>10.3f} {r['transfer_cos']:>+9.4f} {r['null_cos_mean']:>+9.4f} "
-          f"{r['raw_score']:>+9.4f}")
+    r = json.loads(f.read_text()); gb, sb = gap(r, "bioB"); ga, _ = gap(r, "bioA")
+    print(f"{rid:<28} {gb:>+9.3f} {sb:>7.3f} {ga:>+7.3f} | {r['knowledge_cos']:>+16.4f} {r['knowledge_null_sd']:>7.3f}")
 PY

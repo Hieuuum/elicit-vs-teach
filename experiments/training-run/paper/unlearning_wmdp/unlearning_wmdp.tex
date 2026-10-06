@@ -4,7 +4,9 @@
 % verdict_wmdp.py -> out/wmdp/verdict_wmdp.{json,md}); every number has a dated entry in
 % ../../notes/decisions.md (2026-09-27 .. 2026-09-30, 2026-10-04, 2026-10-06). Figure 1b:
 % fig_edl_sweep.py from edl_sweep_points.csv (the stage-5 EDL sweep at 365a0b3). The rotated-answer
-% twins, the TinyStories anchor and the before-training scores (M20, M21): stage 7 at f5f2617.
+% twins, the TinyStories anchor and the fact-surface preference M21: stage 7 at f5f2617
+% (grad_transfer.py; its gradient-alignment candidate failed calibration and is not reported here,
+% decisions.md 2026-10-06).
 \documentclass[11pt]{article}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
@@ -385,57 +387,48 @@ separates bio from MMLU.}
 \label{tab:controls}
 \end{table}
 
-\medskip\noindent\textbf{A single score before training?} The reads above are one-sided, so we
+\medskip\noindent\textbf{A single score before training.} The reads above are one-sided, so we
 asked for one number, from the weights and the data alone, that says whether fine-tuning will
-elicit or teach, and tested it where the answer is known. The candidate was the first-order
-transfer at the fine-tune's starting point (M20): a step on the A facts changes the B loss by
-$-\eta\langle\nabla L_A,\nabla L_B\rangle$, measured on the LoRA factors at their zero
-initialisation, with the knowledge part isolated by subtracting the gradients of the same prompts
-with the answers rotated across items ($K=\nabla L(\text{true})-\overline{\nabla L(\text{rotated})}$,
-score $\cos(K_A,K_B)$; the rotation-vs-rotation pairs give its null). It was pre-registered with a
-failure criterion and calibrated on every case with a known outcome (Table~\ref{tab:predictor}). The
-criterion fired: the arithmetic parent that must be \emph{taught} (format installed with random
-labels, accuracy $0.000$) scores $0.96$, above the parent that is \emph{elicited} ($0.74$), and the
-model that cannot know the bio facts scores $0.42$, fourteen null standard deviations above zero. A
-coherent first-order direction that improves the true pairings over the rotated ones for both halves
-exists for any regularity the halves share, whether it is already in the weights (the elicit parent,
-whose remaining gradient is diffuse: effective rank 122 over 600 items) or only learnable from there
-(the installer: rank 8, one direction). Gradient alignment reads ``a shared direction is available'',
-not ``the capability is there''; the elicit/teach distinction lives in the training trajectory
-(M19), not in the first step. The row stays in the record as a negative result. What does calibrate
-is the plainest hidden-preference read on the fact surface, M21 (Table~\ref{tab:before}): the loss
-on the true answers against the loss with the answers rotated, no training. Every known teach-side
-case is at or below $0.22$ nats per token, every elicit-side case at or above $1.15$, and the four
-unlearned models sit with the original ($1.24$--$2.64$). It is a sufficient sign, not a necessary
-one: knowledge invisible in every log-odds would read zero and could still be elicited, and the zero
-for a general 7B model without bio is unknown (none exists; the anchor's $0.22$ is the lexical
-coherence between a question and its true answer in a model that knows neither).
+elicit or teach, and tested it on every case with a known outcome (Table~\ref{tab:predictor}): the
+main results' parents before their 4M-example fine-tunes (the format-installed parent is taught,
+the op-bridge parent is elicited), the same model on the bio facts it cannot know, and the Zephyr
+models. The plainest read on the fact surface does it: M21, the loss on the true answers against
+the loss with the answers rotated across items, no training, no options (Table~\ref{tab:before}).
+Every known teach-side case is at or below $0.22$ nats per token, every elicit-side case at or
+above $1.15$, and the four unlearned models sit with the original ($1.24$--$2.64$), NPO included,
+whose whole output is shifted by about 244 nats with the log-odds between true and other answers
+intact. Two limits. It is a sufficient sign, not a necessary one: knowledge that shows in no
+log-odds would read zero and could still be elicited. And its within-model null, re-pairing the
+answers, does not contain the lexical coherence between a question and its own answer; that floor
+is $0.22$ for a 1B model that knows neither the facts nor much else, and for a general 7B model
+without bio it is unknown (none exists). So M21 is reported beside the tallied metrics, not
+tallied.
 
-\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{4pt}
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{5pt}
 \begin{adjustbox}{max width=\textwidth}
-\begin{tabular}{@{}llccc@{}}
+\begin{tabular}{@{}llcc@{}}
 \toprule
-model & facts & outcome & M20: $\cos(K_A,K_B)$ (null sd) & M21: gap (nats/token) \tabularnewline
+model & facts & outcome & M21: loss gap, rotated $-$ true (nats/token) \tabularnewline
 \midrule
-TinyStories-1B, base & arithmetic & teach & 0.85 (0.06) & 0.13 \tabularnewline
-TinyStories-1B, format installed, random labels & arithmetic & teach & \textbf{0.96} (0.34) & 0.09 \tabularnewline
-TinyStories-1B, capability latent (op-bridge) & arithmetic & elicit & 0.74 (0.07) & \textbf{1.15} \tabularnewline
-TinyStories-1B (cannot know the facts) & WMDP-bio & teach & \textbf{0.42} (0.03) & 0.22 \tabularnewline
+TinyStories-1B, base & arithmetic & teach & 0.13 \tabularnewline
+TinyStories-1B, format installed, random labels & arithmetic & teach & 0.09 \tabularnewline
+TinyStories-1B, capability latent (op-bridge) & arithmetic & elicit & \textbf{1.15} \tabularnewline
+TinyStories-1B (cannot know the facts) & WMDP-bio & teach & 0.22 \tabularnewline
 \midrule
-Zephyr-7B, original & WMDP-bio & elicit & 0.95 (0.03) & 1.58 \tabularnewline
-RMU & WMDP-bio & elicit (Table~\ref{tab:headline}) & 0.75 (0.18) & 1.30 \tabularnewline
-ELM & WMDP-bio & elicit & 0.99 (0.12) & 1.24 \tabularnewline
-NPO & WMDP-bio & elicit & 0.97 (0.30) & 2.52 \tabularnewline
-SimNPO & WMDP-bio & elicit & 0.94 (0.05) & 2.64 \tabularnewline
+Zephyr-7B, original & WMDP-bio & elicit & \textbf{1.58} \tabularnewline
+RMU & WMDP-bio & elicit (Table~\ref{tab:headline}) & \textbf{1.30} \tabularnewline
+ELM & WMDP-bio & elicit & \textbf{1.24} \tabularnewline
+NPO & WMDP-bio & elicit & \textbf{2.52} \tabularnewline
+SimNPO & WMDP-bio & elicit & \textbf{2.64} \tabularnewline
 \bottomrule
 \end{tabular}
 \end{adjustbox}
-\caption{Two before-training scores on every case whose outcome is known (the arithmetic rows are
-the main results' parents before their 4M-example fine-tunes; A = 600 training rows, B = the frozen
-eval block; the bio rows use halves A and B). M20 orders the arithmetic pair the wrong way round and
-is far from zero on the model that cannot know the facts; the same-model reference against unrelated
-knowledge (MMLU facts against bio B: original $0.66$, unlearned $0.17$--$0.71$) does not rescue it.
-M21 separates every known case. Bold marks the readings that decide.}
+\caption{The fact-surface preference before any training, on every case whose outcome is known.
+The arithmetic rows are the main results' parents before their 4M-example fine-tunes (600 held-out
+problems of the frozen evaluation block; on 600 training problems: $0.11$, $0.00$, $0.91$); the bio
+rows are read on half B. The spread of the loss over the four rotations is $0.01$--$0.05$ nats in
+every row, so every value above $0.22$ is far above noise; the question a reader must keep is the
+coherence floor of a large model, which this design cannot measure.}
 \label{tab:predictor}
 \end{table}
 
@@ -515,7 +508,6 @@ M2$^\bigstar$ & wiring, U vs original & chance & split-half ceiling & yes \tabul
 M13 & accelerating descent & none & none: the original sits at a minimum & no \tabularnewline
 M7$^\bigstar$ & state change, original to U & the parent's own states & describes the unlearning & no \tabularnewline
 M21 & hidden preference, no options, full answer & the answers rotated across items & original; cannot-know model $0.22$ & reported \tabularnewline
-M20 & knowledge-gradient alignment & rotation-vs-rotation pairs & TinyStories pair; cannot-know model & no: calibration failed \tabularnewline
 \midrule
 \multicolumn{5}{@{}l}{\emph{after relearning}} \tabularnewline
 M1f & circuit overlap, no options shown & type-matched chance & split-half ceiling & yes \tabularnewline

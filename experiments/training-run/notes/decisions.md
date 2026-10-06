@@ -7785,3 +7785,10 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
 - **Verdict changes (f5f2617 → this commit):** M20 → report; M21 added (report); HEADLINE without
   M20, so the tallies revert to the 2026-10-05 values. `grad_transfer_ts1b.sh` outputs are read from
   `experiments/training-run/results/gradxfer/` when present (owner commits them from the cluster).
+- **Owner (2026-10-06): "add M21 to the metrics tex file, the WMDP results on M21 to the WMDP file;
+  if M20 doesn't work then scratch that."** Done: M21 is defined in `results_ts.tex` as a parent-only
+  metric (set to number 21; M17–M19 are the application's relearning metrics, M20 unused) with the
+  TinyStories values in Table `tab:prefit` (elicit parent 1.15, format-installed 0.09, blank 0.13;
+  Llama-3.2-1B and the symbol engine not run), and the WMDP values in the application paragraph.
+  M20 is removed from both documents, the shared page and the verdict rows (`grad_transfer.py`
+  still computes it, and M21 is now its first-class `gap` output, v3); this log keeps the record.

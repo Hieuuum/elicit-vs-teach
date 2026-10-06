@@ -636,6 +636,7 @@ themselves; it is produced downstream, where the lens and the hidden preference 
  & elicit parent & Llama-3.2-1B & symbol engine & format-installed & blank \\
 \midrule
 hidden preference (nats) & \textbf{2.31} & \textbf{1.00} & 0.44 & 0.06 & 0.02 \\
+hidden preference on the fact surface, full answer, held-out problems (nats; M21) & \textbf{1.15} & -- & -- & 0.09 & 0.13 \\
 curvature: negative share & \textbf{1.00} & \textbf{0.64} & 0.48 & 0.00 & 0.00 \\
 answer state swap: flip gain over no swap & \textbf{+0.39} & \textbf{+0.26} & +0.30 & +0.05 & +0.02 \\
 number-reading heads (first operand) & \textbf{22} & \textbf{23} & 0 & 0 & 0 \\
@@ -647,9 +648,43 @@ repeatable task circuit (split-half) & \textbf{0.600} & -- & -- & noise & noise 
 \caption{Parent-only metrics on the five parents. The first two order all five as their
 learning curves do; the next two split the parents that can compute from those that cannot;
 number-reading heads alone separate the two elicit parents from the symbol engine, which has the
-arithmetic but not the interface to the words.}
+arithmetic but not the interface to the words. The fact-surface preference (M21) is measured on
+three parents; -- $=$ not run.}
 \label{tab:prefit}
 \end{table}
+
+\setcounter{enumi}{20}
+\metricsecp{Hidden preference on the fact surface}{the model's own answers beat other problems' answers vs.\ no difference}
+\what{Before any target training, does the parent give each held-out problem's own answer a higher
+likelihood than another problem's answer (elicit), or make no difference between them (teach)?
+The full-answer, held-out form of M12's hidden preference, read in the fine-tuning format itself,
+so it carries over unchanged to a model with a different tokenizer or output head. (M17--M19 are
+the relearning metrics of the unlearning application, defined there; the number M20 is unused.)}
+\how{
+\begin{steps}
+\item 600 held-out problems in the fine-tuning format (the frozen evaluation block, which no model
+is ever trained on), scored on the parent alone: the mean label-token loss on the true answers, in
+nats.
+\item The same problems with every answer moved to another problem by a seeded cyclic rotation
+(same problems, same answers, no pairing), four rotations; the mean label-token loss on them.
+\item The gap $=$ loss on the rotated pairings minus loss on the true ones; $0$ $=$ no preference.
+The spread of the loss over the four rotations is the noise level (about $0.01$--$0.05$ nats).
+What a model that cannot know the answers reads is its floor: the lexical coherence between a
+problem and its own answer, which rotation destroys.
+\end{steps}}
+\numbers{Table~\ref{tab:prefit}.
+\begin{steps}
+\item Elicit parent $1.15$, format-installed $0.09$, blank $0.13$ (on 600 training problems: $0.91$,
+$0.00$, $0.11$): the elicit parent prefers the answers it has never produced on this surface by more
+than a nat per token; the two teach parents are at the noise level, the format-installed one
+exactly so.
+\item On the WMDP-bio facts of the unlearning application the same read gives $1.58$ for the
+original Zephyr-7B and $1.24$--$2.64$ for its four unlearned versions, against $0.22$ for
+TinyStories-1B, which cannot know those facts (its coherence floor). Every case with a known
+outcome falls on the right side: teach at or below $0.22$, elicit at or above $1.15$.
+\item A sufficient sign, not a necessary one: knowledge that shows in no log-odds would read $0$
+and could still be elicited.
+\end{steps}}
 
 \end{enumerate}
 
@@ -663,6 +698,13 @@ the other half to the original's accuracy for every method, at the original's ow
 the methods differ in whether an unrelated fine-tune already unlocks it (NPO, SimNPO) or only
 bio-specific training does (RMU). The original paper's own signature agrees: the EDL per label token
 of relearning falls with the number of facts for every method, as it does for the original
-(elicitation; teaching would show a rising phase).
+(elicitation; teaching would show a rising phase). What comes back is the knowledge, not the format:
+with the answers rotated across items the same relearning teaches the held-out half
+$0.57$--$0.59$ nats per token less, in every model as in the original, and $0.05$ in a model that
+cannot know the facts. And before any training the fact-surface preference (M21) reads
+$1.24$--$2.64$ nats per token in the four unlearned models (original $1.58$; the model that cannot
+know the facts $0.22$): the pairings are still preferred in every one of them, NPO's included,
+whose whole output is shifted by about 244 nats with the log-odds between true and other answers
+intact.
 
 \end{document}

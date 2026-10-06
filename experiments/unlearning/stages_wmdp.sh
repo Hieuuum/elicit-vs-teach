@@ -274,7 +274,7 @@ if want 7; then
     [[ -f $P/config.json ]] || continue
     xfer_fresh gradxfer_$p.json
     step gradxfer_$p.json python3 "$HERE/grad_transfer.py" --init "$P" --data-dir "$DATA" --domain $D \
-      --out gradxfer_$p --device $DEV --confirm-cost $XFER_X || true                  # M20
+      --out gradxfer_$p --device $DEV --confirm-cost $XFER_X || true                  # M21 (+ M20 for the record)
     rid=wmdp-edl-$p-shuf-n573-s316
     if ! { [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; }; then
       step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}Ashuf.yaml" --init "$P" --run-id $rid \

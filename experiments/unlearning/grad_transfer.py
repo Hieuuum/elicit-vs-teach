@@ -1,59 +1,30 @@
-"""Gradient transfer at initialization (M20): a before-training predictor of elicit vs teach.
+"""Before-training reads of latent knowledge from the weights and the data alone (no update).
 
-No weights are updated.  The question the relearning experiment answers by training ("does
-fine-tuning on the A facts bring back the held-out B facts?") has a first-order answer at the
-starting weights: a small step on the A loss changes the B loss by  dL_B = -lr * <grad L_A, grad L_B>.
-A model whose knowledge is latent (elicit) has A- and B-gradients that share a direction, the one
-that lifts the suppression; a model without the knowledge (teach) has A-gradients that say nothing
-about B beyond the shared answer format.
+M21, the hidden-preference gap on the fact surface (the headline since 2026-10-06):
+  gap_X = mean_k L_X(answers rotated across items, rotation k) - L_X(true answers)   nats / label token
+A set of facts in the fine-tuning format (question, "Answer:", the answer; no options) is scored
+as given and with every item's answer moved to another item (a seeded cyclic derangement: same
+prompts, same answers, no knowledge).  A model that holds the pairings prefers the true ones; the
+gap is 0 for a model that cannot know them, up to the lexical coherence between a question and its
+own answer (the cannot-know anchor measures that floor).  Calibration (decisions.md 2026-10-06):
+TinyStories-1B arithmetic elicit parent 1.15, format-installed parent 0.09, base 0.13 (held-out
+B); the same model on the WMDP-bio facts 0.22; Zephyr original 1.58, RMU 1.30, ELM 1.24, NPO 2.52,
+SimNPO 2.64.  Read on the held-out B facts (never trained on in this format); A and the far-domain
+MMLU facts are reported too.
 
-Measured in the parametrization the fine-tune uses: the gradient w.r.t. the LoRA B factors at
-their zero init (geode.train.lora, the relearn.py recipe), which is the full weight gradient
-projected through the seeded random A factors (a Johnson-Lindenstrauss sketch of it), on every
-projection of every layer.  Gradients are of each set's mean label-token loss (the SFT loss of the
-relearning format: question, "Answer:", the correct answer text; no options).
+M20, gradient transfer at the fine-tune's starting point (kept for the record; its pre-registered
+calibration FAILED on 2026-10-06): cos(K_A, K_B) with K_X = G_X(true) - mean_k G_X(rotation k), the
+gradients of each set's mean label-token loss w.r.t. the LoRA B factors at their zero init.  A
+coherent first-order direction that improves true over rotated pairings exists for any regularity
+both halves share, latent or not: the format-installed parent that must be taught scored 0.96,
+the elicit parent 0.74, the cannot-know anchor 0.42.  Not an elicit/teach read; not in the verdict.
+Also kept: the raw transfer and its rotated null (v1), the MMLU-knowledge reference, descent
+fractions and the per-item count-sketches.
 
-Sets:  bioA   the relearning facts (half A)
-       bioA_shuf[k]   the same prompts with the answers rotated across items by a seeded offset
-                      (same items, same vocabulary, no knowledge)
-       bioB   the held-out facts (half B, never trained on), and bioB_shuf[k] likewise
-       mmluA  the far-domain fine-tuning null's facts (a second, topic-free null)
---task arith (the main results' calibration, 2026-10-04): the same quantities on the arithmetic
-target, A = a seeded sample of the training file of --train-config, B = the frozen eval file's
-reporting block (question-disjoint; the eval block of --eval-config, default the train config);
-no mmlu set.  The TinyStories pair fixes both ends: the elicit parent (evt-ts1b-op-bridge-mix)
-should score high, the format-installed parent (evt-ts1b-fig2ts-installer) near zero, before
-either is fine-tuned.
-
-The headline (v2, 2026-10-06) is the alignment of the KNOWLEDGE gradients.  The raw gradient of
-a fact set is dominated by what every set shares -- format, vocabulary, topic, and the state the
-unlearning left the model in (NPO's loss is 246 nats/token on every bio prompt) -- so raw
-cosines sit at 0.87-0.99 for true and rotated answers alike, and "transfer minus null" shrinks
-as 1/|common|^2 (the v1 run: orig 0.112, RMU 0.011, NPO 0.005).  Subtracting the rotated twins
-removes the common part exactly:
-  K_X = G_X(true answers) - mean_k G_X(rotation k)      the pairing-dependent gradient of set X
-  knowledge_cos = cos(K_A, K_B)   a step that sharpens the model's knowledge of the A facts
-                                  sharpens its knowledge of the B facts (elicit: one shared
-                                  mechanism) or not (teach: each fact on its own; 0 at a model
-                                  that cannot know the facts)
-  null            under no knowledge the true pairing is just another rotation, so
-                  K_X^(j) = G_X(rotation j) - mean_{k!=j} G_X(rotation k) is distributed like K_X;
-                  the null sample is cos(K_A^(j), K_B^(j')) over the rotation pairs (dependent
-                  through shared terms: a sanity level; the anchor model is the empirical zero)
-  score           knowledge_cos - null mean, significant at 3 null sd
-  knowledge_share |K_X| / |G_X|: how much of the fine-tune's first step is about the pairings
-  knowledge_descent_frac  <K_A, K_B> / <K_B, K_B>
-  mmlu_knowledge  (wmdp) the same for mmluA -> bioB: the same model, true pairings of UNRELATED
-                  facts.  The alignment that shared fact-recall machinery alone produces; the
-                  bio-specific part of the headline is knowledge_cos - mmlu_knowledge.knowledge_cos
-Three references fix the scale: the rotation null (same weights, pairings destroyed: zero), the
-MMLU-knowledge reference (same weights, other knowledge: the machinery level) and the teach anchor
-(a model that cannot know the facts, scored on the same sets: the empirical zero on real data).
-Also reported: the raw transfer cos(G_A, G_B), its rotated-answer null and raw_score (v1), the
-far-domain score_mmlu, descent_frac, and per-item count-sketches (D dims) of the true items and
-of their knowledge gradients (true minus one rotation): pairwise cosines, the effective rank of
-the A-item cloud (one direction or many) and the share of each B-item gradient on A's first
-principal direction.
+Sets:  bioA   the relearning facts (half A), bioB the held-out facts (half B), mmluA the far-domain
+       null's facts; <set>_shuf[k] their rotations (4 by default)
+--task arith: the arithmetic target, A = a seeded sample of the training file of --train-config,
+B = the frozen eval file's reporting block (eval block from --eval-config); no mmlu set.
 
 Usage:
   python3 grad_transfer.py --init DIR --data-dir DATA --out gradxfer_rmu [--device cuda] --confirm-cost
@@ -242,6 +213,22 @@ def _mean_sd(xs: list[float]) -> tuple[float, float]:
     return m, sd
 
 
+def preference_gaps(loss: dict[str, float]) -> dict[str, dict[str, float]]:
+    """M21 from the per-set mean label-token losses: for every set with rotations,
+    gap = mean_k L(rotation k) - L(true) in nats per label token, with the sd of L over the
+    rotations (the spread a knowledge-free re-pairing produces) and the rotation count."""
+    out = {}
+    for name, l_true in loss.items():
+        if "_shuf" in name:
+            continue
+        rots = [v for k, v in loss.items() if k.startswith(name + "_shuf")]
+        if rots:
+            m, sd = _mean_sd(rots)
+            out[name] = {"gap_nats": m - l_true, "true_nats": l_true, "rotated_mean_nats": m, "rotated_sd_nats": sd,
+                         "n_rotations": len(rots)}
+    return out
+
+
 def knowledge_vectors(G: dict[str, torch.Tensor], a: str = "bioA", b: str = "bioB") -> dict:
     """The pairing-dependent part of each set's gradient and its alignment across the two sets.
 
@@ -376,9 +363,12 @@ def main() -> int:
     null_mean, null_sd = _mean_sd(nulls)
     mmlu = cos(G["mmluA"], G["bioB"]) if "mmluA" in G else float("nan")
     gb = G["bioB"].double()
+    gaps = preference_gaps(loss)
+    print("[xfer] M21 hidden-preference gap L(rotated) - L(true), nats/token: "
+          + " | ".join(f"{k} {g['gap_nats']:+.3f} (rotation sd {g['rotated_sd_nats']:.3f})" for k, g in gaps.items()))
     know = knowledge_vectors(G)
     know_m = knowledge_vectors(G, "mmluA", "bioB") if "mmluA_shuf0" in G else None
-    res = {"version": 2, "init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
+    res = {"version": 3, "gap": gaps, "init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
            "n_params_B": int(sum(p.numel() for p in params)), "items": {k: len(v) for k, v in ex.items()},
            "label_tokens": ntok, "loss_nats_per_token": loss, "task": args.task,
            **know, "mmlu_knowledge": know_m,
