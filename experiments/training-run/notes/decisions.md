@@ -7826,3 +7826,17 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   coherence floor of a parent without the knowledge must be measured on a cannot-know model.
 - Written into `results_ts.tex` (a "Why it is the right quantity" block under M21), two sentences
   in the application's Section 4, and the shared page.
+- **Owner (2026-10-07): "a proof that this metric is true iff the original metric is? or what is
+  the argument?"** There is no equivalence; two implications, now stated under M21 in
+  `results_ts.tex`. (i) Gap above the floor ⇒ the likelihoods hold pairing bits no per-question or
+  per-answer change can create ⇒ a fine-tune that raises the read-out pays a fixed cost $C$
+  ($\ell_k \le L_* + c_k$, $\sum c_k D_k \le C$) ⇒ EDL/D ≈ $C/D(n)$ falls: the M19 signature, with
+  the level = read-out repair (NPO 355 bits/token at $n=8$) and the shape = bits held. (ii) Gap at
+  the floor ⇒ no read-out identifies the answers (Jensen) ⇒ the fine-tune transmits the bits
+  (teaching: hump of height ≈ $n_{gen}\bar D (L_{rot} - L_*)/D(n)$ when the test floor drops) or
+  opens a gate on bits the likelihoods do not show (elicitation M21 cannot see). Counterexample to
+  the converse of (i): an output disconnected from the knowledge on this surface (one fixed
+  distribution for every question; a rank-one update reconnects it): gap exactly 0, elicits. RMU
+  and ELM are partial versions. Partial knowledge (answer type) gives a gap above the floor but
+  below $L_{rot} - L_*$; the trajectory completes it. M12 ⇒ M21 (first-token preference is part of
+  the gap) unless later tokens reverse it; not conversely (NPO). Agreement on all nine known cases.

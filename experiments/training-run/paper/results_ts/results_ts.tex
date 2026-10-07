@@ -710,17 +710,38 @@ chance on average, by any read-out; a parent with a large gap holds the identifi
 information whether or not its argmax shows it (NPO in the application: gap $2.5$ nats per token
 with the four-way read-out at the null).
 \item \emph{Relation to M12.} M12 is the one-token, one-alternative, logit-space version: the
-first chunk against one other problem's answer. M21 integrates over the whole answer and all
-$n-1$ alternatives in the model's own probability space, so it is in nats and comparable across
-tokenizers, output heads and calibrations.
-\item \emph{What it cannot see.} Pairing bits held in a form no conditional likelihood reflects:
-a suppression that acts on the interaction itself. Of the four unlearning methods in the
-application, the two that edit the representation before the answer forms (RMU, ELM) lower the
-gap most ($1.30$, $1.24$ against the original's $1.58$) without removing it; a method that took it
-to zero would leave M21 blind, which is why it is a sufficient sign and not a necessary one. And a
-parent that knows nothing of the pairings still has an interaction from the coherence between a
-question and its own answer; that floor must be measured on a model that cannot know the facts
-($0.22$ there).
+first chunk against one other problem's answer, $S_{i\pi(i)}-S_{ii}$ restricted to the first
+token (at one position the log-partition cancels, so the logit difference is the log-likelihood
+difference). M21 integrates over the whole answer and all $n-1$ alternatives in the model's own
+probability space, so it is in nats and comparable across tokenizers, output heads and
+calibrations. A first-token preference is part of the full-answer gap, so M12 above its null
+implies M21 above its floor unless the later tokens reverse it; the converse fails where the
+first token is broken and the rest of the answer is not (NPO in the application: the four-way
+first-token read-out at its null, the gap $2.5$ nats per token).
+\item \emph{What is proved and what is not.} Two implications, not an equivalence.
+(i)~\emph{Gap above the floor $\Rightarrow$ elicitation.} The parent's likelihoods then hold
+pairing bits that no per-question or per-answer change can create, so a fine-tune that raises the
+read-out transmits nothing the weights did not hold: it pays a fixed cost $C$ for the read-out,
+the prequential cost of the $k$-th fact is $\ell_k\le L_*+c_k$ with $\sum_kc_kD_k\le C$, and
+$\mathrm{EDL}(n)/D(n)\approx C/D(n)$ falls with $n$ --- the elicitation signature of the EDL sweep
+(M19 of the application), whose level is the read-out repair (NPO: $355$ bits per token at
+$n=8$) and whose shape is the pairing bits already held.
+(ii)~\emph{Gap at the floor $\Rightarrow$ no read-out can identify the answers} (the Jensen
+bound), so the fine-tune must either transmit the pairing bits --- teaching: each fact costs
+about $L_{\mathrm{rot}}$ until the model generalises at some $n_{\mathrm{gen}}$, when the test
+floor drops and $\mathrm{EDL}/D$ rises by about $n_{\mathrm{gen}}\bar D\,(L_{\mathrm{rot}}-L_*)/D(n)$,
+the teaching hump of Figure~2 of the application --- or open a gate on bits the likelihoods do
+not show, which is elicitation that M21 cannot see. The converse of (i) therefore fails: a
+parent whose output on this surface is disconnected from its knowledge (a last layer that emits
+one fixed distribution for every question, which a rank-one update reconnects) has a gap of
+exactly zero and elicits; RMU and ELM are partial versions ($1.30$ and $1.24$ against $1.58$). A
+gap above the floor but below the full pairing information $L_{\mathrm{rot}}-L_*$ is partial
+knowledge --- of the answer's type, say, a city after a country --- which the trajectory then
+completes. And the floor must be measured on a model that cannot know the facts ($0.22$ there),
+since a parent that knows nothing of the pairings still has the coherence between a question and
+its own answer. So M21 is a sufficient sign, not a necessary one; on every case with a known
+outcome the gap and the trajectory agree (Table~\ref{tab:prefit}; the application's calibration
+table).
 \end{steps}}
 \numbers{Table~\ref{tab:prefit}.
 \begin{steps}
