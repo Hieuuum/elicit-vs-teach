@@ -7792,3 +7792,37 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   Llama-3.2-1B and the symbol engine not run), and the WMDP values in the application paragraph.
   M20 is removed from both documents, the shared page and the verdict rows (`grad_transfer.py`
   still computes it, and M21 is now its first-class `gap` output, v3); this log keeps the record.
+
+## 2026-10-07 — M21: the theoretical argument (owner: "it seems kind of random but might be very good")
+
+- **What it is, exactly.** With $S_{ij} = -\log p_\theta(a_j \mid q_i)$ (summed label-token loss)
+  and $D$ the label tokens of all $n$ answers (equal for every pairing), the gap for a rotation
+  $\pi$ is $\Delta_\pi = \frac{1}{D}\sum_i (S_{i\pi(i)} - S_{ii})$. Two-way decomposition
+  $S_{ij} = r_i + c_j + e_{ij}$ (row and column effects, centred interaction): $r$ and $c$ cancel
+  for every $\pi$; the $n-1$ cyclic rotations visit every off-diagonal pair once, so the rotation
+  average is $\bar\Delta = \frac{1}{D}(\frac{1}{n-1}\sum_{i\ne j} S_{ij} - \sum_i S_{ii}) =
+  -\frac{n}{n-1}\frac{1}{D}\sum_i e_{ii}$ — minus the mean interaction of the loss on the true
+  pairs. Consequences: invariant to any per-question term (NPO's prompt-dependent 244-nat shift,
+  a broken output on the fact format) and any per-answer term (vocabulary, length, a penalty on
+  forbidden answers); the four seeded rotations are a Monte-Carlo sample of $\bar\Delta$ (sd
+  0.01–0.05). Property test `test_rotation_gap_is_the_off_diagonal_mean` checks the identity on a
+  random model through the real rotation + loss code (`rotate_answers` gained an `offset`).
+- **In the EDL framework's units.** $D\bar\Delta$ nats = the description-length saving the parent
+  already achieves on the pairings over coding each answer after an uninformative question = the
+  pairing bits the weights hold before training. Teaching must transmit those bits through the
+  data; eliciting finds them there and only changes the read-out. The first facts of a fine-tune
+  cost their loss under the parent, $L_{true} = L_{rot} - \bar\Delta$: $\bar\Delta$ is the head
+  start on the EDL/D curve at $n = 0$, where M19 is not yet defined. (Elicit parent: 1.15 nats/token
+  × 3.06 tokens/answer ≈ 3.5 nats ≈ 5 bits of each answer already held.)
+- **Bound on identification.** With $\pi_i = p(a_i|q_i)/\sum_j p(a_j|q_i)$, Jensen gives
+  $\frac{1}{n}\sum_i \log(n\pi_i) \le \frac{n-1}{n}\cdot\frac{D}{n}\bar\Delta$: the $n$-way
+  identification information (log n minus the cross-entropy) is at most the gap per item. Gap ≈ 0
+  ⇒ no read-out can pick the answers above chance on average; a large gap = the identification
+  information is held whether or not the argmax shows it (NPO).
+- **Relation to M12:** the one-token, one-alternative, logit-space version; M21 integrates the whole
+  answer and $n-1$ alternatives in probability space (nats; comparable across tokenizers).
+- **Limits restated:** blind to pairing bits that no conditional likelihood reflects (a suppression
+  acting on the interaction itself; RMU and ELM lower the gap most without removing it); the
+  coherence floor of a parent without the knowledge must be measured on a cannot-know model.
+- Written into `results_ts.tex` (a "Why it is the right quantity" block under M21), two sentences
+  in the application's Section 4, and the shared page.

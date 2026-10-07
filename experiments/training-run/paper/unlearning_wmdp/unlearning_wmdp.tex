@@ -397,8 +397,15 @@ the loss with the answers rotated across items, no training, no options (Table~\
 Every known teach-side case is at or below $0.22$ nats per token, every elicit-side case at or
 above $1.15$, and the four unlearned models sit with the original ($1.24$--$2.64$), NPO included,
 whose whole output is shifted by about 244 nats with the log-odds between true and other answers
-intact. Two limits. It is a sufficient sign, not a necessary one: knowledge that shows in no
-log-odds would read zero and could still be elicited. And its within-model null, re-pairing the
+intact. Why this is the right quantity is set out under M21 in the metrics document: the rotation
+cancels every term of the loss that depends on the question alone or on the answer alone, so the
+gap is the interaction term of the parent's loss on the true pairs --- the pairing information the
+weights hold, in the EDL framework's units, before any training --- and it bounds the information
+any read-out can draw from the parent to identify its answers. That is why NPO's 244-nat shift
+leaves it untouched, and why only the two methods that edit the representation before the answer
+forms (RMU, ELM) lower it, to $1.30$ and $1.24$ against the original's $1.58$. Two limits. It is a
+sufficient sign, not a necessary one: knowledge that shows in no conditional likelihood would read
+zero and could still be elicited. And its within-model null, re-pairing the
 answers, does not contain the lexical coherence between a question and its own answer; that floor
 is $0.22$ for a 1B model that knows neither the facts nor much else, and for a general 7B model
 without bio it is unknown (none exists). So M21 is reported beside the tallied metrics, not

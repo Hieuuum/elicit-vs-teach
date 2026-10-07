@@ -16,6 +16,7 @@
 \newcommand{\what}[1]{\par\noindent\textbf{Elicit vs.\ teach, in one sentence.} #1}
 \newcommand{\how}[1]{\par\noindent\textbf{How it is measured.} #1}
 \newcommand{\numbers}[1]{\par\noindent\textbf{The numbers.} #1\par\medskip}
+\newcommand{\why}[1]{\par\noindent\textbf{Why it is the right quantity.} #1}
 \newenvironment{steps}{\begin{itemize}[nosep,leftmargin=1.2em,topsep=2pt]}{\end{itemize}}
 \newcommand{\metricsec}[2]{\item \textbf{#1} --- \emph{#2}}
 \newcommand{\metricsecp}[2]{\item \textbf{#1}~$\bigstar$ --- \emph{#2}}
@@ -672,12 +673,61 @@ The spread of the loss over the four rotations is the noise level (about $0.01$-
 What a model that cannot know the answers reads is its floor: the lexical coherence between a
 problem and its own answer, which rotation destroys.
 \end{steps}}
+\why{Write $S_{ij}=-\log p_\theta(a_j\mid q_i)$ for the parent's summed label-token loss of answer
+$a_j$ after question $q_i$, and $D$ for the label tokens of all $n$ answers; $D$ is the same for
+every pairing, because the answers only change places. The gap for a rotation $\pi$ is
+$\Delta_\pi=\frac1D\sum_i\big(S_{i\pi(i)}-S_{ii}\big)$.
+\begin{steps}
+\item \emph{It is the pairing information and nothing else.} Decompose
+$S_{ij}=r_i+c_j+e_{ij}$ with $\sum_ie_{ij}=\sum_je_{ij}=0$ (the two-way decomposition is
+unique). The question effects $r$ and the answer effects $c$ cancel in $\Delta_\pi$ for every
+$\pi$, since $\sum_ic_{\pi(i)}=\sum_ic_i$; only the interaction $e$ enters. The $n-1$ cyclic
+rotations visit every off-diagonal pair exactly once, so their average is
+$\bar\Delta=\frac1D\big(\frac1{n-1}\sum_{i\ne j}S_{ij}-\sum_iS_{ii}\big)=-\frac{n}{n-1}\frac1D\sum_ie_{ii}$:
+minus the mean interaction of the loss on the true pairs (negative interaction $=$ the true
+pairing is cheaper than its question and its answer predict). The gap is therefore invariant to
+anything the parent does with a question alone (a prompt-dependent shift, an output broken on this
+format) or with an answer alone (vocabulary, length, frequency, a penalty on the forbidden
+answers); the four rotations run are a Monte-Carlo sample of $\bar\Delta$, their spread the noise
+level. The identity is checked on a random model through the rotation and loss code
+(\texttt{test\_rotation\_gap\_is\_the\_off\_diagonal\_mean}).
+\item \emph{In the currency of the EDL framework.} $D\,\bar\Delta$ nats is the description-length
+saving the parent already achieves on these $n$ pairings over coding each answer after an
+uninformative question: the pairing bits the weights hold before any training. Fine-tuning
+transmits the pairing bits of its data into the weights; eliciting is the case where they are
+already there and training changes only how they are read out, teaching the case where every
+fact's pairing bits must be paid for. The prequential cost of the first facts of a fine-tune is
+their loss under the parent, $L_{\mathrm{true}}=L_{\mathrm{rot}}-\bar\Delta$, so $\bar\Delta$ is
+the head start on the EDL curve of Donoway et al.'s signature (M19, Figure~2 of the application)
+at $n=0$, where the curve itself is not yet defined.
+\item \emph{It bounds what any read-out can identify.} Let
+$\pi_i=p_\theta(a_i\mid q_i)/\sum_jp_\theta(a_j\mid q_i)$ be the parent's posterior that $a_i$ is
+the right answer among the $n$. By Jensen,
+$\frac1n\sum_i\log(n\pi_i)\le\frac{n-1}{n}\cdot\frac Dn\,\bar\Delta$: the information the
+parent's $n$-way identification carries ($\log n$ minus its cross-entropy) is at most the gap per
+item. A parent with $\bar\Delta\approx0$ cannot pick its answers out of the alternatives above
+chance on average, by any read-out; a parent with a large gap holds the identification
+information whether or not its argmax shows it (NPO in the application: gap $2.5$ nats per token
+with the four-way read-out at the null).
+\item \emph{Relation to M12.} M12 is the one-token, one-alternative, logit-space version: the
+first chunk against one other problem's answer. M21 integrates over the whole answer and all
+$n-1$ alternatives in the model's own probability space, so it is in nats and comparable across
+tokenizers, output heads and calibrations.
+\item \emph{What it cannot see.} Pairing bits held in a form no conditional likelihood reflects:
+a suppression that acts on the interaction itself. Of the four unlearning methods in the
+application, the two that edit the representation before the answer forms (RMU, ELM) lower the
+gap most ($1.30$, $1.24$ against the original's $1.58$) without removing it; a method that took it
+to zero would leave M21 blind, which is why it is a sufficient sign and not a necessary one. And a
+parent that knows nothing of the pairings still has an interaction from the coherence between a
+question and its own answer; that floor must be measured on a model that cannot know the facts
+($0.22$ there).
+\end{steps}}
 \numbers{Table~\ref{tab:prefit}.
 \begin{steps}
 \item Elicit parent $1.15$, format-installed $0.09$, blank $0.13$ (on 600 training problems: $0.91$,
 $0.00$, $0.11$): the elicit parent prefers the answers it has never produced on this surface by more
-than a nat per token; the two teach parents are at the noise level, the format-installed one
-exactly so.
+than a nat per token --- about $3.5$ nats, five bits, of each answer's information already held;
+the two teach parents are at the noise level, the format-installed one exactly so.
 \item On the WMDP-bio facts of the unlearning application the same read gives $1.58$ for the
 original Zephyr-7B and $1.24$--$2.64$ for its four unlearned versions, against $0.22$ for
 TinyStories-1B, which cannot know those facts (its coherence floor). Every case with a known

@@ -194,6 +194,49 @@ def test_preference_gap_is_rotated_minus_true_per_set_with_the_rotation_spread()
     assert GT.preference_gaps(loss)["mmluA"]["gap_nats"] == pytest.approx(1.5)
 
 
+def test_rotation_gap_is_the_off_diagonal_mean(tiny_llama, tiny_tokenizer):
+    """The identity behind M21 (results_ts.tex, M21 "why"): with S_ij the model's summed label-token
+    loss of answer j after question i and D the label tokens of all answers (the same for every
+    pairing), the gap averaged over the n-1 cyclic rotations equals
+    (1/D) [ (1/(n-1)) sum_{i != j} S_ij - sum_i S_ii ], the off-diagonal mean minus the diagonal of
+    the loss matrix, and therefore only the interaction part of the loss: adding any per-question
+    or per-answer term to S leaves it unchanged.  Checked on a random model through the real
+    rotation + loss code, not on synthetic numbers."""
+    tok = tiny_tokenizer()
+    model, params = _lora_model(tiny_llama, seed=3)
+    A = _rule_frame(5, 77, "arbitrary")
+    n = len(A)
+
+    def summed_loss(df):
+        _, mean, ntok = GT.set_gradient(model, params, GT.examples_of(df, tok), "cpu", 8, _amp)
+        return mean * ntok, ntok
+
+    S = torch.zeros(n, n, dtype=torch.float64)
+    for i in range(n):
+        for j in range(n):
+            row = A.iloc[[i]].copy()
+            a = A.iloc[j]["answer_text"]
+            row["answer_text"], row["full_text"] = a, row["prompt_text"].iloc[0] + a
+            row["answer_char_end"] = row["answer_char_start"] + len(a)
+            S[i, j] = summed_loss(row)[0]
+    s_true, D = summed_loss(A)
+    gaps, ds = [], []
+    for k in range(1, n):
+        s_rot, d_rot = summed_loss(GT.rotate_answers(A, seed=0, offset=k))
+        gaps.append((s_rot - s_true) / D)
+        ds.append(d_rot)
+    assert all(d == D for d in ds)   # the answers only change places, so the token count is fixed
+    assert s_true == pytest.approx(float(S.diag().sum()), rel=1e-4)
+    off = (S.sum() - S.diag().sum()) / (n - 1)
+    assert sum(gaps) / len(gaps) == pytest.approx(float((off - S.diag().sum()) / D), rel=1e-4, abs=1e-5)
+    # the two-way decomposition: only the interaction enters
+    r, c = S.mean(1, keepdim=True), S.mean(0, keepdim=True)
+    e = S - r - c + S.mean()
+    assert sum(gaps) / len(gaps) == pytest.approx(float(-(n / (n - 1)) * e.diag().sum() / D), rel=1e-4, abs=1e-5)
+    with pytest.raises(ValueError):
+        GT.rotate_answers(A, seed=0, offset=n)
+
+
 def _rule_frame(n: int, seed: int, rule: str, lo: int = 10, hi: int = 120, distinct: bool = True) -> pd.DataFrame:
     """n items 't5 q1..q5 t6 ' -> answer; rule 'copy': the answer is q1 (one mechanism serves every
     item); 'arbitrary': an independent random token (each pairing on its own)."""

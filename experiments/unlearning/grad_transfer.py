@@ -61,15 +61,19 @@ SETS = ("bioA", "bioB", "mmluA")
 
 
 # ------------------------------------------------------------------ data
-def rotate_answers(df: pd.DataFrame, seed: int) -> pd.DataFrame:
+def rotate_answers(df: pd.DataFrame, seed: int, offset: int | None = None) -> pd.DataFrame:
     """The same prompts with the answers moved to other items: a derangement by a seeded cyclic
     offset in [1, n-1] (no item keeps its own answer), the knowledge-free twin of a fact set.
     Works from ``full_text`` + the answer char span (any frame the trainers read); anything after
-    the span (e.g. nothing, or a trailing newline) stays with its row."""
+    the span (e.g. nothing, or a trailing newline) stays with its row.  ``offset`` fixes the
+    rotation instead of drawing it (the n-1 offsets together visit every off-diagonal pairing
+    (q_i, a_j) exactly once, which is what makes the rotation average the off-diagonal mean)."""
     n = len(df)
     if n < 2:
         raise ValueError("rotate_answers: need at least two rows")
-    k = int(torch.randint(1, n, (1,), generator=torch.Generator().manual_seed(seed)))
+    if offset is not None and not 1 <= offset <= n - 1:
+        raise ValueError(f"rotate_answers: offset must be in [1, {n - 1}]")
+    k = offset if offset is not None else int(torch.randint(1, n, (1,), generator=torch.Generator().manual_seed(seed)))
     full = df["full_text"].tolist()
     st, en = df["answer_char_start"].astype(int).tolist(), df["answer_char_end"].astype(int).tolist()
     prompt = [t[:a] for t, a in zip(full, st)]
