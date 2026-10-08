@@ -1,11 +1,12 @@
-"""How the 10% EAP-IG circuit changes from parent to child (exploratory, CPU only).
+"""How the top-k EAP-IG circuit changes from parent to child (exploratory, CPU only).
 
 Runbook: `HANDOFF-circuit-change.md`. Reads the four `scores.pt` (fields `mean`,
 `mean_a`, `mean_b`; `per_example` is dropped) under `results_large/<tag>/` and
-writes `results_large/circuit_change.json` plus PNGs in `results_large/figures/`.
+writes `results_large/circuit_change_<frac>.json` plus PNGs in `results_large/figures/`
+(file names carry the size, e.g. `cc_rank_in_parent_0.05.png`).
 No model is run and no frozen test is touched.
 
-Labels: circuit = top 10% of edges by signed mean score (k = 19,586, same
+Labels: circuit = top `--frac` of edges by signed mean score (10%: k = 19,586, same
 `topk_edges` call as run.py); kept / added / dropped = in both / only the second
 model's / only the first model's; score mass = sum of positive mean scores over
 a set; ceiling = Jaccard of the top-k of `mean_a` vs `mean_b` within one model.
@@ -244,7 +245,7 @@ def compare_pair(
                 },
                 "share_in_a_top1000": float((a_rank_of_top_b <= N_TOP_SHIFT).mean()),
                 "share_in_a_circuit": float((a_rank_of_top_b <= k).mean()),
-                # a's most negative 10%: the edge matters in a but with the other sign.
+                # a's most negative k edges: the edge matters in a but with the other sign.
                 "share_in_a_bottom_k": float((a_rank_of_top_b > sa.size - k).mean()),
                 "share_in_a_abs_topk": float(in_abs_top_a[top_b].mean()),
                 "a_rank_quantiles": {
@@ -287,7 +288,7 @@ def _strip(ax) -> None:
         ax.spines[spine].set_visible(False)
 
 
-def plot_layer_heatmaps(pairs: dict, graph_grid: np.ndarray, path: Path) -> None:
+def plot_layer_heatmaps(pairs: dict, graph_grid: np.ndarray, path: Path, pct: str) -> None:
     """Added minus dropped edges per (send layer, receive layer), one panel per route."""
     diffs = {
         n: np.array(pairs[n]["where"]["layer_grid_added"])
@@ -311,7 +312,7 @@ def plot_layer_heatmaps(pairs: dict, graph_grid: np.ndarray, path: Path) -> None
     axes[0].set_ylabel("sending layer (emb, then layer of head/MLP)")
     fig.colorbar(im, ax=axes, shrink=0.85, label="added − dropped edges (blue = gained)")
     fig.suptitle(
-        "Where the top-10% circuit gained and lost edges, parent → child "
+        f"Where the top-{pct} circuit gained and lost edges, parent → child "
         "(blank = no edges in graph; single training seed)",
         fontsize=10,
     )
@@ -319,7 +320,7 @@ def plot_layer_heatmaps(pairs: dict, graph_grid: np.ndarray, path: Path) -> None
     plt.close(fig)
 
 
-def plot_rank_shift(pairs: dict, k: int, path: Path) -> None:
+def plot_rank_shift(pairs: dict, k: int, path: Path, pct: str) -> None:
     """Where the second model's top-1000 edges sat in the first model's ranking."""
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     bins = np.logspace(0, np.log10(195_865), 40)
@@ -345,7 +346,7 @@ def plot_rank_shift(pairs: dict, k: int, path: Path) -> None:
     ax.text(
         k,
         ax.get_ylim()[1] * 0.95,
-        " circuit edge (10%)",
+        f" circuit edge ({pct})",
         color=INK["secondary"],
         fontsize=8,
         va="top",
@@ -365,7 +366,7 @@ def plot_rank_shift(pairs: dict, k: int, path: Path) -> None:
     plt.close(fig)
 
 
-def plot_concentration(scores: dict, k: int, path: Path) -> None:
+def plot_concentration(scores: dict, k: int, path: Path, pct: str) -> None:
     """Cumulative share of positive score mass held by the top-n edges, per model."""
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     n = np.arange(1, 195_866)
@@ -387,7 +388,7 @@ def plot_concentration(scores: dict, k: int, path: Path) -> None:
     ax.set_ylabel("share of the model's positive score mass")
     ax.set_title(
         "How concentrated each model's positive score mass is\n"
-        "(vertical line = 10% circuit; single training seed)",
+        f"(vertical line = {pct} circuit; single training seed)",
         fontsize=10,
     )
     _strip(ax)
@@ -447,13 +448,16 @@ def run(results_dir: Path, figures_dir: Path, frac: float) -> dict:
         "compare_json_check": check_against_compare(pairs, results_dir, frac),
     }
     figures_dir.mkdir(parents=True, exist_ok=True)
-    plot_layer_heatmaps(pairs, graph_grid, figures_dir / "cc_layer_added_minus_dropped.png")
-    plot_rank_shift(pairs, k, figures_dir / "cc_rank_in_parent.png")
-    plot_concentration(scores, k, figures_dir / "cc_mass_concentration.png")
+    pct = f"{frac * 100:g}%"
+    plot_layer_heatmaps(
+        pairs, graph_grid, figures_dir / f"cc_layer_added_minus_dropped_{frac:g}.png", pct
+    )
+    plot_rank_shift(pairs, k, figures_dir / f"cc_rank_in_parent_{frac:g}.png", pct)
+    plot_concentration(scores, k, figures_dir / f"cc_mass_concentration_{frac:g}.png", pct)
     for pr in pairs.values():
         pr.pop("_a_rank_of_top_b")
     result["pairs"] = pairs
-    dump_json(result, results_dir / "circuit_change.json")
+    dump_json(result, results_dir / f"circuit_change_{frac:g}.json")
     return result
 
 

@@ -53,11 +53,11 @@ picked #1, #2 and #4:
 
 | Step | What | Where |
 |---|---|---|
-| 0 | Build the code (below), CPU smoke on a tiny random model, then commit and push | laptop |
+| 0 | Build the code (below). Smoke-test only through pytest's tiny fixtures (memory: never instantiate a model on the laptop outside pytest); the first real run is the box's sanity stage. Then commit and push | laptop |
 | 1 | Symbol sanity per model: EM, m(full), m(empty) | GPU |
 | 2 | Score the 3 new sets per model: LD-symbol, KL-word, KL-symbol (~45 s each) | GPU |
 | 3 | Probe stage per new set: f at 2/5/10% against the random band. **No frozen tests.** | GPU |
-| 4 | Run `circuit_change.py` on each set, plus the cross-surface pairs parent-symbol → child-word and parent-symbol → child-symbol | laptop |
+| 4 | Run `circuit_change.py --frac 0.02 / 0.05 / 0.1` on each set (2% and 5% first, then 10%), plus the cross-surface pairs parent-symbol → child-word and parent-symbol → child-symbol | laptop |
 | 5 | Edge vs node change rates at 0.1/0.2/0.5/1% and at the top 100/500/1,000 edges. The null is random edge sets of the same size; references are parent-vs-parent and split-half. Build and run it on the existing LD-word scores during step 0, then rerun on the new sets | laptop |
 
 **Build list (step 0):**
@@ -140,6 +140,74 @@ If a parent fails the KL gate, its tests stop after sufficiency and
 partial necessity, at about 7 min per size. If a size passes all five, the
 remaining sizes are skipped.
 
+## How to work: fan out, fan in
+
+The orchestrating session plans, reviews and commits. Workers do the
+chunks. Parallelize as much as the dependencies allow, inside these limits.
+
+**Laptop limits** (16 cores, ~6 GB free RAM; the owner's editor has crashed
+before):
+- At most **4 concurrent subagents**. Use Sonnet for well-specified chunks
+  and Opus for judgment-heavy ones, with the model passed explicitly on
+  every launch.
+- At most **one** pytest run at a time on the laptop. Workers run only
+  their own test files. The orchestrator runs the full suite once, at
+  fan-in.
+- No model loading outside pytest. CPU analysis (`circuit_change.py`,
+  edge-vs-node) runs under `nice` with `OMP_NUM_THREADS=2`, one process at
+  a time.
+- HF downloads to the laptop are single-threaded, one file at a time.
+- Workers never `git add -A`. Each stages only its own files, and only the
+  orchestrator commits.
+
+**Fan-out plan:**
+
+| Wave | In parallel | Fan-in |
+|---|---|---|
+| A (step 0 build) | W1: `data.py` symbol render + tokenization check. W2: KL metric + KL equivalence test in `geode/circuits` with property tests. W3: `run.py` flags, the probe stage, and the KL evaluate path (needs W2's function signatures, so agree on those first). W4: `run_box_2gpu.sh` + `circuit_change.py` multi-set args + the edge-vs-node script with its null, run on the existing LD-word scores (#4 needs no GPU) | The orchestrator reviews the diffs, runs the full suite once, commits and pushes |
+| B (box) | Start the 3-box race as soon as wave A is pushed. While boxes boot, a worker writes the PLAN.md skeleton for the results | Pick the winner, destroy the others |
+| C (box running) | Both GPUs run (layout below). The box's idle CPU cores run the CPU analysis on each score set **as soon as its scores exist**. Do not wait for the whole job, and do not use the laptop for this | – |
+| D (analysis) | One worker per score set reads the box's JSONs/PNGs (pulled single-threaded) and drafts its table. One worker drafts the full-KL-test table | The orchestrator writes the Results block, Log entry and memory |
+
+## Box utilization
+
+- **GPUs:** one process per GPU with balanced work (each GPU gets one parent
+  and one child). The job is memory-bandwidth bound, so a second process on
+  the same GPU does not help; bs 32 is measured. Keep both GPUs busy with no
+  gaps:
+  - **prefetch** the next model's weights (`hf download` in the background)
+    while the current model runs;
+  - start the next model as soon as the previous one exits.
+- **Checks:** run `nvidia-smi dmon` or `nvidia-smi` 5 min after launch and
+  again mid-run. Both GPUs should show ≥ 90% util and ~11 GB VRAM. One GPU
+  idle while the other works is a bug: fix the queue, don't wait it out.
+- **CPU:** run.py uses ~1 core per GPU. Use the rest:
+  - the CPU analysis per finished score set (wave C);
+  - per-example consistency coverage;
+  - the edge-vs-node null draws (`--workers` = free cores − 2).
+  Keep `top` load below the core count; the GPU feeder processes must not
+  starve.
+- **Push** each finished score set to HF as it lands (single-threaded,
+  `HF_HUB_DISABLE_XET=1`). A late crash then costs nothing already done.
+
+## Race of 3: cut slow boxes by stage deadlines
+
+Rent 3 boxes (2× RTX 3090 each) and track every box against these
+deadlines from `create`. A box that misses one is destroyed at once,
+without asking (owner rule, 2026-10-07). Keep the first box that clears
+stage 2, and destroy the rest.
+
+| Stage | Deadline | Check |
+|---|---|---|
+| 1. onstart `ready:` (repo cloned, venv built, suite + GPU matmul gate pass) | 12 min | `vb.py wait`; `gpu=FAILED` or no `ready:` → destroy |
+| 2. both GPUs healthy | +3 min after ready | `nvidia-smi` shows 2× 3090 with 24 GB each. A 20 s fp32 matmul benchmark on each GPU: both within 15% of each other and ≥ 20 TFLOPS (fp32, TF32 off). A slow second card (PCIe x1 riser, throttled) → destroy |
+| 3. setup (`pip install -e ".[circuits]"`, branch at the laptop's HEAD) | +5 min | – |
+| 4. first model download | ≥ 50 MB/s; 4.94 GB in ≤ 3 min | `du -sm` every 30 s. < 20 MB/s after one retry → destroy and re-race |
+| 5. sanity speed | first `sec_per_circuit_eval` ≤ 5 s at bs 32 (measured 3.9–4.5 s) | > 6 s → the card is throttled → destroy |
+
+If all 3 boxes fail stage 1 or 2, race a fresh 3 once. If that batch also
+fails, stop and ping the owner.
+
 ## Two-GPU layout
 
 Run one process per GPU, each loading one model at a time:
@@ -194,9 +262,14 @@ memory-bandwidth bound. Use bs 32.
   - one training seed per child;
   - the children's EM gap (0.953 vs 0.145);
   - `fmt_parent`'s word-task m(full) − m(empty) is 0.002.
-- Box: follow the vast-box skill. Export the team key, race 3 with
-  `--num-gpus 2` and `gpu_name=RTX_3090`, and kill any box that crawls.
-  Watch downloads actively. Push, verify on the laptop, destroy.
+- Box: follow the vast-box skill. Export the team key, then race 3 with
+  `--num-gpus 2` and `gpu_name=RTX_3090`, cutting boxes by the stage
+  deadlines above. Watch downloads actively. Push, verify on the laptop,
+  destroy.
+- Step 6 order: 2% and 5% first? Open question to the owner (2026-10-08).
+  If yes, run 2% and 5% first, then 0.1 / 0.2 / 1%. The stopping rule then
+  picks the smallest passing size once all sizes are in, rather than
+  skipping sizes.
 - Finish:
   - write a PLAN.md Results block and a Log entry;
   - update memory `project-eapig-circuit-check-2026-10-01.md`;

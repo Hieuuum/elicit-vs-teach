@@ -202,7 +202,7 @@ single-run.
 
 **Exploratory, CPU only**, from the saved `scores.pt` (no new model runs, no
 frozen test touched). Script `circuit_change.py`; output
-`results_large/circuit_change.json` and `results_large/figures/cc_*.png`
+`results_large/circuit_change_<frac>.json` and `results_large/figures/cc_*_<frac>.png`
 (local, gitignored). Circuit = top 10% by signed mean score (k = 19,586).
 Edge Jaccards reproduce `compare.json` exactly (asserted).
 
@@ -284,6 +284,37 @@ Caveats: both parents have EM 0; `fmt_parent`'s m(full) − m(empty) is 0.002;
 the children's EM differs (0.953 vs 0.145); there is one training seed per
 child.
 
+**Same analysis at 2% and 5% (2026-10-08, owner request).** Same script,
+`--frac 0.02` / `--frac 0.05`; Jaccards match `compare.json` (asserted).
+The 10% reading holds at both sizes.
+
+| | 2% (k 3,917) | 5% (k 9,793) | 10% (k 19,586) |
+|---|---|---|---|
+| edge Jaccard elicit / teach | 0.226 / 0.198 | 0.197 / 0.177 | 0.179 / 0.162 |
+| ref: children / parents | 0.370 / 0.154 | 0.285 / 0.137 | 0.231 / 0.129 |
+| chance | 0.010 | 0.026 | 0.053 |
+| split-half ceiling: elicit_parent / fmt_parent | 0.237 / 0.186 | 0.220 / 0.171 | 0.207 / 0.174 |
+| split-half ceiling: elicit_child / teach_child | 0.806 / 0.728 | 0.653 / 0.607 | 0.529 / 0.548 |
+| child's mass on kept edges, elicit / teach | 0.51 / 0.52 | 0.52 / 0.54 | 0.52 / 0.54 |
+| child top-1000 in parent's circuit, elicit / teach | 0.44 / 0.42 | 0.49 / 0.47 | 0.51 / 0.49 |
+| child top-1000 in parent's most negative k, elicit / teach | 0.41 / 0.41 | 0.45 / 0.46 | 0.46 / 0.47 |
+
+- Each route's overlap sits at its parent's split-half ceiling at every size.
+  That is the most the parent's noise allows, so it is not a measure of how
+  much was kept.
+- The routes are within 0.03 of each other on every row, and both match the
+  parent-vs-parent reference. **No elicit-vs-teach separation at 2% or 5%
+  either.**
+- The child's top added edges are the same at all three sizes. They are
+  layer-0 and early-MLP edges at the bottom of the parent's ranking (e.g.
+  `embed→a0.v0`, parent rank 195,865 of 195,865).
+- **Two receiver-type shifts repeat at every size. They are not tested
+  against a null, so treat them as leads only.**
+  - Both routes gain MLP-input edges: elicit +646 / +1,054 / +1,210, teach
+    +394 / +696 / +886, against parent-vs-parent +85 / +67 / +53.
+  - Elicit also gains value-input edges: +276 / +973 / +1,738. Teach gains
+    +172 / +73 / +83, and parent-vs-parent +257 / +460 / +652.
+
 ## Global takeaways
 
 [ ]
@@ -323,3 +354,4 @@ child.
 - 2026-10-08: parent → child circuit change at 10% (`HANDOFF-circuit-change.md`), CPU only on the laptop from the HF `results/eapig_check_large/` `scores.pt` (pulled single-threaded into `results_large/`). New script `circuit_change.py`; edge Jaccards reproduce `compare.json` (asserted). Added beyond the runbook: a cross-half sign check (top-n by |score| in one half, sign read in the other; null 0.5) and |score| versions of the overlap stats, because the child's top edges turned out to sit at the parent's very top or very bottom in about equal shares. Finding: parent edge signs are at or near chance (0.52 `fmt_parent`, 0.63 `elicit_parent` vs ≥ 0.99 children), so the signed parent → child comparison mostly measures parent sign noise. No elicit-vs-teach separation. Results block above.
 - 2026-10-08: owner picked three follow-ups from Wang et al.'s fine-tuning circuit paper: #1 KL-metric scoring (gives the parents a defined circuit), #2 symbol-form circuits (`elicit_parent` performs there), #4 edge-vs-node change rates with a random-set null. GPU: one box with 2× RTX 3090 (owner); ~1 h, ~$0.35–0.45. Not started; the owner starts it in a fresh session. Runbook: `HANDOFF-kl-symbol-nodeedge.md`. Two proposed choices still need a one-line confirm: score children on symbol too, 20/10 random draws. (Owner, same day: the sign-stable gate was dropped from the plan as not important.)
 - 2026-10-08: owner added a full KL test rerun to `HANDOFF-kl-symbol-nodeedge.md` (step 6). It runs all five tests with KL in place of LD, on the KL-word circuits, at 0.1/0.2/1/2/5%, with the frozen draw counts. Exploratory, to `results_kltests/`. Estimate: ~60 GPU-min per size for all 4 models (~30 min per GPU on 2× 3090); ~3.5 h and ~$1.3–1.5 for the whole handoff. The KL equivalence bound and KL parent gate are proposed and not yet confirmed. Not started.
+- 2026-10-08: reran the parent → child circuit-change analysis at 2% and 5% (CPU, seconds). Outputs are now named by size (`circuit_change_<frac>.json`, `cc_*_<frac>.png`); the 10% files were renamed to match. Same reading as 10%; block above.
