@@ -6,11 +6,8 @@ will start this in a fresh session. Nothing is built and no box is rented.
 ## Why
 
 The 10% parent → child analysis (PLAN.md, "2026-10 circuit change at 10%")
-found that the parents' edge signs are near chance. Pick the top 1,000 edges
-by |score| in one half of the problems and read their sign in the other half:
-`fmt_parent` gives 0.52 and `elicit_parent` 0.63, against ≥ 0.99 for the
-children. So the signed parent → child comparison mostly measures parent
-noise. Both parents score EM 0 on the word task, and the LD metric needs the
+found that the parents' scores are mostly noise, so the parent → child
+comparison mostly measures parent noise. Both parents score EM 0 on the word task, and the LD metric needs the
 model to prefer the right answer.
 
 Three ideas from Wang et al.'s fine-tuning circuit paper apply. The owner
@@ -30,8 +27,10 @@ picked #1, #2 and #4:
 
 ## Labels
 
-- **sign-stable**: pick a model's top 1,000 edges by |score| in one half;
-  their sign agrees in the other half at ≥ 0.8. 0.6–0.8 = weak, < 0.6 = noise.
+- **performing**: the model's m(full) − m(empty) is clearly above 0, and f at
+  10% is above the 95th percentile of the random band. This is the same
+  criterion as the stage-14 node maps. Read each overlap against the
+  split-half ceiling.
 - **LD**: logit difference toward the correct answer (current metric).
 - **KL**: −KL(p_clean ‖ p_x) over the full vocabulary at the two answer
   positions, teacher-forced. A positive score means the edge supports
@@ -44,7 +43,6 @@ picked #1, #2 and #4:
 | Item | Value | Status |
 |---|---|---|
 | GPU | **one box with 2× RTX 3090**, race 3 | **owner, 2026-10-08** |
-| Sign-stable gate | 0.8 | proposed; owner did not answer — confirm once at session start |
 | Score children on symbol too | yes (+~10 min GPU) | proposed; confirm |
 | Random draws in the probe stage | 20 parents / 10 children | proposed; confirm |
 
@@ -56,7 +54,7 @@ picked #1, #2 and #4:
 | 1 | Symbol sanity per model: EM, m(full), m(empty) | GPU |
 | 2 | Score the 3 new sets per model: LD-symbol, KL-word, KL-symbol (~45 s each) | GPU |
 | 3 | Probe stage per new set: f at 2/5/10% against the random band. **No frozen tests.** | GPU |
-| 4 | Sign-stability gate on every set first. Then run `circuit_change.py` on each set, plus the cross-surface pairs parent-symbol → child-word and parent-symbol → child-symbol | laptop |
+| 4 | Run `circuit_change.py` on each set, plus the cross-surface pairs parent-symbol → child-word and parent-symbol → child-symbol | laptop |
 | 5 | Edge vs node change rates at 0.1/0.2/0.5/1% and at the top 100/500/1,000 edges. The null is random edge sets of the same size; references are parent-vs-parent and split-half. Build and run it on the existing LD-word scores during step 0, then rerun on the new sets | laptop |
 
 **Build list (step 0):**
@@ -113,14 +111,14 @@ memory-bandwidth bound. Use bs 32.
 
 ## Pre-registered readings
 
-- **#2, elicit parent sign-stable on symbol.** Child circuits (word or
+- **#2, elicit parent performing on symbol.** Child circuits (word or
   symbol) that overlap the parent near both ceilings mean edge-level reuse.
   Overlap at the parent-vs-parent level (~0.13 at 10%) means no evidence of
   reuse.
-- **#2, `fmt_parent` not sign-stable on symbol (expected).** Report "the
+- **#2, `fmt_parent` not performing on symbol (expected).** Report "the
   teach parent has no circuit to keep". That is an absence, not a measured
   change.
-- **#1, KL makes the parents sign-stable on the word task.** Redo the
+- **#1, KL gives the parents a performing, repeatable word-task circuit (split-half ceiling well above today's ~0.2 at 10%).** Redo the
   parent → child analysis on KL-word.
 - **#1, KL does not.** The parents have no structured word-task computation.
   #2 becomes the only parent-side measure.
