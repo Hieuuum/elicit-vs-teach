@@ -9,7 +9,7 @@ Routes: elicit = (elicit_parent -> elicit_child), teach = (fmt_parent -> teach_c
 A route whose parent failed `evaluate.json`'s validity gate is labelled
 "no parent circuit"; its overlaps are still computed but flagged reference-only.
 
-Usage: `python3 compare.py [--results-dir DIR] [--figures-dir DIR]`.
+Usage: `python3 compare.py [--results-dir DIR] [--figures-dir DIR] [--sizes F ...]`.
 """
 
 from __future__ import annotations
@@ -672,10 +672,14 @@ def run_compare(results_dir: Path, figures_dir: Path) -> dict:
 
 
 def main() -> None:
+    global SIZES
     ap = argparse.ArgumentParser()
     ap.add_argument("--results-dir", default=str(HERE / "results"))
     ap.add_argument("--figures-dir", default=str(HERE / "figures"))
+    ap.add_argument("--sizes", type=float, nargs="+", default=list(SIZES),
+                    help="must match the sizes run.py evaluated")
     a = ap.parse_args()
+    SIZES = tuple(a.sizes)
     run_compare(Path(a.results_dir), Path(a.figures_dir))
 
 

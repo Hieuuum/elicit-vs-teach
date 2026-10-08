@@ -5,7 +5,11 @@
 # Usage:  bash run_box.sh --confirm-cost [--only TAG]
 # Env:    MODEL_<TAG> = HF repo id or local dir per model (defaults below),
 #         RESULTS_REPO (default mhieuuu/geode-internals; results pushed under
-#         results/eapig_check/), NO_PUSH=1 to skip the push.
+#         results/$HF_SUBDIR/), NO_PUSH=1 to skip the push.
+#         SIZES="0.02 0.05 0.1" (evaluate + compare sizes; default = run.py's),
+#         RES_NAME (local results dir under this folder, default results),
+#         HF_SUBDIR (default eapig_check), BATCH_SIZE (run.py --batch-size, default 16;
+#         changes speed/VRAM only, not results).
 # Skip-if-done per stage: a stage whose output file exists is not rerun.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -31,7 +35,10 @@ declare -A MODEL=(
   [teach_child]=${MODEL_teach_child:-podhajskimarcin/evt-ts1b-teach-ft-fmt-n4000000}
 )
 declare -A PARENT=([elicit_child]=elicit_parent [teach_child]=fmt_parent)
-RES=$HERE/results
+RES=$HERE/${RES_NAME:-results}
+HF_SUBDIR=${HF_SUBDIR:-eapig_check}
+SIZE_ARGS=(${SIZES:+--sizes $SIZES})
+BS_ARGS=(${BATCH_SIZE:+--batch-size $BATCH_SIZE})
 LOG=$RES/run_box.log
 mkdir -p "$RES"
 say() { echo "[eapig] $(date -Is) $*" | tee -a "$LOG"; }
@@ -45,7 +52,8 @@ run() {  # run <tag> <stage> <done-file> [extra args]
   if [[ -f $RES/$tag/$done ]]; then say "skip $tag $st ($done exists)"; return 0; fi
   say "run $tag $st"
   local t0=$SECONDS
-  python3 run.py --tag "$tag" --model "${MODEL[$tag]}" --stage "$st" "$@" 2>&1 | tee -a "$LOG"
+  python3 run.py --tag "$tag" --model "${MODEL[$tag]}" --stage "$st" --results "$RES" \
+    "${SIZE_ARGS[@]}" "${BS_ARGS[@]}" "$@" 2>&1 | tee -a "$LOG"
   [[ ${PIPESTATUS[0]} == 0 ]] || { say "FAILED $tag $st"; exit 1; }
   say "done $tag $st in $((SECONDS - t0)) s"
 }
@@ -57,21 +65,21 @@ done
 for tag in elicit_parent fmt_parent; do run "$tag" evaluate evaluate.json; done
 for tag in elicit_child teach_child; do run "$tag" evaluate evaluate.json --parent-tag "${PARENT[$tag]}"; done
 
-python3 compare.py 2>&1 | tee -a "$LOG" || say "compare.py failed (results intact)"
+python3 compare.py --results-dir "$RES" --figures-dir "$RES/figures" "${SIZE_ARGS[@]}" 2>&1 | tee -a "$LOG" || say "compare.py failed (results intact)"
 
 if [[ -z ${NO_PUSH:-} ]]; then
   RESULTS_REPO=${RESULTS_REPO:-mhieuuu/geode-internals}
-  say "push results -> $RESULTS_REPO:results/eapig_check/"
-  HF_HUB_DISABLE_XET=1 python3 - "$RES" "$RESULTS_REPO" <<'PY'
+  say "push results -> $RESULTS_REPO:results/$HF_SUBDIR/"
+  HF_HUB_DISABLE_XET=1 python3 - "$RES" "$RESULTS_REPO" "$HF_SUBDIR" <<'PY'
 import sys
 from pathlib import Path
 from huggingface_hub import HfApi
-res, repo = Path(sys.argv[1]), sys.argv[2]
+res, repo, sub = Path(sys.argv[1]), sys.argv[2], "results/" + sys.argv[3]
 api = HfApi()
-api.upload_folder(folder_path=str(res), repo_id=repo, path_in_repo="results/eapig_check",
+api.upload_folder(folder_path=str(res), repo_id=repo, path_in_repo=sub,
                   commit_message="eapig circuit check results")
-remote = {f for f in api.list_repo_files(repo) if f.startswith("results/eapig_check/")}
-local = {"results/eapig_check/" + str(p.relative_to(res)) for p in res.rglob("*") if p.is_file()}
+remote = {f for f in api.list_repo_files(repo) if f.startswith(sub + "/")}
+local = {sub + "/" + str(p.relative_to(res)) for p in res.rglob("*") if p.is_file()}
 missing = local - remote
 print("verify: missing on hub:", sorted(missing) or "none")
 sys.exit(1 if missing else 0)

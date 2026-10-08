@@ -14,6 +14,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -34,6 +37,7 @@ def _load_compare():
 compare = _load_compare()
 et = compare.et
 SIZES = compare.SIZES
+LARGE = (0.02, 0.05, 0.1)  # the 2026-10 rerun's sizes (run_box.sh SIZES=...)
 
 
 @pytest.fixture(scope="module")
@@ -61,6 +65,7 @@ def _write_model_dir(
     include_tests: bool = True,
     selected_size: float | None = None,
     parent_mean: np.ndarray | None = None,
+    sizes: tuple[float, ...] = SIZES,
 ) -> None:
     """Write a minimal results/<tag>/{sanity,scores,evaluate} triple."""
     d = base / tag
@@ -99,10 +104,10 @@ def _write_model_dir(
     )
 
     rng = np.random.default_rng(0)
-    sizes = {}
-    for frac in SIZES:
+    size_res = {}
+    for frac in sizes:
         f_random = rng.normal(0.1, 0.05, size=20).tolist()
-        sizes[str(frac)] = {
+        size_res[str(frac)] = {
             "k": et.size_to_k(frac, E),
             "m_circuit": 4.5,
             "m_circuit_terms": [2.2, 2.3],
@@ -117,13 +122,13 @@ def _write_model_dir(
         "m_empty": 0.0,
         "n_draws": 20,
         "n_draws_ts": 10,
-        "sizes": sizes,
+        "sizes": size_res,
         "f_log_mean": 0.9,
         "validity_gate": {"pass": gate_pass, "m_full_pos": True, "f_degenerate": False},
     }
     if include_tests:
         tests = {}
-        for i, frac in enumerate(SIZES):
+        for i, frac in enumerate(sizes):
             tests[str(frac)] = {
                 "sufficiency": True,
                 "equivalence": i >= 1,
@@ -132,11 +137,11 @@ def _write_model_dir(
                 "specificity": i >= 2,
             }
         evaluate["tests"] = tests
-        evaluate["selected_size"] = selected_size if selected_size is not None else SIZES[2]
+        evaluate["selected_size"] = selected_size if selected_size is not None else sizes[2]
     if parent_mean is not None:
         evaluate["parent_in_child"] = {
             str(frac): {"f_parent_circuit": 0.5, "f_own": 0.9, "f_random_band": [0.05, 0.1, 0.2]}
-            for frac in SIZES
+            for frac in sizes
         }
     (d / "evaluate.json").write_text(json.dumps(evaluate))
 
@@ -148,7 +153,7 @@ def _write_model_dir(
 
 def test_overlap_identical_scores_full_jaccard_and_zero_change(ctx):
     mean = _rand_mean(1)
-    for frac in SIZES:
+    for frac in SIZES + LARGE:
         ov = compare.overlap_at_size(mean, mean, frac, ctx)
         assert ov["edge_jaccard"] == pytest.approx(1.0)
         assert ov["node_jaccard_all"] == pytest.approx(1.0)
@@ -161,11 +166,11 @@ def test_overlap_identical_scores_full_jaccard_and_zero_change(ctx):
 
 def test_overlap_negated_scores_are_disjoint(ctx):
     # Negating a vector of distinct values swaps top-k for bottom-k; with
-    # k << E/2 (true for every SIZES entry on a 195,865-edge graph) the two
+    # k < E/2 (true for every size here, up to 10% of a 195,865-edge graph) the two
     # top-k sets cannot share an index.
     mean = _rand_mean(2)
     neg = -mean
-    for frac in SIZES:
+    for frac in SIZES + LARGE:
         k = et.size_to_k(frac, E)
         ov = compare.overlap_at_size(mean, neg, frac, ctx)
         assert ov["edge_jaccard"] == pytest.approx(0.0)
@@ -314,3 +319,72 @@ def test_run_compare_full_four_models(tmp_path):
     ]
     for name in pngs:
         assert (figures_dir / name).stat().st_size > 0
+
+
+# --------------------------------------------------------------------------
+# --sizes: the 2/5/10% rerun goes through the CLI with non-default sizes
+# --------------------------------------------------------------------------
+
+
+def test_ceiling_large_sizes(ctx, monkeypatch):
+    monkeypatch.setattr(compare, "SIZES", LARGE)
+    mean = _rand_mean(5)
+    same = compare.model_summary(_fake_entry(mean, mean, mean), ctx)
+    flip = compare.model_summary(_fake_entry(mean, mean, -mean), ctx)
+    assert set(same["ceiling"]) == {str(f) for f in LARGE}
+    for frac in LARGE:
+        assert same["ceiling"][str(frac)] == pytest.approx(1.0)
+        assert flip["ceiling"][str(frac)] == pytest.approx(0.0)
+
+
+def test_nearest_size_uses_current_sizes(monkeypatch):
+    monkeypatch.setattr(compare, "SIZES", LARGE)
+    assert compare._nearest_size(None) == 0.1
+    assert compare._nearest_size(0.04) == 0.05
+    assert compare._nearest_size(0.001) == 0.02
+
+
+def test_cli_large_sizes_end_to_end(tmp_path):
+    results_dir, figures_dir = tmp_path / "res", tmp_path / "fig"
+    ep_mean, fp_mean = _rand_mean(40), _rand_mean(42)
+    _write_model_dir(results_dir, "elicit_parent", ep_mean, sizes=LARGE)
+    _write_model_dir(results_dir, "elicit_child", _rand_mean(41), parent_mean=ep_mean, sizes=LARGE)
+    _write_model_dir(results_dir, "fmt_parent", fp_mean, gate_pass=False, include_tests=False,
+                     sizes=LARGE)
+    _write_model_dir(results_dir, "teach_child", _rand_mean(43), parent_mean=fp_mean, em=0.3,
+                     sizes=LARGE)
+    env = os.environ | {"PYTHONPATH": str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    subprocess.run(
+        [sys.executable, str(COMPARE_PATH), "--results-dir", str(results_dir),
+         "--figures-dir", str(figures_dir), "--sizes", *map(str, LARGE)],
+        check=True, env=env, capture_output=True,
+    )
+    out = json.loads((results_dir / "compare.json").read_text())
+    want = {str(f) for f in LARGE}
+    for tag in ("elicit_parent", "elicit_child", "teach_child"):
+        assert set(out["models"][tag]["f_curve"]) == want
+        assert all(v == pytest.approx(0.9) for v in out["models"][tag]["f_curve"].values())
+    for route in ("elicit", "teach"):
+        assert set(out["routes"][route]["sizes"]) == want
+        for frac in LARGE:
+            r = out["routes"][route]["sizes"][str(frac)]
+            assert 0.0 <= r["edge_jaccard"] <= 1.0
+            # random top-k sets: Jaccard sits near its exact chance value k/(2E-k)
+            assert r["edge_jaccard"] == pytest.approx(r["chance_edge_jaccard"], abs=0.02)
+    summary = (results_dir / "summary.md").read_text()
+    assert "| 0.1 |" in summary and "| 0.001 |" not in summary
+    assert len(list(figures_dir.glob("*.png"))) == 5
+
+
+def test_cli_default_sizes_unchanged(tmp_path):
+    """No --sizes: the original 0.1-1% grid, so the first run's outputs reproduce."""
+    results_dir, figures_dir = tmp_path / "res", tmp_path / "fig"
+    _write_model_dir(results_dir, "elicit_parent", _rand_mean(50))
+    env = os.environ | {"PYTHONPATH": str(ROOT) + os.pathsep + os.environ.get("PYTHONPATH", "")}
+    subprocess.run(
+        [sys.executable, str(COMPARE_PATH), "--results-dir", str(results_dir),
+         "--figures-dir", str(figures_dir)],
+        check=True, env=env, capture_output=True,
+    )
+    out = json.loads((results_dir / "compare.json").read_text())
+    assert set(out["models"]["elicit_parent"]["f_curve"]) == {str(f) for f in SIZES}

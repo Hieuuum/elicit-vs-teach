@@ -157,3 +157,5 @@ Space token scored; counterfactual shares a token (asserted in code); non-standa
   excluded problems are taken from `sanity.json` per model (not yet needed).
 
 - 2026-10-01: checkpoints now on HF as `podhajskimarcin/<run_id>` (runs/<rid>/model/, fp32, 4.94 GB each; configs verified 16L/32q/8kv/2048/tied). Ready to run.
+- 2026-10-01: first run done (box 53715523, results on HF `mhieuuu/geode-internals:results/eapig_check/`). No model passes all five tests at 0.1–1% (max 2/5). Sanity EM decode bug (post-EOS text glued on) fixed in 24b3d48 and sanity rerun before the push.
+- 2026-10-07: owner asked for the pre-registered "no circuit at ≤ 1%" branch at 2%, 5% and 10% (10% added by owner), same plan otherwise: reuse first-run `scores.pt` + `sanity.json` (same draw counts), outputs to `results_large/` / HF `results/eapig_check_large/`. `--sizes` / `SIZES`, `RES_NAME`, `HF_SUBDIR`, `BATCH_SIZE` added. Runbook for the executing agent: `HANDOFF-sizes-2-5-10.md`.

@@ -253,7 +253,8 @@ def stage_score(model, graph, data, out: Path, bs: int) -> None:
 
 
 def stage_evaluate(model, graph, tok, data, out: Path, bs: int, is_parent: bool,
-                   parent_scores: Path | None, draws: tuple[int, int] | None = None) -> None:
+                   parent_scores: Path | None, draws: tuple[int, int] | None = None,
+                   sizes: tuple[float, ...] = SIZES) -> None:
     dev = next(model.parameters()).device
     sanity = json.loads((out / "sanity.json").read_text())
     sc = torch.load(out / "scores.pt")
@@ -276,7 +277,7 @@ def stage_evaluate(model, graph, tok, data, out: Path, bs: int, is_parent: bool,
 
     # ---- steps 3-5: circuits, f curve, sufficiency + partial necessity draws (all sizes)
     circuits = {}
-    for frac in SIZES:
+    for frac in sizes:
         k = et.size_to_k(frac, E)
         circ = torch.as_tensor(et.topk_edges(mean.numpy(), k))
         circuits[frac] = circ
@@ -303,10 +304,10 @@ def stage_evaluate(model, graph, tok, data, out: Path, bs: int, is_parent: bool,
         print(f"[eval] size {frac}: f {f_suff[0]:.3f} suff "
               f"{res['sizes'][str(frac)]['sufficiency']['pass']}")
     res["f_log_mean"] = et.log_size_mean_f(
-        list(SIZES), [res["sizes"][str(s)]["f"] for s in SIZES])
+        list(sizes), [res["sizes"][str(s)]["f"] for s in sizes])
 
     # ---- step 6: parent validity gate
-    gate = m_full > 0 and any(res["sizes"][str(s)]["sufficiency"]["pass"] for s in SIZES)
+    gate = m_full > 0 and any(res["sizes"][str(s)]["sufficiency"]["pass"] for s in sizes)
     res["validity_gate"] = {"m_full_pos": m_full > 0, "pass": bool(gate),
                             "f_degenerate": et.faithfulness(m_full, m_empty, m_full)[1]}
 
@@ -318,7 +319,7 @@ def stage_evaluate(model, graph, tok, data, out: Path, bs: int, is_parent: bool,
         copy_full = eval_ld(model, graph, copy, [full], bs)[0, :, 0].numpy()
         per_ex["full"] = full_ld
         per_ex["copy_full"] = copy_full
-        for frac in SIZES:
+        for frac in sizes:
             r = res["sizes"][str(frac)]
             k, circ = r["k"], circuits[frac]
             t: dict = {}
@@ -385,7 +386,7 @@ def stage_evaluate(model, graph, tok, data, out: Path, bs: int, is_parent: bool,
         if parent_scores is not None:
             pmean = torch.load(parent_scores)["mean"]
             res["parent_in_child"] = {}
-            for frac in SIZES:
+            for frac in sizes:
                 k = et.size_to_k(frac, E)
                 pc = torch.as_tensor(et.topk_edges(pmean.numpy(), k))
                 ld = eval_ld(model, graph, val, [keep_only(graph, pc, dev)], bs)[0, :, 0]
@@ -427,6 +428,8 @@ def main() -> None:
     ap.add_argument("--results", default=str(HERE / "results"))
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--batch-size", type=int, default=16)
+    ap.add_argument("--sizes", type=float, nargs="+", default=list(SIZES),
+                    help="circuit sizes (fractions of edges) for the evaluate stage")
     ap.add_argument("--smoke-draws", type=int, nargs=2, default=None,
                     help="override (draws, tinystories draws); CPU smoke test only")
     a = ap.parse_args()
@@ -451,7 +454,7 @@ def main() -> None:
             stage_score(model, graph, data, out, a.batch_size)
         elif st == "evaluate":
             stage_evaluate(model, graph, tok, data, out, a.batch_size, is_parent, pscores,
-                           tuple(a.smoke_draws) if a.smoke_draws else None)
+                           tuple(a.smoke_draws) if a.smoke_draws else None, tuple(a.sizes))
         print(f"[{a.tag}] stage {st} done in {time.time() - t0:.0f}s", flush=True)
 
 
