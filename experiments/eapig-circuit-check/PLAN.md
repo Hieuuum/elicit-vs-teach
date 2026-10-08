@@ -198,6 +198,92 @@ from saved artifacts because m(empty) is not stored per example.
 Single training seed per child; every elicit-vs-teach difference above is
 single-run.
 
+### 2026-10 circuit change at 10% (parent → child)
+
+**Exploratory, CPU only**, from the saved `scores.pt` (no new model runs, no
+frozen test touched). Script `circuit_change.py`; output
+`results_large/circuit_change.json` and `results_large/figures/cc_*.png`
+(local, gitignored). Circuit = top 10% by signed mean score (k = 19,586).
+Edge Jaccards reproduce `compare.json` exactly (asserted).
+
+**Read this first: the parents' circuits are mostly sign noise.** Pick each
+model's top 1,000 edges by |score| in one half of the discovery set and check
+their sign in the other half (null = 0.5):
+
+| model | sign agreement | split-half Spearman, signed | split-half Spearman, \|score\| | 10% ceiling |
+|---|---|---|---|---|
+| elicit_parent | 0.63 | 0.12 | 0.45 | 0.207 |
+| elicit_child | 0.999 | 0.41 | 0.68 | 0.529 |
+| fmt_parent | 0.52 | 0.01 | 0.58 | 0.174 |
+| teach_child | 0.99 | 0.55 | 0.73 | 0.548 |
+
+The parents agree on *which* edges are large, but the sign of those edges is
+at or near chance. A signed top-10% circuit in a parent is therefore "large
+edges whose sign happened to come out positive". Everything below inherits
+this.
+
+**How much changed** (a → b; chance Jaccard 0.053):
+
+| pair | edge Jaccard | Spearman, signed | Spearman, \|score\| | \|score\| top-10% Jaccard | b's mass on kept edges |
+|---|---|---|---|---|---|
+| elicit (elicit_parent → elicit_child) | 0.179 | 0.02 | 0.40 | 0.31 | 0.52 |
+| teach (fmt_parent → teach_child) | 0.162 | 0.00 | 0.39 | 0.31 | 0.54 |
+| ref: elicit_child vs teach_child | 0.231 | 0.07 | 0.44 | 0.30 | 0.95 |
+| ref: elicit_parent vs fmt_parent | 0.129 | 0.01 | 0.32 | 0.30 | 0.41 |
+
+- Signed scores are uncorrelated parent → child (Spearman ≈ 0) on both
+  routes. |score| correlates about 0.4 in **every** pair, including the two
+  parents with each other. Which edges are large is shared by all four
+  models, so it reflects the architecture and inputs, not the route.
+
+**What became important.** For each child's top 1,000 edges, where they sat
+in the parent:
+
+| pair | in parent's circuit (top 10%) | in parent's bottom 10% (most negative) | in parent's \|score\| top 10% |
+|---|---|---|---|
+| elicit | 0.51 | 0.46 | 0.93 |
+| teach | 0.49 | 0.47 | 0.93 |
+| ref: children | 0.94 | 0.04 | 0.97 |
+| ref: parents | 0.48 | 0.48 | 0.90 |
+
+- 93% of each child's top edges were already large in the parent. About half
+  had a positive sign there and half a negative one, on both routes and in
+  the parent-vs-parent reference alike. This is the coin-flip parent sign,
+  not a route effect.
+- The top "added" edges on both routes are layer-0 / early-MLP edges
+  (`embed→a0.v0`, `embed→a0.v2`, `m0→m1.in`, `m0→m2.in`) that were at
+  the parent's very bottom (rank ≈ 195,860 of 195,865). They are large-magnitude
+  edges whose parent sign was negative. They are not new edges.
+
+**Shape.** Fine-tuning concentrates the positive score mass. Half of it sits
+on 35 edges in `elicit_child` and 48 in `teach_child`, against 1,592
+(`elicit_parent`) and 1,431 (`fmt_parent`). 90% sits on about 1,070–1,090
+edges in the children and 28k–33k in the parents. The two children's curves
+nearly overlap (`cc_mass_concentration.png`). The parent side is weak signal
+plus sign noise, so read this as "the children have a sharp circuit and the
+parents don't", not as a measured change of shape.
+
+**Where (counts, added − dropped).** By receiver type, elicit nets +1,738
+value-input edges and −2,266 query-input edges; teach nets +83 and +591.
+Both routes gain MLP-input edges (+1,210 elicit, +886 teach). The layer
+heatmaps (`cc_layer_added_minus_dropped.png`) differ by route. Elicit's
+layer 0 sends +1,312 more edges, layers 1–3 send about 800 fewer each, and
+receivers 14–15 lose 1,349 and 1,189. Teach's layers 0–5 send fewer edges
+(−605 at layer 0), layers 6–7 send +510 and +552, receivers 4–5 lose
+(−372, −444) and receivers 9–11 gain (+465 at 9). The parent-vs-parent
+reference shows shifts of the same size (layer 0 sends +1,970; receivers
+13–15 lose 539–901). That reference has no fine-tuning in it, so these maps
+do not exceed noise. The "dropped" half of each map is the parent's
+positive-by-chance edges.
+
+**Elicit vs teach.** No separation on any whole-circuit number. The two routes
+are within 0.02 on Jaccard, Spearman, kept-mass share and every rank-shift
+share. Both match the parent-vs-parent reference. At 10%, the parent → child
+comparison measures the parents' sign noise more than any circuit change.
+Caveats: both parents have EM 0; `fmt_parent`'s m(full) − m(empty) is 0.002;
+the children's EM differs (0.953 vs 0.145); there is one training seed per
+child.
+
 ## Global takeaways
 
 [ ]
@@ -234,3 +320,4 @@ single-run.
 - 2026-10-08 01:53 UTC: checked whether "100% GPU util" is real saturation (nvidia-smi util only means a kernel was resident each sample). `nvidia-smi dmon`: power 298–299/300 W (at cap), memory-controller busy 78–100%, clock ~1.4 GHz power/thermal-limited. The job is memory-bandwidth bound and the card is genuinely saturated; consistent with the bs probe (4× batch → only 9% faster). No side-by-side process (it would split the same power/bandwidth).
 - 2026-10-08 04:39 UTC: rerun DONE (`EXIT=0`, box log `verify: missing on hub: none`). Evaluate times at bs 32: `elicit_parent` 1866 s, `fmt_parent` 1849 s, `elicit_child` 3720 s, `teach_child` 3767 s; launch → push 3 h 07 min (vs ~2–2.5 h estimated; children run 100 draws). Verified from the laptop: 24 files under HF `results/eapig_check_large/`, every `evaluate.json` has k = 3917/9793/19586, draws 50 (parents) / 100 (children), TinyStories 10, gate pass, selected size none; seeded `sanity.json` files untouched (01:29 timestamps). Box 54750972 destroyed. `compare.py` ran on the box (summary.md + figures pushed); not re-run on the laptop since it needs the four 200 MB `scores.pt` and gives the same output. Results above.
 - 2026-10-08: owner: treat the consistency and specificity failures as a test-design question for later, and for now only examine how the 10% circuit changes from parent to child on each route (CPU only, from saved `scores.pt`; only final checkpoints exist, so "over time" = the two endpoints). Two design notes from the saved numbers, not yet acted on: consistency coverage is capped at n_shared/k (0.26 `elicit_child`, 0.24 `teach_child` at 10%; at or below 0.70 at all 7 sizes, best 0.699 for `elicit_child` at 0.1%), and removing even the top 0.1% floors both addition and copy (relative drop 2.0 at all 7 sizes), so specificity cannot separate the tasks as built. Runbook: `HANDOFF-circuit-change.md`.
+- 2026-10-08: parent → child circuit change at 10% (`HANDOFF-circuit-change.md`), CPU only on the laptop from the HF `results/eapig_check_large/` `scores.pt` (pulled single-threaded into `results_large/`). New script `circuit_change.py`; edge Jaccards reproduce `compare.json` (asserted). Added beyond the runbook: a cross-half sign check (top-n by |score| in one half, sign read in the other; null 0.5) and |score| versions of the overlap stats, because the child's top edges turned out to sit at the parent's very top or very bottom in about equal shares. Finding: parent edge signs are at or near chance (0.52 `fmt_parent`, 0.63 `elicit_parent` vs ≥ 0.99 children), so the signed parent → child comparison mostly measures parent sign noise. No elicit-vs-teach separation. Results block above.
