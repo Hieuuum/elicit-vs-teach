@@ -43,16 +43,60 @@ picked #1, #2 and #4:
 | Item | Value | Status |
 |---|---|---|
 | GPU | **one box with 2× RTX 3090**, race 3 | **owner, 2026-10-08** |
-| Score children on symbol too | yes (+~10 min GPU) | proposed; confirm |
+| Score children on symbol too | **decided after step S**: the owner wants to see the children's symbol-form performance first | **owner, 2026-10-08: pending step S** |
 | Random draws in the probe stage | 20 parents / 10 children | proposed; confirm |
 | Full KL test rerun | all five tests, KL-judged, on the KL-word circuits. **First pass: 2% and 5% only. Then STOP and report to the owner.** 0.1 / 0.2 / 1% run only after the owner says go | **owner, 2026-10-08** |
 | KL equivalence bound | mean per-example KL(full ‖ circuit) < 0.10 × mean KL(full ‖ empty), one-sided t-test, α = 0.05 | **owner, 2026-10-08** |
 | KL parent gate | mean KL(full ‖ empty) > 0.1 nats, and sufficiency passes at some size | **owner, 2026-10-08** |
 
+## Step S (FIRST): symbol-form performance of all four models
+
+The owner wants to see how well the children do on the symbol form before
+deciding whether to score them on it (owner, 2026-10-08). The parents are
+included because they are cheap and give the reference.
+
+- **Data (considerable).** All 50,000 addition rows of `D_algo_eval_op`
+  (op `+`, 10 cells, 5,000 each; prompt `"{a} + {b} = "`). Plus the **same
+  50,000 problems** in word form from `D_algo_eval_bare`. Both are re-renders
+  of the frozen `D_algo_eval` triples, so word and symbol are compared on
+  identical problems.
+  - Headline: the 4x4 cell, which is the circuit task.
+  - Also report 4x4 on the leakage-clean subset, using the same exclusion
+    set as `data.py`'s pair pool.
+- **Measures, per model × surface × cell:**
+  - greedy exact match (max 6 new tokens; cut at EOS before decoding, as in
+    `run.py` sanity);
+  - for 4x4, teacher-forced log-prob of the answer.
+- **Measures on the 768 circuit pairs** (512 discovery + 256 validation),
+  re-rendered in symbol form: m(full) and m(empty) (LD). This tells whether
+  an LD-symbol circuit would have signal.
+- **Tokenization check first, on the laptop (tokenizer only, no model).**
+  - Is `"{a} + {b} = "` a token-prefix of the full training text
+    `"{a} + {b} = {answer}"`?
+  - How does the trailing space tokenize?
+  - If the prompt is not a clean prefix, use the training tokenization (see
+    memory `feedback-eval-decode-must-match-training-tokenization`).
+- **Script:** `symbol_eval.py`, one model per process, `--device`.
+  - Output `results_symbol/<tag>/symbol_eval.json`, pushed to HF
+    `results/eapig_symbol_eval/`.
+  - It needs only `data.py`'s symbol render. It does not depend on any KL
+    code.
+- **Time:** ~5 min per model after download, at bs 128 with 6 new tokens.
+  Two GPUs (elicit pair on GPU 0, teach pair on GPU 1) gives about 10–15 min
+  after the box is ready.
+- **Report:** when step S finishes, **ping the owner** (an experiment
+  completed) with the table below, and wait for the decision on children +
+  symbol. Do not hold the definite jobs for it (see the fan-out plan).
+
+| model | word EM 4x4 | symbol EM 4x4 | symbol EM, all 10 cells | symbol m(full) − m(empty) on the 768 pairs |
+|---|---|---|---|---|
+| elicit_parent / elicit_child / fmt_parent / teach_child | … | … | … | … |
+
 ## Steps
 
 | Step | What | Where |
 |---|---|---|
+| S | Symbol-form performance check (above), run **first**, in parallel with the step 0 build | GPU |
 | 0 | Build the code (below). Smoke-test only through pytest's tiny fixtures (memory: never instantiate a model on the laptop outside pytest); the first real run is the box's sanity stage. Then commit and push | laptop |
 | 1 | Symbol sanity per model: EM, m(full), m(empty) | GPU |
 | 2 | Score the 3 new sets per model: LD-symbol, KL-word, KL-symbol (~45 s each) | GPU |
@@ -170,12 +214,22 @@ before):
 
 **Fan-out plan:**
 
-| Wave | In parallel | Fan-in |
+Owner, 2026-10-08: **rent the box and run step S in parallel with building
+the KL parts we will definitely do.** "Definite" means everything except
+scoring the children on symbol.
+
+| Wave | In parallel (≤ 4 agents) | Fan-in |
 |---|---|---|
-| A (step 0 build) | W1: `data.py` symbol render + tokenization check. W2: KL metric + KL equivalence test in `geode/circuits` with property tests. W3: `run.py` flags, the probe stage, and the KL evaluate path (needs W2's function signatures, so agree on those first). W4: `run_box_2gpu.sh` + `circuit_change.py` multi-set args + the edge-vs-node script with its null, run on the existing LD-word scores (#4 needs no GPU) | The orchestrator reviews the diffs, runs the full suite once, commits and pushes |
-| B (box) | Start the 3-box race as soon as wave A is pushed. While boxes boot, a worker writes the PLAN.md skeleton for the results | Pick the winner, destroy the others |
+| A | **W-box (Opus):** tokenization check, `data.py` symbol render + `symbol_eval.py`, push, then the 3-box race with the stage deadlines, set up the winner, run step S on both GPUs, push to HF, verify from the laptop. Keep the box. **W1 (Sonnet):** KL metric + KL equivalence test in `geode/circuits`, with property tests. **W2 (Opus):** the `run.py --metric kl` path: `eval_kl`, KL f, the five KL tests, the KL gate, the probe stage. Agree W1's function signatures first. **W3 (Sonnet):** `run.py --task symbol` (uses W-box's render) + `circuit_change.py` multi-set args | Step S done → the orchestrator **pings the owner** with the step S table and asks about children + symbol. Build done → review the diffs, run the full suite once, commit and push |
+| A2 | **W4 (Sonnet):** `run_box_2gpu.sh` (queue below; children-symbol jobs behind a flag, off by default) + the edge-vs-node script with its null, run on the existing LD-word scores (#4 needs no GPU) | Review, commit, push |
+| B (box) | On the box kept from step S, pull the pushed HEAD and launch the definite jobs: steps 1–3 for everything except children-symbol, then step 6 at 2% and 5%. If the owner says yes to children + symbol, flip the flag and queue those jobs (~10 GPU-min). While it runs, a worker writes the PLAN.md skeleton | – |
 | C (box running) | Both GPUs run (layout below). The box's idle CPU cores run the CPU analysis on each score set **as soon as its scores exist**. Do not wait for the whole job, and do not use the laptop for this | – |
 | D (analysis) | One worker per score set reads the box's JSONs/PNGs (pulled single-threaded) and drafts its table. One worker drafts the full-KL-test table | The orchestrator writes the Results block, Log entry and memory |
+
+**Keeping the box between step S and wave B.** An idle 2× 3090 costs about
+$0.35/h, and a re-race costs ~15 min. Keep it while the build is under way.
+If the build is not pushed within **2 h** of step S finishing, destroy the
+box and re-race when the build is ready.
 
 ## Box utilization
 
@@ -241,7 +295,10 @@ memory-bandwidth bound. Use bs 32.
 - Steps 1–3: GPU work is ~55 min on one 3090, so ~28 min per GPU on two.
 - Step 6, first pass (2% + 5%): ~64 min per GPU on two.
 - Fixed overhead is ~28 min: race/onstart, pip, model downloads, push.
-- Wall-clock ≈ **~2 h**. Cost ≈ **~$0.8–0.9**, including the 3-box race.
+- Step S: ~10–15 min of GPU time, plus up to ~2 h of idle box while the build
+  finishes (~$0.7 at most).
+- Wall-clock ≈ **~2 h** from the box launch of wave B. Total cost ≈
+  **~$0.9–1.6**, including the 3-box race and the idle wait.
 - A later pass for 0.1 / 0.2 / 1% would be another ~1.5 h of GPU time plus
   ~28 min of overhead, ~$0.7.
 - Team credit was $76.40.
