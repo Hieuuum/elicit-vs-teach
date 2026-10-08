@@ -315,6 +315,45 @@ The 10% reading holds at both sizes.
   - Elicit also gains value-input edges: +276 / +973 / +1,738. Teach gains
     +172 / +73 / +83, and parent-vs-parent +257 / +460 / +652.
 
+### 2026-10-08 KL metric, op-form parent circuit, functional reuse (exploratory)
+
+Box 54866627 (2× 3090). HF `results/eapig_kl_symbol/` (scores, edge, functional) and
+`results/eapig_kl_tests/frac_{0.02,0.05}/`. Deck: claude.ai/artifact/RwoygAuWM2Jvzxrck2cRae.
+
+**Behavior (greedy EM).** `elicit_parent`: op-form addition 0.850 (4x4 0.403), NL add/sub
+0.0000 (2.7% of outputs are integers). `elicit_child`: op add 0.886, NL 0.986.
+`teach_child`: NL 0.403. `fmt_parent`: 0.000. Symbol subtraction not measurable:
+`a - b = ` is not a token-prefix of `a - b = -c` (" -" merges), 25,004 rows.
+
+**KL fixes the parent noise.** Split-half Jaccard of parent circuits at 2%: LD 0.19–0.24,
+KL 0.67–0.68. `fmt_parent` fails the KL gate (KL(full‖∅) 0.005 nats).
+
+**Headline: the elicit child reuses the parent's op-form circuit.**
+
+| top-2% circuits | KL Jaccard | LD Jaccard | functional f share, KL / LD |
+|---|---|---|---|
+| `elicit_parent` op → `elicit_child` word | **0.661** | **0.663** | **0.96 / 0.96** |
+| `elicit_parent` op → `teach_child` word (control) | 0.367 | 0.362 | 0.53 / 0.64 |
+| `elicit_parent` word → `elicit_child` word | 0.310 | 0.226 | 0.28 / 0.00 |
+| `fmt_parent` word → `teach_child` word | 0.299 | 0.198 | 0.31 / 0.02 |
+| split-half ceiling | 0.71–0.75 | 0.76–0.81 | |
+
+Functional share = f of the child on word val pairs with only that circuit live, over the
+child's own circuit f (`functional_reuse.py`; random sets ≈ 0). At 5%: elicit 0.98 / 0.97,
+teach control 0.61 / 0.78. `elicit_child` op vs word circuits: 0.79 (one circuit for both
+forms). At 1%, op-parent → child changes 16% of edges (word parent: 52–69%).
+
+**Against the word-task parent the routes look the same** (KL edges replaced at 2%: 53%
+elicit, 54% teach; 87–89% of child weight on kept edges; nodes change ~3× more than the
+N3 null at 1%, both routes). This comparison cannot see reuse: the parents have no
+word-task skill.
+
+**KL tests (2% and 5% same pattern).** Sufficiency + partial necessity pass for all three
+gated models; equivalence passes for `elicit_parent` and `elicit_child` (leftover KL 0.63
+/ 3.37 nats vs bounds 1.98 / 4.23 at 2%), fails for `teach_child` (7.91 vs 2.78);
+consistency fails (coverage 0.21–0.28); specificity fails because removing the circuit
+floors both addition and copy (relative damage 1.00). No circuit passes all five.
+
 ## Global takeaways
 
 [ ]
@@ -358,3 +397,4 @@ The 10% reading holds at both sizes.
 - 2026-10-08: owner. Full KL test rerun, first pass = 2% and 5% only (run both even if 2% passes all five), then report and wait; 0.1 / 0.2 / 1% only on the owner's go. KL equivalence bound (KL(full ‖ C) < 0.10 × KL(full ‖ ∅), one-sided) and KL parent gate (KL(full ‖ ∅) > 0.1 nats + sufficiency somewhere) CONFIRMED. Handoff estimate is now ~2 h and ~$0.8–0.9.
 - 2026-10-08: owner. New FIRST step S in `HANDOFF-kl-symbol-nodeedge.md`: symbol-form performance of all 4 models on all 50,000 `D_algo_eval_op` addition rows plus the same problems in word form (4x4 headline, leakage-clean 4x4 too, m(full)/m(empty) on the 768 circuit pairs). The owner decides on scoring the children on symbol after seeing it. A box agent rents the 2× 3090 and runs step S while the other agents build the definite KL parts in parallel; the box is kept for the main run (destroyed if the build is not pushed within 2 h). Not started; fresh session.
 - 2026-10-08: owner. Symbol form is ELICIT ROUTE ONLY; the teach route never trained on symbols, so it stays on NL add/sub (the default for `fmt_parent`). The `elicit_parent` plan is pending the owner: no `elicit_parent` symbol job until decided. Step S now measures `elicit_child` (symbol add 50k + NL add/sub 100k), `fmt_parent` and `teach_child` (NL add/sub 100k each), with strict and |a−b|-lenient EM for NL subtraction. The handoff's box uses one shared GPU job queue.
+- 2026-10-08: step S done (box 54866627, ~$0.45; results `results/eapig_perf_eval/`). Wave B launched with symbol off, then stopped by the owner at 15:44 for a new order: edge/node change for each metric first, then the KL circuit tests at 2%, then 5% (LD tests at 2/5% reused from `results_large/`, same frozen code). Owner then asked for `elicit_parent` on the op form vs `elicit_child` on word, and the functional test; both run (`functional_reuse.py`). Symbol subtraction dropped: its prompts are not token-prefixes. Everything pushed and verified from the laptop (`missing: none`), box destroyed; session spend ~$1.56. 0.1/0.2/1% KL tests NOT run (owner's go needed). Results block above.
