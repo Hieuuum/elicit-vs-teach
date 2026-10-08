@@ -48,12 +48,18 @@ load_pairs = eapig_data.load_pairs
 build_addition_pairs = eapig_data.build_addition_pairs
 build_copy_pairs = eapig_data.build_copy_pairs
 build_tinystories = eapig_data.build_tinystories
+build_symbol_pairs = eapig_data.build_symbol_pairs
+leakclean_idx = eapig_data.leakclean_idx
+SYMBOL_PROMPT = eapig_data.SYMBOL_PROMPT
+SYMBOL_PAIRS_FILENAME = eapig_data.SYMBOL_PAIRS_FILENAME
 ADDITION_PROMPT = eapig_data.ADDITION_PROMPT
 ADDITION_PAIRS_FILENAME = eapig_data.ADDITION_PAIRS_FILENAME
 COPY_PAIRS_FILENAME = eapig_data.COPY_PAIRS_FILENAME
 TINYSTORIES_FILENAME = eapig_data.TINYSTORIES_FILENAME
 
 REAL_EVAL_PARQUET = REPO_ROOT / "experiments/training-run/data/full/D_algo_eval_bare.parquet"
+REAL_OP_PARQUET = REPO_ROOT / "experiments/training-run/data/full/D_algo_eval_op.parquet"
+SAVED_DATA_DIR = REPO_ROOT / "experiments/eapig-circuit-check/data"
 
 
 @pytest.fixture(scope="module")
@@ -711,3 +717,226 @@ class TestLoadPairsDirectory:
             assert clean.shape[0] == len(toks[0])
             seen += clean.shape[0]
         assert seen == n
+
+
+# ---------------------------------------------------------------------------
+# build_symbol_pairs / load_pairs(task=...) — contract C2: the same rows on
+# the "{a} + {b} = " surface; only clean_ids/corrupt_ids may differ.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def word_pairs(tmp_path, llama_tokenizer):
+    df = _make_pool_df(FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS)
+    path = tmp_path / "pool.parquet"
+    df.to_parquet(path, index=False)
+    return build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=0)
+
+
+class TestBuildSymbolPairs:
+    def test_same_rows_only_ids_differ(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        assert set(sym) == set(word_pairs)
+        for k in ("c1", "c2", "k1", "k2", "half"):
+            assert torch.equal(sym[k], word_pairs[k])
+        assert sym["answer_text"] == word_pairs["answer_text"]
+        pd.testing.assert_frame_equal(sym["meta"], word_pairs["meta"])
+        assert not torch.equal(sym["clean_ids"], word_pairs["clean_ids"][:, -sym["clean_ids"].shape[1]:])
+
+    def test_clean_ids_decode_to_symbol_prompt_plus_first_token(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        meta = word_pairs["meta"]
+        for i in range(len(meta)):
+            prompt = SYMBOL_PROMPT.format(a=meta["a"][i], b=meta["b"][i])
+            cf_prompt = SYMBOL_PROMPT.format(a=meta["cf_a"][i], b=meta["cf_b"][i])
+            ids = llama_tokenizer(prompt, add_special_tokens=False)["input_ids"]
+            cf_ids = llama_tokenizer(cf_prompt, add_special_tokens=False)["input_ids"]
+            assert sym["clean_ids"][i].tolist() == ids + [int(sym["c1"][i])]
+            assert sym["corrupt_ids"][i].tolist() == cf_ids + [int(sym["k1"][i])]
+
+    def test_prompt_is_token_prefix_of_full_text(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        meta = word_pairs["meta"]
+        for i in range(len(meta)):
+            full = SYMBOL_PROMPT.format(a=meta["a"][i], b=meta["b"][i]) + str(meta["sum"][i])
+            full_ids = llama_tokenizer(full, add_special_tokens=False)["input_ids"]
+            assert full_ids == sym["clean_ids"][i].tolist() + [int(sym["c2"][i])]
+
+    def test_trailing_space_is_own_token(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        # last prompt token (position -2) is the "= " trailing space
+        assert {llama_tokenizer.decode([int(t)]) for t in sym["clean_ids"][:, -2]} == {" "}
+        assert {llama_tokenizer.decode([int(t)]) for t in sym["corrupt_ids"][:, -2]} == {" "}
+
+    def test_fixed_length_and_both_positions_differ(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        assert sym["clean_ids"].shape == sym["corrupt_ids"].shape
+        assert (sym["c1"] != sym["k1"]).all() and (sym["c2"] != sym["k2"]).all()
+        assert torch.equal(sym["clean_ids"][:, -1], sym["c1"])
+        assert torch.equal(sym["corrupt_ids"][:, -1], sym["k1"])
+
+    def test_does_not_mutate_input(self, word_pairs, llama_tokenizer):
+        before = {k: v.clone() for k, v in word_pairs.items() if isinstance(v, torch.Tensor)}
+        meta_before = word_pairs["meta"].copy()
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        sym["half"][0] = 99
+        sym["meta"].loc[0, "a"] = -1
+        for k, v in before.items():
+            assert torch.equal(word_pairs[k], v)
+        pd.testing.assert_frame_equal(word_pairs["meta"], meta_before)
+
+    def test_token_mismatch_with_word_file_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        bad["c2"] = word_pairs["c2"].clone()
+        bad["c2"][0] += 1
+        with pytest.raises(ValueError, match="c2 differs"):
+            build_symbol_pairs(bad, llama_tokenizer)
+
+    def test_answer_text_mismatch_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        bad["answer_text"] = ["0"] + list(word_pairs["answer_text"][1:])
+        with pytest.raises(ValueError, match="answer_text"):
+            build_symbol_pairs(bad, llama_tokenizer)
+
+    def test_shared_answer_token_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        meta = word_pairs["meta"].copy()
+        meta.loc[0, ["cf_a", "cf_b", "cf_sum"]] = [meta["a"][0], meta["b"][0], meta["sum"][0]]
+        bad["meta"] = meta
+        with pytest.raises(ValueError, match="shares an answer token"):
+            build_symbol_pairs(bad, llama_tokenizer)
+
+    def test_mixed_prompt_length_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        meta = word_pairs["meta"].copy()
+        meta.loc[0, "a"] = 12  # "12 + b = " is shorter than a 4x4 prompt
+        meta.loc[0, "sum"] = 12 + int(meta["b"][0])
+        bad["meta"] = meta
+        with pytest.raises(ValueError, match="prompt token length"):
+            build_symbol_pairs(bad, llama_tokenizer)
+
+    @pytest.mark.skipif(not (SAVED_DATA_DIR / SYMBOL_PAIRS_FILENAME).is_file(),
+                        reason="saved symbol pairs not present")
+    def test_saved_file_matches_rebuild_and_word_file(self, llama_tokenizer):
+        word = load_pairs(SAVED_DATA_DIR / ADDITION_PAIRS_FILENAME)
+        saved = load_pairs(SAVED_DATA_DIR / SYMBOL_PAIRS_FILENAME)
+        word.pop("_token_sha256")
+        saved.pop("_token_sha256")
+        rebuilt = build_symbol_pairs(word, llama_tokenizer)
+        assert saved["clean_ids"].shape == (768, 9)
+        for k in ("clean_ids", "corrupt_ids", "c1", "c2", "k1", "k2", "half"):
+            assert torch.equal(saved[k], rebuilt[k])
+            if k not in ("clean_ids", "corrupt_ids"):
+                assert torch.equal(saved[k], word[k])
+        assert saved["answer_text"] == word["answer_text"]
+        pd.testing.assert_frame_equal(saved["meta"], word["meta"])
+
+    @pytest.mark.skipif(not (REAL_OP_PARQUET.is_file() and (SAVED_DATA_DIR / SYMBOL_PAIRS_FILENAME).is_file()),
+                        reason="local frozen parquet / saved symbol pairs not present")
+    def test_symbol_prompt_matches_eval_op_render(self, llama_tokenizer):
+        saved = load_pairs(SAVED_DATA_DIR / SYMBOL_PAIRS_FILENAME)
+        df = pd.read_parquet(REAL_OP_PARQUET, columns=["a", "b", "op", "prompt_text"])
+        df = df[df["op"] == "+"]
+        render = {(int(a), int(b)): p for a, b, p in zip(df["a"], df["b"], df["prompt_text"])}
+        meta = saved["meta"]
+        for i in range(0, len(meta), 37):
+            prompt = render[(int(meta["a"][i]), int(meta["b"][i]))]
+            assert prompt == SYMBOL_PROMPT.format(a=meta["a"][i], b=meta["b"][i])
+            ids = llama_tokenizer(prompt, add_special_tokens=False)["input_ids"]
+            assert saved["clean_ids"][i, :-1].tolist() == ids
+
+
+class TestLoadPairsTask:
+    def _build_dir(self, tmp_path, word_pairs, llama_tokenizer):
+        save_pairs(word_pairs, tmp_path / ADDITION_PAIRS_FILENAME)
+        save_pairs(build_symbol_pairs(word_pairs, llama_tokenizer), tmp_path / SYMBOL_PAIRS_FILENAME)
+        save_pairs(build_copy_pairs(llama_tokenizer, n=10, seed=1), tmp_path / COPY_PAIRS_FILENAME)
+
+    def test_word_default_unchanged(self, tmp_path, word_pairs, llama_tokenizer):
+        self._build_dir(tmp_path, word_pairs, llama_tokenizer)
+        a, b = load_pairs(tmp_path), load_pairs(tmp_path, task="word")
+        for s in ("disc", "val", "copy"):
+            assert torch.equal(a[s]["clean_ids"], b[s]["clean_ids"])
+        n_disc = int((word_pairs["meta"]["split"] == "discovery").sum())
+        assert torch.equal(a["disc"]["clean_ids"], word_pairs["clean_ids"][:n_disc])
+
+    def test_symbol_swaps_only_disc_val_ids(self, tmp_path, word_pairs, llama_tokenizer):
+        self._build_dir(tmp_path, word_pairs, llama_tokenizer)
+        w, s = load_pairs(tmp_path), load_pairs(tmp_path, task="symbol")
+        assert set(w) == set(s)
+        assert torch.equal(w["copy"]["clean_ids"], s["copy"]["clean_ids"])
+        for split in ("disc", "val"):
+            for k in ("c1", "c2", "k1", "k2", "half"):
+                assert torch.equal(w[split][k], s[split][k])
+            assert w[split]["answer_text"] == s[split]["answer_text"]
+            assert not torch.equal(w[split]["clean_ids"][:, -2], s[split]["clean_ids"][:, -2])
+            assert s[split]["clean_ids"].shape[0] == w[split]["clean_ids"].shape[0]
+
+    def test_unknown_task_raises(self, tmp_path, word_pairs, llama_tokenizer):
+        self._build_dir(tmp_path, word_pairs, llama_tokenizer)
+        with pytest.raises(ValueError, match="unknown task"):
+            load_pairs(tmp_path, task="kl")
+        with pytest.raises(ValueError, match="unknown task"):
+            load_pairs(tmp_path / ADDITION_PAIRS_FILENAME, task="Symbol")
+
+    def test_symbol_missing_file_raises(self, tmp_path, word_pairs, llama_tokenizer):
+        save_pairs(word_pairs, tmp_path / ADDITION_PAIRS_FILENAME)
+        save_pairs(build_copy_pairs(llama_tokenizer, n=10, seed=1), tmp_path / COPY_PAIRS_FILENAME)
+        load_pairs(tmp_path)  # word still fine
+        with pytest.raises(FileNotFoundError):
+            load_pairs(tmp_path, task="symbol")
+
+    def test_file_path_ignores_task(self, tmp_path, word_pairs, llama_tokenizer):
+        self._build_dir(tmp_path, word_pairs, llama_tokenizer)
+        a = load_pairs(tmp_path / SYMBOL_PAIRS_FILENAME, task="word")
+        b = load_pairs(tmp_path / SYMBOL_PAIRS_FILENAME, task="symbol")
+        assert torch.equal(a["clean_ids"], b["clean_ids"])
+
+
+class TestLeakcleanIdx:
+    def _df(self):
+        rows = []
+        for i, (a, b, op, cell) in enumerate([
+            (1234, 5678, "+", "4x4"), (5678, 1234, "+", "4x4"), (2000, 3000, "+", "4x4"),
+            (1234, 5678, "-", "4x4"), (12, 5678, "+", "2x4"), (4321, 8765, "+", "4x4"),
+        ]):
+            rows.append({"idx": 10 + i, "a": a, "b": b, "op": op, "cell": cell})
+        return pd.DataFrame(rows)
+
+    def test_excludes_unordered_pairs_and_filters_cell_op(self, tmp_path):
+        path = tmp_path / "e.parquet"
+        self._df().to_parquet(path, index=False)
+        res = leakclean_idx(path, {(1234, 5678)})
+        # both orders of {1234, 5678} dropped; '-' and 2x4 rows never counted
+        assert res["idx"] == [12, 15]
+        assert (res["n_rows"], res["n_clean"], res["n_excluded"]) == (4, 2, 2)
+
+    def test_empty_exclusion_keeps_all(self, tmp_path):
+        path = tmp_path / "e.parquet"
+        self._df().to_parquet(path, index=False)
+        res = leakclean_idx(path, set())
+        assert res["idx"] == [10, 11, 12, 15] and res["n_excluded"] == 0
+
+    def test_other_op_cell(self, tmp_path):
+        path = tmp_path / "e.parquet"
+        self._df().to_parquet(path, index=False)
+        assert leakclean_idx(path, set(), op="-")["idx"] == [13]
+        assert leakclean_idx(path, {(12, 5678)}, cell="2x4")["n_clean"] == 0
+
+    @pytest.mark.skipif(not (SAVED_DATA_DIR / "perf_leakclean_4x4_idx.json").is_file(),
+                        reason="saved leakclean json not present")
+    def test_saved_json_consistent(self):
+        import json
+
+        res = json.loads((SAVED_DATA_DIR / "perf_leakclean_4x4_idx.json").read_text())
+        assert res["n_rows"] == 5000
+        assert res["n_clean"] == len(res["idx"]) == res["n_rows"] - res["n_excluded"]
+        assert res["idx"] == sorted(set(res["idx"]))
+        # every saved word/symbol pair (the pair pool used the same exclusion) is clean
+        if REAL_OP_PARQUET.is_file():
+            df = pd.read_parquet(REAL_OP_PARQUET, columns=["idx", "a", "b", "op", "cell"])
+            clean = df[df["idx"].isin(res["idx"])]
+            assert set(clean["op"]) == {"+"} and set(clean["cell"]) == {"4x4"}
+            pairs = load_pairs(SAVED_DATA_DIR / ADDITION_PAIRS_FILENAME)["meta"]
+            ok = {(int(a), int(b)) for a, b in zip(clean["a"], clean["b"])}
+            assert all((int(a), int(b)) in ok for a, b in zip(pairs["a"], pairs["b"]))

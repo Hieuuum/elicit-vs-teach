@@ -41,10 +41,16 @@ import pandas as pd
 import torch
 
 ADDITION_PROMPT = "What is the sum of {a} and {b}?\n"
+# D_algo_eval_op's render (the elicit route's training surface); the trailing
+# space is its own token, and the prompt is a clean token-prefix of
+# prompt + answer (checked per row by _validate_pool_tokenization).
+SYMBOL_PROMPT = "{a} + {b} = "
 COPY_PROMPT = "Tom had {n} apples. How many apples did Tom have?\n"
 
 # Fixed filenames `load_pairs(directory)` looks for (see module docstring).
 ADDITION_PAIRS_FILENAME = "pairs_seed0.pt"
+SYMBOL_PAIRS_FILENAME = "pairs_symbol_seed0.pt"  # same rows, symbol surface (task="symbol")
+PAIRS_FILENAMES = {"word": ADDITION_PAIRS_FILENAME, "symbol": SYMBOL_PAIRS_FILENAME}
 COPY_PAIRS_FILENAME = "copy_pairs_seed1.pt"
 TINYSTORIES_FILENAME = "tinystories_seed2.pt"
 
@@ -173,13 +179,15 @@ def _pairs_subset(pairs: dict, mask: np.ndarray) -> dict:
     return out
 
 
-def _load_pairs_dir(directory: Path) -> dict:
+def _load_pairs_dir(directory: Path, task: str = "word") -> dict:
     """Assemble the combined ``{"disc", "val", "copy", "stories"}`` dict
     ``run.py`` expects (module docstring) from the three fixed filenames in
-    ``directory``. ``stories`` is the raw TinyStories token tensor (not the
-    wrapping dict) and is omitted if that file isn't present (it needs
-    network to build; see ``build_tinystories``)."""
-    addition = _load_single(directory / ADDITION_PAIRS_FILENAME)
+    ``directory``. ``task`` picks the addition-pairs file (``PAIRS_FILENAMES``:
+    word -> ``pairs_seed0.pt``, symbol -> ``pairs_symbol_seed0.pt``); copy and
+    stories are the same for every task. ``stories`` is the raw TinyStories
+    token tensor (not the wrapping dict) and is omitted if that file isn't
+    present (it needs network to build; see ``build_tinystories``)."""
+    addition = _load_single(directory / PAIRS_FILENAMES[task])
     meta = addition["meta"]
     is_disc = (meta["split"] == "discovery").to_numpy()
     is_val = (meta["split"] == "validation").to_numpy()
@@ -194,17 +202,20 @@ def _load_pairs_dir(directory: Path) -> dict:
     return combined
 
 
-def load_pairs(path: str | Path) -> dict:
+def load_pairs(path: str | Path, task: str = "word") -> dict:
     """Load pairs saved by ``save_pairs``.
 
     Given a *file*, loads exactly that saved dict (verifying its token
-    sha256). Given a *directory*, assembles the combined ``{"disc", "val",
-    "copy", "stories"}`` dict ``run.py`` consumes directly — see the module
-    docstring and ``_load_pairs_dir``.
+    sha256); ``task`` is only validated. Given a *directory*, assembles the
+    combined ``{"disc", "val", "copy", "stories"}`` dict ``run.py`` consumes
+    directly, with disc/val from the ``task``'s pairs file — see the module
+    docstring and ``_load_pairs_dir``. An unknown ``task`` raises ValueError.
     """
+    if task not in PAIRS_FILENAMES:
+        raise ValueError(f"load_pairs: unknown task {task!r}, expected one of {sorted(PAIRS_FILENAMES)}")
     path = Path(path)
     if path.is_dir():
-        return _load_pairs_dir(path)
+        return _load_pairs_dir(path, task)
     return _load_single(path)
 
 
@@ -400,6 +411,72 @@ def build_addition_pairs(
     }
 
 
+def build_symbol_pairs(word_pairs: dict, tokenizer) -> dict:
+    """Re-render the word-task addition pairs (``build_addition_pairs``
+    output, e.g. loaded from ``pairs_seed0.pt``) on the symbol surface
+    ``"{a} + {b} = "`` (contract C2): the SAME rows in the same order, the
+    clean prompt from ``(a, b)`` and the counterfactual from ``(cf_a, cf_b)``,
+    each followed by its first answer token.
+
+    Every clean and counterfactual row passes ``_validate_pool_tokenization``
+    on the new surface (prompt a token-prefix of prompt + answer, one shared
+    prompt length, 2-token answer, round-trip, first token not whitespace),
+    and both answer positions must differ between clean and counterfactual.
+    The answer tokens must equal the word file's ``c1/c2/k1/k2`` (the answer
+    span tokenizes on its own in both surfaces); ``half``, ``answer_text``
+    and ``meta`` are copied unchanged. Raises ``ValueError`` on any mismatch.
+    Only ``clean_ids``/``corrupt_ids`` differ from ``word_pairs``.
+    """
+    meta = word_pairs["meta"]
+    n = len(meta)
+    prompts = [SYMBOL_PROMPT.format(a=int(a), b=int(b)) for a, b in zip(meta["a"], meta["b"])]
+    prompts += [SYMBOL_PROMPT.format(a=int(a), b=int(b)) for a, b in zip(meta["cf_a"], meta["cf_b"])]
+    answers = [str(int(s)) for s in meta["sum"]] + [str(int(s)) for s in meta["cf_sum"]]
+    fulls = [p + a for p, a in zip(prompts, answers)]
+    prompt_ids, answer_ids = _validate_pool_tokenization(
+        tokenizer, prompts, answers, fulls, where="build_symbol_pairs"
+    )
+    toks = {
+        "c1": [answer_ids[i][0] for i in range(n)],
+        "c2": [answer_ids[i][1] for i in range(n)],
+        "k1": [answer_ids[n + i][0] for i in range(n)],
+        "k2": [answer_ids[n + i][1] for i in range(n)],
+    }
+    for i in range(n):
+        if toks["c1"][i] == toks["k1"][i] or toks["c2"][i] == toks["k2"][i]:
+            raise ValueError(f"build_symbol_pairs: row {i} counterfactual shares an answer token")
+    for k, v in toks.items():
+        if v != word_pairs[k].tolist():
+            raise ValueError(f"build_symbol_pairs: {k} differs from the word pairs")
+    if answers[:n] != list(word_pairs["answer_text"]):
+        raise ValueError("build_symbol_pairs: answer_text differs from the word pairs")
+    return {
+        "clean_ids": torch.tensor([prompt_ids[i] + [toks["c1"][i]] for i in range(n)], dtype=torch.long),
+        "corrupt_ids": torch.tensor(
+            [prompt_ids[n + i] + [toks["k1"][i]] for i in range(n)], dtype=torch.long
+        ),
+        **{k: torch.tensor(v, dtype=torch.long) for k, v in toks.items()},
+        "half": word_pairs["half"].clone(),
+        "answer_text": list(word_pairs["answer_text"]),
+        "meta": meta.copy(),
+    }
+
+
+def leakclean_idx(eval_parquet: str | Path, exclude_pairs: set[tuple[int, int]],
+                  op: str = "+", cell: str = "4x4") -> dict:
+    """The ``idx`` of the ``op``/``cell`` rows of an eval parquet whose
+    unordered ``{a, b}`` pair is NOT in ``exclude_pairs`` (the same leakage
+    guard ``build_addition_pairs`` applies to its pool), plus counts. ``idx``
+    is shared by ``D_algo_eval_op`` and ``D_algo_eval_bare``, so one list
+    serves both surfaces."""
+    df = pd.read_parquet(eval_parquet, columns=["idx", "a", "b", "op", "cell"])
+    rows = df[(df["op"] == op) & (df["cell"] == cell)]
+    keep = [tuple(sorted((int(a), int(b)))) not in exclude_pairs for a, b in zip(rows["a"], rows["b"])]
+    idx = sorted(int(i) for i in rows["idx"][np.array(keep, dtype=bool)])
+    return {"op": op, "cell": cell, "n_rows": int(len(rows)), "n_clean": len(idx),
+            "n_excluded": int(len(rows)) - len(idx), "idx": idx}
+
+
 # ---------------------------------------------------------------------------
 # Copy task (specificity control)
 # ---------------------------------------------------------------------------
@@ -535,25 +612,58 @@ def build_tinystories(
     return {"input_ids": torch.tensor(chosen, dtype=torch.long)}
 
 
-def main() -> None:
-    """Build the three saved inputs; addition pool excludes every unordered
-    operand pair of the four models' training files (run leakage_check.py
-    first so they exist, then again afterwards to confirm zero overlap)."""
+def _training_exclusion() -> set[tuple[int, int]]:
+    """Union of every unordered operand pair in the four models' training
+    files (all ops) — the leakage exclusion set for the pair pool."""
     from leakage_check import TRAIN_DATA_DIR, TRAINING_FILES, unordered_pairs
-    from transformers import AutoTokenizer
 
-    out = Path(__file__).resolve().parent / "data"
-    tok = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
     exclude: set[tuple[int, int]] = set()
     for entry in TRAINING_FILES:
         exclude |= unordered_pairs(TRAIN_DATA_DIR / entry["file"])
-    eval_parquet = (Path(__file__).resolve().parents[1]
-                    / "training-run/data/full/D_algo_eval_bare.parquet")
-    save_pairs(build_addition_pairs(eval_parquet, tok, exclude_pairs=exclude), out / "pairs_seed0.pt")
-    save_pairs(build_copy_pairs(tok), out / "copy_pairs_seed1.pt")
-    if not (out / "tinystories_seed2.pt").exists():
-        save_pairs(build_tinystories(tok), out / "tinystories_seed2.pt")
-    print(f"[data] saved to {out} ({len(exclude)} training operand pairs excluded)")
+    return exclude
+
+
+def main() -> None:
+    """Build the saved inputs. ``all`` (default): the three original files;
+    the addition pool excludes every unordered operand pair of the four
+    models' training files (run leakage_check.py first so they exist, then
+    again afterwards to confirm zero overlap), then the symbol re-render.
+    ``symbol``: only ``pairs_symbol_seed0.pt`` from the saved
+    ``pairs_seed0.pt``. ``leakclean``: only ``perf_leakclean_4x4_idx.json``
+    (the step-S perf eval's leakage-clean 4x4 ``+`` subset, same exclusion)."""
+    import argparse
+    import json
+
+    from transformers import AutoTokenizer
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("what", nargs="?", default="all", choices=["all", "symbol", "leakclean"])
+    what = ap.parse_args().what
+    out = Path(__file__).resolve().parent / "data"
+    full_dir = Path(__file__).resolve().parents[1] / "training-run/data/full"
+    tok = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+    if what == "all":
+        exclude = _training_exclusion()
+        save_pairs(build_addition_pairs(full_dir / "D_algo_eval_bare.parquet", tok,
+                                        exclude_pairs=exclude), out / ADDITION_PAIRS_FILENAME)
+        save_pairs(build_copy_pairs(tok), out / "copy_pairs_seed1.pt")
+        if not (out / "tinystories_seed2.pt").exists():
+            save_pairs(build_tinystories(tok), out / "tinystories_seed2.pt")
+        print(f"[data] saved to {out} ({len(exclude)} training operand pairs excluded)")
+    if what in ("all", "symbol"):
+        word = _load_single(out / ADDITION_PAIRS_FILENAME)
+        word.pop("_token_sha256", None)
+        save_pairs(build_symbol_pairs(word, tok), out / SYMBOL_PAIRS_FILENAME)
+        print(f"[data] saved {out / SYMBOL_PAIRS_FILENAME}")
+    if what == "leakclean":
+        exclude = _training_exclusion()
+        res = leakclean_idx(full_dir / "D_algo_eval_op.parquet", exclude)
+        bare = leakclean_idx(full_dir / "D_algo_eval_bare.parquet", exclude)
+        assert bare["idx"] == res["idx"], "op / bare parquets disagree on the 4x4 + rows"
+        res["source"] = ("D_algo_eval_op.parquet == D_algo_eval_bare.parquet (same idx/a/b); "
+                         "exclusion = union of leakage_check.unordered_pairs over TRAINING_FILES")
+        (out / "perf_leakclean_4x4_idx.json").write_text(json.dumps(res) + "\n")
+        print(f"[data] leakclean 4x4 +: {res['n_clean']} / {res['n_rows']} rows kept")
 
 
 if __name__ == "__main__":
