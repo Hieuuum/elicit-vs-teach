@@ -45,6 +45,9 @@ picked #1, #2 and #4:
 | GPU | **one box with 2× RTX 3090**, race 3 | **owner, 2026-10-08** |
 | Score children on symbol too | yes (+~10 min GPU) | proposed; confirm |
 | Random draws in the probe stage | 20 parents / 10 children | proposed; confirm |
+| Full KL test rerun | all five tests, KL-judged, on the KL-word circuits, sizes **0.1 / 0.2 / 1 / 2 / 5%** | **owner, 2026-10-08** |
+| KL equivalence bound | mean per-example KL(full ‖ circuit) < 0.10 × mean KL(full ‖ empty), one-sided t-test, α = 0.05 | proposed; confirm |
+| KL parent gate | mean KL(full ‖ empty) > 0.1 nats, and sufficiency passes at some size | proposed; confirm |
 
 ## Steps
 
@@ -82,14 +85,69 @@ picked #1, #2 and #4:
 - `run_box.sh`: a two-GPU variant (next section). Keep the existing
   `--confirm-cost` / skip-if-exists behaviour.
 
+## Full KL test rerun (step 6, owner 2026-10-08)
+
+Rerun all five frozen tests with KL in place of LD, at **0.1%, 0.2%, 1%,
+2% and 5%** (k = 196 / 392 / 1,959 / 3,917 / 9,793). It runs on the word
+task only, because the copy task and the test set are defined there.
+- Circuits are the top-k of the **KL-word** scores from step 2. This is
+  level B in the chat: KL for scoring and for judging.
+- Exploratory: write to `results_kltests/<tag>/`, never to `evaluate.json`
+  in `results/` or `results_large/`. The frozen LD tests stay the record.
+- Draw counts are the frozen ones (100 children / 50 parents; TinyStories
+  10), so the results are comparable with the LD runs. The stopping rule
+  is unchanged: once a size passes all five, larger sizes are skipped.
+
+**KL definitions.** KL(full ‖ X) is per example, at the two answer
+positions, over the full vocabulary. Here "full" means the unpatched clean
+run, and X is the patched run.
+
+| Test / quantity | LD version (frozen) | KL version (this step) |
+|---|---|---|
+| f | (m(C) − m(∅)) / (m(full) − m(∅)) | 1 − KL(full ‖ C) / KL(full ‖ ∅) |
+| Sufficiency | f(C) beats ≥ 90% of random, binomial p < 0.05 | same, on KL f |
+| Partial necessity | f(without C) below random | same, on KL f |
+| Equivalence | TOST, LD(C) − LD(full) within ±10% m(full) | KL(full ‖ C) < 0.10 × KL(full ‖ ∅), one-sided (proposed) |
+| Consistency | coverage ≥ 0.70, and ablating shared beats random | coverage from per-example KL scores; ablation on KL f |
+| Specificity | relative addition drop ≥ 3× copy drop, above random p95 | relative damage KL(full ‖ without C) / KL(full ‖ ∅) per task, same 3× and p95 rules |
+| Parent gate | m(full) > 0 and sufficiency somewhere | KL(full ‖ ∅) > 0.1 nats and sufficiency somewhere (proposed) |
+| Parent in child, real patching of the top 20 | LD | KL |
+
+**Build:** a metric switch in `run.py`'s evaluate path. Add `eval_kl`
+alongside `eval_ld`; it caches the clean full-model log-probs at the two
+answer positions once per model and returns per-example KL for each keep
+mask. Add the KL equivalence test to `geode/circuits/edge_tests.py` with
+property tests: KL(full ‖ full) = 0 passes; a circuit equal to ∅ fails.
+
+**Time per size** (estimate). The basis is the measured ~3.9 s per circuit
+evaluation at bs 32 on a 3090: 3,720 s / ~960 evals for `elicit_child` at
+3 sizes, and 1,866 s / 464 evals for `elicit_parent`. A size costs 3N + 4
+evaluations: sufficiency, partial necessity and the consistency ablation,
+each 1 + N, plus the copy-task ablation. The per-size cost does not depend
+on k. The KL read-out is a log-softmax at 2 positions, which is negligible.
+
+| size | k | child (N = 100) | parent (N = 50) | all 4 models, 1 GPU | per GPU on 2× 3090 |
+|---|---|---|---|---|---|
+| 0.1% | 196 | ~20 min | ~10 min | ~60 min | ~30 min |
+| 0.2% | 392 | ~20 min | ~10 min | ~60 min | ~30 min |
+| 1% | 1,959 | ~20 min | ~10 min | ~60 min | ~30 min |
+| 2% | 3,917 | ~20 min | ~10 min | ~60 min | ~30 min |
+| 5% | 9,793 | ~20 min | ~10 min | ~60 min | ~30 min |
+| once per model | – | ~3 min (full/copy refs, real patching of the top 20) | <1 min | ~7 min | ~4 min |
+| **total** | | **~1 h 43 min** | **~51 min** | **~5 h 10 min** | **~2 h 35 min** |
+
+If a parent fails the KL gate, its tests stop after sufficiency and
+partial necessity, at about 7 min per size. If a size passes all five, the
+remaining sizes are skipped.
+
 ## Two-GPU layout
 
 Run one process per GPU, each loading one model at a time:
 - `CUDA_VISIBLE_DEVICES=0`: `elicit_parent`, then `elicit_child`.
 - `CUDA_VISIBLE_DEVICES=1`: `fmt_parent`, then `teach_child`.
 
-Each process runs that model's sanity → 3 scores → probe stages, then moves
-to the next model.
+Each process runs that model's sanity → 3 scores → probe stages → full KL
+tests (step 6), then moves to the next model.
 
 **Box minimums:** ≥ 4 CPU cores (run.py uses ~1 core per process), ≥ 32 GB
 RAM (two 4.94 GB fp32 models loading at once), and ≥ 60 GB disk.
@@ -104,9 +162,10 @@ memory-bandwidth bound. Use bs 32.
 
 - 2× 3090 offers: $0.27–0.30/h search price (US, rel ≥ 0.994). Storage adds
   ~$0.08/h.
-- GPU work is ~55 min on one 3090, so ~28 min per GPU on two.
+- Steps 1–3: GPU work is ~55 min on one 3090, so ~28 min per GPU on two.
+- Step 6 (full KL tests): ~2 h 35 min per GPU on two.
 - Fixed overhead is ~28 min: race/onstart, pip, model downloads, push.
-- Wall-clock ≈ **~1 h**. Cost ≈ **~$0.35–0.45**, including the 3-box race.
+- Wall-clock ≈ **~3.5 h**. Cost ≈ **~$1.3–1.5**, including the 3-box race.
 - Team credit was $76.40.
 
 ## Pre-registered readings
@@ -130,6 +189,7 @@ memory-bandwidth bound. Use bs 32.
 - Exploratory: don't touch the frozen tests, the thresholds,
   `evaluate.json`, or the HF `results/eapig_check*/` folders.
 - Push new results to HF `mhieuuu/geode-internals:results/eapig_kl_symbol/`.
+  The full KL tests go under `results/eapig_kl_tests/`.
 - Caveats to carry into the write-up:
   - one training seed per child;
   - the children's EM gap (0.953 vs 0.145);
