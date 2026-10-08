@@ -126,7 +126,77 @@ Space token scored; counterfactual shares a token (asserted in code); non-standa
 
 ## Results
 
-[ ]
+Two runs, same models, data, scores and tests. The first run (2026-10-01,
+HF `results/eapig_check/`) covered 0.1–1% of the 195,865 edges; the
+2026-10 rerun (HF `results/eapig_check_large/`) covered 2%, 5% and 10%
+(k = 3917 / 9793 / 19586). Labels: **f** = (m(circuit) − m(empty)) /
+(m(full) − m(empty)), where m is the mean logit difference (LD) on the 256
+validation problems; **tests** = how many of the five frozen tests pass
+(sufficiency, equivalence, partial necessity, consistency, specificity).
+
+### 2026-10 rerun at 2/5/10% (with the first run's 0.1–1% for context)
+
+**No model passes all five tests at any of the 7 sizes. No size is selected
+for any model.** The best is `elicit_child` at 3/5 from 5% up.
+
+f per size (tests passed in brackets):
+
+| model | EM | 0.1% | 0.2% | 0.5% | 1% | 2% | 5% | 10% |
+|---|---|---|---|---|---|---|---|---|
+| elicit_parent | 0.000 | 0.000 (2) | 0.022 (2) | −0.002 (1) | 0.017 (2) | 0.052 (2) | 0.082 (2) | 0.113 (2) |
+| elicit_child | 0.953 | 0.003 (2) | 0.065 (2) | 0.366 (2) | 0.725 (2) | 0.899 (2) | 0.963 (3) | 0.974 (3) |
+| fmt_parent | 0.000 | −0.764 (1) | −0.801 (1) | −0.533 (1) | 0.382 (2) | 1.508 (2) | 1.868 (1) | 2.175 (1) |
+| teach_child | 0.145 | 0.023 (2) | 0.177 (2) | 0.419 (2) | 0.609 (2) | 0.748 (2) | 0.784 (2) | 0.779 (2) |
+
+- **Random band.** 100 random same-size circuits give f ≈ 0 for both
+  children at every size (95th percentile ≤ 0.0001), and ≤ 0.001 for
+  `elicit_parent`. So every child f above is far outside chance;
+  sufficiency and partial necessity pass for both children at every size.
+- **Equivalence** (LD of the circuit within ±10% of m(full), TOST): `elicit_child`
+  now passes at 5% and 10% (mean LD gap −3.16 and −2.22 against a bound of
+  ±4.24) and fails at 2% (−8.52). `teach_child` fails at every size: its f
+  plateaus at about 0.78 (gap −12 to −14 against ±2.80).
+- **Consistency fails for every model at every size**, always on coverage
+  (how much of the shared edge set each problem's own circuit contains;
+  needs ≥ 0.70). `elicit_child` 0.34 / 0.22 / 0.16, `teach_child` 0.25 /
+  0.18 / 0.14 at 2 / 5 / 10%. Coverage falls as the circuit grows. The other
+  half of the test (ablating the shared edges beats random) passes everywhere.
+- **Specificity fails for every model at every size**, on the ratio: ablating
+  the circuit wipes out the copy task as much as addition (relative drops
+  ≈ 2.0 for both, ratio ≈ 1 against the 3× bar). Both children's LD goes from
+  +m(full) to about −m(full) on both tasks once the top 2% is removed. The
+  circuit is shared machinery, not an addition-specific path.
+- **Parents.** `elicit_parent` stays at f ≤ 0.11 (EM 0, m(full) 0.21).
+  `fmt_parent`'s f is noise (m(full) − m(empty) = 0.002); it never passes
+  more than 2/5, so the "format parent passes" broken-pipeline branch did not
+  fire. Both parents' split-half ceilings are flagged unreliable.
+- **Parent circuit inside the child** (f of the parent's own top-k edges run in
+  the child): `elicit` 0.001 at every size, `teach` 0.013–0.021. Above random
+  (≈ 0) but ~1–3% of the child's own f. The parent's circuit does not carry
+  the child's behavior on either route.
+
+Route overlaps (edge Jaccard, parent → child; chance = random sets of the same size):
+
+| size | elicit | teach | children vs children | chance | parent split-half ceiling (elicit / fmt) |
+|---|---|---|---|---|---|
+| 2% | 0.226 | 0.198 | 0.370 | 0.010 | 0.237 / 0.186 |
+| 5% | 0.197 | 0.177 | 0.285 | 0.026 | 0.220 / 0.171 |
+| 10% | 0.179 | 0.162 | 0.231 | 0.053 | 0.207 / 0.174 |
+
+- Both routes overlap 3–23× above chance, and about as much as each parent's
+  own split-half ceiling allows (overlap / parent ceiling 0.86–1.07). The two
+  routes are within 0.03 of each other at every size: **no elicit-vs-teach
+  separation** in parent → child overlap. The two children overlap more with
+  each other than either does with its parent.
+- Node Jaccard is 0.88–0.997 at these sizes: nearly every node is touched, so
+  it no longer says anything.
+
+**Accuracy gap — FLAGGED.** `elicit_child` EM 0.953 vs `teach_child` 0.145
+(gap 0.81). Child-vs-child f, sufficiency and equivalence are not a fair
+comparison; the matched subset (problems both get right) cannot be rebuilt
+from saved artifacts because m(empty) is not stored per example.
+Single training seed per child; every elicit-vs-teach difference above is
+single-run.
 
 ## Global takeaways
 
@@ -159,3 +229,7 @@ Space token scored; counterfactual shares a token (asserted in code); non-standa
 - 2026-10-01: checkpoints now on HF as `podhajskimarcin/<run_id>` (runs/<rid>/model/, fp32, 4.94 GB each; configs verified 16L/32q/8kv/2048/tied). Ready to run.
 - 2026-10-01: first run done (box 53715523, results on HF `mhieuuu/geode-internals:results/eapig_check/`). No model passes all five tests at 0.1–1% (max 2/5). Sanity EM decode bug (post-EOS text glued on) fixed in 24b3d48 and sanity rerun before the push.
 - 2026-10-07: owner asked for the pre-registered "no circuit at ≤ 1%" branch at 2%, 5% and 10% (10% added by owner), same plan otherwise: reuse first-run `scores.pt` + `sanity.json` (same draw counts), outputs to `results_large/` / HF `results/eapig_check_large/`. `--sizes` / `SIZES`, `RES_NAME`, `HF_SUBDIR`, `BATCH_SIZE` added. Runbook for the executing agent: `HANDOFF-sizes-2-5-10.md`.
+- 2026-10-08 01:32 UTC: 2/5/10% rerun launched on box 54750972 (RTX 3090 24 GB, 8 cores, Spain; 3-box race, the China box was destroyed for repeated pip download drops). Seeded `results_large/` from first-run `scores.pt` + `sanity.json` (EM 0.953125; `sec_per_circuit_eval` ≈ 4.4 s for all four, so draw counts unchanged); all four models logged `skip ... sanity/score`. Batch-size probe on `elicit_child` sanity (scratch dir): bs 16/32/64 → eval 4.81/4.52/4.39 s, peak VRAM 8.3/11.3/17.2 GB of 24.6, m_full/m_empty equal to 1e-5. Chose **bs 32**: bs 64 is only 3% faster than 32 and its 70% peak leaves little headroom for evaluate; an OOM costs a ~40-min model restart. TinyStories path uses a fixed bs 8 regardless.
+- 2026-10-08 01:36 UTC: utilization check during `elicit_parent` evaluate: GPU 100%, VRAM 11.2/24.6 GB, run.py ~100% of one core, load 1.5/8, RAM 3.7/32 GB, swap 942 MB (pre-existing before the run, not growing). Temp peaked 85 °C then settled 81–83 °C with throttle flags alternating SW power cap (0x4) / SW thermal (0x20) at the 300 W limit, SM clock ~1.4 GHz (= 3090 base), fan 62–66%, no HW thermal flag. Treated as normal sustained 3090 load (a smaller batch would not cut power draw at 100% util); no change.
+- 2026-10-08 01:53 UTC: checked whether "100% GPU util" is real saturation (nvidia-smi util only means a kernel was resident each sample). `nvidia-smi dmon`: power 298–299/300 W (at cap), memory-controller busy 78–100%, clock ~1.4 GHz power/thermal-limited. The job is memory-bandwidth bound and the card is genuinely saturated; consistent with the bs probe (4× batch → only 9% faster). No side-by-side process (it would split the same power/bandwidth).
+- 2026-10-08 04:39 UTC: rerun DONE (`EXIT=0`, box log `verify: missing on hub: none`). Evaluate times at bs 32: `elicit_parent` 1866 s, `fmt_parent` 1849 s, `elicit_child` 3720 s, `teach_child` 3767 s; launch → push 3 h 07 min (vs ~2–2.5 h estimated; children run 100 draws). Verified from the laptop: 24 files under HF `results/eapig_check_large/`, every `evaluate.json` has k = 3917/9793/19586, draws 50 (parents) / 100 (children), TinyStories 10, gate pass, selected size none; seeded `sanity.json` files untouched (01:29 timestamps). Box 54750972 destroyed. `compare.py` ran on the box (summary.md + figures pushed); not re-run on the laptop since it needs the four 200 MB `scores.pt` and gives the same output. Results above.
