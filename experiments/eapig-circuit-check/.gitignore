@@ -1,3 +1,6 @@
 __pycache__/
 results/**/*.pt
 results/**/*.npz
+.queue_2gpu_*/
+run_box_2gpu.log*
+.push.lock

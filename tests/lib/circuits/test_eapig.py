@@ -6,8 +6,10 @@ from transformers import LlamaConfig, LlamaForCausalLM
 
 from geode.circuits.eapig import (
     EdgeGraph,
+    answer_logprobs,
     build_graph,
     eap_ig_scores,
+    kl_2tok,
     logit_diff_2tok,
     node_outputs,
     patched_forward,
@@ -429,3 +431,201 @@ def test_v_eap_zero_when_clean_equals_corrupt(model3):
     ids = _ids(0)
     s = eap_ig_scores(model3, g, ids, ids, _metric, steps=2)
     assert s.abs().max() == 0
+
+
+# ---------------------------------------------------------------- KL metric
+
+
+def _rand_logits(seed: int, b: int = 3, t: int = 5, v: int = 11) -> torch.Tensor:
+    return torch.randn(b, t, v, generator=torch.Generator().manual_seed(seed))
+
+
+def test_v_answer_logprobs_rows_normalised_and_shape():
+    logits = _rand_logits(0)
+    lp = answer_logprobs(logits)
+    assert lp.shape == (3, 2, 11)
+    torch.testing.assert_close(lp.exp().sum(-1), torch.ones(3, 2))
+    assert (lp <= 0).all()
+
+
+def test_v_answer_logprobs_uses_positions_minus2_and_minus1():
+    logits = _rand_logits(1)
+    lp = answer_logprobs(logits)
+    torch.testing.assert_close(lp[:, 0], torch.log_softmax(logits[:, -2], -1))
+    torch.testing.assert_close(lp[:, 1], torch.log_softmax(logits[:, -1], -1))
+    other = logits.clone()
+    other[:, :-2] += 100.0 * torch.randn_like(other[:, :-2])  # earlier positions ignored
+    torch.testing.assert_close(answer_logprobs(other), lp)
+
+
+def test_v_answer_logprobs_float32_from_half_input():
+    lp = answer_logprobs(_rand_logits(2).half())
+    assert lp.dtype == torch.float32
+    torch.testing.assert_close(lp.exp().sum(-1), torch.ones(3, 2))
+    bf = answer_logprobs(_rand_logits(2).bfloat16())
+    assert bf.dtype == torch.float32
+
+
+def test_v_kl_2tok_zero_at_clean():
+    logits = _rand_logits(3)
+    kl = kl_2tok(logits, answer_logprobs(logits))
+    assert kl.shape == (3,) and kl.dtype == torch.float32
+    assert kl.abs().max() < 1e-6
+
+
+def test_v_kl_2tok_nonnegative_for_random_logits():
+    for seed in range(20):
+        clean = answer_logprobs(_rand_logits(seed))
+        kl = kl_2tok(_rand_logits(seed + 100), clean)
+        assert (kl >= -1e-6).all()
+        assert (kl > 0).all()
+
+
+def test_v_kl_2tok_negated_metric_maximal_at_clean():
+    clean_logits = _rand_logits(4)
+    clean_lp = answer_logprobs(clean_logits)
+    best = -kl_2tok(clean_logits, clean_lp)
+    gen = torch.Generator().manual_seed(7)
+    for scale in (1e-3, 0.1, 1.0):
+        pert = clean_logits + scale * torch.randn(clean_logits.shape, generator=gen)
+        assert (-kl_2tok(pert, clean_lp) <= best + 1e-7).all()
+        assert (-kl_2tok(pert, clean_lp) < best).all()
+
+
+def test_v_kl_2tok_matches_hand_computed_two_by_two_vocab():
+    # one example, vocab 3; positions -2 and -1 only matter
+    p1, p2 = torch.tensor([0.5, 0.25, 0.25]), torch.tensor([0.2, 0.3, 0.5])
+    q1, q2 = torch.tensor([0.25, 0.25, 0.5]), torch.tensor([0.6, 0.3, 0.1])
+    clean_logits = torch.stack([torch.zeros(3), p1.log(), p2.log()])[None]  # T=3
+    x_logits = torch.stack([torch.ones(3), q1.log(), q2.log()])[None]
+    expected = (p1 * (p1 / q1).log()).sum() + (p2 * (p2 / q2).log()).sum()
+    got = kl_2tok(x_logits, answer_logprobs(clean_logits))
+    torch.testing.assert_close(got, expected[None], atol=1e-6, rtol=1e-6)
+
+
+def test_v_kl_2tok_sums_the_two_positions():
+    clean_logits, x = _rand_logits(5), _rand_logits(6)
+    clean_lp = answer_logprobs(clean_logits)
+    both = kl_2tok(x, clean_lp)
+    only_first = x.clone()
+    only_first[:, -1] = clean_logits[:, -1]  # position -1 now identical to clean
+    only_last = x.clone()
+    only_last[:, -2] = clean_logits[:, -2]
+    k1, k2 = kl_2tok(only_first, clean_lp), kl_2tok(only_last, clean_lp)
+    assert (k1 > 0).all() and (k2 > 0).all()
+    torch.testing.assert_close(both, k1 + k2, atol=1e-5, rtol=1e-5)
+
+
+def test_v_kl_2tok_ignores_positions_before_minus2():
+    clean_logits, x = _rand_logits(5), _rand_logits(6)
+    clean_lp = answer_logprobs(clean_logits)
+    x2 = x.clone()
+    x2[:, :-2] = torch.randn_like(x2[:, :-2])
+    torch.testing.assert_close(kl_2tok(x2, clean_lp), kl_2tok(x, clean_lp))
+
+
+def test_v_kl_2tok_per_example_independent():
+    clean_logits, x = _rand_logits(8), _rand_logits(9)
+    clean_lp = answer_logprobs(clean_logits)
+    full = kl_2tok(x, clean_lp)
+    for i in range(3):
+        single = kl_2tok(x[i : i + 1], clean_lp[i : i + 1])
+        torch.testing.assert_close(single[0], full[i])
+    x2 = x.clone()
+    x2[1] = torch.randn_like(x2[1])  # change only example 1
+    changed = kl_2tok(x2, clean_lp)
+    torch.testing.assert_close(changed[[0, 2]], full[[0, 2]])
+    assert changed[1] != full[1]
+
+
+def test_v_kl_2tok_gradient_flows_to_logits_and_vanishes_at_clean():
+    clean_logits = _rand_logits(10)
+    clean_lp = answer_logprobs(clean_logits)
+    x = _rand_logits(11).requires_grad_(True)
+    kl_2tok(x, clean_lp).sum().backward()
+    assert x.grad is not None and x.grad.shape == x.shape
+    assert x.grad[:, -2:].abs().max() > 1e-4
+    assert x.grad[:, :-2].abs().max() == 0  # earlier positions get no gradient
+    at_clean = clean_logits.clone().requires_grad_(True)
+    kl_2tok(at_clean, clean_lp).sum().backward()
+    assert at_clean.grad.abs().max() < 1e-6  # minimum of KL
+
+
+def test_v_kl_2tok_invariant_to_constant_logit_shift():
+    clean_lp = answer_logprobs(_rand_logits(12))
+    x = _rand_logits(13)
+    shift = torch.tensor([3.0, -50.0, 1e3])[:, None, None]
+    torch.testing.assert_close(
+        kl_2tok(x + shift, clean_lp), kl_2tok(x, clean_lp), atol=1e-4, rtol=1e-4
+    )
+
+
+def test_v_kl_2tok_is_asymmetric():
+    a, b = _rand_logits(14), _rand_logits(15) * 3.0
+    ab = kl_2tok(b, answer_logprobs(a))  # KL(a || b)
+    ba = kl_2tok(a, answer_logprobs(b))  # KL(b || a)
+    assert (ab - ba).abs().min() > 1e-3
+
+
+def test_v_kl_2tok_float32_output_from_half_logits():
+    clean_lp = answer_logprobs(_rand_logits(16))
+    kl = kl_2tok(_rand_logits(17).half(), clean_lp)
+    assert kl.dtype == torch.float32 and torch.isfinite(kl).all()
+
+
+# ------------------------------------------------ KL on the tiny model
+
+
+def _kl_metric(model, clean_ids):
+    with torch.no_grad():
+        clean_lp = answer_logprobs(model(clean_ids).logits)
+    return lambda lg: -kl_2tok(lg, clean_lp)
+
+
+def test_v_eap_kl_scores_finite_and_shaped(model3):
+    g = build_graph(model3)
+    clean, corrupt_ids = _ids(0), _ids(1)
+    s = eap_ig_scores(model3, g, clean, corrupt_ids, _kl_metric(model3, clean), steps=2)
+    assert s.shape == (3, g.n_edges) and s.dtype == torch.float32
+    assert torch.isfinite(s).all()
+    assert s.abs().max() > 0
+
+
+def test_v_eap_kl_zero_when_clean_equals_corrupt(model3):
+    g = build_graph(model3)
+    ids = _ids(0)
+    s = eap_ig_scores(model3, g, ids, ids, _kl_metric(model3, ids), steps=2)
+    assert s.abs().max() == 0
+
+
+def test_v_eap_kl_ig_completeness_on_embed_edges(model3):
+    """Sum of embed->r scores -> metric(clean) - metric(corrupt) = KL(clean || corrupt) >= 0."""
+    g = build_graph(model3)
+    clean, corrupt_ids = _ids(0), _ids(1)
+    metric = _kl_metric(model3, clean)
+    with torch.no_grad():
+        target = metric(model3(clean).logits) - metric(model3(corrupt_ids).logits)
+    assert (target > 0).all()
+    embed_edges = g.edge_ur[:, 0] == 0
+    errs = []
+    for steps in (8, 64):
+        s = eap_ig_scores(model3, g, clean, corrupt_ids, metric, steps=steps)
+        errs.append((s[:, embed_edges].sum(1) - target).abs().max().item())
+    assert errs[1] < 0.05 * target.abs().max().item()
+    assert errs[1] < errs[0]
+
+
+def test_v_patched_forward_kl_full_keep_zero_empty_keep_equals_corrupt_run(model3):
+    g = build_graph(model3)
+    clean, corrupt_ids = _ids(0), _ids(1)
+    with torch.no_grad():
+        clean_lp = answer_logprobs(model3(clean).logits)
+        corrupt = node_outputs(model3, g, corrupt_ids)
+        full = patched_forward(
+            model3, g, clean, corrupt, torch.ones(g.n_upstream, g.n_receivers, dtype=torch.bool)
+        )
+        empty = patched_forward(model3, g, clean, corrupt, torch.zeros(g.n_upstream, g.n_receivers))
+        corrupt_kl = kl_2tok(model3(corrupt_ids).logits, clean_lp)
+    assert kl_2tok(full, clean_lp).abs().max() < 1e-6
+    torch.testing.assert_close(kl_2tok(empty, clean_lp), corrupt_kl, atol=1e-4, rtol=1e-4)
+    assert (corrupt_kl > 1e-3).all()

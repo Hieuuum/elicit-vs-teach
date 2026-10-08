@@ -15,6 +15,21 @@ references. Score mass is never compared across models in absolute terms (the
 parents' m(full) is 0.21 and 0.03), only as shares of each model's own mass.
 
 Usage: `python3 circuit_change.py [--results-dir DIR] [--figures-dir DIR] [--frac F]`.
+
+Arbitrary score sets (contract C4):
+`python3 circuit_change.py --frac F --out OUTDIR --scores LABEL=DIR [LABEL=DIR ...]
+[--pairs A:B ...]`, where each DIR holds a `scores.pt`. Labels are free text (`@`, `_`
+allowed; `:`, `/` and `=` are not, since they delimit the specs) and are never used in
+file names, so the outputs are always `OUTDIR/circuit_change_<frac>.json` and
+`OUTDIR/figures/cc_*_<frac>.png`. Any two labels can be paired; pair (A, B) means
+a = A, b = B and is keyed `"A:B"` in the JSON. Without `--pairs`, the default four
+(elicit, teach, children, parents) are emitted for each one whose two tags are both
+labels (all four when the labels are the four tags); if none qualifies, `--pairs` is
+required. Split-half reliability and shape are computed per label from its own
+mean_a / mean_b, so they exist for every label whatever the pairs. The compare.json
+cross-check runs only in the legacy mode (no `--scores`); `--out` there redirects the
+outputs while inputs still come from `--results-dir`. With no `--scores` the JSON is
+byte-identical to the pre-C4 script.
 """
 
 from __future__ import annotations
@@ -60,12 +75,47 @@ SIGN_TOP_N = (100, 1000)
 # ------------------------------------------------------------------- inputs
 
 
-def load_scores(results_dir: Path) -> dict[str, dict[str, np.ndarray]]:
+def load_scores(dirs: dict[str, Path]) -> dict[str, dict[str, np.ndarray]]:
+    """`scores.pt` of each label's dir (the four tags: `results_dir / tag`)."""
     out = {}
-    for tag in TAGS:
-        s = torch.load(results_dir / tag / "scores.pt", map_location="cpu")
-        out[tag] = {key: s[key].double().numpy() for key in ("mean", "mean_a", "mean_b")}
+    for label, d in dirs.items():
+        s = torch.load(Path(d) / "scores.pt", map_location="cpu")
+        out[label] = {key: s[key].double().numpy() for key in ("mean", "mean_a", "mean_b")}
         del s
+    return out
+
+
+def parse_scores_specs(specs: list[str]) -> dict[str, Path]:
+    """`LABEL=DIR` specs -> {label: dir}; errors on a malformed or duplicate spec."""
+    out: dict[str, Path] = {}
+    for spec in specs:
+        label, sep, d = spec.partition("=")
+        if not sep or not label or not d:
+            raise ValueError(f"--scores expects LABEL=DIR, got {spec!r}")
+        if ":" in label or "/" in label:
+            raise ValueError(f"label {label!r} may not contain ':' or '/'")
+        if label in out:
+            raise ValueError(f"duplicate label {label!r}")
+        out[label] = Path(d)
+    return out
+
+
+def resolve_pairs(specs: list[str] | None, labels) -> dict[str, tuple[str, str]]:
+    """`A:B` specs -> {"A:B": (A, B)}; no specs -> the default pairs the labels allow."""
+    if not specs:
+        pairs = {n: ab for n, ab in PAIRS.items() if set(ab) <= set(labels)}
+        if not pairs:
+            raise ValueError("no default pair fits these labels; pass --pairs A:B")
+        return pairs
+    out = {}
+    for spec in specs:
+        a, sep, b = spec.partition(":")
+        if not sep or not a or not b or ":" in b:
+            raise ValueError(f"--pairs expects A:B, got {spec!r}")
+        for label in (a, b):
+            if label not in labels:
+                raise ValueError(f"pair {spec!r} names unknown label {label!r}")
+        out[spec] = (a, b)
     return out
 
 
@@ -288,23 +338,34 @@ def _strip(ax) -> None:
         ax.spines[spine].set_visible(False)
 
 
+def _fallback_color(i: int) -> str:
+    """Colour for labels outside the four tags."""
+    cycle = [COLOR["blue"], COLOR["orange"], COLOR["red"], INK["secondary"], INK["muted"]]
+    return cycle[i % len(cycle)]
+
+
 def plot_layer_heatmaps(pairs: dict, graph_grid: np.ndarray, path: Path, pct: str) -> None:
     """Added minus dropped edges per (send layer, receive layer), one panel per route."""
+    # The two routes when present (legacy), else one panel per pair.
+    names = [n for n in ("elicit", "teach") if n in pairs] or list(pairs)
     diffs = {
         n: np.array(pairs[n]["where"]["layer_grid_added"])
         - np.array(pairs[n]["where"]["layer_grid_dropped"])
-        for n in ("elicit", "teach")
+        for n in names
     }
     vmax = max(np.abs(d).max() for d in diffs.values())
     cmap = matplotlib.colors.LinearSegmentedColormap.from_list(
         "div_red_blue", ["#7a1f1f", COLOR["red"], "#f0efec", COLOR["blue"], "#0d366b"]
     ).with_extremes(bad="#ffffff")
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5.6), sharey=True)
-    for ax, name in zip(axes, ("elicit", "teach")):
+    fig, axes = plt.subplots(
+        1, len(names), figsize=(6 * len(names), 5.6), sharey=True, squeeze=False
+    )
+    axes = axes[0]
+    for ax, name in zip(axes, names):
         d = np.ma.masked_where(graph_grid == 0, diffs[name]).astype(float)
         im = ax.imshow(d, cmap=cmap, vmin=-vmax, vmax=vmax, origin="lower", aspect="auto")
-        a, b = PAIRS[name]
-        ax.set_title(f"{name}: {MODEL_LABEL[a]} → {MODEL_LABEL[b]}", fontsize=9)
+        a, b = pairs[name]["a"], pairs[name]["b"]
+        ax.set_title(f"{name}: {MODEL_LABEL.get(a, a)} → {MODEL_LABEL.get(b, b)}", fontsize=9)
         ax.set_xlabel("receiving layer (16 = logits)")
         ax.set_xticks(range(0, 17, 2))
         ax.set_yticks(range(0, 17, 2))
@@ -330,9 +391,9 @@ def plot_rank_shift(pairs: dict, k: int, path: Path, pct: str) -> None:
         "children": (INK["secondary"], "--"),
         "parents": (INK["muted"], ":"),
     }
-    for name, pr in pairs.items():
-        color, ls = style[name]
-        a, b = PAIRS[name]
+    for i, (name, pr) in enumerate(pairs.items()):
+        color, ls = style.get(name) or (_fallback_color(i), "-")
+        a, b = pr["a"], pr["b"]
         ax.hist(
             pr["_a_rank_of_top_b"],
             bins=bins,
@@ -370,15 +431,15 @@ def plot_concentration(scores: dict, k: int, path: Path, pct: str) -> None:
     """Cumulative share of positive score mass held by the top-n edges, per model."""
     fig, ax = plt.subplots(figsize=(7.5, 4.8))
     n = np.arange(1, 195_866)
-    for tag in TAGS:
+    for i, tag in enumerate(scores):
         pos = np.sort(np.clip(scores[tag]["mean"], 0, None))[::-1]
         ax.plot(
             n,
             np.cumsum(pos) / pos.sum(),
-            color=MODEL_COLOR[tag],
-            linestyle=MODEL_STYLE[tag],
+            color=MODEL_COLOR.get(tag) or _fallback_color(i),
+            linestyle=MODEL_STYLE.get(tag, "-"),
             linewidth=2,
-            label=MODEL_LABEL[tag],
+            label=MODEL_LABEL.get(tag, tag),
         )
     ax.axvline(k, color=INK["baseline"], linewidth=1)
     for y in (0.5, 0.9):
@@ -418,35 +479,45 @@ def check_against_compare(pairs: dict, results_dir: Path, frac: float) -> dict:
     return out
 
 
-def run(results_dir: Path, figures_dir: Path, frac: float) -> dict:
+def run(
+    sets: dict[str, Path],
+    pairs_def: dict[str, tuple[str, str]],
+    out_dir: Path,
+    figures_dir: Path,
+    frac: float,
+    compare_dir: Path | None = None,
+) -> dict:
+    """`compare_dir` (legacy mode): the results dir whose compare.json is cross-checked."""
+    labels = list(sets)
     ctx = build_graph_ctx()
     meta = edge_meta(ctx)
     n_edges = ctx["graph"].n_edges
     k = et.size_to_k(frac, n_edges)
-    scores = load_scores(results_dir)
-    ranks = {t: full_ranks(scores[t]["mean"]) for t in TAGS}
-    circuits = {t: np.sort(et.topk_edges(scores[t]["mean"], k)) for t in TAGS}
-    for t in TAGS:  # rank order must agree with topk_edges
+    scores = load_scores(sets)
+    ranks = {t: full_ranks(scores[t]["mean"]) for t in labels}
+    circuits = {t: np.sort(et.topk_edges(scores[t]["mean"], k)) for t in labels}
+    for t in labels:  # rank order must agree with topk_edges
         assert set(np.flatnonzero(ranks[t] <= k)) == set(circuits[t].tolist()), t
     grid_shape = (ctx["graph"].n_layers + 1, ctx["graph"].n_layers + 1)
     graph_grid = layer_grid(np.arange(n_edges), meta, grid_shape)
 
     pairs = {
         name: compare_pair(a, b, scores, ranks, circuits, meta, k, grid_shape)
-        for name, (a, b) in PAIRS.items()
+        for name, (a, b) in pairs_def.items()
     }
     result = {
         "exploratory": True,
         "frac": frac,
         "k": k,
         "n_edges": n_edges,
-        "reliability": {t: reliability(scores[t], k) for t in TAGS},
-        "shape": {t: shape(scores[t]["mean"], k) for t in TAGS},
+        "reliability": {t: reliability(scores[t], k) for t in labels},
+        "shape": {t: shape(scores[t]["mean"], k) for t in labels},
         "graph_by_sender_type": {s: int((meta["send_type"] == s).sum()) for s in SENDER_TYPES},
         "graph_by_receiver_type": {r: int((meta["recv_type"] == r).sum()) for r in RECEIVER_TYPES},
         "graph_layer_grid": graph_grid.tolist(),
-        "compare_json_check": check_against_compare(pairs, results_dir, frac),
     }
+    if compare_dir is not None:
+        result["compare_json_check"] = check_against_compare(pairs, compare_dir, frac)
     figures_dir.mkdir(parents=True, exist_ok=True)
     pct = f"{frac * 100:g}%"
     plot_layer_heatmaps(
@@ -457,17 +528,39 @@ def run(results_dir: Path, figures_dir: Path, frac: float) -> dict:
     for pr in pairs.values():
         pr.pop("_a_rank_of_top_b")
     result["pairs"] = pairs
-    dump_json(result, results_dir / f"circuit_change_{frac:g}.json")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    dump_json(result, out_dir / f"circuit_change_{frac:g}.json")
     return result
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--results-dir", default=str(HERE / "results_large"))
-    ap.add_argument("--figures-dir", default=str(HERE / "results_large" / "figures"))
+    ap.add_argument("--figures-dir", default=None)
     ap.add_argument("--frac", type=float, default=0.1)
-    a = ap.parse_args()
-    run(Path(a.results_dir), Path(a.figures_dir), a.frac)
+    ap.add_argument("--out", default=None, help="output dir (required with --scores)")
+    ap.add_argument("--scores", nargs="+", metavar="LABEL=DIR", help="score sets (C4)")
+    ap.add_argument("--pairs", nargs="+", metavar="A:B", help="label pairs (a, b)")
+    a = ap.parse_args(argv)
+    if a.scores:
+        if not a.out:
+            ap.error("--out is required with --scores")
+        try:
+            sets = parse_scores_specs(a.scores)
+            pairs = resolve_pairs(a.pairs, sets)
+        except ValueError as e:
+            ap.error(str(e))
+        out = Path(a.out)
+        run(sets, pairs, out, Path(a.figures_dir) if a.figures_dir else out / "figures", a.frac)
+        return
+    if a.pairs:
+        ap.error("--pairs requires --scores")
+    results_dir = Path(a.results_dir)
+    out = Path(a.out) if a.out else results_dir
+    default_figs = out / "figures" if a.out else results_dir / "figures"
+    figures_dir = Path(a.figures_dir) if a.figures_dir else default_figs
+    sets = {t: results_dir / t for t in TAGS}
+    run(sets, dict(PAIRS), out, figures_dir, a.frac, compare_dir=results_dir)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ from scipy.stats import binomtest, hypergeom, t as student_t
 
 __all__ = [
     "faithfulness",
+    "kl_faithfulness",
+    "kl_equivalence",
+    "kl_specificity",
     "log_size_mean_f",
     "tost_equivalence",
     "random_baseline_test",
@@ -60,6 +63,21 @@ def faithfulness(
     if abs(denom) < tiny:
         return float("nan"), True
     return (m_circuit - m_empty) / denom, False
+
+
+def kl_faithfulness(
+    kl_circuit: float, kl_empty: float, *, tiny: float = 1e-8
+) -> tuple[float, bool]:
+    """f = 1 - kl_circuit / kl_empty; means already taken.
+
+    KL(full || circuit) over KL(full || empty): 1 = circuit reproduces the full
+    model, 0 = no better than the empty circuit; can exceed 1 or go negative.
+    Returns `(f, degenerate)`; when `kl_empty < tiny` the ratio is meaningless,
+    so this returns `(nan, True)` instead of dividing silently.
+    """
+    if kl_empty < tiny:
+        return float("nan"), True
+    return 1.0 - kl_circuit / kl_empty, False
 
 
 def log_size_mean_f(sizes: Sequence[float], f_values: Sequence[float]) -> float:
@@ -261,6 +279,40 @@ def consistency_pass(
     return bool(mean_coverage >= cov_min and ablation_test_p < alpha)
 
 
+def kl_equivalence(
+    kl_circuit: Sequence[float], kl_empty_mean: float, frac: float = 0.10, alpha: float = 0.05
+) -> dict[str, Any]:
+    """One-sided t-test on per-example KL(full || C).
+
+    H0: mean KL >= frac * kl_empty_mean; H1: mean KL < bound. Returns `p`,
+    `mean_kl`, `bound`, `pass` (True iff `p < alpha`), `n`, `frac`, `alpha`.
+    A zero-variance sample is decided by the mean alone, as in
+    `tost_equivalence`.
+    """
+    kl = np.asarray(kl_circuit, dtype=np.float64)
+    if kl.ndim != 1 or kl.size < 2:
+        raise ValueError("kl_circuit must be a 1-D sequence, n >= 2")
+    if kl_empty_mean <= 0:
+        raise ValueError("kl_empty_mean must be positive; gate on KL(full || empty) > 0 first")
+    n = kl.size
+    bound = frac * kl_empty_mean
+    mean_kl = float(kl.mean())
+    se = float(kl.std(ddof=1) / np.sqrt(n))
+    if se == 0.0:
+        p = 0.0 if mean_kl < bound else 1.0
+    else:
+        p = float(student_t.cdf((mean_kl - bound) / se, n - 1))
+    return {
+        "p": p,
+        "mean_kl": mean_kl,
+        "bound": bound,
+        "pass": bool(p < alpha),
+        "n": n,
+        "frac": frac,
+        "alpha": alpha,
+    }
+
+
 # --------------------------------------------------------------------------
 # Specificity
 # --------------------------------------------------------------------------
@@ -315,6 +367,51 @@ def specificity(
         "rel_add": rel_add,
         "rel_copy": rel_copy,
         "add_drop": add_drop,
+        "add_drop_p95_random": p95,
+        "ratio_ok": bool(ratio_ok),
+        "drop_ok": bool(drop_ok),
+    }
+
+
+def kl_specificity(
+    add_damage: float,
+    copy_damage: float | None,
+    add_damage_random: Sequence[float],
+    ratio: float = 3.0,
+) -> dict[str, Any]:
+    """KL version of `specificity`; the caller passes relative damages.
+
+    damage = KL(full || without C) / KL(full || empty) for a task. If
+    `copy_damage` is None the copy task isn't measurable (status
+    "not_measurable", pass None). A negative `copy_damage` satisfies the ratio
+    bound (`ratio * max(copy_damage, 0)` = 0).
+
+    Pass requires `add_damage >= ratio * max(copy_damage, 0)` AND `add_damage`
+    exceeds the 95th percentile of `add_damage_random`. Output keys match
+    `specificity` (`rel_add`/`rel_copy` are the damages, `add_drop` = `add_damage`).
+    """
+    random_arr = np.asarray(add_damage_random, dtype=np.float64)
+    if random_arr.ndim != 1 or random_arr.size == 0:
+        raise ValueError("add_damage_random must be a nonempty 1-D sequence")
+    p95 = float(np.percentile(random_arr, 95))
+    if copy_damage is None:
+        return {
+            "status": "not_measurable",
+            "pass": None,
+            "rel_add": add_damage,
+            "rel_copy": None,
+            "add_drop": add_damage,
+            "add_drop_p95_random": p95,
+        }
+    ratio_ok = add_damage >= ratio * max(copy_damage, 0.0)
+    drop_ok = add_damage > p95
+    passed = bool(ratio_ok and drop_ok)
+    return {
+        "status": "pass" if passed else "fail",
+        "pass": passed,
+        "rel_add": add_damage,
+        "rel_copy": copy_damage,
+        "add_drop": add_damage,
         "add_drop_p95_random": p95,
         "ratio_ok": bool(ratio_ok),
         "drop_ok": bool(drop_ok),

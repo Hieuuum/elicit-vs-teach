@@ -19,6 +19,9 @@ from geode.circuits.edge_tests import (
     faithfulness,
     heads_only,
     jaccard,
+    kl_equivalence,
+    kl_faithfulness,
+    kl_specificity,
     layer_histogram,
     log_size_mean_f,
     nodes_touched,
@@ -754,3 +757,151 @@ def test_stopping_rule_empty_input_returns_none():
 def test_stopping_rule_all_none_passes_at_first_size():
     results = {0.001: {"a": None, "b": None}}
     assert stopping_rule(results) == 0.001
+
+
+# --------------------------------------------------------------------------
+# KL versions
+# --------------------------------------------------------------------------
+
+
+def test_kl_faithfulness_identity_endpoints():
+    assert kl_faithfulness(0.0, 2.5) == (1.0, False)  # circuit = full
+    assert kl_faithfulness(2.5, 2.5) == (0.0, False)  # circuit = empty
+
+
+def test_kl_faithfulness_known_value():
+    f, degenerate = kl_faithfulness(0.5, 2.0)
+    assert f == pytest.approx(0.75) and degenerate is False
+
+
+def test_kl_faithfulness_can_exceed_one_or_go_negative():
+    assert kl_faithfulness(-0.1, 1.0)[0] > 1.0  # KL below 0 only via float noise, but formula allows it
+    assert kl_faithfulness(3.0, 1.0)[0] == pytest.approx(-2.0)
+
+
+def test_kl_faithfulness_degenerate_denominator_returns_nan_and_flag():
+    f, degenerate = kl_faithfulness(0.0, 1e-12)
+    assert np.isnan(f) and degenerate is True
+    f, degenerate = kl_faithfulness(0.0, 0.0)
+    assert np.isnan(f) and degenerate is True
+
+
+def test_kl_faithfulness_custom_tiny():
+    assert kl_faithfulness(0.0, 1e-3, tiny=1e-2)[1] is True
+    assert kl_faithfulness(0.0, 1e-3, tiny=1e-4) == (1.0, False)
+
+
+def test_kl_equivalence_full_vs_full_passes():
+    r = kl_equivalence([0.0, 0.0, 0.0, 0.0], kl_empty_mean=1.0)
+    assert r["pass"] is True and r["p"] == 0.0 and r["mean_kl"] == 0.0 and r["n"] == 4
+
+
+def test_kl_equivalence_circuit_equal_to_empty_fails():
+    per_example_empty = [0.8, 1.0, 1.2, 0.9, 1.1]
+    r = kl_equivalence(per_example_empty, kl_empty_mean=float(np.mean(per_example_empty)))
+    assert r["pass"] is False and r["p"] > 0.5
+
+
+def test_kl_equivalence_matches_hand_rolled_t_test():
+    kl = [0.02, 0.05, 0.08, 0.03, 0.06, 0.04]
+    r = kl_equivalence(kl, kl_empty_mean=1.0, frac=0.10, alpha=0.05)
+    arr = np.array(kl)
+    t = (arr.mean() - 0.10) / (arr.std(ddof=1) / np.sqrt(6))
+    assert r["p"] == pytest.approx(student_t.cdf(t, 5))
+    assert r["bound"] == pytest.approx(0.10) and r["mean_kl"] == pytest.approx(arr.mean())
+    assert r["pass"] is True and r["frac"] == 0.10 and r["alpha"] == 0.05
+
+
+def test_kl_equivalence_boundary_mean_equal_to_bound_is_not_a_pass():
+    kl = [0.05, 0.15, 0.05, 0.15]  # mean exactly 0.10
+    r = kl_equivalence(kl, kl_empty_mean=1.0)
+    assert r["mean_kl"] == pytest.approx(0.10)
+    assert r["p"] == pytest.approx(0.5)
+    assert r["pass"] is False
+
+
+def test_kl_equivalence_zero_variance_decided_by_mean():
+    # dyadic values so the sample std is exactly 0
+    below = kl_equivalence([0.0625] * 3, 1.0)
+    assert below["p"] == 0.0 and below["pass"] is True
+    at_bound = kl_equivalence([0.125] * 3, 0.25, frac=0.5)  # bound = 0.125
+    assert at_bound["p"] == 1.0 and at_bound["pass"] is False
+    assert kl_equivalence([0.5, 0.5], 1.0)["p"] == 1.0
+
+
+def test_kl_equivalence_p_monotone_in_mean():
+    base = np.array([-1.0, 1.0, -0.5, 0.5, 0.0])  # fixed spread, zero mean
+    ps = [kl_equivalence(base * 0.02 + m, kl_empty_mean=1.0)["p"] for m in (0.0, 0.05, 0.10, 0.15, 0.3)]
+    assert ps == sorted(ps) and ps[0] < ps[-1]
+
+
+def test_kl_equivalence_frac_and_alpha_respected():
+    kl = [0.08, 0.09, 0.07, 0.085]
+    assert kl_equivalence(kl, 1.0, frac=0.10)["pass"] is True
+    assert kl_equivalence(kl, 1.0, frac=0.05)["pass"] is False
+    p = kl_equivalence(kl, 1.0)["p"]
+    assert kl_equivalence(kl, 1.0, alpha=p / 2)["pass"] is False
+
+
+def test_kl_equivalence_rejects_bad_input():
+    with pytest.raises(ValueError):
+        kl_equivalence([0.1], 1.0)
+    with pytest.raises(ValueError):
+        kl_equivalence([], 1.0)
+    with pytest.raises(ValueError):
+        kl_equivalence([[0.1, 0.2], [0.1, 0.2]], 1.0)
+    with pytest.raises(ValueError):
+        kl_equivalence([0.1, 0.2], 0.0)
+    with pytest.raises(ValueError):
+        kl_equivalence([0.1, 0.2], -1.0)
+
+
+def test_kl_specificity_not_measurable_when_copy_none():
+    r = kl_specificity(0.8, None, [0.1, 0.2])
+    assert r["status"] == "not_measurable" and r["pass"] is None
+    assert r["rel_copy"] is None and r["rel_add"] == 0.8
+
+
+def test_kl_specificity_passes_when_ratio_and_p95_ok():
+    r = kl_specificity(0.9, 0.2, [0.1, 0.2, 0.3])
+    assert r["status"] == "pass" and r["pass"] is True
+    assert r["ratio_ok"] is True and r["drop_ok"] is True
+    assert r["rel_add"] == 0.9 and r["rel_copy"] == 0.2 and r["add_drop"] == 0.9
+    assert r["add_drop_p95_random"] == pytest.approx(np.percentile([0.1, 0.2, 0.3], 95))
+
+
+def test_kl_specificity_fails_ratio():
+    r = kl_specificity(0.5, 0.2, [0.1, 0.2, 0.3])  # 0.5 < 3 * 0.2
+    assert r["pass"] is False and r["status"] == "fail"
+    assert r["ratio_ok"] is False and r["drop_ok"] is True
+
+
+def test_kl_specificity_fails_p95_even_if_ratio_ok():
+    r = kl_specificity(0.5, 0.01, [0.1, 0.2, 0.9])
+    assert r["pass"] is False
+    assert r["ratio_ok"] is True and r["drop_ok"] is False
+
+
+def test_kl_specificity_ratio_boundary_is_inclusive_p95_boundary_is_strict():
+    assert kl_specificity(0.75, 0.25, [0.1])["ratio_ok"] is True  # exactly 3x
+    r = kl_specificity(0.5, 0.0, [0.5, 0.5, 0.5])
+    assert r["drop_ok"] is False and r["pass"] is False
+
+
+def test_kl_specificity_negative_copy_damage_satisfies_ratio():
+    r = kl_specificity(0.4, -0.3, [0.1, 0.2])
+    assert r["ratio_ok"] is True and r["pass"] is True and r["rel_copy"] == -0.3
+
+
+def test_kl_specificity_ratio_parameter():
+    assert kl_specificity(0.5, 0.2, [0.1], ratio=2.0)["ratio_ok"] is True
+    assert kl_specificity(0.5, 0.2, [0.1], ratio=3.0)["ratio_ok"] is False
+
+
+def test_kl_specificity_rejects_empty_or_non_1d_random():
+    with pytest.raises(ValueError):
+        kl_specificity(0.5, 0.1, [])
+    with pytest.raises(ValueError):
+        kl_specificity(0.5, None, [])
+    with pytest.raises(ValueError):
+        kl_specificity(0.5, 0.1, [[0.1], [0.2]])

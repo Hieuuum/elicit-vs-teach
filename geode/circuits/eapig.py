@@ -30,8 +30,10 @@ from transformers.models.llama.modeling_llama import apply_rotary_pos_emb
 
 __all__ = [
     "EdgeGraph",
+    "answer_logprobs",
     "build_graph",
     "eap_ig_scores",
+    "kl_2tok",
     "logit_diff_2tok",
     "node_outputs",
     "patched_forward",
@@ -383,6 +385,23 @@ def logit_diff_2tok(
     term1 = a[rows, c1] - a[rows, k1]
     term2 = b[rows, c2] - b[rows, k2]
     return term1 + term2, term1, term2
+
+
+def answer_logprobs(logits: Tensor) -> Tensor:
+    """(B, T, V) logits -> (B, 2, V) float32 log-softmax at positions -2 and -1 (the two answer predictions)."""
+    return torch.log_softmax(logits[:, -2:].float(), dim=-1)
+
+
+def kl_2tok(logits: Tensor, clean_logp: Tensor) -> Tensor:
+    """Per-example KL(p_clean || p_x) in nats over the full vocabulary, summed over the two answer positions.
+
+    ``logits`` (B, T, V) are the patched/any run; ``clean_logp`` (B, 2, V) comes from
+    ``answer_logprobs`` of the clean full-model logits. Returns (B,) float32.
+    Differentiable in ``logits``; no clamping. Use ``-kl_2tok(...)`` as the EAP-IG metric.
+    """
+    logp_x = answer_logprobs(logits)
+    clean_logp = clean_logp.float()
+    return (clean_logp.exp() * (clean_logp - logp_x)).sum(-1).sum(-1)
 
 
 def eap_ig_scores(
