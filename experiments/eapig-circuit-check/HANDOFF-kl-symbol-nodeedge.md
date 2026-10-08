@@ -16,11 +16,17 @@ picked #1, #2 and #4:
 - **#1 KL scoring.** Score edges by how well the model reproduces its own
   clean output, right or wrong. This gives the parents a defined circuit for
   "what the parent computes on this prompt".
-- **#2 Symbol form.** Measure `elicit_parent` on the task it can do,
-  `7465 + 8497 = ` → `15962`. Then ask whether the child's circuit reuses it.
-  Prior node-level evidence: decisions.md stage 14 (2026-09-17). There,
-  `elicit_parent` performs on this surface (0-shot logit-diff 11.0) and
-  `fmt_parent` does not (−1.46).
+- **#2 Symbol form: ELICIT ROUTE ONLY** (owner, 2026-10-08). The elicit
+  route was trained on symbol arithmetic (`7465 + 8497 = ` → `15962`). The
+  teach route never was, so it gets no symbol form anywhere in this plan.
+  - The teach route stays on NL (word-form) add/sub. NL add/sub is the
+    default for `fmt_parent`.
+  - **`elicit_parent`'s plan is PENDING the owner** ("I'll decide the plan
+    for elicit parent later"). Do not run any `elicit_parent` symbol job
+    until the owner says what to do.
+  - Prior node-level evidence: decisions.md stage 14 (2026-09-17).
+    `elicit_parent` performs on the symbol form there (0-shot logit-diff
+    11.0).
 - **#4 Edge vs node change rates.** Measure these **with a null**. Edges
   outnumber nodes by hundreds to one, so edges changing more is nearly
   automatic. The paper had no control for this.
@@ -43,65 +49,86 @@ picked #1, #2 and #4:
 | Item | Value | Status |
 |---|---|---|
 | GPU | **one box with 2× RTX 3090**, race 3 | **owner, 2026-10-08** |
-| Score children on symbol too | **decided after step S**: the owner wants to see the children's symbol-form performance first | **owner, 2026-10-08: pending step S** |
+| Surface per route | elicit route: symbol form (+ NL for reference). Teach route: **NL add/sub only, no symbol form** | **owner, 2026-10-08** |
+| `elicit_parent` | plan for it (symbol and/or NL, which steps) **PENDING the owner**. Run no `elicit_parent` symbol job until decided | **owner, 2026-10-08: pending** |
+| `fmt_parent` | NL add/sub (default) | **owner, 2026-10-08** |
+| Score `elicit_child` on symbol | **decided after step S** | **owner, 2026-10-08: pending step S** |
+| Score `teach_child` on symbol | **no** (teach route has no symbol form) | **owner, 2026-10-08** |
 | Random draws in the probe stage | 20 parents / 10 children | proposed; confirm |
 | Full KL test rerun | all five tests, KL-judged, on the KL-word circuits. **First pass: 2% and 5% only. Then STOP and report to the owner.** 0.1 / 0.2 / 1% run only after the owner says go | **owner, 2026-10-08** |
 | KL equivalence bound | mean per-example KL(full ‖ circuit) < 0.10 × mean KL(full ‖ empty), one-sided t-test, α = 0.05 | **owner, 2026-10-08** |
 | KL parent gate | mean KL(full ‖ empty) > 0.1 nats, and sufficiency passes at some size | **owner, 2026-10-08** |
 
-## Step S (FIRST): symbol-form performance of all four models
+## Step S (FIRST): performance check, by route
 
-The owner wants to see how well the children do on the symbol form before
-deciding whether to score them on it (owner, 2026-10-08). The parents are
-included because they are cheap and give the reference.
+The owner wants to see `elicit_child`'s symbol-form performance before
+deciding whether to score it on that form (owner, 2026-10-08). Each route
+is measured only on its own surface.
 
-- **Data (considerable).** All 50,000 addition rows of `D_algo_eval_op`
-  (op `+`, 10 cells, 5,000 each; prompt `"{a} + {b} = "`). Plus the **same
-  50,000 problems** in word form from `D_algo_eval_bare`. Both are re-renders
-  of the frozen `D_algo_eval` triples, so word and symbol are compared on
-  identical problems.
-  - Headline: the 4x4 cell, which is the circuit task.
-  - Also report 4x4 on the leakage-clean subset, using the same exclusion
-    set as `data.py`'s pair pool.
-- **Measures, per model × surface × cell:**
+| model | what step S measures |
+|---|---|
+| `elicit_child` | symbol add (50,000) + NL add/sub on the same problems (100,000) |
+| `fmt_parent` | NL add/sub (100,000) |
+| `teach_child` | NL add/sub (100,000) |
+| `elicit_parent` | **not run until the owner decides** (pending) |
+
+- **Data (considerable).**
+  - Symbol: all 50,000 addition rows of `D_algo_eval_op` (op `+`, 10 cells,
+    5,000 each; prompt `"{a} + {b} = "`).
+  - NL add/sub: all 100,000 rows of `D_algo_eval_bare`. That is 50,000 `+`
+    (`"What is the sum of {a} and {b}?\n"`) and 50,000 `−`
+    (`"What is the difference between {a} and {b}?\n"`).
+  - All are re-renders of the frozen `D_algo_eval` triples. The `+` rows are
+    the same 50,000 problems in both forms (verified 2026-10-08: same `idx`,
+    `a`, `b`, cell).
+  - Headline: the 4x4 addition cell, which is the circuit task. Also report
+    4x4 on the leakage-clean subset, using the same exclusion set as
+    `data.py`'s pair pool.
+- **NL subtraction caveat.** The label is signed `a − b`, and 50% of rows
+  have `a < b` (memory `project-nl-difference-sign-ambiguity`). Report
+  strict EM **and** |a − b|-lenient EM.
+- **Measures, per model × surface × op × cell:**
   - greedy exact match (max 6 new tokens; cut at EOS before decoding, as in
     `run.py` sanity);
-  - for 4x4, teacher-forced log-prob of the answer.
-- **Measures on the 768 circuit pairs** (512 discovery + 256 validation),
-  re-rendered in symbol form: m(full) and m(empty) (LD). This tells whether
-  an LD-symbol circuit would have signal.
+  - for 4x4 addition, teacher-forced log-prob of the answer.
+- **`elicit_child` only:** m(full) and m(empty) (LD) on the 768 circuit
+  pairs (512 discovery + 256 validation) re-rendered in symbol form. This
+  tells whether its LD-symbol circuit would have signal.
 - **Tokenization check first, on the laptop (tokenizer only, no model).**
   - Is `"{a} + {b} = "` a token-prefix of the full training text
     `"{a} + {b} = {answer}"`?
   - How does the trailing space tokenize?
   - If the prompt is not a clean prefix, use the training tokenization (see
     memory `feedback-eval-decode-must-match-training-tokenization`).
-- **Script:** `symbol_eval.py`, one model per process, `--device`.
-  - Output `results_symbol/<tag>/symbol_eval.json`, pushed to HF
-    `results/eapig_symbol_eval/`.
-  - It needs only `data.py`'s symbol render. It does not depend on any KL
-    code.
-- **Time:** ~5 min per model after download, at bs 128 with 6 new tokens.
-  Two GPUs (elicit pair on GPU 0, teach pair on GPU 1) gives about 10–15 min
-  after the box is ready.
+- **Script:** `perf_eval.py --surface symbol|nl --ops + -`, one model per
+  process, `--device`.
+  - Output `results_perf/<tag>/perf_eval.json`, pushed to HF
+    `results/eapig_perf_eval/`.
+  - It needs only `data.py`'s renders. It does not depend on any KL code.
+- **Time:** ~5–10 min per model after download, at bs 128 with 6 new
+  tokens. With 3 models on 2 GPUs (`elicit_child` on GPU 0, teach route on
+  GPU 1), about 15–20 min after the box is ready.
 - **Report:** when step S finishes, **ping the owner** (an experiment
-  completed) with the table below, and wait for the decision on children +
-  symbol. Do not hold the definite jobs for it (see the fan-out plan).
+  completed) with the table below. Ask about two pending decisions:
+  `elicit_child` + symbol scoring, and the `elicit_parent` plan. Do not hold
+  the definite jobs for either (see the fan-out plan).
 
-| model | word EM 4x4 | symbol EM 4x4 | symbol EM, all 10 cells | symbol m(full) − m(empty) on the 768 pairs |
-|---|---|---|---|---|
-| elicit_parent / elicit_child / fmt_parent / teach_child | … | … | … | … |
+| model | NL add EM 4x4 | NL sub EM 4x4 (strict / lenient) | NL add/sub EM, all cells | symbol add EM 4x4 | symbol add EM, all cells | symbol m(full) − m(empty), 768 pairs |
+|---|---|---|---|---|---|---|
+| elicit_child | … | … | … | … | … | … |
+| fmt_parent | … | … | … | – | – | – |
+| teach_child | … | … | … | – | – | – |
 
 ## Steps
 
 | Step | What | Where |
 |---|---|---|
-| S | Symbol-form performance check (above), run **first**, in parallel with the step 0 build | GPU |
+| S | Performance check by route (above), run **first**, in parallel with the step 0 build | GPU |
 | 0 | Build the code (below). Smoke-test only through pytest's tiny fixtures (memory: never instantiate a model on the laptop outside pytest); the first real run is the box's sanity stage. Then commit and push | laptop |
-| 1 | Symbol sanity per model: EM, m(full), m(empty) | GPU |
-| 2 | Score the 3 new sets per model: LD-symbol, KL-word, KL-symbol (~45 s each) | GPU |
+| 1 | Symbol sanity, elicit route only: EM, m(full), m(empty). `elicit_child` only if the owner approves it after step S; `elicit_parent` only after the owner decides its plan | GPU |
+| 2 | Score the new sets (~45 s each). **Definite:** KL-word for all 4 models. **Pending owner:** LD-symbol and KL-symbol for the elicit route only (`elicit_child` after step S; `elicit_parent` after its plan is decided). No symbol sets for the teach route | GPU |
 | 3 | Probe stage per new set: f at 2/5/10% against the random band. **No frozen tests.** | GPU |
-| 4 | Run `circuit_change.py --frac 0.02 / 0.05 / 0.1` on each set (2% and 5% first, then 10%), plus the cross-surface pairs parent-symbol → child-word and parent-symbol → child-symbol | laptop |
+| 4 | Run `circuit_change.py --frac 0.02 / 0.05 / 0.1` on each set (2% and 5% first, then 10%), plus, **elicit route only and only once its symbol sets exist**, the cross-surface pairs parent-symbol → child-word and parent-symbol → child-symbol | laptop |
 | 5 | Edge vs node change rates at 0.1/0.2/0.5/1% and at the top 100/500/1,000 edges. The null is random edge sets of the same size; references are parent-vs-parent and split-half. Build and run it on the existing LD-word scores during step 0, then rerun on the new sets | laptop |
 
 **Build list (step 0):**
@@ -215,14 +242,16 @@ before):
 **Fan-out plan:**
 
 Owner, 2026-10-08: **rent the box and run step S in parallel with building
-the KL parts we will definitely do.** "Definite" means everything except
-scoring the children on symbol.
+the KL parts we will definitely do.** "Definite" means KL-word for all 4
+models, the probe stage, step 6 at 2% and 5%, and #4. Symbol scoring is
+**pending**: `elicit_child` waits for step S, `elicit_parent` waits for the
+owner's plan, and the teach route never gets it.
 
 | Wave | In parallel (≤ 4 agents) | Fan-in |
 |---|---|---|
-| A | **W-box (Opus):** tokenization check, `data.py` symbol render + `symbol_eval.py`, push, then the 3-box race with the stage deadlines, set up the winner, run step S on both GPUs, push to HF, verify from the laptop. Keep the box. **W1 (Sonnet):** KL metric + KL equivalence test in `geode/circuits`, with property tests. **W2 (Opus):** the `run.py --metric kl` path: `eval_kl`, KL f, the five KL tests, the KL gate, the probe stage. Agree W1's function signatures first. **W3 (Sonnet):** `run.py --task symbol` (uses W-box's render) + `circuit_change.py` multi-set args | Step S done → the orchestrator **pings the owner** with the step S table and asks about children + symbol. Build done → review the diffs, run the full suite once, commit and push |
-| A2 | **W4 (Sonnet):** `run_box_2gpu.sh` (queue below; children-symbol jobs behind a flag, off by default) + the edge-vs-node script with its null, run on the existing LD-word scores (#4 needs no GPU) | Review, commit, push |
-| B (box) | On the box kept from step S, pull the pushed HEAD and launch the definite jobs: steps 1–3 for everything except children-symbol, then step 6 at 2% and 5%. If the owner says yes to children + symbol, flip the flag and queue those jobs (~10 GPU-min). While it runs, a worker writes the PLAN.md skeleton | – |
+| A | **W-box (Opus):** tokenization check, `data.py` symbol + NL add/sub renders + `perf_eval.py`, push, then the 3-box race with the stage deadlines, set up the winner, run step S (3 models, `elicit_parent` excluded) on both GPUs, push to HF, verify from the laptop. Keep the box. **W1 (Sonnet):** KL metric + KL equivalence test in `geode/circuits`, with property tests. **W2 (Opus):** the `run.py --metric kl` path: `eval_kl`, KL f, the five KL tests, the KL gate, the probe stage. Agree W1's function signatures first. **W3 (Sonnet):** `run.py --task symbol` (uses W-box's render) + `circuit_change.py` multi-set args | Step S done → the orchestrator **pings the owner** with the step S table and asks about the two pending decisions (`elicit_child` + symbol, the `elicit_parent` plan). Build done → review the diffs, run the full suite once, commit and push |
+| A2 | **W4 (Sonnet):** `run_box_2gpu.sh` (shared job queue; elicit-route symbol jobs behind per-model flags, off by default; no symbol jobs for the teach route) + the edge-vs-node script with its null, run on the existing LD-word scores (#4 needs no GPU) | Review, commit, push |
+| B (box) | On the box kept from step S, pull the pushed HEAD and launch the definite jobs: KL-word scoring + probe for all 4 models, then step 6 at 2% and 5%. When the owner decides `elicit_child` + symbol and/or the `elicit_parent` plan, flip those flags and queue the jobs (~5 GPU-min per model and score set). While it runs, a worker writes the PLAN.md skeleton | – |
 | C (box running) | Both GPUs run (layout below). The box's idle CPU cores run the CPU analysis on each score set **as soon as its scores exist**. Do not wait for the whole job, and do not use the laptop for this | – |
 | D (analysis) | One worker per score set reads the box's JSONs/PNGs (pulled single-threaded) and drafts its table. One worker drafts the full-KL-test table | The orchestrator writes the Results block, Log entry and memory |
 
@@ -233,8 +262,10 @@ box and re-race when the build is ready.
 
 ## Box utilization
 
-- **GPUs:** one process per GPU with balanced work (each GPU gets one parent
-  and one child). The job is memory-bandwidth bound, so a second process on
+- **GPUs:** one process per GPU, pulling from **one shared job queue**.
+  Group jobs by model to avoid reloading 5 GB weights. The elicit route now
+  has more jobs than the teach route, so fixed per-route GPUs would leave
+  GPU 1 idle. The job is memory-bandwidth bound, so a second process on
   the same GPU does not help; bs 32 is measured. Keep both GPUs busy with no
   gaps:
   - **prefetch** the next model's weights (`hf download` in the background)
@@ -305,13 +336,13 @@ memory-bandwidth bound. Use bs 32.
 
 ## Pre-registered readings
 
-- **#2, elicit parent performing on symbol.** Child circuits (word or
-  symbol) that overlap the parent near both ceilings mean edge-level reuse.
+- **#2, elicit parent performing on symbol (if the owner's plan for it
+  includes symbol).** Child circuits (word or symbol) that overlap the
+  parent near both ceilings mean edge-level reuse.
   Overlap at the parent-vs-parent level (~0.13 at 10%) means no evidence of
   reuse.
-- **#2, `fmt_parent` not performing on symbol (expected).** Report "the
-  teach parent has no circuit to keep". That is an absence, not a measured
-  change.
+- **#2, teach route.** No symbol form (owner). The teach route's parent →
+  child comparison is on NL only (LD-word and KL-word).
 - **#1, KL gives the parents a performing, repeatable word-task circuit (split-half ceiling well above today's ~0.2 at 10%).** Redo the
   parent → child analysis on KL-word.
 - **#1, KL does not.** The parents have no structured word-task computation.
