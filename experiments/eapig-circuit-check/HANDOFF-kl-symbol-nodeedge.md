@@ -45,9 +45,9 @@ picked #1, #2 and #4:
 | GPU | **one box with 2× RTX 3090**, race 3 | **owner, 2026-10-08** |
 | Score children on symbol too | yes (+~10 min GPU) | proposed; confirm |
 | Random draws in the probe stage | 20 parents / 10 children | proposed; confirm |
-| Full KL test rerun | all five tests, KL-judged, on the KL-word circuits, sizes **0.1 / 0.2 / 1 / 2 / 5%** | **owner, 2026-10-08** |
-| KL equivalence bound | mean per-example KL(full ‖ circuit) < 0.10 × mean KL(full ‖ empty), one-sided t-test, α = 0.05 | proposed; confirm |
-| KL parent gate | mean KL(full ‖ empty) > 0.1 nats, and sufficiency passes at some size | proposed; confirm |
+| Full KL test rerun | all five tests, KL-judged, on the KL-word circuits. **First pass: 2% and 5% only. Then STOP and report to the owner.** 0.1 / 0.2 / 1% run only after the owner says go | **owner, 2026-10-08** |
+| KL equivalence bound | mean per-example KL(full ‖ circuit) < 0.10 × mean KL(full ‖ empty), one-sided t-test, α = 0.05 | **owner, 2026-10-08** |
+| KL parent gate | mean KL(full ‖ empty) > 0.1 nats, and sufficiency passes at some size | **owner, 2026-10-08** |
 
 ## Steps
 
@@ -87,8 +87,13 @@ picked #1, #2 and #4:
 
 ## Full KL test rerun (step 6, owner 2026-10-08)
 
-Rerun all five frozen tests with KL in place of LD, at **0.1%, 0.2%, 1%,
-2% and 5%** (k = 196 / 392 / 1,959 / 3,917 / 9,793). It runs on the word
+Rerun all five frozen tests with KL in place of LD.
+- **First pass (owner, 2026-10-08): 2% and 5% only** (k = 3,917 / 9,793).
+  Run both sizes even if 2% passes all five tests: don't skip 5%. Still
+  report which size the stopping rule would have selected.
+- Then **stop, report the results to the owner (ntfy), and wait**. Destroy
+  the box after the push and verify; a later pass rents a new one.
+- 0.1 / 0.2 / 1% (k = 196 / 392 / 1,959) run only when the owner says go. It runs on the word
 task only, because the copy task and the test set are defined there.
 - Circuits are the top-k of the **KL-word** scores from step 2. This is
   level B in the chat: KL for scoring and for judging.
@@ -96,7 +101,7 @@ task only, because the copy task and the test set are defined there.
   in `results/` or `results_large/`. The frozen LD tests stay the record.
 - Draw counts are the frozen ones (100 children / 50 parents; TinyStories
   10), so the results are comparable with the LD runs. The stopping rule
-  is unchanged: once a size passes all five, larger sizes are skipped.
+  applies only to selection here: both sizes run in the first pass (see above).
 
 **KL definitions.** KL(full ‖ X) is per example, at the two answer
 positions, over the full vocabulary. Here "full" means the unpatched clean
@@ -136,9 +141,12 @@ on k. The KL read-out is a log-softmax at 2 positions, which is negligible.
 | once per model | – | ~3 min (full/copy refs, real patching of the top 20) | <1 min | ~7 min | ~4 min |
 | **total** | | **~1 h 43 min** | **~51 min** | **~5 h 10 min** | **~2 h 35 min** |
 
-If a parent fails the KL gate, its tests stop after sufficiency and
-partial necessity, at about 7 min per size. If a size passes all five, the
-remaining sizes are skipped.
+**The first pass (2% + 5%)** takes ~2 × 30 min + ~4 min ≈ **~64 min per GPU**
+on the 2× 3090 box. The other three sizes are ~94 min per GPU more, later,
+if the owner says go.
+
+If a parent fails the KL gate, its tests stop after sufficiency and partial
+necessity, at about 7 min per size.
 
 ## How to work: fan out, fan in
 
@@ -231,9 +239,11 @@ memory-bandwidth bound. Use bs 32.
 - 2× 3090 offers: $0.27–0.30/h search price (US, rel ≥ 0.994). Storage adds
   ~$0.08/h.
 - Steps 1–3: GPU work is ~55 min on one 3090, so ~28 min per GPU on two.
-- Step 6 (full KL tests): ~2 h 35 min per GPU on two.
+- Step 6, first pass (2% + 5%): ~64 min per GPU on two.
 - Fixed overhead is ~28 min: race/onstart, pip, model downloads, push.
-- Wall-clock ≈ **~3.5 h**. Cost ≈ **~$1.3–1.5**, including the 3-box race.
+- Wall-clock ≈ **~2 h**. Cost ≈ **~$0.8–0.9**, including the 3-box race.
+- A later pass for 0.1 / 0.2 / 1% would be another ~1.5 h of GPU time plus
+  ~28 min of overhead, ~$0.7.
 - Team credit was $76.40.
 
 ## Pre-registered readings
@@ -266,10 +276,8 @@ memory-bandwidth bound. Use bs 32.
   `--num-gpus 2` and `gpu_name=RTX_3090`, cutting boxes by the stage
   deadlines above. Watch downloads actively. Push, verify on the laptop,
   destroy.
-- Step 6 order: 2% and 5% first? Open question to the owner (2026-10-08).
-  If yes, run 2% and 5% first, then 0.1 / 0.2 / 1%. The stopping rule then
-  picks the smallest passing size once all sizes are in, rather than
-  skipping sizes.
+- Step 6: run 2% and 5% only, report, and wait (owner, 2026-10-08). Never
+  start 0.1 / 0.2 / 1% without the owner's go.
 - Finish:
   - write a PLAN.md Results block and a Log entry;
   - update memory `project-eapig-circuit-check-2026-10-01.md`;
