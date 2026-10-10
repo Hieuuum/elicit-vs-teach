@@ -361,7 +361,7 @@ def cmd_run(args) -> int:
     # --- v2: content-removed direction at the final layer (task answer position)
     from geode.arith.formats import true_answer
 
-    U = parent.lm_head.weight.detach().float().cpu()
+    U = layout(parent).unembed().weight.detach().float().cpu()
     gamma = layout(parent).final_norm().weight.detach().float().cpu()
     first_tok = lambda x: tokenizer(str(x), add_special_tokens=False)["input_ids"][0]  # noqa: E731
     if task is None:

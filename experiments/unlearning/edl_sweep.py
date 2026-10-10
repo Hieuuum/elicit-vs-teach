@@ -40,11 +40,11 @@ FLOORS = {"ocv": "edl_ocv_per_token_nats", "test": "edl_test_per_token_nats"}
 LN2 = math.log(2)
 
 
-def load(store: Path, tag: str) -> dict[int, dict[int, dict]]:
+def load(store: Path, tag: str, prefix: str = "wmdp") -> dict[int, dict[int, dict]]:
     """{seed: {n: manifest result}} for one model's sweep points."""
     pts: dict[int, dict[int, dict]] = {}
-    for man in (store / "runs").glob(f"wmdp-edl-{tag}-n*-s*/manifest.json"):
-        m = re.fullmatch(rf"wmdp-edl-{re.escape(tag)}-n(\d+)-s(\d+)", man.parent.name)
+    for man in (store / "runs").glob(f"{prefix}-edl-{tag}-n*-s*/manifest.json"):
+        m = re.fullmatch(rf"{re.escape(prefix)}-edl-{re.escape(tag)}-n(\d+)-s(\d+)", man.parent.name)
         if not m:
             continue
         r = json.loads(man.read_text()).get("result", {})
@@ -85,9 +85,10 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--tags", default="orig rmu elm npo simnpo")
+    ap.add_argument("--prefix", default="wmdp", help="run-id prefix of the model set in the store (wmdp, wmdp-tar, wmdp-deepig)")
     ap.add_argument("--store", type=Path, default=Path(os.environ.get("GEODE_STORE", HERE.parents[1] / "geode-store")))
     args = ap.parse_args()
-    raw = {t: load(args.store, t) for t in args.tags.split()}
+    raw = {t: load(args.store, t, args.prefix) for t in args.tags.split()}
     res = {t: summarize(p) for t, p in raw.items() if p}
     for t in res:
         if t != "orig" and "orig" in res:

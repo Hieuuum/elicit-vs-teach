@@ -1015,7 +1015,7 @@ def metric_probe_task(model, tokenizer, task, items, device, bs):
                 ans[li].append(st[li][j, -1])
                 if pos[i] is not None:
                     subj[li].append(st[li][j, o + pos[i]])
-    norm, head = lay.final_norm(), model.lm_head
+    norm, head = lay.final_norm(), lay.unembed()
     tgt = torch.tensor([it.target for it in items])
     dis = torch.tensor([it.distractors[0] for it in items])
 

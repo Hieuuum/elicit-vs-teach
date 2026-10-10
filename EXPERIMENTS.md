@@ -858,6 +858,17 @@ metrics, 4 verdict; ~10 GPU-h). Code + CPU smoke done; awaiting the owner's
 GPU run. Tools gained `--task` / model-family layouts (spec 02 §7.1,
 `geode.adapt`); arithmetic defaults unchanged.
 
+**SOTA / tamper-resistance extension (2026-10-10, decisions.md same day).** The WMDP
+pipeline runs on further *model sets* (`launch_unlearn.sh --models`, run ids
+prefixed per set in the shared store): `tar` (Llama-3-8B-Instruct vs
+TAR-Bio-v2), `deepig` (EleutherAI Deep Ignorance 6.9B, GPT-NeoX: unfiltered
+baseline, a NEVER-LEARNED strong-filter model = the set's teach anchor with the
+three-way position s, circuit breakers / CB+LAT on top), plus the two optional
+Zephyr pins (RMU+LAT, GradDiff) and the TOFU design. `run_sota.sh` sequences
+them (~66 GPU-h, ~$130). Code + CPU smoke (tiny NeoX / Llama models) done;
+awaiting the owner's GPU run. Not testable without training: the ICLR 2026
+gradient-routing paper (no checkpoints) and UNDO (code only).
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

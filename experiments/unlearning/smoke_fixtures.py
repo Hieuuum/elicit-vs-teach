@@ -24,22 +24,28 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 SPECIALS = ["<|begin_of_text|>", "<|start_header_id|>", "<|end_header_id|>", "<|eot_id|>"]
 MISTRAL_SPECIALS = ["<unk>", "<s>", "</s>"]
+NEOX_SPECIALS = ["<|endoftext|>", "<|padding|>"]
+FAMILY_STYLE = {"llama": "llama3", "mistral": "mistral", "gpt_neox": "neox"}   # tokenizer specials per family
 
 
-def build_tokenizer(texts: list[str], out: Path, vocab_size: int = 4000, mistral: bool = False):
+def build_tokenizer(texts: list[str], out: Path, vocab_size: int = 4000, mistral: bool = False, style: str | None = None):
     from tokenizers import Tokenizer, decoders, models, pre_tokenizers, trainers
     from transformers import PreTrainedTokenizerFast
 
-    specials = MISTRAL_SPECIALS if mistral else SPECIALS
+    style = style or ("mistral" if mistral else "llama3")
+    specials = {"mistral": MISTRAL_SPECIALS, "llama3": SPECIALS, "neox": NEOX_SPECIALS}[style]
     tok = Tokenizer(models.BPE())
     tok.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False)
     tok.decoder = decoders.ByteLevel()
     trainer = trainers.BpeTrainer(vocab_size=vocab_size, special_tokens=specials,
                                   initial_alphabet=pre_tokenizers.ByteLevel.alphabet())
     tok.train_from_iterator(texts, trainer)
-    if mistral:
+    if style == "mistral":
         fast = PreTrainedTokenizerFast(tokenizer_object=tok, bos_token="<s>", eos_token="</s>",
                                        unk_token="<unk>", pad_token="</s>")
+    elif style == "neox":   # the GPT-NeoX / Pythia convention: one end-of-text token, no BOS
+        fast = PreTrainedTokenizerFast(tokenizer_object=tok, bos_token="<|endoftext|>", eos_token="<|endoftext|>",
+                                       pad_token="<|padding|>")
     else:
         fast = PreTrainedTokenizerFast(tokenizer_object=tok, bos_token="<|begin_of_text|>",
                                        eos_token="<|eot_id|>", pad_token="<|eot_id|>")
@@ -56,7 +62,13 @@ def build_model(tokenizer, seed: int, out: Path, layers: int, d_model: int, fami
                   max_position_embeddings=1024, bos_token_id=tokenizer.bos_token_id,
                   eos_token_id=tokenizer.eos_token_id, pad_token_id=tokenizer.pad_token_id)
     torch.manual_seed(seed)
-    if family == "mistral":
+    if family == "gpt_neox":   # the Deep Ignorance family: fused qkv, parallel residual, LayerNorm
+        from transformers import GPTNeoXConfig, GPTNeoXForCausalLM
+
+        neox = {k: v for k, v in common.items() if k != "num_key_value_heads"}
+        model = GPTNeoXForCausalLM(GPTNeoXConfig(**neox, rotary_pct=0.25, use_parallel_residual=True,
+                                                 tie_word_embeddings=False))
+    elif family == "mistral":
         model = MistralForCausalLM(MistralConfig(**common, tie_word_embeddings=False, sliding_window=None))
     else:
         model = LlamaForCausalLM(LlamaConfig(**common, tie_word_embeddings=True))
@@ -72,6 +84,10 @@ def main() -> int:
     ap.add_argument("--d-model", type=int, default=64)
     ap.add_argument("--authors", type=int, default=3, help="tofu: invented authors per split")
     ap.add_argument("--items", type=int, default=48, help="wmdp: invented items per domain")
+    ap.add_argument("--family", choices=("mistral", "llama", "gpt_neox"), default=None,
+                    help="wmdp model family (default mistral, the Zephyr family; gpt_neox for the deepig set)")
+    ap.add_argument("--never-learned", action="store_true",
+                    help="wmdp: also build neverlearned/ (a third seed) for sets with an in-set teach anchor")
     args = ap.parse_args()
     import pandas as pd
 
@@ -85,13 +101,15 @@ def main() -> int:
         texts = ev["prompt_text"].tolist() + [" A", " B", " C", " D"] * 50
         for f in ("relearn_bioA", "relearn_mmluA"):
             texts += pd.read_parquet(data / f"{f}.parquet")["full_text"].tolist()
-        tok = build_tokenizer(texts, args.out / "tokenizer", vocab_size=1500, mistral=True)
-        for name, seed in (("original", 1), ("unlearned", 2)):
-            build_model(tok, seed, args.out / name, args.layers, args.d_model, family="mistral")
+        family = args.family or "mistral"
+        tok = build_tokenizer(texts, args.out / "tokenizer", vocab_size=1500, style=FAMILY_STYLE[family])
+        names = [("original", 1), ("unlearned", 2)] + ([("neverlearned", 3)] if args.never_learned else [])
+        for name, seed in names:
+            build_model(tok, seed, args.out / name, args.layers, args.d_model, family=family)
         stories = pd.read_parquet(data / "relearn_bioA.parquet")["full_text"].tolist()
         (data / "story.txt").write_text("<|endoftext|>".join(stories * 4))
         print(f"[smoke-fixtures] {args.out}: wmdp data ({len(ev)} items), tokenizer ({len(tok)}), "
-              "mistral models original/unlearned")
+              f"{family} models {'/'.join(n for n, _ in names)}")
         return 0
     ev = pd.read_parquet(data / "tofu_eval.parquet")
     texts = ev["prompt_text"].tolist() + ev["answer_text"].tolist() + ev["para_prompt_text"].tolist()

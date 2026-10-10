@@ -16,7 +16,15 @@ from __future__ import annotations
 import pytest
 import torch
 
-from geode.train.lora import LORA_TARGET_MODULES, LoRALinear, apply_lora, merge_lora, reapply_lora
+from geode.train.lora import (
+    LORA_TARGET_MODULES,
+    LORA_TARGETS_BY_FAMILY,
+    LoRALinear,
+    apply_lora,
+    lora_targets_for,
+    merge_lora,
+    reapply_lora,
+)
 from tests.conftest import DEFAULT_VOCAB_SIZE
 
 # Tiny stand-ins for the pinned r=128/α=32: small enough to be fast, and
@@ -240,3 +248,32 @@ def test_v5_52e_merge_reenables_grad_everywhere(tiny_llama):
     apply_lora(model, rank=_RANK, alpha=_ALPHA, seed=1)
     merge_lora(model)
     assert all(param.requires_grad for param in model.parameters())
+
+
+def test_v5_81_lora_targets_follow_the_model_family():
+    """No explicit targets: a GPT-NeoX model gets its four fused projections wrapped in every layer,
+    a Llama model the seven Llama-style ones (the previous default, unchanged); an explicit tuple
+    still wins; a family with no table raises instead of silently wrapping nothing."""
+    from transformers import GPTNeoXConfig, GPTNeoXForCausalLM, LlamaConfig, LlamaForCausalLM
+
+    def wrapped(model):
+        return sorted(n.split(".")[-1] for n, m in model.named_modules() if isinstance(m, LoRALinear))
+
+    neox = GPTNeoXForCausalLM(GPTNeoXConfig(vocab_size=64, hidden_size=32, intermediate_size=64, num_hidden_layers=2,
+                                            num_attention_heads=4, max_position_embeddings=32))
+    assert lora_targets_for(neox) == LORA_TARGETS_BY_FAMILY["gpt_neox"]
+    apply_lora(neox, rank=_RANK, alpha=_ALPHA, seed=0)
+    assert wrapped(neox) == sorted(LORA_TARGETS_BY_FAMILY["gpt_neox"] * 2)
+    llama_cfg = dict(vocab_size=64, hidden_size=32, intermediate_size=64, num_hidden_layers=2, num_attention_heads=4,
+                     num_key_value_heads=4, max_position_embeddings=32)
+    llama = LlamaForCausalLM(LlamaConfig(**llama_cfg))
+    assert lora_targets_for(llama) == LORA_TARGET_MODULES
+    apply_lora(llama, rank=_RANK, alpha=_ALPHA, seed=0)
+    assert wrapped(llama) == sorted(LORA_TARGET_MODULES * 2)
+    explicit = LlamaForCausalLM(LlamaConfig(**llama_cfg))
+    apply_lora(explicit, rank=_RANK, alpha=_ALPHA, seed=0, target_modules=("q_proj",))
+    assert wrapped(explicit) == ["q_proj", "q_proj"]
+    other = LlamaForCausalLM(LlamaConfig(**llama_cfg))
+    other.config.model_type = "phi"          # a layout geode.adapt knows, with no LoRA table
+    with pytest.raises(ValueError):
+        apply_lora(other, rank=_RANK, alpha=_ALPHA, seed=0)

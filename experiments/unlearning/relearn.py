@@ -278,7 +278,7 @@ def main() -> int:
     dev = args.device
     mods = []
     if lora_cfg:
-        from geode.train.lora import apply_lora
+        from geode.train.lora import apply_lora, lora_targets_for
 
         apply_lora(model, rank=lora_cfg["r"], alpha=lora_cfg["alpha"], seed=t["seed"])
         mods = lora_modules(model)
@@ -310,7 +310,8 @@ def main() -> int:
                 "git_commit": git_commit(), "init": args.init, "config": cfg, "device": dev,
                 "precision": precision, "trainable_param_count": n_params, "theta0_norm": norm0,
                 "snapshot_steps": sorted(snaps), "cost": {"est_usd": est}, "status": "running",
-                "training": ({"method": "lora", "lora": {"rank": lora_cfg["r"], "alpha": lora_cfg["alpha"]}}
+                "training": ({"method": "lora", "lora": {"rank": lora_cfg["r"], "alpha": lora_cfg["alpha"],
+                                                        "target_modules": list(lora_targets_for(model))}}
                              if lora_cfg else {"method": "full_ft", "lora": None})}
     (run_dir / "manifest.json").write_text(json.dumps(manifest, indent=2, default=str))
 

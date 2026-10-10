@@ -390,6 +390,9 @@ def main() -> int:
     ap.add_argument("--design", choices=("wmdp", "tofu"), default="wmdp",
                     help="wmdp (primary): each metric vs its own null + orig; tofu: the anchored design")
     ap.add_argument("--domain", default="bio", help="wmdp: circuits / relearning domain")
+    ap.add_argument("--models", default="wmdp", help="wmdp: the model set (models.py table): wmdp, tar, deepig")
+    ap.add_argument("--teach-tag", default=None,
+                    help="wmdp: a never-learned member of the set (deepig: filtered); adds the three-way position s")
     args = ap.parse_args()
     if args.design == "wmdp":
         import verdict_wmdp

@@ -37,6 +37,21 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 LAYER = re.compile(r"\.layers\.(\d+)\.")
+ATTN_MARKS = (".self_attn.", ".attention.")           # Llama-style / GPT-NeoX attention blocks
+
+
+def _is_attn(key: str) -> bool:
+    return any(m in key for m in ATTN_MARKS)
+
+
+def _other_name(key: str) -> str:
+    """Family-neutral names for the non-layer weights (Llama: embed_tokens / lm_head / norm;
+    GPT-NeoX: embed_in / embed_out / final_layer_norm)."""
+    if "embed_tokens" in key or "embed_in" in key:
+        return "embed"
+    if "lm_head" in key or "embed_out" in key:
+        return "lm_head"
+    return "final_norm" if "norm" in key else key
 
 
 # ------------------------------------------------------------------ 1. readability by depth
@@ -117,13 +132,12 @@ def _diff_all(so, su, get, layers, other) -> None:
             row = layers.setdefault(int(m.group(1)), {"d2": 0.0, "w2": 0.0, "attn_d2": 0.0, "mlp_d2": 0.0})
             row["d2"] += d2
             row["w2"] += w2
-            if ".self_attn." in k:
+            if _is_attn(k):
                 row["attn_d2"] += d2
             elif ".mlp." in k:
                 row["mlp_d2"] += d2
         else:
-            name = "embed" if "embed" in k else "lm_head" if "lm_head" in k else "final_norm" if "norm" in k else k
-            other[name] = math.sqrt(d2 / w2) if w2 > 0 else 0.0
+            other[_other_name(k)] = math.sqrt(d2 / w2) if w2 > 0 else 0.0
 
 
 def mass_layers(rows: list[dict], key: str, frac: float = 0.9) -> list[int]:
@@ -162,7 +176,7 @@ def write_map(store: Path, rid: str) -> list[dict] | None:
         m = LAYER.search(k)
         row = layers.setdefault(int(m.group(1)) if m else -1, {"w2": 0.0, "attn_w2": 0.0, "mlp_w2": 0.0})
         row["w2"] += w2
-        row["attn_w2" if ".self_attn." in k else "mlp_w2"] += w2
+        row["attn_w2" if _is_attn(k) else "mlp_w2"] += w2
     tot = sum(r["w2"] for r in layers.values()) or 1.0
     return [{"layer": i, "share": r["w2"] / tot, **r} for i, r in sorted(layers.items())]
 
@@ -177,6 +191,7 @@ def main() -> int:
     ap.add_argument("--out", type=Path, required=True, help="stage outputs (prefit_*.json, lens_*.json); written here too")
     ap.add_argument("--store", type=Path, default=Path(os.environ.get("GEODE_STORE", HERE.parents[1] / "geode-store")))
     ap.add_argument("--tags", default="orig rmu elm npo simnpo")
+    ap.add_argument("--prefix", default="wmdp", help="run-id prefix of the model set in the store (wmdp, wmdp-tar, wmdp-deepig)")
     ap.add_argument("--model", action="append", default=[], help="TAG=checkpoint dir (for the edit map)")
     ap.add_argument("--domain", default="bio")
     ap.add_argument("--no-weights", action="store_true", help="skip the checkpoint diff (maps 1 and 3 only)")
@@ -186,7 +201,7 @@ def main() -> int:
     res: dict = {"domain": args.domain, "models": {}}
 
     po, lo = probe_profile(args.out, "orig", args.domain), lens_profile(args.out, "orig")
-    orig_write = write_map(args.store, f"wmdp-relearn-orig-{args.domain}A")
+    orig_write = write_map(args.store, f"{args.prefix}-relearn-orig-{args.domain}A")
     res["orig"] = {"probe": po, "lens": lo, "relearn_write": orig_write}
     print(f"[loc] readability by depth ({args.domain}); retention = U / original over the original's readable layers")
     print(f"[loc] {'model':<8} {'probe (state)':>22} {'lens (via output map)':>24} {'read-out':>9}")
@@ -209,7 +224,7 @@ def main() -> int:
                 r["edit_layers90"] = mass_layers(r["edit"]["layers"], "d2")
             except (FileNotFoundError, KeyError) as e:
                 print(f"[loc] {t}: no edit map ({e})")
-        r["relearn_write"] = write_map(args.store, f"wmdp-relearn-{t}-{args.domain}A")
+        r["relearn_write"] = write_map(args.store, f"{args.prefix}-relearn-{t}-{args.domain}A")
         res["models"][t] = r
 
         def fmt(x):

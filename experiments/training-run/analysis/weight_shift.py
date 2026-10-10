@@ -110,6 +110,19 @@ def eranks(sv: torch.Tensor) -> tuple[float, float]:
     return pr, float(torch.tensor(ent).exp())
 
 
+def detect_model_type(ref: str) -> str:
+    """``config.model_type`` of a checkpoint given as a directory, a run id in $GEODE_STORE, or a hub
+    id (then "llama", the original table)."""
+    import json
+    import os
+
+    store = Path(os.environ.get("GEODE_STORE", Path(__file__).resolve().parents[3] / "geode-store"))
+    for cfg in (Path(ref) / "config.json", store / "runs" / ref / "model" / "config.json"):
+        if cfg.is_file():
+            return json.loads(cfg.read_text()).get("model_type", "llama")
+    return "llama"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--base-run", required=True, help="parent checkpoint: run id or hub id")
@@ -117,16 +130,19 @@ def main() -> int:
     ap.add_argument("--k", type=int, default=64, help="base top-k subspace for alignment")
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
-    ap.add_argument("--model-type", default="llama",
+    ap.add_argument("--model-type", default=None,
                     help="config.model_type of the pair: picks the module -> QK/VO/MLP map "
-                    "(geode.adapt.weight_groups); llama = the original table")
+                    "(geode.adapt.weight_groups); default: read from the base run's config.json "
+                    "(llama = the original table)")
     args = ap.parse_args()
     dev = args.device
-    if args.model_type != "llama":
+    model_type = args.model_type or detect_model_type(args.base_run)
+    if model_type != "llama":
         from geode.adapt import weight_groups
 
         GROUP.clear()
-        GROUP.update(weight_groups(args.model_type))
+        GROUP.update(weight_groups(model_type))
+    print(f"[shift] model_type {model_type}: groups {sorted(set(GROUP.values()))} over {sorted(GROUP)}")
 
     base = load_weights(args.base_run)
     deltas = lora_deltas(args.ft_run)
@@ -136,6 +152,9 @@ def main() -> int:
                   for k, v in base.items()
                   if k.endswith(".weight") and any(g in k for g in GROUP)}
         print(f"[shift] full-FT diff mode: {len(deltas)} modules")
+    if not deltas:
+        raise SystemExit(f"[shift] no module of the base matched the {model_type} group table {sorted(GROUP)}: "
+                         "wrong --model-type, or a family geode.adapt.weight_groups does not know")
     else:
         print(f"[shift] LoRA adapter mode: {len(deltas)} modules, "
               f"scaling {next(iter(deltas.values()))[2]:.5f}")

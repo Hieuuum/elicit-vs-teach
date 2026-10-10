@@ -26,7 +26,14 @@
 #   5  EDL sweep       relearning on nested n = 8..573 bio_A facts; EDL/D vs n (Donoway et al.'s
 #                      signature: decreasing = elicit, rising = teach); edl_sweep.py plots it.
 #   4  verdict         verdict.py --design wmdp: per metric CARRIES / RESIDUAL / ABSENT (PLAN.md §W6).
-[[ -n ${TAGS:-} ]] || TAGS="orig rmu elm npo simnpo"
+# Model sets (launch_unlearn.sh --models, 2026-10-10): the same stages on the same WMDP data for another
+# original + its safeguarded versions (tar, deepig); models.py answers the set's default tags, its
+# never-learned member (the in-set teach anchor, "" for the Zephyr set) and its model family.
+MSET=${MSET:-wmdp}; SETSUF=${SETSUF:-}
+[[ -n ${TAGS:-} ]] || TAGS=$(python3 "$HERE/models.py" tags --dataset "$MSET")
+ANCHOR_TAG=$(python3 "$HERE/models.py" anchor --dataset "$MSET")
+FAMILY=$(python3 "$HERE/models.py" family --dataset "$MSET")
+RP=wmdp$SETSUF                 # run-id prefix of this set in $GEODE_STORE/runs (sets never collide there)
 D=$DOMAIN                                   # circuits + relearning domain (bio by default)
 DOMS="bio cyber"
 
@@ -40,7 +47,7 @@ EDL_NS="8 16 32 64 128 256 573"            # nested bio_A subsets (573 = all)
 EDL_SEEDS=${EDL_SEEDS:-"316 317 318"}       # replicates (subset, order, LoRA init); EDL_SEEDS=316 for one
 GEN=${TS_VALID:+--generic-text $TS_VALID}
 if [[ $SMOKE == 1 ]]; then
-  DATA=$SMK/data; MODELS=$SMK; TAGS="orig u1"; DEV=cpu; NRAND=2; DOMS="bio cyber"
+  DATA=$SMK/data; MODELS=$SMK; TAGS="orig ${ANCHOR_TAG:+$ANCHOR_TAG }u1"; DEV=cpu; NRAND=2; DOMS="bio cyber"
   NP=16; NF=8; NE=8; KS="2 4"; K=4; NEVAL=16; MAXTOK=0
   PREFIT_X="--n 16 --n-probe 40 --das-layers 1 --das-ks 2 --das-train 8 --das-test 4 --das-steps 2 --dcm-pairs 12 --dcm-steps 2 --hess-n 2 --hess-layers 1 --power-iters 2 --hutch 1"
   LENS_X="--n 16 --jac-prompts 2 --story-len 16 --k-batch 8"; RESID_X="--n 16 --seq-len 16"
@@ -48,13 +55,16 @@ if [[ $SMOKE == 1 ]]; then
   XFER_X="--n 8 --n-shuf 2 --sketch-dim 256 --batch-size 4"; TEACH_ANCHOR=${TEACH_ANCHOR:-$SMK/original}
   ANCHOR_TOK_DEFAULT=""                     # the smoke anchor carries its own tokenizer
 else
-  DATA=$GEODE_STORE/unlearning/wmdp/data; MODELS=$GEODE_STORE/unlearning/wmdp/models
+  DATA=$GEODE_STORE/unlearning/wmdp/data; MODELS=$GEODE_STORE/unlearning/wmdp/models$SETSUF
   export GEODE_ANALYSIS_DTYPE=${GEODE_ANALYSIS_DTYPE:-bfloat16}   # two fp32 7B models do not fit
   ANCHOR_TOK_DEFAULT=meta-llama/Llama-3.2-1B   # the TinyStories-1B family's tokenizer (configs/ts1b_*.yaml
                                                # tokenizer.path); runs/evt-ts1b-base/model carries none loadable
 fi
 mpath() {
-  if [[ $SMOKE == 1 ]]; then [[ $1 == orig ]] && echo "$SMK/original" || echo "$SMK/unlearned"
+  if [[ $SMOKE == 1 ]]; then
+    if [[ $1 == orig ]]; then echo "$SMK/original"
+    elif [[ -n $ANCHOR_TAG && $1 == "$ANCHOR_TAG" ]]; then echo "$SMK/neverlearned"
+    else echo "$SMK/unlearned"; fi
   else echo "$MODELS/$1"; fi
 }
 T() { echo "--task wmdp --task-data $DATA --task-split $1 --max-prompt-tokens $MAXTOK --device $DEV"; }
@@ -102,12 +112,13 @@ fi
 # ------------------------------------------------------------------ 0: data + models
 if want 0; then
   if [[ $SMOKE == 1 ]]; then
-    step "$SMK/original/config.json" python3 "$HERE/smoke_fixtures.py" "$SMK" --dataset wmdp
+    step "$SMK/original/config.json" python3 "$HERE/smoke_fixtures.py" "$SMK" --dataset wmdp --family "$FAMILY" \
+      ${ANCHOR_TAG:+--never-learned}
   else
     step "$DATA/prepare_report.json" python3 "$HERE/data/prepare.py" --dataset wmdp --domains $DOMS \
       --out-dir "$DATA" --confirm
     milestone "models: pinned snapshots -> $MODELS"
-    python3 "$HERE/models.py" fetch --dataset wmdp --dest "$MODELS" --tags $TAGS 2>&1 | tee -a "$LOG"
+    python3 "$HERE/models.py" fetch --dataset "$MSET" --dest "$MODELS" --tags $TAGS 2>&1 | tee -a "$LOG"
   fi
 fi
 
@@ -152,7 +163,7 @@ if want 1; then
       step resid_orig_to_${p}.json python3 "$A/resid_shift.py" run --parent "$ORIG" --child "$P" \
         --out resid_orig_to_${p} $RESID_X $GEN $(T $D) || true                    # M7 (orig -> U)
       step wshift_orig_to_${p}.parquet python3 "$A/weight_shift.py" --base-run "$ORIG" --ft-run "$P" \
-        --out wshift_orig_to_${p} --model-type mistral --device $DEV || true      # M6 (descriptive)
+        --out wshift_orig_to_${p} --device $DEV || true      # M6 (descriptive)
     fi
   done
 fi
@@ -165,7 +176,7 @@ if want 2; then
     for kind in ${D}A mmluA; do
       cfg=$HERE/configs/relearn_wmdp_${kind}.yaml
       [[ -f $cfg ]] || { milestone "no config $cfg (relearning domain $D)"; continue; }
-      rid=wmdp-relearn-$p-$kind
+      rid=$RP-relearn-$p-$kind
       step "$GEODE_STORE/runs/$rid/model/config.json" python3 "$HERE/relearn.py" --config "$cfg" \
         --init "$P" --run-id $rid --data-dir "$DATA" --device $DEV --confirm-cost $RELEARN_X || true
     done
@@ -181,7 +192,7 @@ if want 3; then
   PX="--pair-mode fact" prefit "$ORIG" "orig_${B}fact" $B pref                     # M17-fact reference
   prefit "$ORIG" "orig_$B" $B dcm pref
   for p in $TAGS; do
-    P=$(mpath $p); rid=wmdp-relearn-$p-${D}A; C=$GEODE_STORE/runs/$rid/model; c=$p-rl
+    P=$(mpath $p); rid=$RP-relearn-$p-${D}A; C=$GEODE_STORE/runs/$rid/model; c=$p-rl
     [[ -f $C/config.json ]] || { milestone "skip child $c: $C missing (stage 2)"; continue; }
     milestone "stage 3 child $c ($C) of $p"
     maps "$C" circ_${c}_$B $B                                                      # M1
@@ -205,7 +216,7 @@ if want 3; then
     done
     step grad_${c}.json python3 "$A/grad_strength.py" --run-id $rid --labels $c --out grad_${c} || true      # M5
     step wshift_${c}.parquet python3 "$A/weight_shift.py" --base-run "$P" --ft-run $rid --out wshift_${c} \
-      --model-type mistral --device $DEV || true                                   # M6
+      --device $DEV || true                                   # M6
     step resid_${p}_to_${c}.json python3 "$A/resid_shift.py" run --parent "$P" --child "$C" --out resid_${p}_to_${c} \
       $RESID_X $GEN $(T $B) || true                                                # M7 (U -> child)
     step lens_${c}.json python3 "$A/lens_depth.py" run --run-id "$C" --out lens_${c} --positions -1 \
@@ -214,7 +225,7 @@ if want 3; then
       --k $K --n-eval $NEVAL --heads-only --random-sets 5 --out steer_${c}_into_${p} $(T $B) || true   # M10
     prefit "$P" "${p}_$B" $B pref                                                 # M17u: U itself on B
     PX="--pair-mode fact" prefit "$P" "${p}_${B}fact" $B pref                      # M17u-fact: U on B, no options
-    rn=wmdp-relearn-$p-mmluA; CN=$GEODE_STORE/runs/$rn/model                        # the fine-tuning null
+    rn=$RP-relearn-$p-mmluA; CN=$GEODE_STORE/runs/$rn/model                        # the fine-tuning null
     if [[ -f $CN/config.json ]]; then
       prefit "$CN" "${p}-rlnull_$B" $B pref
       PX="--pair-mode fact" prefit "$CN" "${p}-rlnull_${B}fact" $B pref            # M17-fact / M17u-fact null
@@ -235,7 +246,7 @@ if want 5; then
     [[ -f $P/config.json ]] || continue
     for s in $EDL_SEEDS; do
       for n in $EDL_NS; do
-        rid=wmdp-edl-$p-n$n-s$s
+        rid=$RP-edl-$p-n$n-s$s
         if [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; then
           milestone "skip ($rid done)"; continue
         fi
@@ -244,7 +255,7 @@ if want 5; then
       done
     done
   done
-  step "" python3 "$HERE/edl_sweep.py" --out "$OUT" --tags "$TAGS" || true
+  step "" python3 "$HERE/edl_sweep.py" --out "$OUT" --tags "$TAGS" --prefix "$RP" || true
 fi
 
 # ------------------------------------------------------------------ 6: localization (CPU)
@@ -254,7 +265,7 @@ fi
 if want 6; then
   MX=""
   for p in $TAGS; do MX="$MX --model $p=$(mpath $p)"; done
-  step "" python3 "$HERE/localize.py" --out "$OUT" --store "$GEODE_STORE" --tags "$TAGS" --domain $D $MX || true
+  step "" python3 "$HERE/localize.py" --out "$OUT" --store "$GEODE_STORE" --tags "$TAGS" --domain $D --prefix "$RP" $MX || true
 fi
 
 # ------------------------------------------------------------------ 7: before-training predictor (GPU, no weight updates)
@@ -275,7 +286,7 @@ if want 7; then
     xfer_fresh gradxfer_$p.json
     step gradxfer_$p.json python3 "$HERE/grad_transfer.py" --init "$P" --data-dir "$DATA" --domain $D \
       --out gradxfer_$p --device $DEV --confirm-cost $XFER_X || true                  # M21 (+ M20 for the record)
-    rid=wmdp-edl-$p-shuf-n573-s316
+    rid=$RP-edl-$p-shuf-n573-s316
     if ! { [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; }; then
       step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}Ashuf.yaml" --init "$P" --run-id $rid \
         --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train 573 --seed 316 --test-split ${D}_B $RELEARN_X || true
@@ -283,13 +294,15 @@ if want 7; then
   done
   ANCHOR=${TEACH_ANCHOR:-$GEODE_STORE/runs/evt-ts1b-base/model}
   ANCHOR_TOK=${TEACH_ANCHOR_TOKENIZER-$ANCHOR_TOK_DEFAULT}   # TEACH_ANCHOR_TOKENIZER="" = the anchor dir's own
-  if [[ -f $ANCHOR/config.json ]]; then
+  if [[ -n $ANCHOR_TAG ]]; then
+    milestone "teach anchor is a member of this set ($ANCHOR_TAG): scored and relearned in the loop above"
+  elif [[ -f $ANCHOR/config.json ]]; then
     milestone "teach anchor: $ANCHOR (tokenizer ${ANCHOR_TOK:-its own})"
     xfer_fresh gradxfer_anchor.json
     step gradxfer_anchor.json python3 "$HERE/grad_transfer.py" --init "$ANCHOR" ${ANCHOR_TOK:+--tokenizer "$ANCHOR_TOK"} \
       --data-dir "$DATA" --domain $D --out gradxfer_anchor --device $DEV --confirm-cost $XFER_X || true
     for kind in ${D}A ${D}Ashuf; do
-      rid=wmdp-edl-anchor-${kind#${D}}-n573-s316
+      rid=$RP-edl-anchor-${kind#${D}}-n573-s316
       if ! { [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; }; then
         step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${kind}.yaml" --init "$ANCHOR" --run-id $rid \
           ${ANCHOR_TOK:+--tokenizer "$ANCHOR_TOK"} --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train 573 \
@@ -305,5 +318,5 @@ fi
 if want 4; then
   milestone "verdict"
   python3 "$HERE/verdict.py" --design wmdp --out "$OUT" --store "$GEODE_STORE" --tags "$TAGS" --domain $D \
-    2>&1 | tee -a "$LOG"
+    --models "$MSET" ${ANCHOR_TAG:+--teach-tag "$ANCHOR_TAG"} 2>&1 | tee -a "$LOG"
 fi

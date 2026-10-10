@@ -225,3 +225,20 @@ def test_v5_78_fact_slot_on_tofu_style_rows():
     # the fact word must not be an echo of the question
     s2 = prepare.fact_slot("Is Hsiao a civil engineer?", a, para, pert)
     assert s2 is None or s2["fact_word"] != "civil"
+
+
+def test_v5_75_unembed_accessor_follows_the_family(tiny_llama):
+    """The output projection through the layout: Llama's ``lm_head`` (the very module), GPT-NeoX's
+    ``embed_out`` — the lens, the prefit read-out and the residual-shift map reach it this way, so a
+    Pythia-family model (the Deep Ignorance suite) no longer fails on a missing ``lm_head``."""
+    from transformers import GPTNeoXConfig, GPTNeoXForCausalLM
+
+    model = tiny_llama(seed=0, n_layers=2)
+    assert layout(model).unembed() is model.lm_head
+    neox = GPTNeoXForCausalLM(GPTNeoXConfig(vocab_size=64, hidden_size=32, intermediate_size=64, num_hidden_layers=2,
+                                            num_attention_heads=4, max_position_embeddings=32))
+    lay = layout(neox)
+    assert lay.family == "gpt_neox" and lay.unembed() is neox.embed_out
+    assert lay.embed() is neox.gpt_neox.embed_in and lay.final_norm() is neox.gpt_neox.final_layer_norm
+    assert lay.attn_out(0) is neox.gpt_neox.layers[0].attention.dense
+    assert not lay.supports_edges and not lay.supports_lrp

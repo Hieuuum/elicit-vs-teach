@@ -6,8 +6,8 @@ the concatenated per-head outputs, the head-level node), the MLP output
 projection (its OUTPUT is the MLP node's residual write), the embedding, the
 final norm, and for edges the two pre-block norms. On Llama those are
 ``model.model.layers[i].self_attn.o_proj`` / ``.mlp.down_proj`` /
-``model.model.embed_tokens`` / ``model.model.norm``; other families name them
-differently. ``layout(model)`` resolves them once from a small family table so
+``model.model.embed_tokens`` / ``model.model.norm`` / ``model.lm_head``; other
+families name them differently. ``layout(model)`` resolves them once from a small family table so
 the tools stop hard-coding Llama paths.
 
 Silent-failure guard (V5.75): for a Llama model every accessor returns the
@@ -35,24 +35,24 @@ import torch
 
 # family -> paths relative to the CausalLM (dotted) or to one decoder layer
 _FAMILIES: dict[str, dict] = {
-    "llama": dict(layers="model.layers", embed="model.embed_tokens", norm="model.norm",
+    "llama": dict(layers="model.layers", embed="model.embed_tokens", norm="model.norm", unembed="lm_head",
                   attn_out="self_attn.o_proj", mlp_out="mlp.down_proj",
                   ln_attn="input_layernorm", ln_mlp="post_attention_layernorm",
                   parallel=False, lrp=True,
                   groups={"q_proj": "QK", "k_proj": "QK", "v_proj": "VO", "o_proj": "VO",
                           "gate_proj": "MLP", "up_proj": "MLP", "down_proj": "MLP"}),
-    "phi": dict(layers="model.layers", embed="model.embed_tokens", norm="model.final_layernorm",
+    "phi": dict(layers="model.layers", embed="model.embed_tokens", norm="model.final_layernorm", unembed="lm_head",
                 attn_out="self_attn.dense", mlp_out="mlp.fc2",
                 ln_attn="input_layernorm", ln_mlp=None, parallel=True, lrp=False,
                 groups={"q_proj": "QK", "k_proj": "QK", "v_proj": "VO", "dense": "VO",
                         "fc1": "MLP", "fc2": "MLP"}),
-    "gpt_neox": dict(layers="gpt_neox.layers", embed="gpt_neox.embed_in",
+    "gpt_neox": dict(layers="gpt_neox.layers", embed="gpt_neox.embed_in", unembed="embed_out",
                      norm="gpt_neox.final_layer_norm", attn_out="attention.dense",
                      mlp_out="mlp.dense_4h_to_h", ln_attn="input_layernorm",
                      ln_mlp="post_attention_layernorm", parallel=None, lrp=False,
                      groups={"query_key_value": "QK", "dense": "VO",
                              "dense_h_to_4h": "MLP", "dense_4h_to_h": "MLP"}),
-    "olmo2": dict(layers="model.layers", embed="model.embed_tokens", norm="model.norm",
+    "olmo2": dict(layers="model.layers", embed="model.embed_tokens", norm="model.norm", unembed="lm_head",
                   attn_out="self_attn.o_proj", mlp_out="mlp.down_proj",
                   ln_attn=None, ln_mlp=None, parallel=False, lrp=False,
                   groups={"q_proj": "QK", "k_proj": "QK", "v_proj": "VO", "o_proj": "VO",
@@ -109,6 +109,10 @@ class ModelLayout:
 
     def final_norm(self) -> torch.nn.Module:
         return _get(self.model, self._spec["norm"])
+
+    def unembed(self) -> torch.nn.Module:
+        """The output projection (Llama: ``lm_head``; GPT-NeoX: ``embed_out``)."""
+        return _get(self.model, self._spec["unembed"])
 
     def ln_attn(self, i: int) -> torch.nn.Module:
         name = self._spec["ln_attn"]

@@ -48,6 +48,25 @@ LORA_TARGET_MODULES: tuple[str, ...] = (
     "up_proj",
     "down_proj",
 )
+# Target names by model family (geode.adapt families; Llama's aliases — mistral, qwen2, qwen3,
+# olmo — resolve to "llama"). ``apply_lora`` with no explicit targets looks the family up from
+# ``model.config.model_type``, so a GPT-NeoX checkpoint (fused query_key_value, dense,
+# dense_h_to_4h / dense_4h_to_h) gets every projection wrapped instead of a naming-mismatch error.
+LORA_TARGETS_BY_FAMILY: dict[str, tuple[str, ...]] = {
+    "llama": LORA_TARGET_MODULES,
+    "gpt_neox": ("query_key_value", "dense", "dense_h_to_4h", "dense_4h_to_h"),
+}
+
+
+def lora_targets_for(model: nn.Module) -> tuple[str, ...]:
+    """The projection names LoRA wraps on this model's family (V5.81)."""
+    from geode.adapt import family_of
+
+    fam = family_of(model.config.model_type)
+    if fam not in LORA_TARGETS_BY_FAMILY:
+        raise ValueError(f"apply_lora: no LoRA target table for the {fam!r} family "
+                         f"(known: {sorted(LORA_TARGETS_BY_FAMILY)}); pass target_modules")
+    return LORA_TARGETS_BY_FAMILY[fam]
 
 
 class LoRALinear(nn.Module):
@@ -96,10 +115,13 @@ def apply_lora(
     rank: int = 128,
     alpha: float = 32.0,
     seed: int,
-    target_modules: tuple[str, ...] = LORA_TARGET_MODULES,
+    target_modules: tuple[str, ...] | None = None,
     dropout: float = 0.0,
 ) -> nn.Module:
     """Freeze ``model`` and wrap every target ``nn.Linear`` in ``LoRALinear``, in place.
+
+    ``target_modules`` defaults to the model family's table (``lora_targets_for``):
+    Llama-style q/k/v/o/gate/up/down, or GPT-NeoX's fused projections (V5.81).
 
     After this call every base parameter has ``requires_grad=False`` and the
     only trainable tensors are the A/B factors — rank·(d_in+d_out) per wrapped
@@ -115,6 +137,8 @@ def apply_lora(
         raise ValueError(
             f"apply_lora: dropout is pinned to 0 for runs 5-6 (specs/02 §6), got {dropout}"
         )
+    if target_modules is None:
+        target_modules = lora_targets_for(model)
     for param in model.parameters():
         param.requires_grad_(False)
     to_wrap: list[tuple[nn.Module, str, nn.Linear]] = []
@@ -141,7 +165,7 @@ def reapply_lora(
     *,
     rank: int = 128,
     alpha: float = 32.0,
-    target_modules: tuple[str, ...] = LORA_TARGET_MODULES,
+    target_modules: tuple[str, ...] | None = None,
 ) -> nn.Module:
     """Rebuild the LoRA module tree on a fresh base model and load a saved snapshot.
 

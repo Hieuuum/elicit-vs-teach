@@ -44,8 +44,16 @@
 #   Controls (2026-09-30, inside stages 1 and 3): every multiple-choice metric also on the MMLU
 #                      split (-mmlu rows) and, where it applies, on the no-options fact surface (-fact).
 #
-# Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--stage 0|1|2|3|4|5|6|7|all]
-#                                [--tags "orig rmu elm"] [--domain bio] [--holdout] [--nrand 100] [--threads N]
+# Usage:  bash launch_unlearn.sh --confirm-cost --gpu [--dataset wmdp|tofu] [--models wmdp|tar|deepig]
+#                                [--stage 0|1|2|3|4|5|6|7|all] [--tags "orig rmu elm"] [--domain bio]
+#                                [--holdout] [--nrand 100] [--threads N]
+#         --models (WMDP data only, 2026-10-10): the model set, models.py tables. wmdp = Zephyr-7B and its
+#                  unlearned versions (default; add --tags "... rmulat graddiff" for the two optional pins);
+#                  tar = Llama-3-8B-Instruct vs TAR-Bio-v2 (orig gated: HF_TOKEN with Meta access);
+#                  deepig = the Deep Ignorance 6.9B suite (GPT-NeoX; its strong-filter model is a
+#                  NEVER-LEARNED teach anchor inside the set: verdict --teach-tag, position s). Outputs
+#                  go to out/wmdp-<set>, models to $GEODE_STORE/unlearning/wmdp/models-<set>; the data
+#                  dir is shared. run_sota.sh sequences the sets.
 #         bash launch_unlearn.sh --smoke [--dataset ...]   # CPU, tiny random models + synthetic data, no network
 # Env:    GEODE_STORE (store root; models + runs), UL_OUT (small outputs; default
 #         experiments/unlearning/out), TS_VALID (TinyStories valid .txt for the lens / residual
@@ -68,7 +76,7 @@ python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))' || {
 A=$REPO_ROOT/experiments/training-run/analysis
 
 CONFIRM=0; STAGE=all; DEV=cpu; SMOKE=0; HOLDOUT=0; NRAND=100; THREADS=$(nproc)
-TAGS=""; DATASET=wmdp; DOMAIN=bio
+TAGS=""; DATASET=wmdp; DOMAIN=bio; MSET=wmdp
 while [[ $# -gt 0 ]]; do
   case $1 in
     --confirm-cost) CONFIRM=1 ;;
@@ -80,6 +88,7 @@ while [[ $# -gt 0 ]]; do
     --nrand) NRAND=$2; shift ;;
     --threads) THREADS=$2; shift ;;
     --dataset) DATASET=$2; shift ;;
+    --models) MSET=$2; shift ;;
     --domain) DOMAIN=$2; shift ;;
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac; shift
@@ -90,13 +99,19 @@ export PYTORCH_CUDA_ALLOC_CONF=${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:Tr
 
 
 [[ -f $HERE/stages_$DATASET.sh ]] || { echo "unknown --dataset $DATASET" >&2; exit 2; }
+if [[ $MSET != wmdp ]]; then
+  [[ $DATASET == wmdp ]] || { echo "--models applies to --dataset wmdp only" >&2; exit 2; }
+  python3 "$HERE/models.py" family --dataset "$MSET" >/dev/null 2>&1 || { echo "unknown --models $MSET" >&2; exit 2; }
+fi
+SETSUF=""; [[ $MSET == wmdp ]] || SETSUF="-$MSET"     # out/ and models/ dirs of a non-default model set
+export MSET SETSUF
 if [[ $SMOKE == 1 ]]; then
-  SMK=${SMOKE_DIR:-${TMPDIR:-/tmp}/geode_unlearn_smoke}/$DATASET
+  SMK=${SMOKE_DIR:-${TMPDIR:-/tmp}/geode_unlearn_smoke}/$DATASET$SETSUF
   export GEODE_STORE=$SMK/store
   OUT=$SMK/out
 else
   export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
-  OUT=${UL_OUT:-$HERE/out/$DATASET}
+  OUT=${UL_OUT:-$HERE/out/$DATASET$SETSUF}
 fi
 mkdir -p "$OUT"
 LOG=$OUT/unlearn.log
@@ -123,4 +138,4 @@ want() { [[ $STAGE == all || $STAGE == "$1" ]]; }
 
 # shellcheck source=/dev/null
 source "$HERE/stages_$DATASET.sh"
-milestone "done dataset=$DATASET stage=$STAGE — paste $LOG"
+milestone "done dataset=$DATASET models=$MSET stage=$STAGE — paste $LOG"

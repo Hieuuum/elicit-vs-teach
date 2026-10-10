@@ -329,7 +329,10 @@ the 2026-07-18 downscale):
   pinned over max_steps 23442 (OPEN(4) closed 2026-07-22, §12).
 - LoRA (runs 5–6 only): r=128; Q,K,V,O,G,U,D all layers; α=32; scaling
   α/2r; dropout 0; A Kaiming 1/√d_in, B zero. 12.1M params,
-  ~24 MB/adapter bf16.
+  ~24 MB/adapter bf16. The target names follow the model family
+  (`geode.adapt`, V5.81): Llama-style q/k/v/o/gate/up/down (Llama,
+  Mistral, Qwen, OLMo); GPT-NeoX query_key_value / dense / dense_h_to_4h /
+  dense_4h_to_h. An explicit `target_modules` tuple still wins.
 - Loss on label tokens only, identical masking train/test (masking hash
   guard from spec 00 §5 applies as usual).
 - Stopping (runs 1–2): validation-loss convergence with **ε=0.002 nats,
@@ -987,6 +990,13 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   skipped the restore when nothing beat step 0, while logging "restored ...
   step 0"; six WMDP EDL-sweep points were scored on 20-80-epoch overfit
   weights.)
+- V5.81 LoRA targets follow the model family (2026-10-10, `geode.train.lora.
+  lora_targets_for`): with no explicit `target_modules`, `apply_lora` wraps the
+  family's projections — the seven Llama-style names on Llama/Mistral/Qwen/OLMo
+  (bit-identical to the previous default), the four fused GPT-NeoX names on
+  Pythia-family models (the Deep Ignorance suite) — one `LoRALinear` per
+  projection per layer; a family without a table raises instead of wrapping
+  nothing; an explicit tuple is used as given.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 
@@ -1168,8 +1178,11 @@ corrupt every pair-based number are here.
 - `layout(model)`: per `config.model_type` family (llama/mistral/qwen2/qwen3 →
   `o_proj`/`down_proj`; phi → `dense`/`fc2`, parallel block; gpt_neox; olmo2
   post-norm) the attention-output and MLP-output projections, embedding, final
-  norm, pre-block norms; `supports_edges` / `supports_lrp` gate the edge map and
-  the R-lens. `weight_groups(model_type)` maps module leaves to QK/VO/MLP.
+  norm, pre-block norms, and (2026-10-10) the output projection `unembed()`
+  (Llama `lm_head`, GPT-NeoX `embed_out`), which the lens, the prefit read-out
+  and the residual-shift map use instead of `model.lm_head`; `supports_edges` /
+  `supports_lrp` gate the edge map and the R-lens. `weight_groups(model_type)`
+  maps module leaves to QK/VO/MLP.
 - `first_answer_token(tok, prompt, answer)`: the answer's first token tokenized
   IN CONTEXT; refuses (`AlignmentError`) unless the prompt's ids are an exact
   prefix of prompt+answer ids. `score_item` aligns the answer and every
@@ -1184,8 +1197,11 @@ corrupt every pair-based number are here.
 Validation properties:
 - V5.75 layout identity: on a Llama model every accessor returns the module the
   hard-coded path returned (attention/MLP output projections, norms, embedding,
-  head count and width), and `circuit_nodes.attribution_map` through the layout
-  equals the pre-adapter hook implementation; unknown families refuse.
+  the output projection, head count and width), and `circuit_nodes.attribution_map`
+  through the layout equals the pre-adapter hook implementation; unknown
+  families refuse; on a GPT-NeoX model the accessors resolve to `embed_in`,
+  `embed_out`, `final_layer_norm` and `attention.dense`, with edges and the
+  R-lens refused.
 - V5.76 answer alignment: the scored token equals the token the SFT loss
   supervises at that position (`tokenize_with_spans` on question + trained
   answer); a BPE merge across the prompt/answer boundary raises; a distractor

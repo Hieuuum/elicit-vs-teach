@@ -120,8 +120,9 @@ class LensTaps:
 
 def decode(model, h: torch.Tensor) -> torch.Tensor:
     """unembed(norm(h)) -> logits (…, V); scale-invariant in h (RMSNorm)."""
-    w = model.lm_head.weight
-    return model.lm_head(layout(model).final_norm()(h.to(w.dtype))).float()
+    lay = layout(model)
+    head = lay.unembed()
+    return head(lay.final_norm()(h.to(head.weight.dtype))).float()
 
 
 # ------------------------------------------------------- LRP (R-lens) rules

@@ -134,3 +134,19 @@ def test_no_row_is_called_by_a_raw_threshold_and_every_control_has_a_twin():
         assert mid in ids and V.is_control(mid)
     assert "M1*" not in V.HEADLINE and "M17-fact" in V.HEADLINE
     assert not any(V.is_control(m) for m in V.HEADLINE)
+
+
+# ------------------------------------------------------------------ an in-set never-learned reference (model sets, 2026-10-10)
+@pytest.mark.parametrize("shift,scale", [(0.0, 1.0), (3.0, 1.0), (0.0, 7.0), (-2.0, 0.5)])
+def test_teach_position_is_the_three_way_read_and_is_shift_and_scale_invariant(shift, scale):
+    """s = (v_U - v_teach) / (v_orig - v_teach): 0 at the never-learned member, 1 at the original;
+    a common shift or rescaling of the three values changes nothing; a missing side or a zero gap
+    gives no position (never a crash, never a fake 0)."""
+    f = lambda v: st(v * scale + shift, 0.0)  # noqa: E731
+    assert V.teach_position(f(2.0), f(1.0), f(3.0)) == pytest.approx(0.5)
+    assert V.teach_position(f(1.0), f(1.0), f(3.0)) == pytest.approx(0.0)
+    assert V.teach_position(f(3.5), f(1.0), f(3.0)) == pytest.approx(1.25)
+    assert V.teach_position(None, f(1.0), f(3.0)) is None
+    assert V.teach_position(f(2.0), None, f(3.0)) is None
+    assert V.teach_position(f(2.0), f(1.0), None) is None
+    assert V.teach_position(f(2.0), f(3.0), f(3.0)) is None

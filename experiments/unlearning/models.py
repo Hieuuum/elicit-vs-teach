@@ -10,6 +10,13 @@ ORIGINAL's tokenizer files at fetch time (several unlearned repos ship only a
 partial tokenizer; one shared tokenizer keeps every model's items and pairs
 token-identical).
 
+Further model sets on the WMDP data (launch_unlearn.sh --models, 2026-10-10):
+``tar`` (Llama-3-8B-Instruct and its TAR-Bio-v2 safeguard) and ``deepig`` (the
+Deep Ignorance 6.9B suite: unfiltered baseline, a NEVER-LEARNED strong-filter
+model = the set's teach anchor, circuit breakers / LAT on top). Roles:
+``reference`` (orig), ``unlearned`` (judged), ``never_learned`` (the teach
+anchor; the verdict's --teach-tag, the three-way position s).
+
 TOFU (SECONDARY, controlled design, --dataset tofu): Llama-3.2-1B-Instruct
 fine-tunes from open-unlearning; roles elicit_anchor / teach_anchor /
 unlearned.
@@ -78,8 +85,52 @@ WMDP_MODELS: dict[str, dict] = {
                "revision": "4ff066c804d0ab025698bb958c959c46642a1178", "licence": "none stated",
                "domains": ["bio", "cyber"], "note": "Sheshadri et al. 2024 RMU + latent adversarial training"},
 }
-TABLES = {"wmdp": WMDP_MODELS, "tofu": TOFU_MODELS}
+# --models tar (WMDP data, 2026-10-10): Tamper-Resistant Safeguards (Tamirisa et al. 2024, ICLR 2025),
+# the strongest public claim of resistance to fine-tuning attacks among post-hoc methods. The original
+# is gated on the Hub (Meta's licence): request access and export HF_TOKEN before stage 0. TAR-Bio-v2
+# ships no tokenizer files; the original's are copied in (as for every set). Revisions = Hub shas on
+# 2026-10-10.
+TAR_MODELS: dict[str, dict] = {
+    "orig": {"role": "reference", "repo": "meta-llama/Meta-Llama-3-8B-Instruct",
+             "revision": "8afb486c1db24fe5011ec46dfbe5b5dccdb575c2", "licence": "llama3 (gated)",
+             "note": "the pre-safeguard model TAR-Bio starts from"},
+    "tar": {"role": "unlearned", "repo": "lapisrocks/Llama-3-8B-Instruct-TAR-Bio-v2",
+            "revision": "143c907d0ffa58fa368d841e8ff14fe2a843d367", "licence": "apache-2.0 (card)",
+            "domains": ["bio"], "note": "TAR-Bio v2 (v1's retain set was contaminated); no tokenizer of its own"},
+}
+# --models deepig (WMDP data, 2026-10-10): the Deep Ignorance suite (EleutherAI 2025; Pythia / GPT-NeoX,
+# 6.9B, 550B tokens; Apache-2.0). The only setting with a NEVER-LEARNED model of the same architecture
+# and training recipe: the strong-filter model saw no biothreat-proxy text, so it is the teach anchor
+# of this set (role never_learned; stage 7 and the verdict use it instead of the TinyStories-1B
+# twin). cb = circuit breakers on the unfiltered model (a post-hoc safeguard on a model that learned
+# the data, the object most comparable to RMU/ELM); cb_lat adds latent adversarial training;
+# filtered_cb_lat is the full stack on the filtered model. Base models (no chat template); the
+# zero-shot MCQ format applies unchanged.
+DI = "EleutherAI/deep-ignorance"
+DEEPIG_MODELS: dict[str, dict] = {
+    "orig": {"role": "reference", "repo": f"{DI}-unfiltered", "revision": "c8df368ff247cb90b62e21e1689260701b3ff25a",
+             "licence": "apache-2.0", "note": "the unfiltered baseline: learned the data"},
+    "filtered": {"role": "never_learned", "repo": f"{DI}-e2e-strong-filter",
+                 "revision": "b28797cd9b615104ba9d24e6900336253323e7cf", "licence": "apache-2.0",
+                 "note": "strong blocklist filter throughout pretraining: never saw the data (TEACH ANCHOR of the set)"},
+    "cb": {"role": "unlearned", "repo": f"{DI}-unfiltered-cb", "revision": "69b0e5906124ef97da509530d7f8ed2de3d694ed",
+           "licence": "apache-2.0", "domains": ["bio"], "note": "circuit breakers (layers 5..30) on the unfiltered model"},
+    "cb_lat": {"role": "unlearned", "repo": f"{DI}-unfiltered-cb-lat",
+               "revision": "443241dd8163642929ee45146af45e8599d2f784", "licence": "apache-2.0", "domains": ["bio"],
+               "note": "circuit breakers + latent adversarial training on the unfiltered model"},
+    "filtered_cb_lat": {"role": "unlearned", "repo": f"{DI}-e2e-strong-filter-cb-lat",
+                        "revision": "08ff131a561aa0863cedd7d956f974fc0cf38676", "licence": "apache-2.0",
+                        "domains": ["bio"], "note": "the full stack on the filtered model (never saw the data either)"},
+    "weak": {"role": "never_learned_weak", "repo": f"{DI}-e2e-weak-filter",
+             "revision": "5ec857208ac882dc6e9da392a0b6ce5a981ee8f6", "licence": "apache-2.0",
+             "note": "two-stage (blocklist + classifier) filter; optional, not in the default tags"},
+}
+TABLES = {"wmdp": WMDP_MODELS, "tar": TAR_MODELS, "deepig": DEEPIG_MODELS, "tofu": TOFU_MODELS}
+WMDP_SETS = ("wmdp", "tar", "deepig")             # model sets read on the WMDP data (stages_wmdp.sh --models)
+FAMILY = {"wmdp": "mistral", "tar": "llama", "deepig": "gpt_neox", "tofu": "llama"}
 DEFAULT_TAGS = {"wmdp": ("orig", "rmu", "elm", "npo", "simnpo"),
+                "tar": ("orig", "tar"),
+                "deepig": ("orig", "filtered", "cb", "cb_lat", "filtered_cb_lat"),
                 "tofu": ("orig", "retain", "npo", "graddiff", "rmu", "simnpo")}
 TOKENIZER_FILES = ("tokenizer.json", "tokenizer.model", "tokenizer_config.json", "special_tokens_map.json",
                    "added_tokens.json")
@@ -89,6 +140,11 @@ MODELS = TOFU_MODELS   # back-compat alias (TOFU code paths)
 def role(tag: str, dataset: str = "tofu") -> str:
     """Role of a tag; unknown (smoke) tags are unlearned."""
     return TABLES[dataset].get(tag, {}).get("role", "unlearned")
+
+
+def anchor_tag(dataset: str) -> str:
+    """The set's never-learned member (its teach anchor), or "" when it has none."""
+    return next((t for t, m in TABLES[dataset].items() if m.get("role") == "never_learned"), "")
 
 
 def merge_peft_adapter(base_dir: Path, adapter_dir: Path, out: Path) -> int:
@@ -142,7 +198,7 @@ def fetch(dest: Path, tags: list[str], dataset: str) -> None:
         else:
             snapshot_download(m["repo"], revision=m["revision"], local_dir=out,
                               allow_patterns=["*.json", "*.safetensors", "tokenizer*"])
-        if dataset == "wmdp" and tag != "orig":
+        if dataset in WMDP_SETS and tag != "orig":
             for f in TOKENIZER_FILES:            # one shared tokenizer (module docstring)
                 src = dest / "orig" / f
                 if src.is_file():
@@ -162,14 +218,23 @@ def main() -> int:
     r = sub.add_parser("role")
     r.add_argument("--dataset", choices=tuple(TABLES), default="wmdp")
     r.add_argument("tag")
+    for name in ("tags", "anchor", "family"):     # one-word answers for the stage scripts
+        q = sub.add_parser(name)
+        q.add_argument("--dataset", choices=tuple(TABLES), default="wmdp")
     args = ap.parse_args()
     if args.cmd == "fetch":
         tags = args.tags or list(DEFAULT_TAGS[args.dataset])
-        if args.dataset == "wmdp" and "orig" not in tags:
+        if args.dataset in WMDP_SETS and "orig" not in tags:
             tags = ["orig"] + tags
         fetch(args.dest, tags, args.dataset)
     elif args.cmd == "role":
         print(role(args.tag, args.dataset))
+    elif args.cmd == "tags":
+        print(" ".join(DEFAULT_TAGS[args.dataset]))
+    elif args.cmd == "anchor":
+        print(anchor_tag(args.dataset))
+    elif args.cmd == "family":
+        print(FAMILY[args.dataset])
     else:
         print(json.dumps(TABLES[args.dataset], indent=2))
     return 0

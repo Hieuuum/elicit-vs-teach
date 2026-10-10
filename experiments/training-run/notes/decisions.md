@@ -7840,3 +7840,63 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   and ELM are partial versions. Partial knowledge (answer type) gives a gap above the floor but
   below $L_{rot} - L_*$; the trajectory completes it. M12 ⇒ M21 (first-token preference is part of
   the gap) unless later tokens reverse it; not conversely (NPO). Agreement on all nine known cases.
+
+## 2026-10-10 — SOTA / tamper-resistance extension of the unlearning application: which methods, and the model-set plumbing
+
+- **Owner:** "test SOTA unlearning methods (the ICLR 2026 entry 10019248 and others), on WMDP or other
+  datasets; find the best and most impactful for the paper; prepare the full script to test all
+  metrics." Kept at the protocol level throughout (no item text, automatic data selection, as before).
+- **The ICLR 2026 entry** is "Learn to be Unlearned: Optimizing Language Models for Unlearning via
+  Clustered Gradient Routing" (Hanke, Xu, Pawelczyk, Backes, Dziedzic, Boenisch; ICLR 2026 Trustworthy
+  AI workshop poster): a *training-time* mechanism (semantic clustering + gradient routing into
+  parameter blocks) that makes later unlearning cleaner; evaluated on TOFU and MUSE; no code or
+  checkpoints released. Not testable without training models with their routing; noted, not run.
+- **Survey (public checkpoints only; the test needs weights, not papers).** The 2025–26 "relearn-robust
+  unlearning" line (RepSelect 2606.17168, minor-components 2605.11685, margin calibration 2607.27836,
+  SAM-based 2502.05374, optimizer simplification 2510.00761) reports on Zephyr-7B/WMDP in our exact
+  setting but releases no weights. UNDO ("Distillation Robustifies Unlearning", Lee et al. 2025,
+  2506.06278): the method most directly aimed at removing latent capability (distil the unlearned
+  model into a noised copy); code only (github AddieFoote/distillation-robustify-unlearning), no
+  checkpoints; would need its training run. Chosen, in order of impact:
+  1. **Deep Ignorance (EleutherAI 2025; `--models deepig`)** — 6.9B Pythia/GPT-NeoX models, 550B
+     tokens, Apache-2.0: the unfiltered baseline (orig), the strong-filter model that NEVER SAW the
+     biothreat-proxy text (the first never-learned model of the same architecture and recipe in this
+     project: the set's teach anchor), circuit breakers and CB + LAT on the unfiltered model (post-hoc
+     safeguards on a model that learned the data, the objects comparable to RMU/ELM), and the full
+     stack on the filtered model. Pins (Hub shas 2026-10-10): unfiltered c8df368f…, e2e-strong-filter
+     b28797cd…, unfiltered-cb 69b0e590…, unfiltered-cb-lat 443241dd…, e2e-strong-filter-cb-lat
+     08ff131a…; e2e-weak-filter 5ec85720… optional. Expected reads: filtered at the floor on M21 and a
+     teaching signature (hump) on M19 — the first in-domain test of the teach side; cb / cb_lat
+     between. Base models (no chat template); the zero-shot MCQ letter format applies unchanged; if
+     the unfiltered base reads near chance on MCQ, the fact-surface reads (M21, M12f, M17s, M19) carry
+     the design. GPT-NeoX's parallel residual + LayerNorm: the edge map (M2) and the R-lens refuse by
+     design (geode.adapt); every other metric runs (verified by the CPU smoke on tiny NeoX models).
+  2. **TAR (Tamirisa et al. 2024, ICLR 2025; `--models tar`)** — `lapisrocks/Llama-3-8B-Instruct-TAR-Bio-v2`
+     (143c907d…) vs `meta-llama/Meta-Llama-3-8B-Instruct` (8afb486c…, gated: HF_TOKEN with Meta access):
+     the strongest public claim of resistance to fine-tuning attacks (the durability paper, Qi et al.
+     2024, disputes the evaluation). The question M21 + M19 answer: removal, or a higher unlock price?
+     TAR-Bio-v2 ships no tokenizer; the original's is copied in.
+  3. **Zephyr extras (`--tags "... rmulat graddiff"`)** — RMU + LAT (Sheshadri et al. 2024) and
+     GradDiff, already pinned, same original and data: ~6.5 GPU-h each, no code.
+  4. **TOFU (`--dataset tofu`)** — the secondary controlled design (six open-unlearning methods on
+     Llama-3.2-1B-Instruct with a retain90 teach anchor), coded and smoke-tested 2026-09-25, never run
+     (~10 GPU-h); benign content. M21 is not yet wired into the TOFU stages (follow-up:
+     `grad_transfer.py --task tofu` on relearn_forgetA / holdoutA rows).
+  Not chosen: circuit breakers on Llama-3-8B-Instruct-RR (refusal, not knowledge unlearning); MUSE
+  (target/retrain checkpoints exist, unlearned ones mostly not); Gemma-2-2B RMU uploads (no
+  provenance, rejected 2026-09-25).
+- **Plumbing (one commit).** `launch_unlearn.sh --models wmdp|tar|deepig`: the same WMDP data and stages
+  for another original + its safeguarded versions; outputs `out/wmdp-<set>`, models
+  `$GEODE_STORE/unlearning/wmdp/models-<set>`, run ids prefixed `wmdp-<set>-` (the store's `runs/` is
+  shared; the Zephyr set keeps `wmdp-`). `models.py` tables TAR_MODELS / DEEPIG_MODELS with roles
+  reference / unlearned / never_learned and one-word CLI answers (`tags`, `anchor`, `family`); the
+  verdict takes `--models` and `--teach-tag`: when the set holds a never-learned member it replaces the
+  TinyStories-1B anchor (M21 floor, M17s twin) and adds the three-way position s = (v_U − v_teach)/
+  (v_orig − v_teach) of the TOFU design next to r (property test). `geode.train.lora`: LoRA targets
+  follow the model family (V5.81; GPT-NeoX query_key_value / dense / dense_h_to_4h / dense_4h_to_h);
+  `geode.adapt`: `unembed()` accessor (Llama lm_head, NeoX embed_out) used by the lens, the prefit
+  read-out and the residual-shift map; `localize.py` family-neutral attention / embedding names;
+  relearn manifests record `target_modules`; smoke fixtures gain `--family gpt_neox` and a
+  never-learned tiny model. `run_sota.sh` sequences the four sets (`--only`, `--dry-run`).
+- **Budget (one 80 GB GPU at $2/h):** zephyr-extra ~13 GPU-h, tar ~13, deepig ~30, tofu ~10: ~66 GPU-h,
+  ~$130. Run order = impact order above; each set is skip-if-done.
