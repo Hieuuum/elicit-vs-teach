@@ -865,8 +865,9 @@ TAR-Bio-v2), `deepig` (EleutherAI Deep Ignorance 6.9B, GPT-NeoX: unfiltered
 baseline, a NEVER-LEARNED strong-filter model = the set's teach anchor with the
 three-way position s, circuit breakers / CB+LAT on top), plus the two optional
 Zephyr pins (RMU+LAT, GradDiff) and the TOFU design. `run_sota.sh` sequences
-them (~66 GPU-h, ~$130). Code + CPU smoke (tiny NeoX / Llama models) done;
-awaiting the owner's GPU run. Not testable without training: the ICLR 2026
+them (~66 GPU-h, ~$130). First run 2026-10-10..12 (slurm-187001): zephyr-extra,
+deepig and tofu complete (deepig's lens / residual rows pending a rerun after
+a GPT-NeoX head-name fix); tar blocked on the gated original (HF access). Not testable without training: the ICLR 2026
 gradient-routing paper (no checkpoints) and UNDO (code only).
 
 ## 7. Budget

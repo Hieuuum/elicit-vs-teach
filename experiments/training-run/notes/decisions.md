@@ -7900,3 +7900,56 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   never-learned tiny model. `run_sota.sh` sequences the four sets (`--only`, `--dry-run`).
 - **Budget (one 80 GB GPU at $2/h):** zephyr-extra ~13 GPU-h, tar ~13, deepig ~30, tofu ~10: ~66 GPU-h,
   ~$130. Run order = impact order above; each set is skip-if-done.
+
+## 2026-10-12 — SOTA extension, first cluster run (slurm-187001, 2026-10-10 17:18 → 10-12 16:44, repo 57c0083)
+
+- **What ran.** zephyr-extra 9.6 h (RMU+LAT and GradDiff on the existing Zephyr pipeline; the five
+  earlier models skipped as done), tar 9 min (failed at stage 0, below), deepig 17.8 h (five 6.9B
+  GPT-NeoX models, all stages), tofu 19.9 h (six models, the secondary design, all stages).
+- **Errors.** (1) tar: `meta-llama/Meta-Llama-3-8B-Instruct` is gated and the job had no token with
+  Meta access (403); stage 0 fetched nothing and the old stage script then ran 12 analysis steps on a
+  missing model before giving up. Fix: `stages_wmdp.sh` now stops a set whose models are missing
+  (exit 3 with the reason). Needs: accept Meta's licence on the Hub, `export HF_TOKEN`, rerun
+  `--only tar`. (2) deepig: 20 lens_depth and 9 resid_shift steps failed with
+  `'GPTNeoXForCausalLM' object has no attribute 'embed_out'` — the cluster's transformers names the
+  GPT-NeoX head `lm_head` (a release rename; the local tiny-model test used `embed_out`). Fix:
+  `geode.adapt` `unembed()` goes through `get_output_embeddings()` first (the same `lm_head` object
+  on Llama; either name on NeoX), table name as fallback; test covers both. Rows lost in this run: M9
+  (three surfaces), M7, M7★. The 28 circuit_edges failures are the designed refusal (parallel
+  residual). (3) tofu: the six prefit Hessian steps hit CUDA OOM ("6.88 MiB free" of 79 GB): M13 is
+  MISSING there; M13 never discriminated in the WMDP design either; rerun only if wanted.
+- **Zephyr extras (clean).** RMU+LAT reads like RMU and hides a little deeper: MCQ preference r 0.14 /
+  0.03, probe ABSENT, lens 0.16, heads ABSENT, orig's states patched in ABSENT, unrelated fine-tune
+  does not unlock (0.31 → 0.32), yet bio relearning restores B in full (M17 r 1.05, M17-fact 1.43,
+  M19 decreasing, M17s 0.56) and **M21 = 1.90**, above the original's 1.58: the fact-surface
+  preference is sharper than the original's. GradDiff: probes and cyber preference CARRY (M16-bio
+  0.67, M12-cyber 0.61), unrelated fine-tune unlocks (0.82), M19 decreasing from a 12.9-bit start
+  (NPO-like output repair), M21 0.96 (4× the floor), MMLU damaged (0.44 / 0.36). Both: capability in
+  the weights, elicit.
+- **Deep Ignorance (lens / resid rows pending the rerun).** M21 on B: unfiltered 1.34, **filtered
+  1.23**, cb 0.79, cb_lat 0.87, filtered_cb_lat 0.89 (MMLU facts 2.1–2.3 for all); M17s after 573
+  true facts: 0.52 / 0.46 / 0.55 / 0.50 / 0.46. **The strong-filter model is not knowledge-free on
+  WMDP-bio as a whole:** it holds 92% of the baseline's pairing preference, its MCQ preference and
+  probe read at the baseline's level (r 0.74 / 0.68), and relearning on A transfers to B as much as
+  for the baseline. Consistent with the suite's design — the filter targets a narrow biothreat-proxy
+  slice, and WMDP-bio's items are mostly general biology — so `filtered` is a weak teach anchor for
+  this item set and the three-way position s is ill-conditioned here (den ≈ 0 on most reads). What
+  the set does give: the first teach-side signatures in the hazardous domain. cb_lat and
+  filtered_cb_lat show the hump — EDL/D rises from n = 8 to n = 64–128 and falls after, "increasing"
+  on 3/3 seeds under both floors (M19 reads teach) — and every deepig model's relearning is COSTLY
+  (M18 +0.8 to +2.05 nats/token over the baseline's own relearning, net of the MMLU null; every
+  Zephyr model was CHEAP). At the same time M17 CARRIES for cb (r 1.03), cb_lat (1.15) and
+  filtered_cb_lat (0.58), and M21 sits at 60–66% of the baseline. This is the partial regime of the
+  M21 write-up (above the floor, below the full information): the pairings are mostly there, the
+  LAT-trained safeguards make the first facts expensive, and the trajectory decides. cb alone: a
+  large unlock cost (5.96 bits/token at n = 8) falling to 0.56, undetermined (floors disagree).
+  Hidden at the MCQ surface for cb / cb_lat / filtered_cb_lat (preference and probe ABSENT) while
+  cyber reads intact everywhere (the suite filtered bio only).
+- **TOFU (secondary design, clean except M13).** Three-way positions s (retain90 = 0, full = 1): NPO
+  hides at the output (M12 s 0.01, M9 0.08, M14 −0.04, M15 −1.08, M10 0.09, M16 0.32) and still
+  relearns as the original does (M17 s 0.82, M11 3.95); GradDiff / RMU / SimNPO read PRE-ELICIT on
+  nearly every parent-only metric (M9, M12, M14, M15, M16 s 0.75–1.03) and on M17 (1.06–1.13). The
+  same picture as WMDP with a real teach anchor. M21 is not wired into the TOFU stages yet.
+- **Next:** `bash run_sota.sh --only deepig` (skip-if-done: recomputes the 29 failed lens / resid
+  steps, then the verdict), `--only tar` once the gated access is in place; copy
+  `out/wmdp-deepig`, `out/wmdp`, `out/tofu` locally for the write-up.

@@ -111,8 +111,12 @@ class ModelLayout:
         return _get(self.model, self._spec["norm"])
 
     def unembed(self) -> torch.nn.Module:
-        """The output projection (Llama: ``lm_head``; GPT-NeoX: ``embed_out``)."""
-        return _get(self.model, self._spec["unembed"])
+        """The output projection: ``get_output_embeddings()`` where the model provides it (the same
+        ``lm_head`` object on Llama; GPT-NeoX's head, whose attribute name changed across
+        transformers releases — ``embed_out``, later ``lm_head``), else the family table's name."""
+        get = getattr(self.model, "get_output_embeddings", None)
+        head = get() if callable(get) else None
+        return head if head is not None else _get(self.model, self._spec["unembed"])
 
     def ln_attn(self, i: int) -> torch.nn.Module:
         name = self._spec["ln_attn"]

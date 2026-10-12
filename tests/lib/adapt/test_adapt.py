@@ -238,7 +238,8 @@ def test_v5_75_unembed_accessor_follows_the_family(tiny_llama):
     neox = GPTNeoXForCausalLM(GPTNeoXConfig(vocab_size=64, hidden_size=32, intermediate_size=64, num_hidden_layers=2,
                                             num_attention_heads=4, max_position_embeddings=32))
     lay = layout(neox)
-    assert lay.family == "gpt_neox" and lay.unembed() is neox.embed_out
+    assert lay.family == "gpt_neox" and lay.unembed() is neox.get_output_embeddings()
+    assert lay.unembed() is getattr(neox, "embed_out", getattr(neox, "lm_head", None))   # either name, by release
     assert lay.embed() is neox.gpt_neox.embed_in and lay.final_norm() is neox.gpt_neox.final_layer_norm
     assert lay.attn_out(0) is neox.gpt_neox.layers[0].attention.dense
     assert not lay.supports_edges and not lay.supports_lrp

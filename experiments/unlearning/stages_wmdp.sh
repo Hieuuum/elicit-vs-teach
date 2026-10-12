@@ -99,6 +99,13 @@ necessity() {  # necessity <model> <eval map stem> <ranking map stem> <out> <spl
 }
 TAGS="orig $(echo "$TAGS" | tr ' ' '\n' | grep -v '^orig$' | tr '\n' ' ')"
 NPAR=$(echo $TAGS | wc -w)
+if [[ $SMOKE == 0 && $STAGE != 0 && $STAGE != 4 ]]; then   # stage 0 failed (a gated repo without HF_TOKEN): stop here, not 500 steps later
+  MISSING=""; for p in $TAGS; do [[ -f $(mpath $p)/config.json ]] || MISSING="$MISSING $p"; done
+  if [[ -n $MISSING ]]; then
+    milestone "models missing in $MODELS:$MISSING — run --stage 0 first (a gated original needs HF_TOKEN with access); stopping"
+    exit 3
+  fi
+fi
 milestone "wmdp: repo $(git rev-parse --short HEAD) store=$GEODE_STORE out=$OUT stage=$STAGE dev=$DEV tags=[$TAGS] domain=$D smoke=$SMOKE dtype=${GEODE_ANALYSIS_DTYPE:-float32}"
 if [[ $SMOKE == 0 && $CONFIRM == 0 && $STAGE != 0 && $STAGE != 4 && $STAGE != 6 ]]; then
   NSW=$(( $(echo $EDL_NS | wc -w) * $(echo $EDL_SEEDS | wc -w) ))
