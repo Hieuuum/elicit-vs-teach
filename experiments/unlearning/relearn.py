@@ -203,6 +203,8 @@ def main() -> int:
     ap.add_argument("--sweep", action="store_true", help="EDL sweep point: manifest only (see docstring)")
     ap.add_argument("--n-train", type=int, default=None, help="nested subset size of the training rows")
     ap.add_argument("--test-split", default=None, help="held-out MCQ split rendered as facts, e.g. bio_B")
+    ap.add_argument("--test-file", default=None,
+                    help="held-out SFT rows (a relearn_*.parquet under --data-dir) as the test floor; the TOFU sweep")
     ap.add_argument("--seed", type=int, default=None, help="override train.seed (EDL sweep replicates)")
     ap.add_argument("--tokenizer", default=None,
                     help="tokenizer dir or hub id (default: --init's own; the TinyStories-1B anchor carries none loadable)")
@@ -233,7 +235,9 @@ def main() -> int:
         train_df = train_df.iloc[perm0[: min(args.n_train, len(train_df))]].reset_index(drop=True)
     train_ex, val_ex = examples_of(train_df, tokenizer), examples_of(val_df, tokenizer)
     test_ex = None
-    if args.test_split:   # held-out MCQ items rendered as the same text facts (never trained on)
+    if args.test_file:    # held-out facts already in the SFT schema (TOFU: the forget_B authors)
+        test_ex = examples_of(load_split(args.data_dir / args.test_file), tokenizer)
+    elif args.test_split:   # held-out MCQ items rendered as the same text facts (never trained on)
         sys.path.insert(0, str(HERE / "data"))
         from prepare_wmdp import _sft_rows
 
@@ -421,7 +425,7 @@ def main() -> int:
             l_test = evaluate_sft_nll_nats(model, test_ex, TASK_FORMAT, batch_size=bs, device=dev)
         d = max(1, mdl_tokens)
         edl = {"n_train": len(train_ex), "seed": t["seed"], "mdl_nats": mdl_nats, "label_tokens": mdl_tokens,
-               "val_floor_nats": best.val_nats, "test_split": args.test_split, "n_test": len(test_ex),
+               "val_floor_nats": best.val_nats, "test_split": args.test_split or args.test_file, "n_test": len(test_ex),
                "test_loss_nats": l_test,
                "edl_ocv_per_token_nats": (mdl_nats - mdl_tokens * best.val_nats) / d,
                "edl_test_per_token_nats": (mdl_nats - mdl_tokens * l_test) / d}

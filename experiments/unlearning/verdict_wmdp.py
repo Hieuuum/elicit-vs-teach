@@ -342,6 +342,12 @@ def s_edl_sweep(p):
                        if d else "")}
 
 
+def _gap_kind(r, name):
+    """The kind-matched M21 (answers rotated within their automatic kind; v4 outputs), or None."""
+    g = (((r or {}).get("gap") or {}).get(name) or {}).get("kind")
+    return g["gap_nats"] if g else None
+
+
 def _gap(r, name):
     """M21 for set ``name`` of a grad_transfer output: L(answers rotated) − L(true), nats per label
     token (the script's ``gap`` field; for v2 files recomputed from the per-set losses)."""
@@ -379,7 +385,10 @@ def s_gap(x):
     an = _anchor_json()
     ts = _ts_calib()
     ga, gm = _gap(r, "bioA"), _gap(r, "mmluA")
+    gk = _gap_kind(r, "bioB")
     note = (f"L(rotated) - L(true) on B {gb:+.2f} nats/token (A {ga:+.2f}" + (f", MMLU facts {gm:+.2f}" if gm is not None else "") + ")"
+            + (f"; kind-matched (rotated within the answer's kind) B {gk:+.2f}"
+               + (f", anchor {_gap_kind(an, 'bioB'):+.2f}" if an and _gap_kind(an, "bioB") is not None else "") if gk is not None else "")
             + (f"; TEACH ANCHOR B {_gap(an, 'bioB'):+.2f}" if an and _gap(an, "bioB") is not None else "")
             + ("; TinyStories calibration (B) " + ", ".join(f"{k} {d['gap_B']:+.2f}" for k, d in ts.items() if d["gap_B"] is not None)
                if ts else ""))

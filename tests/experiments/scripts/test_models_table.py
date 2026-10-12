@@ -48,7 +48,7 @@ def test_every_set_is_well_formed(name):
 
 def test_the_wmdp_sets_and_their_anchors():
     assert set(M.WMDP_SETS) == {"wmdp", "tar", "deepig"}
-    assert M.anchor_tag("deepig") == "filtered" and M.anchor_tag("wmdp") == "" and M.anchor_tag("tar") == ""
+    assert M.anchor_tag("deepig") == "" and M.anchor_tag("wmdp") == "" and M.anchor_tag("tar") == ""   # 2026-10-12
     assert M.FAMILY["deepig"] == "gpt_neox" and M.FAMILY["tar"] == "llama" and M.FAMILY["wmdp"] == "mistral"
-    assert M.role("filtered", "deepig") == "never_learned" and M.role("cb", "deepig") == "unlearned"
+    assert M.role("filtered", "deepig") == "unlearned" and M.role("cb", "deepig") == "unlearned"
     assert M.role("nonsense", "deepig") == "unlearned"      # smoke tags

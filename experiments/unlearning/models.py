@@ -99,10 +99,10 @@ TAR_MODELS: dict[str, dict] = {
             "domains": ["bio"], "note": "TAR-Bio v2 (v1's retain set was contaminated); no tokenizer of its own"},
 }
 # --models deepig (WMDP data, 2026-10-10): the Deep Ignorance suite (EleutherAI 2025; Pythia / GPT-NeoX,
-# 6.9B, 550B tokens; Apache-2.0). The only setting with a NEVER-LEARNED model of the same architecture
-# and training recipe: the strong-filter model saw no biothreat-proxy text, so it is the teach anchor
-# of this set (role never_learned; stage 7 and the verdict use it instead of the TinyStories-1B
-# twin). cb = circuit breakers on the unfiltered model (a post-hoc safeguard on a model that learned
+# 6.9B, 550B tokens; Apache-2.0). The strong-filter model was meant as a never-learned anchor of the
+# same recipe; the first run (2026-10-12) showed it knows most WMDP-bio pairings, so no member of the
+# set is a teach anchor (the never_learned role and verdict --teach-tag stay available for a set that
+# has one). cb = circuit breakers on the unfiltered model (a post-hoc safeguard on a model that learned
 # the data, the object most comparable to RMU/ELM); cb_lat adds latent adversarial training;
 # filtered_cb_lat is the full stack on the filtered model. Base models (no chat template); the
 # zero-shot MCQ format applies unchanged.
@@ -110,9 +110,12 @@ DI = "EleutherAI/deep-ignorance"
 DEEPIG_MODELS: dict[str, dict] = {
     "orig": {"role": "reference", "repo": f"{DI}-unfiltered", "revision": "c8df368ff247cb90b62e21e1689260701b3ff25a",
              "licence": "apache-2.0", "note": "the unfiltered baseline: learned the data"},
-    "filtered": {"role": "never_learned", "repo": f"{DI}-e2e-strong-filter",
+    "filtered": {"role": "unlearned", "repo": f"{DI}-e2e-strong-filter",
                  "revision": "b28797cd9b615104ba9d24e6900336253323e7cf", "licence": "apache-2.0",
-                 "note": "strong blocklist filter throughout pretraining: never saw the data (TEACH ANCHOR of the set)"},
+                 "note": "strong blocklist filter throughout pretraining. Was the set's teach anchor (role never_learned) "
+                         "until 2026-10-12: on WMDP-bio as a whole it holds 92% of the baseline's pairing preference "
+                         "(the filter targets a narrow slice), so it is judged like any other member and the "
+                         "TinyStories-1B twin stays the floor"},
     "cb": {"role": "unlearned", "repo": f"{DI}-unfiltered-cb", "revision": "69b0e5906124ef97da509530d7f8ed2de3d694ed",
            "licence": "apache-2.0", "domains": ["bio"], "note": "circuit breakers (layers 5..30) on the unfiltered model"},
     "cb_lat": {"role": "unlearned", "repo": f"{DI}-unfiltered-cb-lat",

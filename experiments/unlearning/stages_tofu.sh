@@ -1,6 +1,12 @@
 # stages_tofu.sh — the SECONDARY, controlled design (TOFU three-way: original / retain90 /
 # unlearned). Sourced by launch_unlearn.sh --dataset tofu; see PLAN.md appendix T.
+# Stage 5 (2026-10-12, owner: "every new result confirmed with the original hump metric"): the EDL
+# sweep of the WMDP design on the forget_A facts (nested n, EDL_SEEDS seeds, full-FT relearning
+# recipe of relearn_forgetA.yaml), read on the forget_B authors; edl_sweep.py calls the signature
+# (M19) and the verdict reads it against the retain90 teach anchor.
 [[ -n ${TAGS:-} ]] || TAGS="orig retain npo graddiff rmu simnpo"
+EDL_NS="8 16 32 64 128 200"                 # nested forget_A subsets (200 = all rows)
+EDL_SEEDS=${EDL_SEEDS:-"316 317 318"}
 # ------------------------------------------------------------------ sizes
 NP=256; NF=128; KS="8 16 32"; K=32; NEVAL=256
 # Hessian (M13) restricted to two decoder blocks, as in the WMDP design (20, 28 of 32 there; 10, 14 of 16 here):
@@ -14,6 +20,7 @@ if [[ $SMOKE == 1 ]]; then
   PREFIT_X="--n 16 --n-probe 32 --das-layers 1 --das-ks 2 --das-train 8 --das-test 4 --das-steps 2 --dcm-pairs 16 --dcm-steps 2 --hess-n 3 --power-iters 2 --hutch 1"
   DCM_X="--n-pairs 16 --steps 3"; GEN="--generic-text $SMK/data/story.txt"
   LENS_X="--jac-prompts 2 --story-len 16 --k-batch 8"; RESID_X="--n 16 --seq-len 16"; RELEARN_X="--max-steps 12"
+  EDL_NS="4 8 16"; EDL_SEEDS="316 317"
 else
   DATA=$GEODE_STORE/unlearning/data; MODELS=$GEODE_STORE/unlearning/models
 fi
@@ -37,7 +44,8 @@ NPAR=$(echo $TAGS | wc -w)
 
 milestone "repo $(git rev-parse --short HEAD) store=$GEODE_STORE out=$OUT stage=$STAGE dev=$DEV tags=[$TAGS] smoke=$SMOKE"
 if [[ $SMOKE == 0 && $CONFIRM == 0 && $STAGE != 0 && $STAGE != 4 ]]; then
-  echo "Estimated cost: stage 1 ~$((NPAR * 40)) GPU-min, stage 2 ~$((NPAR * 10)) GPU-min (+holdout), stage 3 ~$((NPAR * 50)) GPU-min" >&2
+  NSW=$(( $(echo $EDL_NS | wc -w) * $(echo $EDL_SEEDS | wc -w) ))
+  echo "Estimated cost: stage 1 ~$((NPAR * 40)) GPU-min, stage 2 ~$((NPAR * 10)) GPU-min (+holdout), stage 3 ~$((NPAR * 50)) GPU-min, stage 5 ~$((NPAR * NSW * 2)) GPU-min ($NSW sweep points per model)" >&2
   awk -v n="$NPAR" -v u="$USD" 'BEGIN { printf "  ~ %.1f GPU-h, ~$%.0f at $%s/h for all stages on one 80 GB GPU\n", n*100/60, n*100/60*u, u }' >&2
   echo "Re-run with --confirm-cost (and --gpu on a GPU node)." >&2
   exit 2
@@ -103,6 +111,26 @@ if want 2; then
         --init "$P" --run-id $rid --data-dir "$DATA" --device $DEV --confirm-cost $RELEARN_X
     fi
   done
+fi
+
+# ------------------------------------------------------------------ 5: EDL sweep (M19, the hump)
+# relearn.py --sweep: nested subsets of the forget_A rows (the first n of one seeded permutation),
+# a manifest per point with MDL/D and both floors (OCV = own paraphrased val; test = loss on the
+# forget_B rows, never trained on); edl_sweep.py calls Donoway et al.'s signature per floor.
+if want 5; then
+  for p in $TAGS; do
+    P=$(mpath $p); [[ -f $P/config.json ]] || continue
+    for s in $EDL_SEEDS; do for n in $EDL_NS; do
+      rid=tofu-edl-$p-n$n-s$s
+      if [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; then
+        milestone "skip ($rid done)"; continue
+      fi
+      step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_forgetA.yaml" --init "$P" --run-id $rid \
+        --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train $n --seed $s --test-file relearn_forgetB.parquet \
+        $RELEARN_X || true
+    done; done
+  done
+  step "" python3 "$HERE/edl_sweep.py" --out "$OUT" --tags "$TAGS" --prefix tofu --store "$GEODE_STORE" || true
 fi
 
 # ------------------------------------------------------------------ 3: child metrics

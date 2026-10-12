@@ -283,8 +283,10 @@ fi
 # scored by the predictor and relearned on true and rotated answers.
 if want 7; then
   XFER_X=${XFER_X:-}
-  xfer_fresh() {  # v1 outputs (raw transfer only, run 2026-10-05) are set aside and recomputed
-    if [[ -f $1 ]] && ! grep -q '"knowledge_cos"' "$1"; then mv "$1" "${1%.json}.v1.json"; milestone "stale v1 output -> ${1%.json}.v1.json"; fi
+  xfer_fresh() {  # outputs of an older grad_transfer version are set aside and recomputed
+    # v1 (2026-10-05): raw transfer only, no "knowledge_cos"; v2/v3 (2026-10-06): no kind-matched M21, no "kinds"
+    if [[ -f $1 ]] && ! grep -q '"knowledge_cos"' "$1"; then mv "$1" "${1%.json}.v1.json"; milestone "stale v1 output -> ${1%.json}.v1.json"
+    elif [[ -f $1 ]] && ! grep -q '"kinds"' "$1"; then mv "$1" "${1%.json}.v3.json"; milestone "stale v3 output -> ${1%.json}.v3.json"; fi
   }
   step "$DATA/relearn_${D}Ashuf.parquet" python3 "$HERE/data/shuffle_answers.py" --data-dir "$DATA" --name ${D}A || true
   for p in $TAGS; do

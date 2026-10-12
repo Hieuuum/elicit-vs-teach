@@ -7953,3 +7953,31 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
 - **Next:** `bash run_sota.sh --only deepig` (skip-if-done: recomputes the 29 failed lens / resid
   steps, then the verdict), `--only tar` once the gated access is in place; copy
   `out/wmdp-deepig`, `out/wmdp`, `out/tofu` locally for the write-up.
+
+## 2026-10-12 (later) — strong-filter model demoted; kind-matched M21; the hump on every design
+
+- **Owner:** switch the Deep Ignorance anchor back to the TinyStories twin, add the same-kind shuffle,
+  and confirm every new result with the original hump metric (M19). Protocol-level only.
+- **Anchor.** `filtered` is now an ordinary tested member (role unlearned; the never_learned role and
+  the verdict's --teach-tag stay for a set that has a real one). Reason: it holds 92% of the
+  baseline's pairing preference on this item set, so a position against it divides by ≈ 0.
+- **Kind-matched M21 (grad_transfer v4).** Every answer gets an automatic kind label
+  (`answer_kinds`): arithmetic = sign + digit count; text = deterministic average-linkage clustering
+  (k ≈ n/16) of hashed bag-of-words TF-IDF vectors of the answer strings, clusters below two members
+  folded into the most similar one; nothing is inspected or printed. A second set of rotations moves
+  each answer only among answers of its own kind (`rotate_answers(..., groups=)`); the gap over those
+  is the pairing information beyond what the kind explains, i.e. the within-model coherence floor is
+  subtracted. The algebra is unchanged (the per-kind rotations are still permutations of the answers,
+  so question and answer effects cancel; the average over all per-kind offsets is the within-kind
+  off-diagonal mean — property-tested on a random model). Reported as `gap[...]["kind"]` and in the
+  verdict's M21 note (with the anchor's). Costs 2 × 4 extra set passes per model (~3 min at 7B).
+- **M19 on TOFU.** Stage 5 added to the secondary design: relearn.py --sweep on nested forget_A
+  subsets (n = 8..200, EDL_SEEDS), the full-FT recipe of relearn_forgetA.yaml, test floor = the
+  forget_B authors as SFT rows (`relearn_forgetB.parquet`, new in prepare.py; `--test-file`),
+  `edl_sweep.py --prefix tofu`; verdict.py row M19 = the net change of EDL/D (OCV, bits), read
+  against retain90 (the real teach anchor there). ~4.5 GPU-h for six models.
+- **Reruns (skip-if-done, after `git pull`):** `bash run_sota.sh --only deepig,tofu --confirm-cost
+  --gpu` (deepig: the 29 lens / resid steps and the kind-matched M21 for five models, then the
+  verdict; tofu: stage 5 + the Hessian blocks + verdict); the Zephyr set's kind-matched M21:
+  `--only zephyr-extra` (stage 7 sets v3 outputs aside as *.v3.json and recomputes them, ~18 min per
+  model, then the verdict); `--only tar` once the gated access is in place.

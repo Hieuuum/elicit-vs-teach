@@ -319,6 +319,24 @@ def _wrap(v, note):
     return None if v is None else (v, note)
 
 
+def m19(p):
+    """M19, the original paper's signature on this design (edl_sweep.py --prefix tofu; stage 5): the
+    net change of EDL/D from the smallest to the largest n, OCV floor, in bits per label token
+    (negative = the curve falls: elicitation; positive = it rises: teaching).  The note carries the
+    shape calls under both floors.  Read against the retain90 anchor, which never saw the authors."""
+    f = OUT / "edl_sweep.json"
+    if not f.is_file():
+        return None
+    r = (json.loads(f.read_text()) or {}).get(p)
+    if not r or "floors" not in r:
+        return None
+    fl = r["floors"]
+    ln2 = math.log(2)
+    note = "; ".join(f"{k} {fl[k]['call']} ({fl[k]['agree']}/{fl[k]['n_seeds']} seeds)" for k in ("ocv", "test") if k in fl)
+    note += "; EDL/D bits/token (ocv) n=" + f"{r['ns'][0]}..{r['ns'][-1]}: " + " ".join(f"{y / ln2:+.3f}" for y in fl["ocv"]["mean_nats"])
+    return fl["ocv"]["net_nats"] / ln2, note
+
+
 METRICS = [  # id, name, star, fn, min_sep
     ("M1", "Circuit overlap (heads, child vs orig)", False, m1, 0.05),
     ("M2", "Wiring (edges, child vs orig)", False, m2, 0.05),
@@ -338,6 +356,7 @@ METRICS = [  # id, name, star, fn, min_sep
     ("M15", "Subject-reading heads (DCM)", True, m15, 0.05),
     ("M16", "Fact present at the subject", True, m16, 0.3),
     ("M17", "Relearning: held-out recovery", False, m17, 0.3),
+    ("M19", "EDL sweep: net change of EDL/D, n=8..200 (bits; falls = elicit)", False, m19, 0.1),
 ]
 
 
@@ -427,7 +446,7 @@ def main() -> int:
         k = tally[t]
         lean = ("LATENT (pre-elicit)" if k["PRE-ELICIT"] > k["PRE-TEACH"] else
                 "GONE (pre-teach)" if k["PRE-TEACH"] > k["PRE-ELICIT"] else "SPLIT")
-        print(f"[verdict] {t}: {k['PRE-ELICIT']} pre-elicit / {k['PRE-TEACH']} pre-teach of 17 checks "
+        print(f"[verdict] {t}: {k['PRE-ELICIT']} pre-elicit / {k['PRE-TEACH']} pre-teach of {len(METRICS)} checks "
               f"(★ parent-only: {k['star_E']} / {k['star_T']}) -> knowledge {lean}")
     (OUT / "verdict.json").write_text(json.dumps(res, indent=2, default=str))
     print(f"[verdict] wrote {OUT / 'verdict.json'}")

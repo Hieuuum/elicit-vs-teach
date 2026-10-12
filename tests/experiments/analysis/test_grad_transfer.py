@@ -318,3 +318,96 @@ def test_knowledge_alignment_reads_a_shared_mechanism_and_not_arbitrary_pairings
     # raw cosine level the common part would give (and never NaN)
     for kv in (rule, arb, fresh):
         assert kv["score"] == kv["score"] and 0.0 < kv["knowledge_share"]["bioA"]
+
+
+# ---------------------------------------------------------------- kind-matched rotations (M21 v4, 2026-10-12)
+def _kinds_frame(n_words: int, n_nums: int, seed: int) -> pd.DataFrame:
+    """Two obvious kinds of answers: word phrases from one vocabulary, number-like tokens from another."""
+    rng = torch.Generator().manual_seed(seed)
+    rows = []
+    for i in range(n_words + n_nums):
+        q = " ".join(f"t{int(x)}" for x in torch.randint(10, 40, (4,), generator=rng))
+        a = (f"w{i} w{(i + 1) % n_words} w{(i + 2) % n_words}" if i < n_words else f"n{i} n{i + 1}")
+        prompt = f"t5 {q} t6 "
+        rows.append({"item_id": f"i{i}", "prompt_text": prompt, "answer_text": a, "full_text": prompt + a,
+                     "answer_char_start": len(prompt), "answer_char_end": len(prompt) + len(a)})
+    return pd.DataFrame(rows)
+
+
+def test_answer_kinds_are_automatic_deterministic_and_never_singletons():
+    df = _kinds_frame(10, 6, 3)
+    k1, k2 = GT.answer_kinds(df, "wmdp", seed=316), GT.answer_kinds(df, "wmdp", seed=316)
+    assert k1 == k2 and len(k1) == len(df)
+    from collections import Counter
+
+    assert min(Counter(k1).values()) >= 2
+    # the two vocabularies are separated: no kind mixes a word answer with a number answer
+    assert all(len({k1[i] for i in range(10)} & {k1[i] for i in range(10, 16)}) == 0 for _ in [0])
+    # arithmetic kinds: sign and digit count
+    ar = pd.DataFrame({"full_text": ["q\n12", "q\n345", "q\n-7", "q\n-89", "q\n56", "q\n-10", "q\n678", "q\n-3"],
+                       "answer_char_start": [2] * 8, "answer_char_end": [4, 5, 4, 5, 4, 5, 5, 4]})
+    ka = GT.answer_kinds(ar, "arith", seed=0)        # (sign, digits): four kinds of two
+    assert ka[0] == ka[4] and ka[1] == ka[6] and ka[2] == ka[7] and ka[3] == ka[5]
+    assert len({ka[0], ka[1], ka[2], ka[3]}) == 4 and min(Counter(ka).values()) >= 2
+    # a kind that would be a singleton is folded into another, never left alone
+    ar2 = pd.DataFrame({"full_text": ["q\n12", "q\n34", "q\n-7"], "answer_char_start": [2] * 3, "answer_char_end": [4, 4, 4]})
+    assert min(Counter(GT.answer_kinds(ar2, "arith", seed=0)).values()) >= 2
+
+
+def test_rotation_within_kinds_is_a_derangement_that_keeps_every_item_in_its_kind():
+    df = _kinds_frame(10, 6, 4)
+    kinds = GT.answer_kinds(df, "wmdp", seed=316)
+    out = GT.rotate_answers(df, seed=5, groups=kinds)
+    by_kind = {}
+    for i, k in enumerate(kinds):
+        by_kind.setdefault(k, set()).add(df["answer_text"][i])
+    for i, k in enumerate(kinds):
+        assert out["answer_text"][i] != df["answer_text"][i]          # no item keeps its answer
+        assert out["answer_text"][i] in by_kind[k]                      # it receives an answer of its own kind
+        assert out["prompt_text"][i] == df["prompt_text"][i]
+    assert sorted(out["answer_text"]) == sorted(df["answer_text"])      # the multiset is unchanged
+    with pytest.raises(ValueError):
+        GT.rotate_answers(df, seed=5, groups=[0] * (len(df) - 1) + [1])   # a singleton kind
+    sets = GT.with_rotations({"bioA": df, "bioB": _kinds_frame(10, 6, 9)}, 2, seed=1,
+                             kinds={"bioA": kinds, "bioB": GT.answer_kinds(_kinds_frame(10, 6, 9), "wmdp", 316)})
+    assert {k for k in sets if "_kind" in k} == {"bioA_kind0", "bioA_kind1", "bioB_kind0", "bioB_kind1"}
+    g = GT.preference_gaps({"bioA": 1.0, "bioA_shuf0": 3.0, "bioA_shuf1": 3.0, "bioA_kind0": 2.0, "bioA_kind1": 2.5})
+    assert g["bioA"]["gap_nats"] == pytest.approx(2.0) and g["bioA"]["kind"]["gap_nats"] == pytest.approx(1.25)
+
+
+def test_rotation_within_kinds_averages_to_the_within_kind_off_diagonal_mean(tiny_llama, tiny_tokenizer):
+    """The identity behind the kind-matched gap: over all per-kind offsets, the gap averages to
+    (1/D) sum_kinds [ (1/(m-1)) sum_{i != j in kind} S_ij - sum_{i in kind} S_ii ] — per-question and
+    per-answer effects still cancel, and only same-kind pairings enter."""
+    import itertools
+
+    tok = tiny_tokenizer()
+    model, params = _lora_model(tiny_llama, seed=3)
+    A = _rule_frame(5, 77, "arbitrary")
+    kinds = [0, 0, 0, 1, 1]
+
+    def summed_loss(df):
+        _, mean, ntok = GT.set_gradient(model, params, GT.examples_of(df, tok), "cpu", 8, _amp)
+        return mean * ntok, ntok
+
+    n = len(A)
+    S = torch.zeros(n, n, dtype=torch.float64)
+    for i in range(n):
+        for j in range(n):
+            row = A.iloc[[i]].copy()
+            a = A.iloc[j]["answer_text"]
+            row["answer_text"], row["full_text"] = a, row["prompt_text"].iloc[0] + a
+            row["answer_char_end"] = row["answer_char_start"] + len(a)
+            S[i, j] = summed_loss(row)[0]
+    s_true, D = summed_loss(A)
+    gaps = []
+    for k0, k1 in itertools.product(range(1, 3), range(1, 2)):
+        s_rot, d_rot = summed_loss(GT.rotate_answers(A, seed=0, offset={0: k0, 1: k1}, groups=kinds))
+        assert d_rot == D
+        gaps.append((s_rot - s_true) / D)
+    expect = 0.0
+    for kind in (0, 1):
+        idx = [i for i, k in enumerate(kinds) if k == kind]
+        off = sum(float(S[i, j]) for i in idx for j in idx if i != j) / (len(idx) - 1)
+        expect += off - sum(float(S[i, i]) for i in idx)
+    assert sum(gaps) / len(gaps) == pytest.approx(expect / D, rel=1e-4, abs=1e-5)

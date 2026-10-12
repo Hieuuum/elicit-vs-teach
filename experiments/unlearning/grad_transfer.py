@@ -2,6 +2,10 @@
 
 M21, the hidden-preference gap on the fact surface (the headline since 2026-10-06):
   gap_X = mean_k L_X(answers rotated across items, rotation k) - L_X(true answers)   nats / label token
+  and the kind-matched twin (v4): the same with every answer rotated among the answers of its own
+  KIND (automatic labels, answer_kinds: sign + digit count for arithmetic, a seeded k-means over
+  hashed bag-of-words TF-IDF of the answer strings for text) — what the kind alone explains cancels
+  too, so the gap is the pairing information beyond the kind (the within-model coherence floor).
 A set of facts in the fine-tuning format (question, "Answer:", the answer; no options) is scored
 as given and with every item's answer moved to another item (a seeded cyclic derangement: same
 prompts, same answers, no knowledge).  A model that holds the pairings prefers the true ones; the
@@ -61,31 +65,148 @@ SETS = ("bioA", "bioB", "mmluA")
 
 
 # ------------------------------------------------------------------ data
-def rotate_answers(df: pd.DataFrame, seed: int, offset: int | None = None) -> pd.DataFrame:
+def rotate_answers(df: pd.DataFrame, seed: int, offset: int | dict | None = None,
+                   groups: list[int] | None = None) -> pd.DataFrame:
     """The same prompts with the answers moved to other items: a derangement by a seeded cyclic
     offset in [1, n-1] (no item keeps its own answer), the knowledge-free twin of a fact set.
     Works from ``full_text`` + the answer char span (any frame the trainers read); anything after
     the span (e.g. nothing, or a trailing newline) stays with its row.  ``offset`` fixes the
     rotation instead of drawing it (the n-1 offsets together visit every off-diagonal pairing
-    (q_i, a_j) exactly once, which is what makes the rotation average the off-diagonal mean)."""
+    (q_i, a_j) exactly once, which is what makes the rotation average the off-diagonal mean).
+    ``groups`` (one label per row, every label on >= 2 rows) rotates WITHIN each group: an item
+    receives another item's answer of the same kind, so what the kind alone explains (topic,
+    type, shape of the answer) cancels too and the gap is the pairing information beyond the
+    kind.  Then ``offset`` may be a dict label -> offset."""
     n = len(df)
     if n < 2:
         raise ValueError("rotate_answers: need at least two rows")
-    if offset is not None and not 1 <= offset <= n - 1:
-        raise ValueError(f"rotate_answers: offset must be in [1, {n - 1}]")
-    k = offset if offset is not None else int(torch.randint(1, n, (1,), generator=torch.Generator().manual_seed(seed)))
     full = df["full_text"].tolist()
     st, en = df["answer_char_start"].astype(int).tolist(), df["answer_char_end"].astype(int).tolist()
     prompt = [t[:a] for t, a in zip(full, st)]
     answer = [t[a:b] for t, a, b in zip(full, st, en)]
     tail = [t[b:] for t, b in zip(full, en)]
-    answer = answer[k:] + answer[:k]
+    if groups is None:
+        if offset is not None and not 1 <= offset <= n - 1:
+            raise ValueError(f"rotate_answers: offset must be in [1, {n - 1}]")
+        k = offset if offset is not None else int(torch.randint(1, n, (1,), generator=torch.Generator().manual_seed(seed)))
+        answer = answer[k:] + answer[:k]
+    else:
+        if len(groups) != n:
+            raise ValueError("rotate_answers: one group label per row")
+        members: dict[int, list[int]] = {}
+        for i, g in enumerate(groups):
+            members.setdefault(int(g), []).append(i)
+        rotated = list(answer)
+        for g, idx in sorted(members.items()):
+            m = len(idx)
+            if m < 2:
+                raise ValueError(f"rotate_answers: group {g} has a single row; no derangement exists")
+            if isinstance(offset, dict):
+                k = int(offset[g])
+            else:
+                k = int(torch.randint(1, m, (1,), generator=torch.Generator().manual_seed(seed * 7919 + g)))
+            if not 1 <= k <= m - 1:
+                raise ValueError(f"rotate_answers: offset {k} for group {g} of size {m}")
+            for pos, i in enumerate(idx):
+                rotated[i] = answer[idx[(pos + k) % m]]
+        answer = rotated
     out = df.copy().reset_index(drop=True)
     out["prompt_text"], out["answer_text"] = prompt, answer
     out["full_text"] = [p_ + a_ + t_ for p_, a_, t_ in zip(prompt, answer, tail)]
     out["answer_char_start"] = [len(p_) for p_ in prompt]
     out["answer_char_end"] = [len(p_) + len(a_) for p_, a_ in zip(prompt, answer)]
     return out
+
+
+def _hashed_tfidf(texts: list[str], dim: int = 4096) -> torch.Tensor:
+    """L2-normalised TF-IDF rows over crc32-hashed word tokens (no vocabulary is built or read)."""
+    import re
+    import zlib
+
+    n = len(texts)
+    rows = torch.zeros(n, dim, dtype=torch.float64)
+    df_count = torch.zeros(dim, dtype=torch.float64)
+    for i, t in enumerate(texts):
+        words = re.findall(r"\w+", t.lower())
+        if not words:
+            continue
+        buckets = [zlib.crc32(w.encode()) % dim for w in words]
+        for b in buckets:
+            rows[i, b] += 1.0 / len(words)
+        for b in set(buckets):
+            df_count[b] += 1
+    idf = torch.log((n + 1) / (df_count + 1)) + 1
+    rows *= idf
+    return rows / rows.norm(dim=1, keepdim=True).clamp_min(1e-12)
+
+
+def _average_linkage(S: torch.Tensor, k: int) -> list[int]:
+    """Deterministic average-linkage clustering of n rows from their similarity matrix down to k
+    clusters (Lance-Williams update), stopping early when no two clusters share anything (similarity
+    0); rows that never merged stay singletons for the caller to fold.  O(n^2) per merge, fine for
+    the few hundred answers of a set."""
+    n = S.shape[0]
+    S = S.clone().double()
+    S.fill_diagonal_(float("-inf"))
+    size = torch.ones(n, dtype=torch.float64)
+    alive = torch.ones(n, dtype=torch.bool)
+    labels = list(range(n))
+    for _ in range(n - k):
+        M = S.clone()
+        M[~alive] = float("-inf")
+        M[:, ~alive] = float("-inf")
+        flat = int(M.argmax())
+        i, j = flat // n, flat % n
+        if M[i, j] <= 0:
+            break
+        i, j = (i, j) if i < j else (j, i)
+        merged = (size[i] * S[i] + size[j] * S[j]) / (size[i] + size[j])
+        S[i], S[:, i] = merged, merged
+        S[i, i] = float("-inf")
+        alive[j] = False
+        size[i] += size[j]
+        labels = [i if lab == j else lab for lab in labels]
+    uniq = sorted(set(labels))
+    return [uniq.index(lab) for lab in labels]
+
+
+def answer_kinds(df: pd.DataFrame, task: str, seed: int, k: int | None = None) -> list[int]:
+    """Automatic 'kind' labels for the answers, one per row, every kind on >= 2 rows.  Arithmetic:
+    the sign and digit count of the number.  Text: average-linkage clustering (k ~ n/16) over
+    hashed bag-of-words TF-IDF vectors of the answer strings; clusters below two members are folded
+    into the most similar other cluster.  Nothing is inspected or printed; the labels are
+    deterministic (``seed`` is kept for the signature; the clustering has no randomness)."""
+    answers = [t[a:b] for t, a, b in zip(df["full_text"].tolist(), df["answer_char_start"].astype(int).tolist(),
+                                          df["answer_char_end"].astype(int).tolist())]
+    n = len(answers)
+    if task == "arith":
+        keys = [(a.strip().startswith("-"), len(a.strip().lstrip("-"))) for a in answers]
+        uniq = sorted(set(keys))
+        labels = [uniq.index(kk) for kk in keys]
+    else:
+        X = _hashed_tfidf(answers)
+        k = k or max(2, n // 16)
+        labels = _average_linkage(X @ X.T, k)
+    # fold kinds with a single member into the nearest populated kind (by centroid, text) or the
+    # largest kind (arith), until every kind has >= 2 rows
+    while True:
+        counts: dict[int, int] = {}
+        for lab in labels:
+            counts[lab] = counts.get(lab, 0) + 1
+        small = [lab for lab, c in counts.items() if c < 2]
+        if not small or len(counts) == 1:
+            break
+        lab = small[0]
+        others = [o for o in counts if o != lab]
+        if task == "arith":
+            target = max(others, key=lambda o: counts[o])
+        else:
+            i = labels.index(lab)
+            cents = {o: X[[j for j, lab_j in enumerate(labels) if lab_j == o]].mean(0) for o in others}
+            target = max(others, key=lambda o: float(X[i] @ cents[o]))
+        labels = [target if lab_j == lab else lab_j for lab_j in labels]
+    uniq = sorted(set(labels))
+    return [uniq.index(lab_j) for lab_j in labels]
 
 
 def load_sets(data_dir: Path, domain: str, n: int, n_shuf: int, seed: int) -> dict[str, pd.DataFrame]:
@@ -97,18 +218,21 @@ def load_sets(data_dir: Path, domain: str, n: int, n_shuf: int, seed: int) -> di
     m = load_split(data_dir / "relearn_mmluA.parquet")
     if n:
         a, b, m = a.iloc[:n], b.iloc[:n], m.iloc[:n]
-    sets = {"bioA": a.reset_index(drop=True), "bioB": b.reset_index(drop=True), "mmluA": m.reset_index(drop=True)}
-    return with_rotations(sets, n_shuf, seed)
+    return {"bioA": a.reset_index(drop=True), "bioB": b.reset_index(drop=True), "mmluA": m.reset_index(drop=True)}
 
 
-def with_rotations(sets: dict[str, pd.DataFrame], n_shuf: int, seed: int) -> dict[str, pd.DataFrame]:
+def with_rotations(sets: dict[str, pd.DataFrame], n_shuf: int, seed: int,
+                   kinds: dict[str, list[int]] | None = None) -> dict[str, pd.DataFrame]:
     """Adds <set>_shuf[k] for bioA, bioB and (if present) mmluA: independent seeded rotations of
-    each set's answers.  mmluA's rotations give the same-model, unrelated-knowledge reference
-    cos(K_mmluA, K_bioB): the alignment that shared recall machinery alone produces."""
+    each set's answers, and, where ``kinds`` gives labels for a set, <set>_kind[k]: rotations
+    within each kind (the kind-matched null).  mmluA's rotations give the same-model,
+    unrelated-knowledge reference cos(K_mmluA, K_bioB)."""
     for i, name in enumerate(("bioA", "bioB", "mmluA")):
         if name in sets:
             for k in range(n_shuf):
                 sets[f"{name}_shuf{k}"] = rotate_answers(sets[name], seed + 1000 * (i + 1) + k)
+                if kinds and name in kinds:
+                    sets[f"{name}_kind{k}"] = rotate_answers(sets[name], seed + 5000 * (i + 1) + k, groups=kinds[name])
     return sets
 
 
@@ -136,9 +260,8 @@ def load_sets_arith(train_config: Path, eval_config: Path | None, n: int, n_shuf
                                        "local_path": e.get("eval_local_path")}})
     if len(ev) < EVAL_STOP_ROWS + n:
         raise SystemExit(f"[xfer] eval file has {len(ev)} rows < {EVAL_STOP_ROWS + n}")
-    sets = {"bioA": tr.iloc[idx].reset_index(drop=True),
+    return {"bioA": tr.iloc[idx].reset_index(drop=True),
             "bioB": ev.iloc[EVAL_STOP_ROWS : EVAL_STOP_ROWS + n].reset_index(drop=True)}
-    return with_rotations(sets, n_shuf, seed)
 
 
 # ------------------------------------------------------------------ gradients
@@ -223,13 +346,18 @@ def preference_gaps(loss: dict[str, float]) -> dict[str, dict[str, float]]:
     rotations (the spread a knowledge-free re-pairing produces) and the rotation count."""
     out = {}
     for name, l_true in loss.items():
-        if "_shuf" in name:
+        if "_shuf" in name or "_kind" in name:
             continue
         rots = [v for k, v in loss.items() if k.startswith(name + "_shuf")]
         if rots:
             m, sd = _mean_sd(rots)
             out[name] = {"gap_nats": m - l_true, "true_nats": l_true, "rotated_mean_nats": m, "rotated_sd_nats": sd,
                          "n_rotations": len(rots)}
+            kind = [v for k, v in loss.items() if k.startswith(name + "_kind")]
+            if kind:   # answers rotated within their kind: the pairing information beyond the kind
+                mk, sdk = _mean_sd(kind)
+                out[name]["kind"] = {"gap_nats": mk - l_true, "rotated_mean_nats": mk, "rotated_sd_nats": sdk,
+                                     "n_rotations": len(kind)}
     return out
 
 
@@ -322,6 +450,11 @@ def main() -> int:
         sets = load_sets_arith(args.train_config, args.eval_config, args.n, args.n_shuf, args.seed)
     if args.n_shuf < 2:
         ap.error("--n-shuf must be >= 2 (the knowledge null needs rotation pairs)")
+    kinds = {k: answer_kinds(sets[k], args.task, args.seed) for k in ("bioA", "bioB", "mmluA") if k in sets}
+    with_rotations(sets, args.n_shuf, args.seed, kinds=kinds)
+    kind_sizes = {k: sorted((lab_count for lab_count in __import__("collections").Counter(v).values()), reverse=True)
+                  for k, v in kinds.items()}
+    print("[xfer] answer kinds (automatic): " + " | ".join(f"{k} {len(sz)} kinds, sizes {sz[:3]}..{sz[-1]}" for k, sz in kind_sizes.items()))
     ex = {k: examples_of(df, tokenizer) for k, df in sets.items()}
     n_items = sum(len(v) for v in ex.values())
     n_passes = sum(-(-len(v) // args.batch_size) for v in ex.values())
@@ -370,9 +503,12 @@ def main() -> int:
     gaps = preference_gaps(loss)
     print("[xfer] M21 hidden-preference gap L(rotated) - L(true), nats/token: "
           + " | ".join(f"{k} {g['gap_nats']:+.3f} (rotation sd {g['rotated_sd_nats']:.3f})" for k, g in gaps.items()))
+    print("[xfer] M21 kind-matched (answers rotated within their kind): "
+          + " | ".join(f"{k} {g['kind']['gap_nats']:+.3f} (sd {g['kind']['rotated_sd_nats']:.3f})"
+                       for k, g in gaps.items() if "kind" in g))
     know = knowledge_vectors(G)
     know_m = knowledge_vectors(G, "mmluA", "bioB") if "mmluA_shuf0" in G else None
-    res = {"version": 3, "gap": gaps, "init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
+    res = {"version": 4, "gap": gaps, "kinds": {k: {"n_kinds": len(sz), "sizes": sz} for k, sz in kind_sizes.items()}, "init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
            "n_params_B": int(sum(p.numel() for p in params)), "items": {k: len(v) for k, v in ex.items()},
            "label_tokens": ntok, "loss_nats_per_token": loss, "task": args.task,
            **know, "mmlu_knowledge": know_m,

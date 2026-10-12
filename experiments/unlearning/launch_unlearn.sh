@@ -6,6 +6,8 @@
 #   NPO, SimNPO, ...); every metric read against its OWN null and the ORIGINAL model; no
 #   never-learned control. Stages in stages_wmdp.sh (header there).
 # --dataset tofu (secondary, controlled): the three-way design below, stages in stages_tofu.sh.
+#               Its stages: 0 data+models, 1 parent-only, 2 relearning, 3 child metrics, 5 EDL sweep
+#               (M19, added 2026-10-12), 4 verdict (verdict.py --design tofu).
 #
 # ---- TOFU design (secondary) ----
 # Three-way design on Llama-3.2-1B-Instruct (open-unlearning checkpoints, models.py):

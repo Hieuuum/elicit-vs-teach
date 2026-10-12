@@ -15,6 +15,8 @@ against a pinned sha256, and writes:
                              first 20 retain authors, known to all three models)
   relearn_forgetA.parquet    SFT rows (question -> original answer) for the
                              forget_A authors: the relearning set
+  relearn_forgetB.parquet    the other 10 forget authors as SFT rows (never trained on; the
+                             EDL sweep's test floor, 2026-10-12)
   relearn_forgetA_val.parquet   the same facts asked with TOFU's paraphrased
                              question (val loss for the stopping rule)
   relearn_holdoutA.parquet   holdout10 authors (never seen by ANY model), 10 of
@@ -266,12 +268,14 @@ def build(tofu: dict[str, list[dict]], date: str, seed: int) -> tuple[dict[str, 
 
     tr_f = pd.DataFrame(sft_rows(f10p, forget_a, template, "forget10"))
     va_f = pd.DataFrame(sft_rows(f10p, forget_a, template, "forget10", qkey="paraphrased_question"))
+    forget_b = set(range(n_forget)) - forget_a            # the held-out half, as SFT rows: the EDL sweep's test floor
+    tr_fb = pd.DataFrame(sft_rows(f10p, forget_b, template, "forget10"))
     hold_rows = sft_rows(hold, hold_a, template, "holdout10")
     rng = random.Random(seed + 2)
     val_ids = set(rng.sample(range(len(hold_rows)), max(1, len(hold_rows) // 10))) if hold_rows else set()
     tr_h = pd.DataFrame([r for i, r in enumerate(hold_rows) if i not in val_ids])
     va_h = pd.DataFrame([r for i, r in enumerate(hold_rows) if i in val_ids])
-    frames = {"tofu_eval": eval_df, "relearn_forgetA": tr_f, "relearn_forgetA_val": va_f,
+    frames = {"tofu_eval": eval_df, "relearn_forgetA": tr_f, "relearn_forgetA_val": va_f, "relearn_forgetB": tr_fb,
               "relearn_holdoutA": tr_h, "relearn_holdoutA_val": va_h}
     report = {
         "date_string": date, "seed": seed, "checks": checks,
