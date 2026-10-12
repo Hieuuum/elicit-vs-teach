@@ -3,7 +3,9 @@
 [[ -n ${TAGS:-} ]] || TAGS="orig retain npo graddiff rmu simnpo"
 # ------------------------------------------------------------------ sizes
 NP=256; NF=128; KS="8 16 32"; K=32; NEVAL=256
-PREFIT_X="--n 256 --n-probe 512"; DCM_X="--n-pairs 128 --steps 200"
+# Hessian (M13) restricted to two decoder blocks, as in the WMDP design (20, 28 of 32 there; 10, 14 of 16 here):
+# the full-model run went out of memory on an 80 GB GPU (slurm-187001, 2026-10-12)
+PREFIT_X="--n 256 --n-probe 512 --hess-n 8 --hess-layers 10 14 --power-iters 10 --hutch 2"; DCM_X="--n-pairs 128 --steps 200"
 LENS_X="--jac-prompts 24"; RESID_X="--n 256"; RELEARN_X=""
 GEN=${TS_VALID:+--generic-text $TS_VALID}
 if [[ $SMOKE == 1 ]]; then

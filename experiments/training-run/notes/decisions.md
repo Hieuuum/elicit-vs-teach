@@ -7917,7 +7917,7 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   on Llama; either name on NeoX), table name as fallback; test covers both. Rows lost in this run: M9
   (three surfaces), M7, M7★. The 28 circuit_edges failures are the designed refusal (parallel
   residual). (3) tofu: the six prefit Hessian steps hit CUDA OOM ("6.88 MiB free" of 79 GB): M13 is
-  MISSING there; M13 never discriminated in the WMDP design either; rerun only if wanted.
+  MISSING there; M13 never discriminated in the WMDP design either; rerun only if wanted. Fix: the TOFU stage now restricts the Hessian to decoder blocks 10 and 14 (--hess-n 8, 10 power iterations, 2 probes), the WMDP design's setting scaled to 16 layers; a rerun recomputes only the missing blocks.
 - **Zephyr extras (clean).** RMU+LAT reads like RMU and hides a little deeper: MCQ preference r 0.14 /
   0.03, probe ABSENT, lens 0.16, heads ABSENT, orig's states patched in ABSENT, unrelated fine-tune
   does not unlock (0.31 → 0.32), yet bio relearning restores B in full (M17 r 1.05, M17-fact 1.43,
