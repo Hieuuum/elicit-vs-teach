@@ -865,9 +865,19 @@ TAR-Bio-v2), `deepig` (EleutherAI Deep Ignorance 6.9B, GPT-NeoX: unfiltered
 baseline, a NEVER-LEARNED strong-filter model = the set's teach anchor with the
 three-way position s, circuit breakers / CB+LAT on top), plus the two optional
 Zephyr pins (RMU+LAT, GradDiff) and the TOFU design. `run_sota.sh` sequences
-them (~66 GPU-h, ~$130). First run 2026-10-10..12 (slurm-187001): zephyr-extra,
-deepig and tofu complete (deepig's lens / residual rows pending a rerun after
-a GPT-NeoX head-name fix); tar blocked on the gated original (HF access). Not testable without training: the ICLR 2026
+them (~66 GPU-h, ~$130). Runs: 2026-10-10..12 (slurm-187001: zephyr-extra,
+deepig, tofu) and 2026-10-15 (deepig complete with the lens / residual rows
+and the kind-matched M21; tofu's EDL sweep failed on a stale data dir, fixed:
+stage 0/5 rebuild it). Result (decisions.md 2026-10-15, paper Section 5):
+RMU+LAT and GradDiff elicit like the first four; the Deep Ignorance
+safeguards (CB, CB+LAT, filter+CB+LAT) hide the bio answer at every surface
+yet relearning brings B back to the baseline, at a cost (M18 +0.8..2.05
+nats/token) and, for the two LAT models, with M19's rising phase on 3/3 seeds:
+the first teach-side trajectory; M21 0.79..0.89 sits between the teach max
+(0.22) and the elicit min (0.96). The strong-filter model keeps 0.92 of the
+baseline's M21 (not a never-learned anchor on WMDP-bio). Pending: `--only
+tofu` (M19 there), `--only zephyr-extra` (kind-matched M21), `--only tar`
+after Meta access (`HF_TOKEN`). Not testable without training: the ICLR 2026
 gradient-routing paper (no checkpoints) and UNDO (code only).
 
 ## 7. Budget

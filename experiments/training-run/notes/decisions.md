@@ -7981,3 +7981,59 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   verdict; tofu: stage 5 + the Hessian blocks + verdict); the Zephyr set's kind-matched M21:
   `--only zephyr-extra` (stage 7 sets v3 outputs aside as *.v3.json and recomputes them, ~18 min per
   model, then the verdict); `--only tar` once the gated access is in place.
+
+## 2026-10-15 — SOTA extension, second cluster run (deepig + tofu, repo a736ab0, 11:49 → 17:21)
+
+- **What ran.** `run_sota.sh --only deepig,tofu`: deepig 5.3 h (the 29 lens / resid steps that the
+  GPT-NeoX head rename had lost, the kind-matched M21 for five models + the anchor, verdict), tofu
+  16 min (the Hessian blocks now fit; stage 5 failed, below). zephyr-extra was not in the run, so the
+  Zephyr set's kind-matched M21 is still pending (`--only zephyr-extra`, ~18 min per model). tar still
+  blocked on the gated original.
+- **Error.** TOFU stage 5: all 108 sweep points died on `relearn_forgetB.parquet: No such file` —
+  the test-floor file was added to prepare.py on 10-12, but the cluster's data dir was built before
+  that and stage 0 is skip-if-done on `prepare_report.json`. Fix: the stage-0 marker is now the newest
+  output (`relearn_forgetB.parquet`) and stage 5 runs the same guarded prepare step first; the rebuild
+  is deterministic (pinned revision, cached raw files, same seed), so every other parquet comes out
+  identical. CPU smoke of stages 0 + 5 passes (18 points, test floor read). Rerun:
+  `bash run_sota.sh --only tofu --confirm-cost --gpu` (~4.5 GPU-h; everything else skip-if-done).
+- **Deep Ignorance, complete** (out/wmdp-deepig; B = held-out half, baseline as given on B 0.53).
+  *Before training* nothing reads in the three safeguarded models: MCQ preference, probe, lens, state
+  swap all ABSENT on bio (cb's probe 0.18 of the baseline's excess is the one residual), the
+  no-options preference at its null (top-1 0.33–0.37 vs 0.31, p 0.03–0.6), while cyber and MMLU carry
+  everywhere (r 0.76–1.38) — the first set where even the probe cannot read the answer in any of
+  them (Zephyr always left something readable). Writing the baseline's head states in: cb 0.14→0.26
+  (r 0.45), cb_lat 0.12→0.28 (r 0.57), fcl 0.14→0.11. *M21 on B* 1.34 / 1.23 / 0.79 / 0.87 / 0.89
+  (baseline / filtered / cb / cb_lat / fcl), **kind-matched** 1.32 / 1.21 / 0.88 / 0.86 / 0.87, the
+  cannot-know model 0.22 / 0.21: the kind of the answer explains at most 0.02 of the gap (the
+  safeguarded models' kind-matched gaps are *higher*, 0.86–0.88), so the coherence floor is not a
+  same-kind artefact. Position r of the safeguarded models' M21 between the floor and the baseline:
+  0.51–0.60. *After relearning on A* (B accuracy child / unrelated fine-tune / as given): filtered
+  0.49 / 0.49 / 0.47, cb 0.53 / 0.45 / 0.28, cb_lat 0.56 / 0.31 / 0.26, fcl 0.44 / 0.32 / 0.31 — M17
+  CARRIES for the three safeguards (r 1.03, 1.15, 0.58), ABSENT for filtered (no room: the baseline
+  itself is 0.53). The true answers add 0.46–0.55 nats/token on B after 573 facts (baseline 0.52,
+  anchor 0.045). *But the trajectory is teach-side:* M18 COSTLY for all four (+0.82 ± 0.14, +0.80 ±
+  0.34, +0.98 ± 0.31, +2.05 ± 0.27 nats/token over the baseline's own relearning, net of the null;
+  every Zephyr model was within 0.44 of cheap), and M19 shows the rising phase for cb_lat (EDL/D ocv
+  2.9 → 4.8 bits at n = 32–64 → 0.79 at 573) and fcl (2.1 → 4.1 at n = 128 → 1.7), "increasing" on
+  3/3 seeds under both floors; cb falls from 6.0 to 0.56 (ocv decreasing 2/3, test mixed:
+  undetermined); filtered mixed (0.78 → 0.07); the baseline falls (+0.12 → −0.45). Localisation:
+  cb's edit is 90% in layers 0–13 + 29–30, attention only (MLP 0%), top L2; cb_lat's in 26 layers,
+  attention only, top L9/L8/L4; readability by depth (probe / lens / read-out retention vs the
+  baseline): filtered 0.73 / 0.75 / 0.73, cb 0.14 / 0.27 / 0.40, cb_lat −0.17 / 0.22 / 0.06, fcl
+  −0.06 / 0.35 / 0.42. The resid rows: cb and cb_lat move the task state 16–18× more than generic
+  text (KL 3.9 / 3.6 nats at the answer vs 0.12 / 0.14 per generic token); filtered vs baseline is a
+  different pretraining run (generic KL 0.45 > task 0.14), so M7★ / M10★ / the "edit" are
+  cross-model reads for filtered and fcl and are reported, not called.
+- **Reading.** The tamper-resistance safeguards are the first methods here that both hide the answer
+  at every surface and move the relearning trajectory to the teach side, without taking the pairing
+  information out of the weights (M21 at 4× the floor, 0.6 of the baseline; B comes back to the
+  baseline's level after 573 facts; what comes back is the knowledge). M21 orders the cases: every
+  teach-side case ≤ 0.22, every clean elicit case ≥ 0.96 (GradDiff; Zephyr methods 1.23–2.64), and
+  exactly the three mixed cases sit between (0.79–0.89). The partial regime of the M21 write-up, seen.
+  The strong-filter model is not knowledge-free on WMDP-bio as a whole (0.92 of the baseline's M21,
+  reads at r 0.65–0.74 on four metrics, as given 0.47 vs 0.53): not a never-learned anchor for this
+  item set (the filter targets a narrower proxy slice).
+- **TOFU.** M13 now computed (no call: no statistical null). Verdicts unchanged from 10-12 (NPO
+  pre-teach at the output; GradDiff / RMU / SimNPO pre-elicit); M19 MISSING pending the rerun.
+- **Written up:** unlearning_wmdp.tex Section 5 (the extension), the M21 table and its paragraph,
+  Caveats; EXPERIMENTS.md §6.

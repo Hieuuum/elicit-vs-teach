@@ -7,6 +7,8 @@
 % twins, the TinyStories anchor and the fact-surface preference M21: stage 7 at f5f2617
 % (grad_transfer.py; its gradient-alignment candidate failed calibration and is not reported here,
 % decisions.md 2026-10-06).
+% Section 5 (two more Zephyr methods, the Deep Ignorance 6.9B suite): out/wmdp (rmulat, graddiff) and
+% out/wmdp-deepig at a736ab0, decisions.md 2026-10-12 and 2026-10-15; the kind-matched M21 there.
 \documentclass[11pt]{article}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
@@ -52,7 +54,9 @@ correct answer, no options; LoRA $r{=}64$) and is read on the held-out half B, w
 The \emph{fine-tuning null} is the same recipe on MMLU facts, which cannot teach bio answers.
 There is no never-learned model, so the elicit reference is the \emph{original} model (before
 training) and the \emph{original's own relearning} (after training); the teach reference is each
-metric's own null, and the elicit/teach values of the main results are given alongside. A model
+metric's own null, and the elicit/teach values of the main results are given alongside. Section~5 adds two
+more Zephyr methods (RMU+LAT, GradDiff) and another model family, the Deep Ignorance 6.9B suite
+(pretraining-data filtering, circuit breakers, latent adversarial training). A model
 that cannot know the facts, the main results' TinyStories-1B twin, is run on the same facts wherever
 a read allows a cross-model comparison (the rotated-answer twin in Section~1, the before-training
 scores in Section~4); it fixes a zero, not a scale.
@@ -394,10 +398,12 @@ main results' parents before their 4M-example fine-tunes (the format-installed p
 the op-bridge parent is elicited), the same model on the bio facts it cannot know, and the Zephyr
 models. The plainest read on the fact surface does it: M21, the loss on the true answers against
 the loss with the answers rotated across items, no training, no options (Table~\ref{tab:before}).
-Every known teach-side case is at or below $0.22$ nats per token, every elicit-side case at or
-above $1.15$, and the four unlearned models sit with the original ($1.24$--$2.64$), NPO included,
+Every known teach-side case is at or below $0.22$ nats per token, every case whose relearning
+reads elicit on all three recovery tests at or above $0.96$ (GradDiff; the four methods of
+Tables~\ref{tab:headline}--\ref{tab:before} $1.24$--$2.64$, with the original, NPO included,
 whose whole output is shifted by about 244 nats with the log-odds between true and other answers
-intact. Why this is the right quantity is set out under M21 in the metrics document: the rotation
+intact), and the three models whose trajectory is mixed, the Deep Ignorance safeguards of
+Section~5, sit between ($0.79$--$0.89$). Why this is the right quantity is set out under M21 in the metrics document: the rotation
 cancels every term of the loss that depends on the question alone or on the answer alone, so the
 gap is the interaction term of the parent's loss on the true pairs --- the pairing information the
 weights hold, in the EDL framework's units, before any training --- and it bounds the information
@@ -408,8 +414,12 @@ sufficient sign, not a necessary one: knowledge that shows in no conditional lik
 zero and could still be elicited. And its within-model null, re-pairing the
 answers, does not contain the lexical coherence between a question and its own answer; that floor
 is $0.22$ for a 1B model that knows neither the facts nor much else, and for a general 7B model
-without bio it is unknown (none exists). So M21 is reported beside the tallied metrics, not
-tallied.
+without bio it is unknown (none exists; the one candidate, Section~5, is not knowledge-free on these
+items). A second null narrows it: rotating each answer only among answers of its own kind (an
+automatic clustering of the answer strings, nothing inspected) subtracts whatever the kind of answer
+explains, and on the Deep Ignorance set it moves no value by more than $0.1$ (Table~\ref{tab:sota}),
+so the floor is not a same-kind artefact; what it may still contain is question-specific. So M21 is
+reported beside the tallied metrics, not tallied.
 
 \begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{5pt}
 \begin{adjustbox}{max width=\textwidth}
@@ -427,6 +437,14 @@ RMU & WMDP-bio & elicit (Table~\ref{tab:headline}) & \textbf{1.30} \tabularnewli
 ELM & WMDP-bio & elicit & \textbf{1.24} \tabularnewline
 NPO & WMDP-bio & elicit & \textbf{2.52} \tabularnewline
 SimNPO & WMDP-bio & elicit & \textbf{2.64} \tabularnewline
+RMU+LAT & WMDP-bio & elicit (Section~5) & \textbf{1.90} \tabularnewline
+GradDiff & WMDP-bio & elicit & \textbf{0.96} \tabularnewline
+\midrule
+Deep Ignorance 6.9B, unfiltered baseline & WMDP-bio & elicit (its own relearning) & \textbf{1.34} \tabularnewline
+strong data filter & WMDP-bio & no room to call (Section~5) & 1.23 \tabularnewline
+circuit breakers & WMDP-bio & mixed: comes back, costly, undetermined trajectory & \emph{0.79} \tabularnewline
+circuit breakers + LAT & WMDP-bio & mixed: comes back, costly, rising phase & \emph{0.87} \tabularnewline
+filter + circuit breakers + LAT & WMDP-bio & mixed: comes back, costly, rising phase & \emph{0.89} \tabularnewline
 \bottomrule
 \end{tabular}
 \end{adjustbox}
@@ -435,11 +453,110 @@ The arithmetic rows are the main results' parents before their 4M-example fine-t
 problems of the frozen evaluation block; on 600 training problems: $0.11$, $0.00$, $0.91$); the bio
 rows are read on half B. The spread of the loss over the four rotations is $0.01$--$0.05$ nats in
 every row, so every value above $0.22$ is far above noise; the question a reader must keep is the
-coherence floor of a large model, which this design cannot measure.}
+coherence floor of a large model, which this design cannot measure. The lower block is the Deep
+Ignorance set of Section~5, read against its own baseline: the three safeguarded models are the only
+cases between the teach-side maximum and the elicit-side minimum, and the only ones whose relearning
+reads mixed.}
 \label{tab:predictor}
 \end{table}
 
 
+% =====================================================================
+\section*{5. Other methods, another model family}
+
+The same pipeline, unchanged, on two more Zephyr unlearning methods --- RMU with latent adversarial
+training (RMU+LAT) and gradient difference (GradDiff) --- and on a second model family: EleutherAI's
+Deep Ignorance suite, 6.9B GPT-NeoX models in which the safeguard is built in during or right after
+pretraining: a baseline pretrained on unfiltered data; the same recipe on data with a strong
+biothreat-proxy filter; circuit breakers (CB) on the baseline; CB plus latent adversarial training
+(CB+LAT) on the baseline; and CB+LAT on the filtered model. The baseline is the original for its
+set; the filtered models are separate pretraining runs, so any read that compares their weights or
+states with the baseline's is a cross-model read and is reported, not called. Everything else
+(halves A and B, the MMLU null, the thresholds) is as above; Table~\ref{tab:sota}.
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}l>{\raggedright}p{4.1cm}cc|ccccc@{}}
+\toprule
+ & & \multicolumn{2}{c|}{Zephyr-7B (original of Table~\ref{tab:headline})} & \multicolumn{5}{c}{Deep Ignorance 6.9B} \tabularnewline
+ & metric & RMU+LAT & GradDiff & baseline & filtered & CB & CB+LAT & filt.+CB+LAT \tabularnewline
+\midrule
+\multicolumn{9}{@{}l}{\emph{before training: position $r$ between the model's own null (0) and its original (1), bio \textbar\ MMLU control}} \tabularnewline
+M12 & hidden preference & \pa{0.14 \textbar\ 0.95} & \pa{0.12 \textbar\ 0.91} & 1 & \rd{0.74 \textbar\ 0.89} & \nr{0 \textbar\ 0.99} & \nr{0 \textbar\ 1.00} & \nr{0 \textbar\ 0.76} \tabularnewline
+M16$'$ & answer probe & \nr{0 \textbar\ 0.99} & \rd{0.67 \textbar\ 0.90} & 1 & \rd{0.68 \textbar\ 0.94} & \pa{0.18 \textbar\ 1.04} & \nr{0 \textbar\ 0.97} & \nr{0 \textbar\ 1.01} \tabularnewline
+M9 & lens, middle layers & \pa{0.16 \textbar\ 0.97} & \pa{0.03 \textbar\ 0.33} & 1 & \rd{0.67 \textbar\ 0.62} & \nr{0 \textbar\ 1.16} & \nr{0 \textbar\ 0.95} & \nr{0 \textbar\ 0.62} \tabularnewline
+M14 & answer carried by the state & \nr{0 \textbar\ 0.89} & \nr{0 \textbar\ 0.57} & 1 & \rd{0.65 \textbar\ 1.31} & \nr{0 \textbar\ 0.94} & \nr{0 \textbar\ 1.38} & \nr{0 \textbar\ 1.25} \tabularnewline
+M12f & correct answer preferred, no options (top-1; null 0.31) & \nr{0.32} & \nr{0.28} & 0.38 & \nr{0.36, $p{=}0.02$} & \nr{0.35} & \nr{0.33} & \nr{0.37, $p{=}0.03$} \tabularnewline
+M10$^\bigstar$ & original's head states patched in (accuracy) & \nr{0.12$\to$0.22} & \nr{0$\to$0} & 0.40 & 0.35$\to$0.33 & \pa{0.14$\to$0.26} & \rd{0.12$\to$0.28} & 0.14$\to$0.11 \tabularnewline
+M21 & loss gap, rotated $-$ true (nats/token); \emph{same-kind rotations} & 1.90 & 0.96 & 1.34; \emph{1.32} & 1.23; \emph{1.21} & 0.79; \emph{0.88} & 0.87; \emph{0.86} & 0.89; \emph{0.87} \tabularnewline
+\midrule
+\multicolumn{9}{@{}l}{\emph{accuracy on B and the recovery tests}} \tabularnewline
+ & as given & 0.28 & 0.27 & 0.53 & 0.47 & 0.28 & 0.26 & 0.31 \tabularnewline
+ & after an unrelated (MMLU) fine-tune & 0.32 & 0.60 & -- & 0.49 & 0.45 & 0.31 & 0.32 \tabularnewline
+ & after relearning on A & \textbf{0.68} & \textbf{0.67} & -- & 0.49 & \textbf{0.53} & \textbf{0.56} & \textbf{0.44} \tabularnewline
+\textbf{M17} & relearning beats the unrelated fine-tune & \el{0.68 vs 0.32} & \el{0.67 vs 0.60} & -- & \te{0.49 vs 0.49} & \el{0.53 vs 0.45} & \el{0.56 vs 0.31} & \el{0.44 vs 0.32} \tabularnewline
+\textbf{M17u} & the unrelated fine-tune unlocks B & locked & \el{0.27$\to$0.60} & -- & locked & \el{0.28$\to$0.45} & locked & locked \tabularnewline
+\textbf{M18} & relearning cost over the original's (nats/token) & \el{$+0.44\pm0.40$} & \na{$+3.0\pm9.4$} & 0 & \te{$+0.82\pm0.14$} & \te{$+0.80\pm0.34$} & \te{$+0.98\pm0.31$} & \te{$+2.05\pm0.27$} \tabularnewline
+\textbf{M19} & EDL/D with $n$ (bits, $n{=}8\to573$) & \el{$15.4\to-0.10$} & \el{$357\to9.6$} & $0.12\to-0.45$ & \na{$0.78\to0.07$, mixed} & \pa{$6.0\to0.56$} & \te{$2.9\to4.8\to0.79$} & \te{$2.1\to4.1\to1.7$} \tabularnewline
+M17s & what the true answers add on B after 573 facts (nats/token; cannot-know model 0.05) & 0.56 & 0.57 & 0.52 & 0.46 & 0.55 & 0.50 & 0.46 \tabularnewline
+ & MMLU (general ability) & 0.58 & 0.44 & 0.48 & 0.49 & 0.50 & 0.49 & 0.51 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{The extension. Before training, each position $r$ is the model's value between its own
+null and its original's, on the bio items and, after the bar, on MMLU (the machinery control); the
+calls follow Table~\ref{tab:before}. M12f gives the top-1 rate against the no-options null of
+$0.31$ ($p<0.01$ counts as readable; the baseline's $p=0.006$). M10$^\bigstar$ for the two filtered
+models compares states across pretraining runs and is not called. M21: the plain gap, then (italic)
+the gap with each answer rotated only among answers of its own kind; the model that cannot know the
+facts reads $0.22$ and $0.21$; the Zephyr set's same-kind values are not yet computed. M18 and M19 as
+in Table~\ref{tab:headline}; M19's three values for CB+LAT and filter+CB+LAT are $n=8$, the peak
+($n=64$ and $128$) and $n=573$, ``increasing'' on 3/3 seeds under both floors; CB falls under the
+validation floor (2/3 seeds) and is mixed under the test floor; the filtered model's seeds disagree
+under both. M17 for the filtered model has no room: the baseline itself scores $0.53$ on B. GradDiff's M18 interval is too wide to read for the same reason as NPO's (output repair).}
+\label{tab:sota}
+\end{table}
+
+\begin{steps}
+\item \textbf{The two Zephyr methods read as the first four did.} RMU+LAT is RMU hidden deeper:
+nothing reads before training except a trace at the lens, an unrelated fine-tune does not unlock it
+($0.28\to0.32$), yet relearning on A restores B in full ($0.68$; the original $0.67$) at a cost
+within noise of the original's, EDL/D falls on every seed, the true answers add the original's
+$0.56$ nats, and its fact-surface preference is \emph{above} the original's ($1.90$ vs $1.58$).
+GradDiff breaks the output and the model with it (MMLU $0.44$); any fine-tune unlocks it
+($0.27\to0.60$) and M21 reads $0.96$. Both: in the weights, elicited.
+\item \textbf{The Deep Ignorance safeguards hide the answer everywhere, and it still comes back.}
+For CB, CB+LAT and filter+CB+LAT no before-training metric reads the bio answer --- not the
+preference, the probe, the lens, the state swap or the no-options preference --- while cyber and MMLU
+read at the baseline's level on all of them (the bio loss is knowledge-specific). This is the first
+set in which even the probe finds nothing. Yet M21 reads $0.79$--$0.89$ ($0.86$--$0.88$ with same-kind
+rotations), four times the cannot-know model and $0.51$--$0.60$ of the way from that floor to the
+baseline; relearning on A brings B back to the baseline's level ($0.53$, $0.56$; the filtered-base
+model $0.44$ against its own base's $0.47$); and what the 573 true facts add on B is the baseline's
+amount ($0.46$--$0.55$ nats per token against $0.52$).
+\item \textbf{But the way back is the first teach-side trajectory in this study.} Relearning costs
+$0.8$--$2.05$ nats per label token more than the baseline's own relearning, net of the null (every
+Zephyr model: within $0.44$ of free), and for the two LAT-trained models the paper's signature shows
+its rising phase: EDL per label token climbs from $n=8$ to $n=64$ (CB+LAT, $2.9\to4.8$ bits) or
+$n=128$ (filter+CB+LAT, $2.1\to4.1$) before it falls, on every seed under both floors ---
+the shape of the taught arm in Figure~\ref{fig:edl}a, not of the unlearned Zephyr curves in
+Figure~\ref{fig:edl}b. CB alone falls from $6.0$ to $0.56$ under the validation floor and is mixed
+under the test floor. The metrics therefore do not call these three models elicit. They say: the
+pairing information is largely still in the weights, the first facts are expensive, and part of what
+relearning does is learn its way past the safeguard before it reaches the facts; by $n=573$ it has.
+These are also the only cases whose M21 sits between the teach-side maximum ($0.22$) and the
+elicit-side minimum ($0.96$), the partial regime that reading of M21 predicts.
+\item \textbf{The strong data filter is not knowledge-free on WMDP-bio as a whole.} The filtered
+model keeps $0.92$ of the baseline's fact-surface preference, reads at $0.65$--$0.74$ of the baseline's
+excess on the preference, the probe, the lens and the state swap, and scores $0.47$ on B against the
+baseline's $0.53$; relearning on A adds nothing beyond the unrelated fine-tune because there is
+almost nothing left to add. Consistent with the suite's design --- the filter targets a narrow
+biothreat-proxy slice and WMDP-bio is mostly general biology --- it cannot serve as the never-learned
+anchor this design lacks (the Caveats). The tamper-resistance set (TAR on Llama-3-8B) is pending
+access to its gated original.
+\end{steps}
+
+\FloatBarrier
 % =====================================================================
 \section*{Caveats}
 \begin{steps}
@@ -447,7 +564,8 @@ coherence floor of a large model, which this design cannot measure.}
 the teach values come from each metric's own null and from the main results. The one cross-model
 anchor, the main results' TinyStories-1B twin on the same bio facts, is a 1B story model: it fixes a
 zero ($0.05$ nats on the rotated-answer twin, $0.22$ on M21), not a scale, and a 7B model without bio
-knowledge does not exist.
+knowledge does not exist: the Deep Ignorance strong-filter model, pretrained without the suite's
+biothreat-proxy data, still holds $0.92$ of its baseline's M21 on these items (Section~5).
 \item The metrics before training are read on all bio items, those after relearning on half B;
 the first 512 items in source order score lower (original $0.51$) than B ($0.67$), so the two blocks
 are not compared with each other.

@@ -62,7 +62,9 @@ t = pd.read_parquet(f"{d}/relearn_forgetA.parquet")["full_text"].tolist()
 open(f"{d}/story.txt", "w").write("<|endoftext|>".join(x.replace("<|", "").replace("|>", "") for x in t))
 PY
   else
-    step "$DATA/prepare_report.json" python3 "$HERE/data/prepare.py" --dataset tofu --out-dir "$DATA" --confirm
+    # marker = the newest prepare.py output (relearn_forgetB, 2026-10-12): a data dir built before it
+    # is rebuilt in place (pinned revision + seed: every other parquet comes out identical)
+    step "$DATA/relearn_forgetB.parquet" python3 "$HERE/data/prepare.py" --dataset tofu --out-dir "$DATA" --confirm
     milestone "models: pinned snapshots -> $MODELS"
     python3 "$HERE/models.py" fetch --dataset tofu --dest "$MODELS" --tags $TAGS 2>&1 | tee -a "$LOG"
   fi
@@ -118,6 +120,8 @@ fi
 # a manifest per point with MDL/D and both floors (OCV = own paraphrased val; test = loss on the
 # forget_B rows, never trained on); edl_sweep.py calls Donoway et al.'s signature per floor.
 if want 5; then
+  # the test floor's file postdates the first data build (2026-10-15 run: 108 sweep points failed on it)
+  [[ $SMOKE == 1 ]] || step "$DATA/relearn_forgetB.parquet" python3 "$HERE/data/prepare.py" --dataset tofu --out-dir "$DATA" --confirm
   for p in $TAGS; do
     P=$(mpath $p); [[ -f $P/config.json ]] || continue
     for s in $EDL_SEEDS; do for n in $EDL_NS; do
