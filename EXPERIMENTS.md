@@ -875,9 +875,18 @@ yet relearning brings B back to the baseline, at a cost (M18 +0.8..2.05
 nats/token) and, for the two LAT models, with M19's rising phase on 3/3 seeds:
 the first teach-side trajectory; M21 0.79..0.89 sits between the teach max
 (0.22) and the elicit min (0.96). The strong-filter model keeps 0.92 of the
-baseline's M21 (not a never-learned anchor on WMDP-bio). Pending: `--only
-tofu` (M19 there), `--only zephyr-extra` (kind-matched M21), `--only tar`
-after Meta access (`HF_TOKEN`). Not testable without training: the ICLR 2026
+baseline's M21 (not a never-learned anchor on WMDP-bio). **Two costs inside
+EDL/D (2026-10-15, later):** the LAT hump is a counterexample to "rising phase
+⇒ capability absent", not to the measurement; stage 5 now also runs the
+rotated-answer twin sweep (knowledge-specific EDL/D = true − rotated, M19k;
+rotated alone = format + unlock, M19-rot) and reads M21 on B at every sweep
+point (M21-n); the same two reads on the toy task via
+`scripts/launch_fig2_shuf.sh --family ts,mix,nl3` (datagen/make_shuf_sets.py,
+grad_transfer --run-id, analysis/knowledge_sweep.py), pre-registered: the
+taught TinyStories arms keep their hump after the subtraction, the elicit arms
+stay decreasing. Pending: `--only deepig,tofu` (the two sweeps + M19 on TOFU),
+`--only zephyr-extra` (same for the Zephyr set + kind-matched M21), `--only tar`
+after Meta access (`HF_TOKEN`), the toy-task launcher on the owner's box. Not testable without training: the ICLR 2026
 gradient-routing paper (no checkpoints) and UNDO (code only).
 
 ## 7. Budget

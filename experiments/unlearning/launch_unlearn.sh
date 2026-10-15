@@ -60,7 +60,8 @@
 # Env:    GEODE_STORE (store root; models + runs), UL_OUT (small outputs; default
 #         experiments/unlearning/out), TS_VALID (TinyStories valid .txt for the lens / residual
 #         generic text; else hub download), USD_PER_H (cost estimate, default 2.0), conda env geode.
-#         EDL_SEEDS (stage 5 replicate seeds, default "316 317 318").
+#         EDL_SEEDS (stage 5 replicate seeds, default "316 317 318"); EDL_SHUF (1: the rotated twin
+#         sweep too, default), EDL_M21 (M21 rotations per sweep point, default 4; 0 = off).
 # Cost (80 GB GPU, 1B fp32 analysis): stage 1 ~40 min/parent, stage 2 ~10 min/child,
 #         stage 3 ~50 min/child -> ~10 GPU-h for the six default parents (~$20 at $2/h).
 set -uo pipefail

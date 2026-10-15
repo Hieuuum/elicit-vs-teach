@@ -8037,3 +8037,46 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   pre-teach at the output; GradDiff / RMU / SimNPO pre-elicit); M19 MISSING pending the rerun.
 - **Written up:** unlearning_wmdp.tex Section 5 (the extension), the M21 table and its paragraph,
   Caveats; EXPERIMENTS.md §6.
+
+## 2026-10-15 (later) — the two costs inside EDL/D: the rotated-answer twin sweep and M21 along the sweep
+
+- **Why.** The CB+LAT models of the Deep Ignorance set show the rising phase of the signature with
+  the facts demonstrably still in the weights (B comes back on items A never contained; M21 at 4×
+  the floor). The sweep's data pay for two things at once, the facts and the unlock of a safeguard
+  trained to resist fine-tuning, and EDL/D cannot tell them apart. This is a counterexample to the
+  reading "rising phase ⇒ the capability was absent", not to the measurement; the assumption that
+  failed is the read-out-only one the M21 write-up named as the gated counterexample. M21 was right
+  about presence and is not the thing to change: it is a static read of the pairing information, and
+  the hump is about the dynamics of the safeguard.
+- **Two reads, both wired in (owner: "wire both in", "every metric on the toy task also").**
+  (1) The same sweep on the rotated-answer twin (answers moved to other items: format, vocabulary and
+  training dynamics, no pairing information); seed-paired, EDL/D(true) − EDL/D(rotated) is the
+  knowledge-specific curve with its own signature (M19k); the rotated curve alone is the cost of
+  format + unlock (M19-rot). Property-tested: adding any seed-paired cost to both sweeps leaves the
+  knowledge curve unchanged; a hump only the true sweep has survives. (2) M21 on the held-out facts
+  at the kept weights of every sweep point, both sweeps (relearn.py --m21-rotations, the stage-7
+  rotations, so n = 0 is stage 7's B gap; M21-n in the verdict): when the pairing information on B
+  becomes readable. If rotated-A training alone raises M21 on B, the unlock is fact-free.
+- **WMDP (stage 5, stages_wmdp.sh).** EDL_SHUF=1 and EDL_M21=4 by default; wmdp-edl-<tag>-shuf-n<N>-s<seed>
+  (the stage-7 n=573 twin is that sweep's seed-316 point); points without M21 are recomputed, the old
+  manifest kept as manifest.pre-m21.json; edl_sweep.py writes "rotated" / "knowledge" / "m21" blocks
+  and edl_sweep_knowledge.png; verdict rows M19k (signature, needs the original's knowledge curve not
+  to read teach), M19-rot and M21-n (reported). HEADLINE unchanged until the first read. Smoke passes
+  (stages 0, 5, 7, 4). Cost on deepig: 5 models × (21 true points recomputed + 21 rotated) at 6.9B,
+  plus five B evals per point: ~12–15 GPU-h.
+- **Toy task.** datagen/make_shuf_sets.py: D_algo_bare_shuf.parquet (one seeded cyclic offset over
+  the frozen file; shown_answer rotated with the text so the order_hash pins the twin; label_mode
+  "rotated"). scripts/launch_fig2_shuf.sh --family ts,mix,nl3: the rotated twin at six sizes (1000
+  … 1,000,000; overlays generated from the originals with the G7 match and the endpoint snapshots
+  dropped), then grad_transfer.py --task arith --run-id (a run's init_from base + its adapter sidecar,
+  merged) on every existing point and the parent (results/m21_sweep/), then
+  analysis/knowledge_sweep.py (results/knowledge_sweep_<family>.json, figures/knowledge_sweep_<family>.png).
+  Prediction, pre-registered: the TinyStories base and format-installed arms keep their hump in the
+  knowledge-specific curve (there the facts are taught) and their M21(n) climbs from the floor with n;
+  the op-bridge parent and the Llama arms stay decreasing with M21(n) flat at the elicit level. If
+  the Deep Ignorance LAT hump then vanishes from the knowledge-specific curve while the toy humps
+  stay, the two cases are separated by the instrument, not by argument.
+- **Reruns.** cluster: `bash run_sota.sh --confirm-cost --gpu --only deepig,tofu` (deepig: the two
+  sweeps + M21 + verdict; tofu: its M19 after the data-dir fix); optional `--only zephyr-extra`
+  (the Zephyr set's rotated sweep + M21 along the sweep + kind-matched M21, 7 models, ~15 GPU-h).
+  Owner's box: `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3 --confirm-cost`.

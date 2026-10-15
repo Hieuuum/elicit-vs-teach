@@ -25,6 +25,13 @@
 #                      parent -> child, lens, patching child states into the parent, recovery.
 #   5  EDL sweep       relearning on nested n = 8..573 bio_A facts; EDL/D vs n (Donoway et al.'s
 #                      signature: decreasing = elicit, rising = teach); edl_sweep.py plots it.
+#                      2026-10-15 (EDL_SHUF=1, EDL_M21=4 by default): the same sweep with the answers
+#                      rotated across items (no pairing information in the data), so EDL/D(true) -
+#                      EDL/D(rotated) is the knowledge-specific part of the curve and the rotated
+#                      curve is the cost of format + unlock; and M21 on bio_B at every point of both
+#                      sweeps (relearn.py --m21-rotations), the pairing information on B as it becomes
+#                      readable with n. Points without M21 are recomputed (old manifest kept as
+#                      manifest.pre-m21.json).
 #   4  verdict         verdict.py --design wmdp: per metric CARRIES / RESIDUAL / ABSENT (PLAN.md §W6).
 # Model sets (launch_unlearn.sh --models, 2026-10-10): the same stages on the same WMDP data for another
 # original + its safeguarded versions (tar, deepig); models.py answers the set's default tags, its
@@ -45,13 +52,15 @@ RESID_X="--n 256 --batch-size 8 --gen-batch-size 8"
 RELEARN_X=""
 EDL_NS="8 16 32 64 128 256 573"            # nested bio_A subsets (573 = all)
 EDL_SEEDS=${EDL_SEEDS:-"316 317 318"}       # replicates (subset, order, LoRA init); EDL_SEEDS=316 for one
+EDL_SHUF=${EDL_SHUF:-1}                     # stage 5: also the rotated-answer twin sweep (0 = skip)
+EDL_M21=${EDL_M21:-4}                       # stage 5/7: M21 on bio_B at every sweep point, K rotations (0 = off)
 GEN=${TS_VALID:+--generic-text $TS_VALID}
 if [[ $SMOKE == 1 ]]; then
   DATA=$SMK/data; MODELS=$SMK; TAGS="orig ${ANCHOR_TAG:+$ANCHOR_TAG }u1"; DEV=cpu; NRAND=2; DOMS="bio cyber"
   NP=16; NF=8; NE=8; KS="2 4"; K=4; NEVAL=16; MAXTOK=0
   PREFIT_X="--n 16 --n-probe 40 --das-layers 1 --das-ks 2 --das-train 8 --das-test 4 --das-steps 2 --dcm-pairs 12 --dcm-steps 2 --hess-n 2 --hess-layers 1 --power-iters 2 --hutch 1"
   LENS_X="--n 16 --jac-prompts 2 --story-len 16 --k-batch 8"; RESID_X="--n 16 --seq-len 16"
-  GEN="--generic-text $SMK/data/story.txt"; RELEARN_X="--max-steps 12"; EDL_NS="4 8 16"; EDL_SEEDS="316 317"
+  GEN="--generic-text $SMK/data/story.txt"; RELEARN_X="--max-steps 12"; EDL_NS="4 8 16"; EDL_SEEDS="316 317"; EDL_M21=2
   XFER_X="--n 8 --n-shuf 2 --sketch-dim 256 --batch-size 4"; TEACH_ANCHOR=${TEACH_ANCHOR:-$SMK/original}
   ANCHOR_TOK_DEFAULT=""                     # the smoke anchor carries its own tokenizer
 else
@@ -247,18 +256,30 @@ fi
 # bio_B fact loss). Decreasing in n = elicit, an increasing phase = teach. Manifest-only runs (no saved
 # weights), ~1.5-3 GPU-min per point, 35 per seed. Runs before the verdict under "all".
 # 2026-09-29: ids gained -s<seed>; the seedless wmdp-edl-<tag>-n<N> points predate the restore fix.
+sweep_done() {  # <rid>: the point has its EDL numbers, and M21 along the sweep when that is asked for
+  local m=$GEODE_STORE/runs/$1/manifest.json
+  { [[ -f $m ]] && grep -q '"edl_ocv_per_token_nats"' "$m"; } || return 1
+  if [[ $EDL_M21 -gt 0 ]] && ! grep -q '"m21_test_nats"' "$m"; then
+    [[ -f ${m%.json}.pre-m21.json ]] || cp "$m" "${m%.json}.pre-m21.json"; return 1
+  fi
+  return 0
+}
 if want 5; then
+  KINDS=A; [[ $EDL_SHUF == 1 ]] && KINDS="A Ashuf"
+  [[ $EDL_SHUF == 1 ]] && { step "$DATA/relearn_${D}Ashuf.parquet" python3 "$HERE/data/shuffle_answers.py" --data-dir "$DATA" --name ${D}A || true; }
   for p in $TAGS; do
     P=$(mpath $p)
     [[ -f $P/config.json ]] || continue
-    for s in $EDL_SEEDS; do
-      for n in $EDL_NS; do
-        rid=$RP-edl-$p-n$n-s$s
-        if [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; then
-          milestone "skip ($rid done)"; continue
-        fi
-        step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}A.yaml" --init "$P" --run-id $rid \
-          --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train $n --seed $s --test-split ${D}_B $RELEARN_X || true
+    for kind in $KINDS; do
+      sfx=""; [[ $kind == Ashuf ]] && sfx="-shuf"      # the rotated twin: wmdp-edl-<tag>-shuf-n<N>-s<seed>
+      for s in $EDL_SEEDS; do
+        for n in $EDL_NS; do
+          rid=$RP-edl-$p$sfx-n$n-s$s
+          if sweep_done $rid; then milestone "skip ($rid done)"; continue; fi
+          step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}${kind}.yaml" --init "$P" --run-id $rid \
+            --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train $n --seed $s --test-split ${D}_B \
+            --m21-rotations $EDL_M21 $RELEARN_X || true
+        done
       done
     done
   done
@@ -295,10 +316,11 @@ if want 7; then
     xfer_fresh gradxfer_$p.json
     step gradxfer_$p.json python3 "$HERE/grad_transfer.py" --init "$P" --data-dir "$DATA" --domain $D \
       --out gradxfer_$p --device $DEV --confirm-cost $XFER_X || true                  # M21 (+ M20 for the record)
-    rid=$RP-edl-$p-shuf-n573-s316
-    if ! { [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; }; then
+    rid=$RP-edl-$p-shuf-n573-s316       # = the n=573, seed-316 point of the stage-5 rotated sweep
+    if ! sweep_done $rid; then
       step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${D}Ashuf.yaml" --init "$P" --run-id $rid \
-        --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train 573 --seed 316 --test-split ${D}_B $RELEARN_X || true
+        --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train 573 --seed 316 --test-split ${D}_B \
+        --m21-rotations $EDL_M21 $RELEARN_X || true
     fi
   done
   ANCHOR=${TEACH_ANCHOR:-$GEODE_STORE/runs/evt-ts1b-base/model}
@@ -312,10 +334,10 @@ if want 7; then
       --data-dir "$DATA" --domain $D --out gradxfer_anchor --device $DEV --confirm-cost $XFER_X || true
     for kind in ${D}A ${D}Ashuf; do
       rid=$RP-edl-anchor-${kind#${D}}-n573-s316
-      if ! { [[ -f $GEODE_STORE/runs/$rid/manifest.json ]] && grep -q '"edl_ocv_per_token_nats"' "$GEODE_STORE/runs/$rid/manifest.json"; }; then
+      if ! sweep_done $rid; then
         step "" python3 "$HERE/relearn.py" --config "$HERE/configs/relearn_wmdp_${kind}.yaml" --init "$ANCHOR" --run-id $rid \
           ${ANCHOR_TOK:+--tokenizer "$ANCHOR_TOK"} --data-dir "$DATA" --device $DEV --confirm-cost --sweep --n-train 573 \
-          --seed 316 --test-split ${D}_B $RELEARN_X || true
+          --seed 316 --test-split ${D}_B --m21-rotations $EDL_M21 $RELEARN_X || true
       fi
     done
   else

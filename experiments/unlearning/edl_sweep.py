@@ -13,10 +13,21 @@ held-out bio_B facts. Also the total EDL a model needs beyond orig at each n (sa
 subset and order, so the difference is paired): bounded in n = a fixed unlock cost, growing with n
 = information orig did not need.
 
+Two costs inside EDL/D (2026-10-15; decisions.md): a safeguard trained to resist fine-tuning makes
+the data pay for the unlock as well as for the facts, and the signature cannot tell the two apart
+(the Deep Ignorance LAT models: the rising phase with the facts demonstrably still in the weights).
+So the same sweep is run with the answers rotated across items (wmdp-edl-<tag>-shuf-n<N>-s<seed>,
+no pairing information in the data) and, seed-paired, EDL/D(true) - EDL/D(rotated) is the
+KNOWLEDGE-SPECIFIC curve ("knowledge" below, its own signature per floor); the rotated curve alone is
+the cost of format and unlock. And M21 on bio_B at every point of both sweeps (relearn.py
+--m21-rotations: L(rotated) - L(true) on B after n facts) says when the pairing information on B
+becomes readable; the step-0 value is stage 7's B gap.
+
 The seedless wmdp-edl-<tag>-n<N> points (before 2026-09-29) are ignored: their min-val restore was a
 no-op whenever step 0 won.
 
-Writes <out>/edl_sweep.json (nats) and <out>/edl_sweep.png (bits, the paper's unit).
+Writes <out>/edl_sweep.json (nats) and <out>/edl_sweep.png (bits, the paper's unit); with rotated
+points also <out>/edl_sweep_knowledge.png (rotated, knowledge-specific, M21 along the sweep).
 
 Usage: python3 edl_sweep.py --out out/wmdp --tags "orig rmu elm npo simnpo" [--store $GEODE_STORE]
 """
@@ -37,11 +48,12 @@ sys.path.insert(0, str(HERE.parents[1]))
 from geode.edl import edl_signature  # noqa: E402
 
 FLOORS = {"ocv": "edl_ocv_per_token_nats", "test": "edl_test_per_token_nats"}
+M21_KEY = "m21_test_nats"
 LN2 = math.log(2)
 
 
 def load(store: Path, tag: str, prefix: str = "wmdp") -> dict[int, dict[int, dict]]:
-    """{seed: {n: manifest result}} for one model's sweep points."""
+    """{seed: {n: manifest result}} for one model's sweep points (``tag`` may be ``<tag>-shuf``)."""
     pts: dict[int, dict[int, dict]] = {}
     for man in (store / "runs").glob(f"{prefix}-edl-{tag}-n*-s*/manifest.json"):
         m = re.fullmatch(rf"{re.escape(prefix)}-edl-{re.escape(tag)}-n(\d+)-s(\d+)", man.parent.name)
@@ -53,18 +65,43 @@ def load(store: Path, tag: str, prefix: str = "wmdp") -> dict[int, dict[int, dic
     return pts
 
 
+def _signature_block(ns: list[int], seeds: list[int], curves: list[list[float]]) -> dict:
+    sig = edl_signature(ns, curves)
+    return {"call": sig["call"], "agree": sig["agree"], "n_seeds": sig["n_seeds"],
+            "seed_calls": sig["seed_calls"], "rise_at": sig["rise_at"],
+            **{f"{k}_nats": sig[k] for k in ("mean", "max_rise", "tol", "net")},
+            "curves_nats": {str(s): c for s, c in zip(seeds, curves)}}
+
+
 def summarize(pts: dict[int, dict[int, dict]]) -> dict:
     seeds = sorted(pts)
     ns = sorted(set.intersection(*(set(pts[s]) for s in seeds)))
     out = {"ns": ns, "seeds": seeds, "floors": {},
            "label_tokens": {str(s): [pts[s][n]["label_tokens"] for n in ns] for s in seeds}}
     for f, key in FLOORS.items():
-        curves = [[pts[s][n][key] for n in ns] for s in seeds]
-        sig = edl_signature(ns, curves)
-        out["floors"][f] = {"call": sig["call"], "agree": sig["agree"], "n_seeds": sig["n_seeds"],
-                            "seed_calls": sig["seed_calls"], "rise_at": sig["rise_at"],
-                            **{f"{k}_nats": sig[k] for k in ("mean", "max_rise", "tol", "net")},
-                            "curves_nats": {str(s): c for s, c in zip(seeds, curves)}}
+        out["floors"][f] = _signature_block(ns, seeds, [[pts[s][n][key] for n in ns] for s in seeds])
+    if all(M21_KEY in pts[s][n] for s in seeds for n in ns):   # M21 along the sweep (relearn.py --m21-rotations)
+        curves = [[pts[s][n][M21_KEY] for n in ns] for s in seeds]
+        out["m21"] = {"curves_nats": {str(s): c for s, c in zip(seeds, curves)},
+                      "mean_nats": [sum(col) / len(col) for col in zip(*curves)],
+                      "rotations": pts[seeds[0]][ns[0]].get("m21_rotations")}
+    return out
+
+
+def knowledge(pt: dict[int, dict[int, dict]], pr: dict[int, dict[int, dict]]) -> dict | None:
+    """Seed-paired EDL/D(true) - EDL/D(rotated answers) per floor, the knowledge-specific curve,
+    with its own signature.  Same seed = same subset of items and same order, so the format and
+    unlock cost cancels point by point; adding any seed-paired curve to both sweeps leaves it
+    unchanged (test_edl_sweep.py)."""
+    seeds = sorted(set(pt) & set(pr))
+    if not seeds:
+        return None
+    ns = sorted(set.intersection(*(set(pt[s]) & set(pr[s]) for s in seeds)))
+    if len(ns) < 2:
+        return None
+    out = {"ns": ns, "seeds": seeds, "floors": {}}
+    for f, key in FLOORS.items():
+        out["floors"][f] = _signature_block(ns, seeds, [[pt[s][n][key] - pr[s][n][key] for n in ns] for s in seeds])
     return out
 
 
@@ -81,6 +118,14 @@ def delta_vs_orig(u: dict, o: dict, pu: dict, po: dict) -> dict | None:
     return res
 
 
+def _calls(fl: dict) -> str:
+    return "  ".join(f"{f}: {fl[f]['call']} ({fl[f]['agree']}/{fl[f]['n_seeds']} seeds)" for f in FLOORS)
+
+
+def _curve(ns, ys, scale=LN2, fmt="+.3f") -> str:
+    return " ".join(f"n={n}:{y / scale:{fmt}}" for n, y in zip(ns, ys))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, required=True)
@@ -88,19 +133,36 @@ def main() -> int:
     ap.add_argument("--prefix", default="wmdp", help="run-id prefix of the model set in the store (wmdp, wmdp-tar, wmdp-deepig)")
     ap.add_argument("--store", type=Path, default=Path(os.environ.get("GEODE_STORE", HERE.parents[1] / "geode-store")))
     args = ap.parse_args()
-    raw = {t: load(args.store, t, args.prefix) for t in args.tags.split()}
+    tags = args.tags.split()
+    raw = {t: load(args.store, t, args.prefix) for t in tags}
+    raw_rot = {t: load(args.store, f"{t}-shuf", args.prefix) for t in tags}
     res = {t: summarize(p) for t, p in raw.items() if p}
     for t in res:
         if t != "orig" and "orig" in res:
             res[t]["delta_vs_orig"] = delta_vs_orig(res[t], res["orig"], raw[t], raw["orig"])
+        if raw_rot[t]:
+            res[t]["rotated"] = summarize(raw_rot[t])
+            k = knowledge(raw[t], raw_rot[t])
+            if k:
+                res[t]["knowledge"] = k
     for t, r in res.items():
         fl = r["floors"]
-        calls = "  ".join(f"{f}: {fl[f]['call']} ({fl[f]['agree']}/{fl[f]['n_seeds']} seeds)" for f in FLOORS)
-        curve = " ".join(f"n={n}:{y / LN2:+.3f}" for n, y in zip(r["ns"], fl["ocv"]["mean_nats"]))
         d = r.get("delta_vs_orig")
-        extra = (f"; beyond orig at n={d['ns'][-1]}: {d['ocv_nats'][-1] / LN2 / 1e3:+.2f} kbit (ocv)"
-                 if d else "")
-        print(f"[edl] {t:<8} {calls}  EDL/D bits/token (ocv, seed mean) {curve}{extra}")
+        extra = (f"; beyond orig at n={d['ns'][-1]}: {d['ocv_nats'][-1] / LN2 / 1e3:+.2f} kbit (ocv)" if d else "")
+        print(f"[edl] {t:<8} {_calls(fl)}  EDL/D bits/token (ocv, seed mean) {_curve(r['ns'], fl['ocv']['mean_nats'])}{extra}")
+        if "rotated" in r:
+            fr = r["rotated"]["floors"]
+            print(f"[edl] {t:<8} rotated answers: {_calls(fr)}  EDL/D bits/token (ocv) "
+                  f"{_curve(r['rotated']['ns'], fr['ocv']['mean_nats'])}")
+        if "knowledge" in r:
+            fk = r["knowledge"]["floors"]
+            print(f"[edl] {t:<8} KNOWLEDGE (true - rotated): {_calls(fk)}  bits/token (ocv) "
+                  f"{_curve(r['knowledge']['ns'], fk['ocv']['mean_nats'])}")
+        if "m21" in r:
+            line = f"[edl] {t:<8} M21 on B along the sweep, nats/token: after true facts {_curve(r['ns'], r['m21']['mean_nats'], 1.0)}"
+            if "m21" in r.get("rotated", {}):
+                line += f" | after rotated facts {_curve(r['rotated']['ns'], r['rotated']['m21']['mean_nats'], 1.0)}"
+            print(line)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "edl_sweep.json").write_text(json.dumps(res, indent=2))
     try:
@@ -110,8 +172,20 @@ def main() -> int:
         import matplotlib.pyplot as plt
         import matplotlib.ticker
 
-        fig, axs = plt.subplots(1, 3, figsize=(14, 4))
         colors = {t: ("black" if t == "orig" else f"C{i}") for i, t in enumerate(res)}
+        all_ns = sorted({n for r in res.values() for n in r["ns"]})
+
+        def axes_setup(ax, symlog=True):
+            ax.set_xscale("log")
+            ax.set_xticks(all_ns, [str(n) for n in all_ns])
+            ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
+            if symlog:
+                ax.set_yscale("symlog", linthresh=0.1)
+            ax.axhline(0, color="grey", lw=0.6)
+            ax.set_xlabel("training facts n (bio_A)")
+            ax.legend(frameon=False, fontsize=7)
+
+        fig, axs = plt.subplots(1, 3, figsize=(14, 4))
         for ax, f in zip(axs[:2], FLOORS):
             for t, r in res.items():
                 fl = r["floors"][f]
@@ -127,17 +201,40 @@ def main() -> int:
                 axs[2].plot(d["ns"], [y / LN2 / 1e3 for y in d["ocv_nats"]], marker="o", color=colors[t], label=t)
         axs[2].set_title("total EDL beyond orig, ocv floor (flat in n = fixed unlock cost)", fontsize=9)
         axs[2].set_ylabel("kbit")
-        all_ns = sorted({n for r in res.values() for n in r["ns"]})
         for ax in axs:
-            ax.set_xscale("log")
-            ax.set_xticks(all_ns, [str(n) for n in all_ns])
-            ax.xaxis.set_minor_locator(matplotlib.ticker.NullLocator())
-            ax.set_yscale("symlog", linthresh=0.1)
-            ax.axhline(0, color="grey", lw=0.6)
-            ax.set_xlabel("training facts n (bio_A)")
-            ax.legend(frameon=False, fontsize=7)
+            axes_setup(ax)
         fig.tight_layout()
         fig.savefig(args.out / "edl_sweep.png", dpi=160)
+
+        if any("rotated" in r for r in res.values()):
+            fig, axs = plt.subplots(1, 3, figsize=(14, 4))
+            for t, r in res.items():
+                if "rotated" in r:
+                    fr = r["rotated"]["floors"]["ocv"]
+                    axs[0].plot(r["rotated"]["ns"], [y / LN2 for y in fr["mean_nats"]], marker="o", color=colors[t],
+                                lw=2.2 if t == "orig" else 1.4, label=f"{t}: {fr['call']}")
+                if "knowledge" in r:
+                    fk = r["knowledge"]["floors"]["ocv"]
+                    for c in fk["curves_nats"].values():
+                        axs[1].plot(r["knowledge"]["ns"], [y / LN2 for y in c], color=colors[t], lw=0.6, alpha=0.35)
+                    axs[1].plot(r["knowledge"]["ns"], [y / LN2 for y in fk["mean_nats"]], marker="o", color=colors[t],
+                                lw=2.2 if t == "orig" else 1.4, label=f"{t}: {fk['call']}")
+                if "m21" in r:
+                    axs[2].plot(r["ns"], r["m21"]["mean_nats"], marker="o", color=colors[t],
+                                lw=2.2 if t == "orig" else 1.4, label=f"{t}: after true facts")
+                if "m21" in r.get("rotated", {}):
+                    axs[2].plot(r["rotated"]["ns"], r["rotated"]["m21"]["mean_nats"], marker="x", ls="--",
+                                color=colors[t], lw=1.0, label=f"{t}: after rotated facts")
+            axs[0].set_title("EDL/D, answers rotated (format + unlock cost), ocv floor", fontsize=9)
+            axs[0].set_ylabel("EDL / D (bits per label token)")
+            axs[1].set_title("knowledge-specific EDL/D = true − rotated, ocv floor (↑ phase = facts taught)", fontsize=9)
+            axs[1].set_ylabel("bits per label token")
+            axs[2].set_title("M21 on bio_B after n facts: L(rotated) − L(true)", fontsize=9)
+            axs[2].set_ylabel("nats per label token")
+            for ax, symlog in zip(axs, (True, True, False)):
+                axes_setup(ax, symlog)
+            fig.tight_layout()
+            fig.savefig(args.out / "edl_sweep_knowledge.png", dpi=160)
     except ImportError:
         print("[edl] matplotlib missing: no figure")
     print(f"[edl] wrote {args.out / 'edl_sweep.json'}")

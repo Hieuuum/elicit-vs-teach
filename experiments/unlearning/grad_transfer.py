@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -264,6 +265,33 @@ def load_sets_arith(train_config: Path, eval_config: Path | None, n: int, n_shuf
             "bioB": ev.iloc[EVAL_STOP_ROWS : EVAL_STOP_ROWS + n].reset_index(drop=True)}
 
 
+# ------------------------------------------------------------------ a sweep run's final weights
+def load_run_merged(run_id: str, store: Path, dtype) -> torch.nn.Module:
+    """A LoRA run of the training-run harness (train_target.py) as plain merged weights: the base
+    is the run's ``experiment.init_from`` checkpoint, the adapter is ``model/adapter.safetensors``
+    (the sidecar every run keeps, pruned or not), re-wrapped with ``training.lora``'s rank and
+    alpha and merged in fp32 (geode.train.merge_lora).  Every adapter tensor must land on a module
+    of the rebuilt tree, or the load refuses (a wrong base or rank is never a silent half-load)."""
+    from safetensors.torch import load_file
+    from transformers import AutoModelForCausalLM
+
+    from geode.train.lora import merge_lora
+
+    man = json.loads((store / "runs" / run_id / "manifest.json").read_text())
+    lo = man["training"]["lora"]
+    model = AutoModelForCausalLM.from_pretrained(man["experiment"]["init_from"], torch_dtype=torch.float32)
+    apply_lora(model, rank=int(lo["rank"]), alpha=float(lo["alpha"]), seed=0)
+    sd = load_file(str(store / "runs" / run_id / "model" / "adapter.safetensors"))
+    have = model.state_dict()
+    stray = sorted(k for k in sd if k not in have)
+    if stray:
+        raise SystemExit(f"[xfer] {run_id}: {len(stray)} adapter tensors have no module in the rebuilt tree "
+                         f"(first: {stray[0]}); wrong base or LoRA layout")
+    model.load_state_dict({k: v.float() for k, v in sd.items()}, strict=False)
+    merge_lora(model)
+    return model.to(dtype)
+
+
 # ------------------------------------------------------------------ gradients
 def lora_b_params(model) -> list[torch.nn.Parameter]:
     return [m.B.weight for m in model.modules() if hasattr(m, "A") and hasattr(m, "B") and hasattr(m, "scaling")]
@@ -414,7 +442,10 @@ def sketch_stats(SA: torch.Tensor, SB: torch.Tensor) -> dict:
 # ------------------------------------------------------------------ main
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--init", required=True, help="model dir or hub id (its own tokenizer is used)")
+    ap.add_argument("--init", default=None, help="model dir or hub id (its own tokenizer is used)")
+    ap.add_argument("--run-id", default=None,
+                    help="instead of --init: a LoRA run in $GEODE_STORE (e.g. an arithmetic sweep point), assembled as its "
+                         "init_from base + model/adapter.safetensors and merged: M21 along a sweep (2026-10-15)")
     ap.add_argument("--task", choices=("wmdp", "arith"), default="wmdp")
     ap.add_argument("--data-dir", type=Path, default=None, help="wmdp: prepare.py --out-dir")
     ap.add_argument("--train-config", type=Path, default=None, help="arith: the run config whose data block names the files")
@@ -437,6 +468,13 @@ def main() -> int:
 
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    run_init = None
+    if bool(args.init) == bool(args.run_id):
+        ap.error("give exactly one of --init and --run-id")
+    if args.run_id:
+        store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
+        run_init = json.loads((store / "runs" / args.run_id / "manifest.json").read_text())["experiment"]["init_from"]
+        args.init = run_init   # the tokenizer and the model's base
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer or args.init)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
@@ -469,7 +507,11 @@ def main() -> int:
 
     dev = args.device
     dtype = torch.float32 if dev.startswith("cpu") else torch.bfloat16
-    model = AutoModelForCausalLM.from_pretrained(args.init, torch_dtype=dtype)
+    if args.run_id:
+        model = load_run_merged(args.run_id, store, dtype)
+        print(f"[xfer] {args.run_id}: base {run_init} + its adapter, merged")
+    else:
+        model = AutoModelForCausalLM.from_pretrained(args.init, torch_dtype=dtype)
     for p in model.parameters():
         p.requires_grad_(False)
     apply_lora(model, rank=args.rank, alpha=args.alpha, seed=args.seed)
@@ -508,7 +550,7 @@ def main() -> int:
                        for k, g in gaps.items() if "kind" in g))
     know = knowledge_vectors(G)
     know_m = knowledge_vectors(G, "mmluA", "bioB") if "mmluA_shuf0" in G else None
-    res = {"version": 4, "gap": gaps, "kinds": {k: {"n_kinds": len(sz), "sizes": sz} for k, sz in kind_sizes.items()}, "init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
+    res = {"version": 4, "run_id": args.run_id, "gap": gaps, "kinds": {k: {"n_kinds": len(sz), "sizes": sz} for k, sz in kind_sizes.items()}, "init": args.init, "domain": args.domain, "rank": args.rank, "alpha": args.alpha, "seed": args.seed,
            "n_params_B": int(sum(p.numel() for p in params)), "items": {k: len(v) for k, v in ex.items()},
            "label_tokens": ntok, "loss_nats_per_token": loss, "task": args.task,
            **know, "mmlu_knowledge": know_m,

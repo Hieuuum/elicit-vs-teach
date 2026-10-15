@@ -43,6 +43,13 @@ one overfit for 20 epochs. EDL/D across n is the curve: monotonically decreasing
 increasing phase = teaching (edl_sweep.py calls it). Sweep runs write manifest.json only (no
 probes, snapshots or saved weights).
 
+M21 along the sweep (--m21-rotations K, 2026-10-15): after the min-val weights are restored, the
+hidden-preference gap on the held-out facts, L(answers rotated across items) - L(true), K rotations
+with the stage-7 seeds (grad_transfer.py's B rotations, so n = 0 is grad_transfer's B gap).  With
+the rotated-answer twin sweep (configs/relearn_wmdp_bioAshuf.yaml on the same n and seeds) this
+separates the two costs inside EDL/D: EDL/D(true) - EDL/D(rotated) is the knowledge-specific part,
+and M21(n) says when the pairing information on B becomes readable (the unlock of a safeguard).
+
 Usage:
   python3 relearn.py --config configs/relearn_forgetA.yaml --init <hub id or dir> \
       --run-id relearn-npo-forgetA --data-dir data/built [--device cuda] --confirm-cost
@@ -100,6 +107,33 @@ def examples_of(df: pd.DataFrame, tokenizer):
                                list(zip(df["answer_char_start"].astype(int),
                                         df["answer_char_end"].astype(int))),
                                tokenizer, append_eos=True)
+
+
+M21_SEED = 316   # grad_transfer.py --seed default: its B rotations are seed + 2000 + k
+
+
+@torch.no_grad()
+def preference_gap(model, df: pd.DataFrame, tokenizer, *, rotations: int, batch_size: int, device: str,
+                   seed: int = M21_SEED, true_loss_nats: float | None = None) -> dict:
+    """M21 on a fact set at the current weights: the mean label-token loss with the answers rotated
+    across items (``rotations`` seeded derangements, grad_transfer.rotate_answers with the stage-7
+    seeds ``seed + 2000 + k``) minus the loss on the true pairs, nats per token.  Token-weighted
+    like the test floor (geode.train.sft.evaluate_sft_nll_nats, batch-invariant), so with
+    ``true_loss_nats`` given the floor is reused rather than recomputed."""
+    if rotations < 1:
+        raise ValueError("preference_gap: need at least one rotation")
+    sys.path.insert(0, str(HERE))
+    from grad_transfer import rotate_answers
+
+    if true_loss_nats is None:
+        true_loss_nats = evaluate_sft_nll_nats(model, examples_of(df, tokenizer), TASK_FORMAT,
+                                               batch_size=batch_size, device=device)
+    rot = [evaluate_sft_nll_nats(model, examples_of(rotate_answers(df, seed + 2000 + k), tokenizer), TASK_FORMAT,
+                                 batch_size=batch_size, device=device) for k in range(rotations)]
+    mean = sum(rot) / len(rot)
+    return {"m21_test_nats": mean - true_loss_nats, "m21_rotated_loss_nats": rot,
+            "m21_rotation_sd_nats": math.sqrt(sum((r - mean) ** 2 for r in rot) / len(rot)),
+            "m21_rotations": rotations, "m21_rotation_seed": seed}
 
 
 def snapshot_schedule(max_steps: int, n: int) -> list[int]:
@@ -208,6 +242,9 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None, help="override train.seed (EDL sweep replicates)")
     ap.add_argument("--tokenizer", default=None,
                     help="tokenizer dir or hub id (default: --init's own; the TinyStories-1B anchor carries none loadable)")
+    ap.add_argument("--m21-rotations", type=int, default=0,
+                    help="sweep: also record M21 on the held-out facts at the kept weights, K answer rotations (0 = off)")
+    ap.add_argument("--m21-seed", type=int, default=M21_SEED, help="rotation seeds = this + 2000 + k (stage 7's)")
     args = ap.parse_args()
     if args.materialize_step is not None:
         return materialize(args)
@@ -234,15 +271,17 @@ def main() -> int:
         perm0 = torch.randperm(len(train_df), generator=torch.Generator().manual_seed(t["seed"])).tolist()
         train_df = train_df.iloc[perm0[: min(args.n_train, len(train_df))]].reset_index(drop=True)
     train_ex, val_ex = examples_of(train_df, tokenizer), examples_of(val_df, tokenizer)
-    test_ex = None
+    test_ex = test_df = None
     if args.test_file:    # held-out facts already in the SFT schema (TOFU: the forget_B authors)
-        test_ex = examples_of(load_split(args.data_dir / args.test_file), tokenizer)
+        test_df = load_split(args.data_dir / args.test_file)
     elif args.test_split:   # held-out MCQ items rendered as the same text facts (never trained on)
         sys.path.insert(0, str(HERE / "data"))
         from prepare_wmdp import _sft_rows
 
         ev = pd.read_parquet(args.data_dir / "wmdp_eval.parquet")
-        test_ex = examples_of(pd.DataFrame(_sft_rows(ev[ev["split"] == args.test_split])), tokenizer)
+        test_df = pd.DataFrame(_sft_rows(ev[ev["split"] == args.test_split]))
+    if test_df is not None:
+        test_ex = examples_of(test_df, tokenizer)
     if args.sweep:
         cfg["probe_splits"], cfg["snapshots"] = [], 0
         # an eval at least once per epoch: at n=8 the first eval after step 0 came after 20 epochs,
@@ -432,6 +471,13 @@ def main() -> int:
         print(f"[relearn] EDL n={len(train_ex)} seed {t['seed']}: MDL/D {mdl_nats / d:.4f}; "
               f"OCV floor {best.val_nats:.4f} -> EDL/D {edl['edl_ocv_per_token_nats']:+.4f}; "
               f"test floor {l_test:.4f} -> EDL/D {edl['edl_test_per_token_nats']:+.4f} nats/token")
+        if args.m21_rotations:
+            with amp():
+                edl.update(preference_gap(model, test_df, tokenizer, rotations=args.m21_rotations, batch_size=bs,
+                                          device=dev, seed=args.m21_seed, true_loss_nats=l_test))
+            print(f"[relearn] M21 on {edl['test_split']} after n={len(train_ex)}: L(rotated) - L(true) "
+                  f"{edl['m21_test_nats']:+.4f} nats/token (rotation sd {edl['m21_rotation_sd_nats']:.3f}, "
+                  f"{args.m21_rotations} rotations)")
     if args.sweep:
         pass   # the sweep point needs only its numbers
     elif lora_cfg:
