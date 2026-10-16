@@ -59,6 +59,7 @@ def test_knowledge_curve_is_the_seed_paired_difference_and_ignores_what_both_swe
         for c in k["floors"][f]["curves_nats"].values():
             assert c == pytest.approx(facts)
         assert k["floors"][f]["call"] == "decreasing"
+        assert k["floors"][f]["sign"]["read"] == "barrier" and k["floors"][f]["sign"]["crossing_n"] is None
     # the true sweep alone reads the hump
     t = ES.summarize(ES.load(tmp_path, "u"))
     assert t["floors"]["ocv"]["call"] == "increasing"
@@ -91,3 +92,19 @@ def test_knowledge_needs_shared_seeds_and_sizes_and_m21_series_pass_through(tmp_
     s = ES.summarize(pt)
     assert s["m21"]["mean_nats"] == pytest.approx([0.1, 0.2, 0.4, 0.8, 0.9]) and s["m21"]["rotations"] == 4
     assert "m21" not in ES.summarize(pr)                   # seed 2 has no M21: the series is not reported
+
+
+def test_knowledge_read_is_the_sign_at_the_first_size_with_the_crossing_point():
+    ns = [8, 16, 32, 64]
+    # an elicit model: the true facts are cheaper from the first point, the saving shrinks toward zero
+    r = ES.knowledge_read(ns, [[-1.2, -1.0, -0.5, -0.2], [-1.1, -0.9, -0.4, -0.1]])
+    assert r["read"] == "elicit" and r["crossing_n"] == 8
+    # a barrier: the true facts dearer than rotated ones until the safeguard gives way at n=32
+    r = ES.knowledge_read(ns, [[0.6, 0.3, -0.1, -0.3], [0.5, 0.2, -0.05, -0.2]])
+    assert r["read"] == "barrier" and r["crossing_n"] == 32 and r["first_nats"] == pytest.approx(0.55)
+    # never crossing within the sweep
+    assert ES.knowledge_read(ns, [[0.6, 0.5, 0.4, 0.3]])["crossing_n"] is None
+    # within tolerance: nothing read; seeds that disagree: mixed
+    assert ES.knowledge_read(ns, [[0.01, -0.3, -0.4, -0.5]])["read"] == "none"
+    assert ES.knowledge_read(ns, [[0.6, 0.0, 0.0, 0.0], [-0.6, 0.0, 0.0, 0.0]])["read"] == "none"
+    assert ES.knowledge_read(ns, [[0.6, 0.0, 0.0, 0.0], [-0.1, 0.0, 0.0, 0.0]])["read"] == "mixed"

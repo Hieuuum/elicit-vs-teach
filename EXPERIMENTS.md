@@ -884,9 +884,17 @@ point (M21-n); the same two reads on the toy task via
 `scripts/launch_fig2_shuf.sh --family ts,mix,nl3` (datagen/make_shuf_sets.py,
 grad_transfer --run-id, analysis/knowledge_sweep.py), pre-registered: the
 taught TinyStories arms keep their hump after the subtraction, the elicit arms
-stay decreasing. Pending: `--only deepig,tofu` (the two sweeps + M19 on TOFU),
-`--only zephyr-extra` (same for the Zephyr set + kind-matched M21), `--only tar`
-after Meta access (`HF_TOKEN`), the toy-task launcher on the owner's box. Not testable without training: the ICLR 2026
+stay decreasing. **First read (slurm-187219, 2026-10-16, decisions.md):** the
+LAT hump is in the rotated sweep too (fact-free); the knowledge-specific
+curve is negative from n=8 in every present-reading model and positive at
+n=8 only in the three safeguards (+0.8..+2.5 bits, crossing at n=64..573);
+M21 on B rises above the baseline after 32 true facts (128 for the filtered
+base) and falls after rotated facts in every model: a gate, opened by
+consistent facts, not learning. M19k is read by its sign (slope would call
+the original taught); TOFU M19 reads INSTRUMENT FAILS (anchor increasing,
+n ≤ 200). Pending: `--only tar` after Meta access (`HF_TOKEN`), the toy-task
+launcher on the owner's box (library-path fix applied; the cluster store has
+no toy run dirs). Not testable without training: the ICLR 2026
 gradient-routing paper (no checkpoints) and UNDO (code only).
 
 ## 7. Budget

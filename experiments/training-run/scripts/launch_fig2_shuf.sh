@@ -33,6 +33,10 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 export REPO_ROOT
 export PYTHONPATH=$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}
 export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
+# conda's libstdc++ before the system one: optree (imported by torch._dynamo) needs CXXABI_1.3.15,
+# which the cluster's /lib/x86_64-linux-gnu/libstdc++.so.6 lacks (slurm-187219, 2026-10-16)
+[[ -n ${CONDA_PREFIX:-} && -e $CONDA_PREFIX/lib/libstdc++.so.6 ]] && \
+  export LD_LIBRARY_PATH=$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 CONFIGS=../configs
 DATA_DIR=$REPO_ROOT/experiments/training-run/data/full
 M21_DIR=$REPO_ROOT/experiments/training-run/results/m21_sweep

@@ -121,7 +121,7 @@ def test_position_interval_scales_with_the_error_and_the_reference_gap():
 def test_no_row_is_called_by_a_raw_threshold_and_every_control_has_a_twin():
     rows = V.rows_for(["orig", "rmu"])
     ids = {r[0] for r in rows}
-    allowed = {"retention", "overlap", "patch", "recovery", "cost", "signature", "report"}
+    allowed = {"retention", "overlap", "patch", "recovery", "cost", "signature", "report", "knowledge"}
     for mid, _name, _star, _fn, ofn, mode in rows:
         assert mode in allowed, (mid, mode)                       # "direct" (raw cutoffs) is retired
         if mode == "retention":
@@ -150,3 +150,15 @@ def test_teach_position_is_the_three_way_read_and_is_shift_and_scale_invariant(s
     assert V.teach_position(f(2.0), None, f(3.0)) is None
     assert V.teach_position(f(2.0), f(1.0), None) is None
     assert V.teach_position(f(2.0), f(3.0), f(3.0)) is None
+
+
+def test_knowledge_mode_reads_the_sign_and_needs_the_original_to_read_elicit():
+    el = {"call": "elicit", "gate": "GATED to n=8", "sig": True}
+    bar = {"call": "barrier", "gate": "GATED to n=128", "sig": False}
+    none = {"call": "none", "gate": "GATED (no crossing by n=573)", "sig": False}
+    assert V.judge(el, el, "knowledge")[0] == "CARRIES"
+    assert V.judge(bar, el, "knowledge")[0] == "GATED to n=128"
+    assert V.judge(none, el, "knowledge")[0] == "NOT READ"
+    assert V.judge({"call": "mixed", "gate": "", "sig": False}, el, "knowledge")[0] == "UNDETERMINED"
+    assert V.judge(el, bar, "knowledge")[0] == "INSTRUMENT FAILS"
+    assert V.judge(el, None, "knowledge")[0] == "NO ORIG"
