@@ -893,8 +893,7 @@ base) and falls after rotated facts in every model: a gate, opened by
 consistent facts, not learning. M19k is read by its sign (slope would call
 the original taught); TOFU M19 reads INSTRUMENT FAILS (anchor increasing,
 n ≤ 200). Pending: `--only tar` after Meta access (`HF_TOKEN`), the toy-task
-launcher on the owner's box (library-path fix applied; the cluster store has
-no toy run dirs). Not testable without training: the ICLR 2026
+launcher on the cluster (library-path fix applied). Not testable without training: the ICLR 2026
 gradient-routing paper (no checkpoints) and UNDO (code only).
 
 ## 7. Budget

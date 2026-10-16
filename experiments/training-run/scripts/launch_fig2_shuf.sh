@@ -21,7 +21,7 @@
 # Usage:  bash launch_fig2_shuf.sh --family ts[,mix,nl3] --confirm-cost
 #                                  [--sizes "1000 4642 21544 100000 316228 1000000"] [--m21-only]
 # Needs the family's parents and (for M21 on the true sweep) its run dirs in $GEODE_STORE with
-# model/adapter.safetensors (pull the pruned endpoints with hf_checkpoint.py pull). Each rotated run
+# model/adapter.safetensors (all on the cluster; a pruned run's sidecar is enough). Each rotated run
 # costs what the same-size original run cost; the default 6 sizes are ~40% of a family's original
 # sweep (ts: ~5-8 h GPU, nl3: ~3-5 h, mix: ~2 h). M21 scoring: ~1 min per run at 1B.
 set -uo pipefail

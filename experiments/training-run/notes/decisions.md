@@ -8079,7 +8079,7 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
 - **Reruns.** cluster: `bash run_sota.sh --confirm-cost --gpu --only deepig,tofu` (deepig: the two
   sweeps + M21 + verdict; tofu: its M19 after the data-dir fix); optional `--only zephyr-extra`
   (the Zephyr set's rotated sweep + M21 along the sweep + kind-matched M21, 7 models, ~15 GPU-h).
-  Owner's box: `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3 --confirm-cost`.
+  Toy task, same cluster: `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3 --confirm-cost`.
 
 ## 2026-10-16 — the two costs, first read (slurm-187219, repo 1b60441: zephyr-extra 13.1 h, deepig 7.6 h, tofu 37 s)
 
@@ -8089,8 +8089,9 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   been run before this job; see M19 there, below). The owner then ran launch_fig2_shuf.sh on the
   cluster: the rotated toy set was built (D_algo_bare_shuf, offset 276333, order_hash 185421e0…), the
   first training died on the cluster's libstdc++ (optree needs CXXABI_1.3.15; launch_unlearn.sh had
-  the LD_LIBRARY_PATH fix, the new launcher did not: fixed). The cluster store has no toy-sweep run
-  dirs, so M21 along the existing toy sweeps needs the owner's box (or the adapters pulled from HF).
+  the LD_LIBRARY_PATH fix, the new launcher did not: fixed). Everything lives on the cluster, the
+  toy-sweep run dirs included (the Figure-2 launchers' "$0 on owner hardware" means that cluster;
+  a 10-17 slip in these notes read it as a second machine).
 - **Result 1: the hump is in the rotated sweep too.** Deep Ignorance, EDL/D (bits/token, OCV),
   true vs rotated answers: CB+LAT 2.9→4.8 (n=64)→0.79 vs 2.1→4.8 (n=64)→1.27; filter+CB+LAT
   2.1→4.1 (n=128)→1.7 vs 0.6→3.2 (n=256)→1.9; CB 6.0→0.56 vs 3.5→5.3 (n=32)→0.93; all three rotated
@@ -8142,8 +8143,7 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   the other rows are unchanged from 10-12.
 - **Costs.** Deepig stage 5: 5 models × 42 points + M21 evals = 7.6 h; Zephyr: 7 models × 42 points
   ≈ 13 h (the 7B LoRA points with five B evals each).
-- **Next.** Paper Section 5 and the shared page carry the three rows; the toy task:
-  `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3 --confirm-cost` on
-  the owner's box (the rotated twin at six sizes; M21 along the existing sweeps needs their run
-  dirs). Copy `out/wmdp-deepig/edl_sweep_knowledge.png` and `out/wmdp/edl_sweep_knowledge.png` for
+- **Next.** Paper Section 5 and the shared page carry the three rows; the toy task, on the cluster
+  after `git pull`: `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3
+  --confirm-cost` (the rotated twin at six sizes, then M21 on every sweep run dir in the store). Copy `out/wmdp-deepig/edl_sweep_knowledge.png` and `out/wmdp/edl_sweep_knowledge.png` for
   the paper figure.
