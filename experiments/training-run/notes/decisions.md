@@ -8153,9 +8153,15 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
 - **What ran.** launch_fig2_shuf.sh --family ts,mix,nl3 on the cluster. ts/noinst: the six rotated
   twins (n = 1000 … 1,000,000; 20–120 min each, ~6.3 h) and M21 on the parent and all 22 true points
   (n = 100 … 4,000,000) and the 6 rotated ones. ts/inst: four rotated twins done (n ≤ 100,000); the
-  n = 316,228 run was killed mid-training (the log ends inside a traceback at a log flush: the job's
-  time limit), leaving status=running and no checkpoint. Fix: train_or_skip moves such a run aside
-  (<rid>.killed-<stamp>) and retrains; everything complete is skip-if-done. knowledge_sweep.py did not
+  n = 316,228 run died mid-training: the filesystem filled up (the traceback is raised inside a
+  log flush and the slurm log itself stops at a 4 KiB boundary, 126,976 bytes, mid-word; not a time
+  limit, as a first reading of these notes said). Each rotated twin had saved its full fp32
+  checkpoint (~5 GB, ten of them) although M21 rebuilds a run from the adapter sidecar. Fixes: the
+  launcher deletes a rotated run's full weights right after training (--keep-weights to keep them)
+  and moves a run left status=running with no checkpoint aside (<rid>.killed-<stamp>) and retrains
+  it; everything complete is skip-if-done. Free the store before rerunning (the relearn children of
+  the WMDP sets are merged 7B checkpoints, ~28 GB each; the Zephyr and deepig sets' children alone are
+  the bulk of it). knowledge_sweep.py did not
   run (it is the last step per family). mix and nl3 not reached.
 - **Read from the log (ts/noinst = TinyStories base on bare NL add/sub, the taught arm).**
   Rotated-twin EDL/D, nats/token: 4.73 (n=1000), 1.68, 0.56, 0.21, 0.11, 0.055 (1,000,000) —
@@ -8179,4 +8185,4 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
 - **Rerun** (skip-if-done; the killed run is moved aside automatically):
   `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3 --confirm-cost`,
   remaining ≈ 2 rotated ts/inst runs (≈ 4 h) + mix (4 sizes of 9 exist as true points; ≈ 2 h) + nl3
-  (≈ 4 h) + M21 scoring (~1 min per run) — give the job ≥ 14 h, or run one family per job.
+  (≈ 4 h) + M21 scoring (~1 min per run); ≈ 10 h, after space is freed on the store.

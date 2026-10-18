@@ -19,7 +19,7 @@
 # elicit arms stay decreasing; M21(n) rises with n only where the facts are being learned.
 #
 # Usage:  bash launch_fig2_shuf.sh --family ts[,mix,nl3] --confirm-cost
-#                                  [--sizes "1000 4642 21544 100000 316228 1000000"] [--m21-only]
+#                                  [--sizes "1000 4642 21544 100000 316228 1000000"] [--m21-only] [--keep-weights]
 # Needs the family's parents and (for M21 on the true sweep) its run dirs in $GEODE_STORE with
 # model/adapter.safetensors (all on the cluster; a pruned run's sidecar is enough). Each rotated run
 # costs what the same-size original run cost; the default 6 sizes are ~40% of a family's original
@@ -43,13 +43,14 @@ M21_DIR=$REPO_ROOT/experiments/training-run/results/m21_sweep
 XFER=$REPO_ROOT/experiments/unlearning/grad_transfer.py
 TOK=meta-llama/Llama-3.2-1B            # every arm's tokenizer (the ts1b dirs carry none loadable)
 
-FAMILIES=""; SIZES="1000 4642 21544 100000 316228 1000000"; CONFIRM=0; M21_ONLY=0
+FAMILIES=""; SIZES="1000 4642 21544 100000 316228 1000000"; CONFIRM=0; M21_ONLY=0; KEEP=0
 while [[ $# -gt 0 ]]; do
   case $1 in
     --family) FAMILIES=${2//,/ }; shift ;;
     --sizes) SIZES=$2; shift ;;
     --confirm-cost) CONFIRM=1 ;;
     --m21-only) M21_ONLY=1 ;;
+    --keep-weights) KEEP=1 ;;      # default: a rotated run's full checkpoint (~5 GB) is deleted after training
     *) echo "unknown arg $1" >&2; exit 2 ;;
   esac; shift
 done
@@ -99,8 +100,9 @@ train_or_skip() {
   status=$(status_of "$rid")
   if [[ $status == complete ]]; then milestone "train_skip run=$rid status=complete"; return 0
   elif [[ $status == running && ! -f $GEODE_STORE/runs/$rid/model/model.safetensors ]]; then
-    # a job killed mid-training (slurm-187239: the time limit hit the inst arm's n=316228 run) leaves
-    # status=running and no checkpoint; nothing in it is reusable, so it is set aside and retrained
+    # a run that died mid-training (slurm-187239: the filesystem filled up during the inst arm's
+    # n=316228 run, ENOSPC at a log flush) leaves status=running and no checkpoint; nothing in it is
+    # reusable, so it is set aside and retrained
     local aside=$GEODE_STORE/runs/$rid.killed-$(date +%Y%m%d%H%M%S)
     mv "$GEODE_STORE/runs/$rid" "$aside"
     milestone "train_retry run=$rid (a run left 'running' with no checkpoint moved to $aside)"
@@ -134,6 +136,13 @@ for fam in $FAMILIES; do
         ov=$CONFIGS/sweeps/${fam}_shuf/$rid.yaml
         shuf_overlay "$orig" "$rid" "$n" "$ov" || fail "overlay for $rid"
         train_or_skip "$rid" python3 train_target.py --config "$cfg" --override "$ov" --init-from "$init" --confirm-cost
+        # the rotated twin's full fp32 checkpoint is not needed: M21 rebuilds the run from
+        # model/adapter.safetensors + its init checkpoint (grad_transfer.py --run-id); ten of them
+        # filled the store on 2026-10-18
+        if ((! KEEP)) && [[ -f $GEODE_STORE/runs/$rid/model/model.safetensors && -f $GEODE_STORE/runs/$rid/model/adapter.safetensors ]]; then
+          rm -f "$GEODE_STORE/runs/$rid/model/model.safetensors"
+          milestone "pruned run=$rid (full weights; adapter sidecar, manifest and logs kept)"
+        fi
       done
     fi
     # M21 at n = 0 (the parent) and at every sweep point in the store, true and rotated

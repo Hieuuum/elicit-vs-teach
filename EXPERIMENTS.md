@@ -897,7 +897,8 @@ arm's rotated twin has NO hump (EDL/D 4.7 → 0.055, monotone) while its true
 arm does, and M21 on the held-out block climbs 0.13 → 2 → 8.8 across the
 hump's n-range (after rotated training: 0.00): the teach hump is
 fact-specific, the LAT hump was not. The job died at the inst arm's
-n=316,228 run (time limit; launcher now retries a killed run). Pending:
+n=316,228 run (the store filled up; the launcher now prunes each rotated run's
+full weights and retries a killed run). Pending:
 `--only tar` after Meta access (`HF_TOKEN`); the rest of the toy launcher
 (inst 2 runs, mix, nl3, then `knowledge_sweep.py` per family). Not testable without training: the ICLR 2026
 gradient-routing paper (no checkpoints) and UNDO (code only).
