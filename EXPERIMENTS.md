@@ -892,8 +892,14 @@ M21 on B rises above the baseline after 32 true facts (128 for the filtered
 base) and falls after rotated facts in every model: a gate, opened by
 consistent facts, not learning. M19k is read by its sign (slope would call
 the original taught); TOFU M19 reads INSTRUMENT FAILS (anchor increasing,
-n ≤ 200). Pending: `--only tar` after Meta access (`HF_TOKEN`), the toy-task
-launcher on the cluster (library-path fix applied). Not testable without training: the ICLR 2026
+n ≤ 200). Toy task, first pass (slurm-187239, 2026-10-18): the TinyStories teach
+arm's rotated twin has NO hump (EDL/D 4.7 → 0.055, monotone) while its true
+arm does, and M21 on the held-out block climbs 0.13 → 2 → 8.8 across the
+hump's n-range (after rotated training: 0.00): the teach hump is
+fact-specific, the LAT hump was not. The job died at the inst arm's
+n=316,228 run (time limit; launcher now retries a killed run). Pending:
+`--only tar` after Meta access (`HF_TOKEN`); the rest of the toy launcher
+(inst 2 runs, mix, nl3, then `knowledge_sweep.py` per family). Not testable without training: the ICLR 2026
 gradient-routing paper (no checkpoints) and UNDO (code only).
 
 ## 7. Budget

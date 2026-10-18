@@ -8147,3 +8147,36 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   after `git pull`: `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3
   --confirm-cost` (the rotated twin at six sizes, then M21 on every sweep run dir in the store). Copy `out/wmdp-deepig/edl_sweep_knowledge.png` and `out/wmdp/edl_sweep_knowledge.png` for
   the paper figure.
+
+## 2026-10-18 — toy task, first pass (slurm-187239, repo c6bce6c): the teach hump is fact-specific; the job died at the inst arm
+
+- **What ran.** launch_fig2_shuf.sh --family ts,mix,nl3 on the cluster. ts/noinst: the six rotated
+  twins (n = 1000 … 1,000,000; 20–120 min each, ~6.3 h) and M21 on the parent and all 22 true points
+  (n = 100 … 4,000,000) and the 6 rotated ones. ts/inst: four rotated twins done (n ≤ 100,000); the
+  n = 316,228 run was killed mid-training (the log ends inside a traceback at a log flush: the job's
+  time limit), leaving status=running and no checkpoint. Fix: train_or_skip moves such a run aside
+  (<rid>.killed-<stamp>) and retrains; everything complete is skip-if-done. knowledge_sweep.py did not
+  run (it is the last step per family). mix and nl3 not reached.
+- **Read from the log (ts/noinst = TinyStories base on bare NL add/sub, the taught arm).**
+  Rotated-twin EDL/D, nats/token: 4.73 (n=1000), 1.68, 0.56, 0.21, 0.11, 0.055 (1,000,000) —
+  strictly decreasing, no hump. The true arm has the hump (peak ≈ 2 nats near n = 215K, decisions
+  2026-08). So the teach hump is in the TRUE sweep only: fact-specific, where the LAT hump was in the
+  rotated sweep too. ts/inst rotated: 3.79, 1.16, 0.31, 0.11 (n ≤ 100,000), also monotone.
+  M21 on the held-out block (nats/token): parent 0.13; after true training 2.0–2.3 at n = 100–1000,
+  a plateau at 1.8–2.5 to n ≈ 15K (the answer's shape: sign and magnitude follow the operands),
+  then 4.3 (21.5K), 6.0 (31.6K), 7.2 (46K), 7.5 (100K), 8.5 (215K), 8.8 (464K–4M): the pairing
+  information is ACQUIRED across the hump's n-range, one and a half decades. After rotated training
+  M21 is 0.00 ± 0.03 at every n (the parent's 0.13 gone). Against the WMDP gated models: there M21 on
+  B jumped from 0.8 to above the baseline by n = 32 and then stayed flat; here it climbs over 1.5
+  decades together with EDL/D. The two cases are told apart by the n-range over which M21 moves and
+  by whether the rising phase survives with the answers rotated.
+- **Floors.** The arithmetic EDL/D floors on the run's own min val on the TRUE stopping block for
+  both arms (geode.edl.metrics.edl_epoch1_nats), unlike the WMDP OCV floor (own val, rotated for the
+  rotated run). knowledge_sweep.py now also reports the floor-free MDL/D difference (true − rotated
+  prequential code length, = EDL/D + min val) and both floors, so the knowledge curve can be read
+  with and without the floor term. The M19k sign rule is kept as is until the ts knowledge curves
+  are in (prediction: ≈ 0 at n ≤ 10K, positive across the hump, then back to ≈ 0).
+- **Rerun** (skip-if-done; the killed run is moved aside automatically):
+  `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3 --confirm-cost`,
+  remaining ≈ 2 rotated ts/inst runs (≈ 4 h) + mix (4 sizes of 9 exist as true points; ≈ 2 h) + nl3
+  (≈ 4 h) + M21 scoring (~1 min per run) — give the job ≥ 14 h, or run one family per job.

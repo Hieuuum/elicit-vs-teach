@@ -87,6 +87,16 @@ def m21_points(m21_dir: Path, prefix: str, shuf: bool) -> dict[int, dict]:
     return out
 
 
+def _mdl(tr: dict) -> float | None:
+    """First-epoch prequential code length per label token: EDL/D + the run's floor (its global-min
+    val loss on the TRUE stopping block, geode.edl.metrics.edl_epoch1_nats), so the rotated run's
+    floor is its loss on true facts too.  The floor-free difference true - rotated says whether the
+    true stream itself was cheaper (facts present) or dearer (something pairing-specific acquired)."""
+    if tr.get(EDL_KEY) is None or tr.get("min_val_nats") is None:
+        return None
+    return tr[EDL_KEY] + tr["min_val_nats"]
+
+
 def _sig(ns: list[int], ys: list[float]) -> dict:
     if len(ns) < 3:
         return {"call": "too few sizes", "ns": ns, "nats": ys}
@@ -107,6 +117,12 @@ def summarize(store: Path, m21_dir: Path, prefix: str) -> dict:
     shared = sorted(set(t) & set(r))
     if shared:
         out["knowledge"] = _sig(shared, [t[n][EDL_KEY] - r[n][EDL_KEY] for n in shared])
+        out["knowledge"]["floor_true_nats"] = [t[n].get("min_val_nats") for n in shared]
+        out["knowledge"]["floor_rotated_nats"] = [r[n].get("min_val_nats") for n in shared]
+        if all(_mdl(t[n]) is not None and _mdl(r[n]) is not None for n in shared):
+            out["knowledge"]["mdl_diff_nats"] = [_mdl(t[n]) - _mdl(r[n]) for n in shared]
+            out["knowledge"]["mdl_true_nats"] = [_mdl(t[n]) for n in shared]
+            out["knowledge"]["mdl_rotated_nats"] = [_mdl(r[n]) for n in shared]
     for key, shuf in (("m21", False), ("m21_rotated", True)):
         pts = m21_points(m21_dir, prefix, shuf)
         if pts:
@@ -132,6 +148,12 @@ def main() -> int:
                 c = r[key]
                 print(f"[ks]   {key:<9} {c['call']:<14} EDL/D bits/token "
                       + " ".join(f"n={n}:{y / LN2:+.3f}" for n, y in zip(c["ns"], c["nats"])))
+        if "mdl_diff_nats" in r.get("knowledge", {}):
+            k = r["knowledge"]
+            print("[ks]   MDL/D true - rotated (floor-free, bits/token) "
+                  + " ".join(f"n={n}:{y / LN2:+.3f}" for n, y in zip(k["ns"], k["mdl_diff_nats"]))
+                  + "  | floors true/rotated (nats) "
+                  + " ".join(f"{a:.2f}/{b:.2f}" for a, b in zip(k["floor_true_nats"], k["floor_rotated_nats"])))
         for key in ("m21", "m21_rotated"):
             if key in r:
                 print(f"[ks]   {key:<12} nats/token on the eval block "

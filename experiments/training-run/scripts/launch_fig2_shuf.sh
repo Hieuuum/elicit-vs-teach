@@ -98,6 +98,12 @@ train_or_skip() {
   local rid=$1 status; shift
   status=$(status_of "$rid")
   if [[ $status == complete ]]; then milestone "train_skip run=$rid status=complete"; return 0
+  elif [[ $status == running && ! -f $GEODE_STORE/runs/$rid/model/model.safetensors ]]; then
+    # a job killed mid-training (slurm-187239: the time limit hit the inst arm's n=316228 run) leaves
+    # status=running and no checkpoint; nothing in it is reusable, so it is set aside and retrained
+    local aside=$GEODE_STORE/runs/$rid.killed-$(date +%Y%m%d%H%M%S)
+    mv "$GEODE_STORE/runs/$rid" "$aside"
+    milestone "train_retry run=$rid (a run left 'running' with no checkpoint moved to $aside)"
   elif [[ $status != missing ]]; then fail "$rid exists with status '$status'; inspect it rather than overwriting"; fi
   milestone "train_start run=$rid"
   "$@" || fail "$rid training"
