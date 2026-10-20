@@ -548,7 +548,7 @@ only cases whose M21 sits between the teach-side maximum ($0.22$) and the elicit
 the facts, and whatever stands between the fine-tune and the facts. To separate them the same
 sweep was run on the rotated-answer twin of A (every answer moved to another item, so the data carry
 the format and the training dynamics and no pairing information), and M21 on B was read at the kept
-weights of every point of both sweeps (Table~\ref{tab:costs}). Three things follow. First, the hump
+weights of every point of both sweeps (Table~\ref{tab:costs}, Figure~\ref{fig:knowledge_wmdp}). Three things follow. First, the hump
 is in the rotated sweep too: with no facts in the data, CB+LAT's EDL/D still climbs $2.1\to4.8$ bits
 to $n=64$, filter+CB+LAT's $0.6\to3.2$, CB's $3.5\to5.3$, on every seed under both floors, while the
 baseline, the filtered model and every Zephyr model pay no hump in either sweep (the unlearned
@@ -568,7 +568,7 @@ and the rising phase is the price of opening it. The signature read the gate as 
 cannot tell the two costs apart; read next to its fact-free twin it says what the recovery tests
 said: present, gated, elicited after the first $32$--$128$ facts.
 \item \textbf{The same two reads on the toy task, where the outcome is known
-(Table~\ref{tab:toy}).} The arithmetic Figure-2 arms were swept again on the rotated-answer twin
+(Table~\ref{tab:toy}, Figure~\ref{fig:knowledge_toy}).} The arithmetic Figure-2 arms were swept again on the rotated-answer twin
 of their training file and M21 was read on the held-out block at every checkpoint. On the two taught
 arms (TinyStories-1B base and format-installed) the rotated twin has no hump at all, and the
 knowledge-specific curve carries the whole of it: $+2.3$ to $+2.5$ bits per token at
@@ -663,6 +663,37 @@ $0.1$ bits and two standard errors (with the size from which the curve stays at 
 else elicit if negative by the same margin; none within $0.1$ bits; mixed otherwise.}
 \label{tab:toy}
 \end{table}
+
+\begin{figure}[!htbp]\centering
+\includegraphics[width=\textwidth]{fig_knowledge_zephyr.png}\\[-2pt]
+{\footnotesize (a) Zephyr-7B: original and six unlearning methods}\\[4pt]
+\IfFileExists{fig_knowledge_deepig.png}{\includegraphics[width=\textwidth]{fig_knowledge_deepig.png}\\[-2pt]
+{\footnotesize (b) Deep Ignorance 6.9B: baseline, filtered, CB, CB+LAT, filter+CB+LAT}}{}
+\caption{The two costs on WMDP-bio (Table~\ref{tab:costs}). Left: EDL/D of the rotated-answer sweep,
+the format and unlock cost alone. Middle: the knowledge-specific curve, EDL/D(true) $-$
+EDL/D(rotated), seed mean (thick) and seeds (thin), symmetric log scale; below zero from the first
+sizes in every present-reading model, above zero and crossing later in the three safeguards. Right:
+M21 on the held-out B facts at the kept weights of every point, after true facts (solid) and after
+rotated facts (dashed). Own-minimum-validation floor throughout.}
+\label{fig:knowledge_wmdp}
+\end{figure}
+
+\begin{figure}[!htbp]\centering
+\includegraphics[width=\textwidth]{../../analysis/figures/knowledge_sweep_ts.png}\\[-2pt]
+{\footnotesize (a) taught: TinyStories-1B base and format-installed}\\[4pt]
+\includegraphics[width=\textwidth]{../../analysis/figures/knowledge_sweep_mix.png}\\[-2pt]
+{\footnotesize (b) elicited: the op-bridge parent on the same base}\\[4pt]
+\includegraphics[width=\textwidth]{../../analysis/figures/knowledge_sweep_nl3.png}\\[-2pt]
+{\footnotesize (c) elicited: Llama-3.2-1B base and format-installed}
+\caption{The same two reads on the arithmetic Figure-2 arms (Table~\ref{tab:toy}). Left: EDL/D of
+the true sweep (solid) and of the rotated-answer twin (dashed); the taught arms' hump is absent
+from the twin. Middle: the knowledge-specific curve, which keeps the hump on the taught arms
+($+2.5$ and $+1.8$ bits at $n=316{,}000$) and nothing above $0.5$ bits on the elicited ones; the
+Llama base pays its format at $n=1{,}000$ and crosses below zero by $21{,}000$. Right: M21 on the
+600 held-out problems after $n$ examples, half of its rise by $15{,}000$--$32{,}000$ examples on
+the taught arms and by $\le 3{,}200$ on the elicited ones; $0.00$ after rotated training.}
+\label{fig:knowledge_toy}
+\end{figure}
 
 \FloatBarrier
 % =====================================================================
