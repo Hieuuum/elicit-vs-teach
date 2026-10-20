@@ -350,7 +350,8 @@ def _signature_state(r):
 
 
 def s_edl_knowledge(p):
-    """M19k (2026-10-15, rule revised 10-16): the KNOWLEDGE-SPECIFIC curve, EDL/D(true answers) -
+    """M19k (2026-10-15; rule geode.edl.knowledge_read, specs/01 V1.13, calibrated on the toy task
+    2026-10-20): the KNOWLEDGE-SPECIFIC curve, EDL/D(true answers) -
     EDL/D(answers rotated across items), seed-paired (edl_sweep.py "knowledge").  The rotated twin
     carries the format and the unlock of a safeguard and no pairing information, so what it
     subtracts is the cost the data pay for anything but the facts.  Read by its SIGN at the smallest
@@ -369,8 +370,9 @@ def s_edl_knowledge(p):
     return {"v": sg["first_nats"] / math.log(2), "null": 0.0, "sig": sg["read"] == "elicit", "call": sg["read"],
             "gate": gate, "rule": "knowledge",
             "note": f"true - rotated at n={sg['first_n']}: {sg['first_nats'] / math.log(2):+.2f} bits/token "
-                    f"(seeds {' '.join(f'{v / math.log(2):+.2f}' for v in sg['first_seed_nats'])}) -> {sg['read']}; "
-                    f"<= 0 from n={sg['crossing_n']}; slope " + "; ".join(
+                    f"(seeds {' '.join(f'{v / math.log(2):+.2f}' for v in sg['first_seed_nats'])}), max at n={sg['max_n']} "
+                    f"{sg['max_nats'] / math.log(2):+.2f} -> {sg['read']}; <= 0 from n={sg['crossing_n']}; floor-free MDL/D diff "
+                    + " ".join(f"{y / math.log(2):+.2f}" for y in r.get("mdl_diff", {}).get("mean_nats", [])) + "; slope " + "; ".join(
                         f"{f} {fl[f]['call']} ({fl[f]['agree']}/{fl[f]['n_seeds']})" for f in ("ocv", "test"))
                     + f"; bits/token (ocv) n={r['ns'][0]}..{r['ns'][-1]}: "
                     + " ".join(f"{y / math.log(2):+.3f}" for y in fl["ocv"]["mean_nats"])}
@@ -407,6 +409,7 @@ def s_m21_sweep(p):
     if o0 is not None:
         hit = next((n for n, y in zip(r["ns"], m["mean_nats"]) if y >= o0), None)
         note += f"; reaches orig's untrained level ({o0:+.2f}) at n={hit}"
+    note += f"; half of the rise by n={m.get('half_rise_n')}"
     mr = (r.get("rotated") or {}).get("m21")
     if mr:
         note += "; after rotated facts: " + " ".join(f"{y:+.3f}" for y in mr["mean_nats"])
@@ -738,7 +741,8 @@ def judge(st_u, st_o, mode):
             return "NO ORIG", None
         if st_o["call"] != "elicit":
             return "INSTRUMENT FAILS", None
-        return {"elicit": "CARRIES", "barrier": st_u["gate"], "none": "NOT READ"}.get(st_u["call"], "UNDETERMINED"), None
+        return {"elicit": "CARRIES", "gate": st_u["gate"], "teach": "ABSENT (taught)",
+                "none": "NOT READ"}.get(st_u["call"], "UNDETERMINED"), None
     if mode == "report":   # no null and no teach reference measured here: shown next to orig, not called
         return "REPORTED", None
     retention = mode not in ("overlap", "patch", "recovery")

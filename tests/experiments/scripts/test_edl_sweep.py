@@ -36,7 +36,7 @@ NS = [8, 16, 32, 64, 128]
 def _write(store: Path, tag: str, seed: int, n: int, ocv: float, test: float, m21: float | None = None) -> None:
     d = store / "runs" / f"wmdp-edl-{tag}-n{n}-s{seed}"
     d.mkdir(parents=True)
-    r = {"edl_ocv_per_token_nats": ocv, "edl_test_per_token_nats": test, "label_tokens": 10 * n}
+    r = {"edl_ocv_per_token_nats": ocv, "edl_test_per_token_nats": test, "label_tokens": 10 * n, "mdl_nats": 25.0 * n}
     if m21 is not None:
         r.update({"m21_test_nats": m21, "m21_rotations": 4})
     (d / "manifest.json").write_text(json.dumps({"result": r}))
@@ -59,7 +59,8 @@ def test_knowledge_curve_is_the_seed_paired_difference_and_ignores_what_both_swe
         for c in k["floors"][f]["curves_nats"].values():
             assert c == pytest.approx(facts)
         assert k["floors"][f]["call"] == "decreasing"
-        assert k["floors"][f]["sign"]["read"] == "barrier" and k["floors"][f]["sign"]["crossing_n"] is None
+        assert k["floors"][f]["sign"]["read"] == "gate" and k["floors"][f]["sign"]["crossing_n"] is None
+    assert k["mdl_diff"]["mean_nats"] == pytest.approx([0.0] * len(NS))    # the synthetic points share one MDL
     # the true sweep alone reads the hump
     t = ES.summarize(ES.load(tmp_path, "u"))
     assert t["floors"]["ocv"]["call"] == "increasing"
@@ -94,17 +95,10 @@ def test_knowledge_needs_shared_seeds_and_sizes_and_m21_series_pass_through(tmp_
     assert "m21" not in ES.summarize(pr)                   # seed 2 has no M21: the series is not reported
 
 
-def test_knowledge_read_is_the_sign_at_the_first_size_with_the_crossing_point():
-    ns = [8, 16, 32, 64]
-    # an elicit model: the true facts are cheaper from the first point, the saving shrinks toward zero
-    r = ES.knowledge_read(ns, [[-1.2, -1.0, -0.5, -0.2], [-1.1, -0.9, -0.4, -0.1]])
-    assert r["read"] == "elicit" and r["crossing_n"] == 8
-    # a barrier: the true facts dearer than rotated ones until the safeguard gives way at n=32
-    r = ES.knowledge_read(ns, [[0.6, 0.3, -0.1, -0.3], [0.5, 0.2, -0.05, -0.2]])
-    assert r["read"] == "barrier" and r["crossing_n"] == 32 and r["first_nats"] == pytest.approx(0.55)
-    # never crossing within the sweep
-    assert ES.knowledge_read(ns, [[0.6, 0.5, 0.4, 0.3]])["crossing_n"] is None
-    # within tolerance: nothing read; seeds that disagree: mixed
-    assert ES.knowledge_read(ns, [[0.01, -0.3, -0.4, -0.5]])["read"] == "none"
-    assert ES.knowledge_read(ns, [[0.6, 0.0, 0.0, 0.0], [-0.6, 0.0, 0.0, 0.0]])["read"] == "none"
-    assert ES.knowledge_read(ns, [[0.6, 0.0, 0.0, 0.0], [-0.1, 0.0, 0.0, 0.0]])["read"] == "mixed"
+def test_knowledge_block_carries_the_v1_13_read_and_the_m21_half_rise(tmp_path):
+    taught = [0.1, 0.05, 0.4, 1.2, 1.6]                   # the hump survives: teach
+    rot = [0.4] * 5
+    _populate(tmp_path, "t", [a + b for a, b in zip(taught, rot)], rot, m21_true=[0.1, 0.1, 0.5, 1.0, 1.1])
+    k = ES.knowledge(ES.load(tmp_path, "t"), ES.load(tmp_path, "t-shuf"))
+    assert k["floors"]["ocv"]["sign"]["read"] == "teach" and k["floors"]["ocv"]["sign"]["max_n"] == 128
+    assert ES.summarize(ES.load(tmp_path, "t"))["m21"]["half_rise_n"] == 64

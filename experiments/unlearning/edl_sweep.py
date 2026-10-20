@@ -45,7 +45,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parents[1]))
 
-from geode.edl import edl_signature  # noqa: E402
+from geode.edl import edl_signature, half_rise_n, knowledge_read  # noqa: E402
 
 FLOORS = {"ocv": "edl_ocv_per_token_nats", "test": "edl_test_per_token_nats"}
 M21_KEY = "m21_test_nats"
@@ -82,43 +82,11 @@ def summarize(pts: dict[int, dict[int, dict]]) -> dict:
         out["floors"][f] = _signature_block(ns, seeds, [[pts[s][n][key] for n in ns] for s in seeds])
     if all(M21_KEY in pts[s][n] for s in seeds for n in ns):   # M21 along the sweep (relearn.py --m21-rotations)
         curves = [[pts[s][n][M21_KEY] for n in ns] for s in seeds]
-        out["m21"] = {"curves_nats": {str(s): c for s, c in zip(seeds, curves)},
-                      "mean_nats": [sum(col) / len(col) for col in zip(*curves)],
-                      "rotations": pts[seeds[0]][ns[0]].get("m21_rotations")}
+        mean = [sum(col) / len(col) for col in zip(*curves)]
+        out["m21"] = {"curves_nats": {str(s): c for s, c in zip(seeds, curves)}, "mean_nats": mean,
+                      "rotations": pts[seeds[0]][ns[0]].get("m21_rotations"),
+                      "half_rise_n": half_rise_n(ns, mean)}
     return out
-
-
-KNOW_TOL_NATS = 0.035   # 0.05 bits per label token: below this the true and the rotated facts cost the same
-
-
-def knowledge_read(ns: list[int], curves: list[list[float]], tol: float = KNOW_TOL_NATS) -> dict:
-    """What the knowledge-specific curve says (2026-10-16, first read of both sets): its SIGN at the
-    smallest n, not its slope.  Every elicit model's curve is negative from the first point and
-    rises toward zero (the true facts are cheaper than rotated ones by the pairing information the
-    weights hold, and the saving per token shrinks as the floors catch up), so the slope signature
-    reads "increasing" on the original itself; a safeguard trained against the facts makes the TRUE
-    facts dearer than rotated ones at first (positive), until it gives way.  Reads: "elicit" = below
-    -tol on every seed at the first n; "barrier" = above +tol on every seed there, with
-    ``crossing_n`` the first size from which the seed mean stays <= 0 (None if never within the
-    sweep); "none" = within tol (no pairing information read yet: a model that cannot know the
-    facts, or a taught one before it has learnt); "mixed" = the seeds disagree."""
-    mean = [sum(col) / len(col) for col in zip(*curves)]
-    first = [c[0] for c in curves]
-    if mean[0] < -tol and all(v < 0 for v in first):
-        read = "elicit"
-    elif mean[0] > tol and all(v > 0 for v in first):
-        read = "barrier"
-    elif abs(mean[0]) <= tol:
-        read = "none"
-    else:
-        read = "mixed"
-    crossing = None
-    for i in range(len(ns)):
-        if all(m <= 0 for m in mean[i:]):
-            crossing = ns[i]
-            break
-    return {"read": read, "first_n": ns[0], "first_nats": mean[0], "first_seed_nats": first,
-            "crossing_n": crossing, "tol_nats": tol}
 
 
 def knowledge(pt: dict[int, dict[int, dict]], pr: dict[int, dict[int, dict]]) -> dict | None:
@@ -138,6 +106,12 @@ def knowledge(pt: dict[int, dict[int, dict]], pr: dict[int, dict[int, dict]]) ->
         curves = [[pt[s][n][key] - pr[s][n][key] for n in ns] for s in seeds]
         out["floors"][f] = _signature_block(ns, seeds, curves)
         out["floors"][f]["sign"] = knowledge_read(ns, curves)
+    # floor-free: the first-epoch prequential code length per label token of the true stream minus
+    # the rotated one (relearn.py records mdl_nats and label_tokens), no floor on either side
+    mdl = [[pt[s][n]["mdl_nats"] / max(1, pt[s][n]["label_tokens"]) - pr[s][n]["mdl_nats"] / max(1, pr[s][n]["label_tokens"])
+            for n in ns] for s in seeds]
+    out["mdl_diff"] = {"curves_nats": {str(s): c for s, c in zip(seeds, mdl)},
+                       "mean_nats": [sum(col) / len(col) for col in zip(*mdl)]}
     return out
 
 
@@ -193,11 +167,15 @@ def main() -> int:
         if "knowledge" in r:
             fk = r["knowledge"]["floors"]
             sg = fk["ocv"]["sign"]
-            print(f"[edl] {t:<8} KNOWLEDGE (true - rotated): {sg['read'].upper()} at n={sg['first_n']} "
-                  f"({sg['first_nats'] / LN2:+.2f} bits/token; crossing to <= 0 at n={sg['crossing_n']}); "
-                  f"slope {_calls(fk)}  bits/token (ocv) {_curve(r['knowledge']['ns'], fk['ocv']['mean_nats'])}")
+            print(f"[edl] {t:<8} KNOWLEDGE (true - rotated): {sg['read'].upper()}: first n={sg['first_n']} "
+                  f"{sg['first_nats'] / LN2:+.2f} bits/token, max n={sg['max_n']} {sg['max_nats'] / LN2:+.2f}, "
+                  f"<= 0 from n={sg['crossing_n']}; slope {_calls(fk)}  bits/token (ocv) "
+                  f"{_curve(r['knowledge']['ns'], fk['ocv']['mean_nats'])}")
+            print(f"[edl] {t:<8} MDL/D true - rotated (floor-free, bits/token) "
+                  f"{_curve(r['knowledge']['ns'], r['knowledge']['mdl_diff']['mean_nats'])}")
         if "m21" in r:
-            line = f"[edl] {t:<8} M21 on B along the sweep, nats/token: after true facts {_curve(r['ns'], r['m21']['mean_nats'], 1.0)}"
+            line = (f"[edl] {t:<8} M21 on B along the sweep, nats/token (half of the rise by n={r['m21']['half_rise_n']}): "
+                    f"after true facts {_curve(r['ns'], r['m21']['mean_nats'], 1.0)}")
             if "m21" in r.get("rotated", {}):
                 line += f" | after rotated facts {_curve(r['rotated']['ns'], r['rotated']['m21']['mean_nats'], 1.0)}"
             print(line)

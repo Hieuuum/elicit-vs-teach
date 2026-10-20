@@ -566,6 +566,22 @@ well; they never open it. Thirty-two consistent facts cannot teach $637$ others.
 and the rising phase is the price of opening it. The signature read the gate as teaching because it
 cannot tell the two costs apart; read next to its fact-free twin it says what the recovery tests
 said: present, gated, elicited after the first $32$--$128$ facts.
+\item \textbf{The same two reads on the toy task, where the outcome is known
+(Table~\ref{tab:toy}).} The arithmetic Figure-2 arms were swept again on the rotated-answer twin
+of their training file and M21 was read on the held-out block at every checkpoint. On the two taught
+arms (TinyStories-1B base and format-installed) the rotated twin has no hump at all, and the
+knowledge-specific curve carries the whole of it: $+2.3$ to $+2.5$ bits per token at
+$n=100{,}000$--$316{,}000$ against $0.0$--$0.4$ below $n=5{,}000$. On the three elicit arms (the
+op-bridge parent on the same base, Llama-3.2-1B base and format-installed) no hump survives; the
+Llama base pays $+1.2$ bits at $n=1{,}000$ and is below zero by $21{,}000$, the shape of the
+Deep Ignorance safeguards, here the output format, which the installer removes (the installed arm
+reads zero throughout). M21 on the held-out block makes half of its total rise by $15{,}000$ to
+$32{,}000$ examples on the taught arms, by $1{,}000$ to $3{,}200$ on the elicit arms, and by $16$
+to $64$ facts in the gated WMDP models; after rotated training it is $0.00$ everywhere. The reading
+of the three WMDP safeguards therefore follows the calibration: a cost at the first sizes that the
+subtraction leaves and that crosses below zero, with the held-out preference readable within the
+first few dozen facts, is the gate signature, two to three orders of magnitude in $n$ away from
+the taught arms; it is the rule the knowledge-specific row (M19k) now applies.
 \item \textbf{The strong data filter is not knowledge-free on WMDP-bio as a whole.} The filtered
 model keeps $0.92$ of the baseline's fact-surface preference, reads at $0.65$--$0.74$ of the baseline's
 excess on the preference, the probe, the lens and the state swap, and scores $0.47$ on B against the
@@ -594,14 +610,44 @@ M21 on B after 573 rotated facts & 0.26 & 0.28 & 0.40 & 0.40 & 0.32 & 0.31 & 0.3
 (the other Zephyr models in decisions.md 2026-10-16: same picture, knowledge-specific $-1.1$ to
 $-5.0$ bits at $n=8$, NPO and GradDiff unreadable there because their curves sit at $350$ bits).
 Rotated: the same sweep on A with every answer moved to another item, same $n$, same seeds, so the
-difference is paired point by point. The knowledge-specific curve is read by its sign at the first
-$n$ (negative on every seed: the true facts are already cheaper than rotated ones; positive on every
-seed: a barrier specific to the true pairings), with the first size from which it stays at or below
-zero; its slope is not read, because every negative curve rises toward zero and the slope signature
+difference is paired point by point. The knowledge-specific curve is read by the rule calibrated in
+Table~\ref{tab:toy}: a hump that survives the subtraction is teaching; a positive value at the
+first size that crosses below zero later is a gate; negative from the first size is elicitation.
+Its slope alone is not read, because every negative curve rises toward zero and the slope signature
 would call the original taught. M21 on B at the kept weights of each point, the same four rotations
 as Table~\ref{tab:sota}; filter+CB+LAT reaches $1.19$ at $n=64$ and $1.39$ at $128$. The TinyStories
 model that cannot know the facts reads knowledge-specific $-0.1$ bits at $n=573$ and M21 $0.22$.}
 \label{tab:costs}
+\end{table}
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lcc|ccc@{}}
+\toprule
+ & \multicolumn{2}{c|}{taught} & \multicolumn{3}{c}{elicited} \tabularnewline
+ & TinyStories base & TinyStories, format installed & op-bridge parent (same base) & Llama-3.2-1B base & Llama, format installed \tabularnewline
+\midrule
+EDL/D, true answers (bits): first, minimum, peak, last & $9.4,\ 1.1,\ \mathbf{2.9},\ 1.3$ & $5.9,\ 0.9,\ \mathbf{1.9},\ 1.3$ & $6.5 \to 0.13$ & $3.5 \to 0.04$ & $0.97 \to 0.04$ \tabularnewline
+EDL/D, answers rotated & $6.8 \to 0.08$ & $5.5 \to 0.08$ & $4.7 \to 0.08$ & $2.3 \to 0.33$ & $0.93 \to 0.07$ \tabularnewline
+knowledge-specific, true $-$ rotated: $n{=}1{,}000$; peak ($n$); $n{=}10^6$ & $+0.2$; $\mathbf{+2.5}$ (316K); $+1.9$ & $+0.4$; $\mathbf{+1.8}$ (316K); $+1.2$ & $+0.4$; $+0.5$ (100K); $+0.06$ & $\mathbf{+1.2}$; (first); $-0.29$ & $+0.04$; $+0.17$ (21K); $-0.03$ \tabularnewline
+read (M19k rule) & teach & teach & gate & gate, $\le0$ from 21K & none \tabularnewline
+M21 on the held-out block: untrained $\to$ $n{=}1{,}000$ $\to$ $10^6$ (nats/token) & $0.13 \to 2.3 \to 8.5$ & $0.09 \to 2.0 \to 7.9$ & $1.15 \to 7.2 \to 13.5$ & $0.57 \to 10.8 \to 15.0$ & $2.7 \to 9.0 \to 17.1$ \tabularnewline
+$n$ at half of M21's rise & 31{,}600 & 14{,}700 & 3{,}200 & $\le 1{,}000$ & 1{,}500 \tabularnewline
+M21 after rotated training, any $n$ & $0.00$ & $0.00$ & $0.00$ & $0.01$ & $0.01$ \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{The two reads on the arithmetic Figure-2 arms (scaffold-free natural-language add/sub,
+19 sizes from $1{,}000$ to $10^6$; the rotated twin at six of them, same per-size schedule; floors
+are each run's own minimum validation loss on the true stopping block). The taught arms keep their
+hump in the knowledge-specific curve, the rotated twin having none; the elicit arms keep nothing
+above $0.5$ bits; the Llama base pays its format at the first size. M21 on the $600$ held-out
+problems after $n$ training examples; its half-rise size separates the regimes by one to two
+orders of magnitude, and the gated WMDP models of Table~\ref{tab:costs} reach theirs by $16$--$64$
+facts. The M19k rule: teach if the curve rises by more than $0.5$ bits to a later maximum above
+tolerance; else gate if positive at the first size (with the size from which it stays at or below
+zero); else elicit if negative; none within $0.05$ bits.}
+\label{tab:toy}
 \end{table}
 
 \FloatBarrier

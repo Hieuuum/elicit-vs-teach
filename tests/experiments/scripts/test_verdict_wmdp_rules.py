@@ -154,11 +154,12 @@ def test_teach_position_is_the_three_way_read_and_is_shift_and_scale_invariant(s
 
 def test_knowledge_mode_reads_the_sign_and_needs_the_original_to_read_elicit():
     el = {"call": "elicit", "gate": "GATED to n=8", "sig": True}
-    bar = {"call": "barrier", "gate": "GATED to n=128", "sig": False}
+    bar = {"call": "gate", "gate": "GATED to n=128", "sig": False}
     none = {"call": "none", "gate": "GATED (no crossing by n=573)", "sig": False}
     assert V.judge(el, el, "knowledge")[0] == "CARRIES"
     assert V.judge(bar, el, "knowledge")[0] == "GATED to n=128"
     assert V.judge(none, el, "knowledge")[0] == "NOT READ"
+    assert V.judge({"call": "teach", "gate": "", "sig": False}, el, "knowledge")[0] == "ABSENT (taught)"
     assert V.judge({"call": "mixed", "gate": "", "sig": False}, el, "knowledge")[0] == "UNDETERMINED"
     assert V.judge(el, bar, "knowledge")[0] == "INSTRUMENT FAILS"
     assert V.judge(el, None, "knowledge")[0] == "NO ORIG"
