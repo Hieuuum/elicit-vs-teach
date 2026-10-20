@@ -92,8 +92,8 @@ def test_v1_13_the_five_calibration_shapes_read_as_named():
         [0.1, 0.05, 0.4, 1.2, 1.6, 1.3, 0.9],
         [0.2, 0.1, 0.5, 1.1, 1.5, 1.2, 0.8],
     ]  # TinyStories arms
-    assert knowledge_read(KN, teach)["read"] == "teach"
-    assert knowledge_read(KN, teach)["max_n"] == 128
+    r = knowledge_read(KN, teach)
+    assert r["read"] == "teach" and r["max_n"] == 128 and r["block_ns"] == [8, 16, 32]
     gate = [
         [0.6, 0.3, 0.1, -0.1, -0.2, -0.3, -0.3],
         [0.5, 0.2, 0.05, -0.05, -0.2, -0.3, -0.3],
@@ -108,19 +108,39 @@ def test_v1_13_the_five_calibration_shapes_read_as_named():
     assert (
         knowledge_read(KN, [[0.01, -0.02, 0.03, 0.0, -0.01, 0.02, 0.0]])["read"] == "none"
     )  # installed Llama
+    # seeds that scatter by bits around a small mean: within two standard errors -> mixed, not a call
+    noisy = [
+        [1.9, -1.5, -1.2, -1.1, -0.7, -0.3, -0.2],
+        [0.1, -1.6, -1.2, -1.1, -0.7, -0.3, -0.2],
+        [-0.7, 2.0, 1.0, -1.1, -0.7, -0.3, -0.2],
+    ]
+    assert knowledge_read(KN, noisy)["read"] == "mixed"
+    # the same scatter averaged over the early block, when it agrees, is a call
     assert (
-        knowledge_read(KN, [[0.6] + [0.0] * 6, [-0.6] + [0.0] * 6])["read"] == "none"
-    )  # mean within tol
-    assert knowledge_read(KN, [[0.6] + [0.0] * 6, [-0.1] + [0.0] * 6])["read"] == "mixed"
+        knowledge_read(
+            KN,
+            [[0.3, -1.6, -1.2, -1.1, -0.7, -0.3, -0.2], [-0.8, -1.5, -1.2, -1.1, -0.7, -0.3, -0.2]],
+        )["read"]
+        == "elicit"
+    )
 
 
-def test_v1_13_a_hump_one_seed_does_not_share_is_not_teach_and_a_small_one_is_not_either():
+def test_v1_13_a_hump_one_seed_does_not_share_or_inside_the_early_block_is_not_teach():
     shared = [[0.1, 0.1, 0.5, 1.0, 0.8, 0.5, 0.3]]
     assert knowledge_read(KN, shared)["read"] == "teach"
     assert knowledge_read(KN, shared + [[0.1, 0.1, 0.1, 0.05, 0.0, 0.0, 0.0]])["read"] != "teach"
+    early = [
+        [0.2, 1.4, 2.0, 0.1, -0.1, -0.3, -0.3]
+    ]  # a peak inside the first three sizes: an unlock, not a hump
+    r = knowledge_read(KN, early)
+    assert r["read"] == "gate" and r["crossing_n"] == 128
     small = [[0.43, 0.45, 0.52, 0.4, 0.22, 0.1, 0.06]]  # the mix arm
     r = knowledge_read(KN, small)
-    assert r["read"] == "gate" and r["crossing_n"] is None and r["rise_nats"] == pytest.approx(0.09)
+    assert (
+        r["read"] == "gate"
+        and r["crossing_n"] is None
+        and r["rise_nats"] == pytest.approx(0.52 - 0.4667, abs=1e-3)
+    )
 
 
 def test_v1_13_a_positive_offset_turns_elicit_into_gate_and_nothing_else():

@@ -369,7 +369,7 @@ def s_edl_knowledge(p):
             else f"GATED (no crossing by n={r['ns'][-1]})")
     return {"v": sg["first_nats"] / math.log(2), "null": 0.0, "sig": sg["read"] == "elicit", "call": sg["read"],
             "gate": gate, "rule": "knowledge",
-            "note": f"true - rotated at n={sg['first_n']}: {sg['first_nats'] / math.log(2):+.2f} bits/token "
+            "note": f"true - rotated over n<={sg['block_ns'][-1]}: {sg['first_nats'] / math.log(2):+.2f} +- {sg['first_se_nats'] / math.log(2):.2f} bits/token "
                     f"(seeds {' '.join(f'{v / math.log(2):+.2f}' for v in sg['first_seed_nats'])}), max at n={sg['max_n']} "
                     f"{sg['max_nats'] / math.log(2):+.2f} -> {sg['read']}; <= 0 from n={sg['crossing_n']}; floor-free MDL/D diff "
                     + " ".join(f"{y / math.log(2):+.2f}" for y in r.get("mdl_diff", {}).get("mean_nats", [])) + "; slope " + "; ".join(
@@ -692,7 +692,7 @@ def rows_for(tags: list[str]):
         ("M18", "Relearning cost over orig's, net of the null (EDL ingredient)", False, s_cost, None, "cost"),
         ("M19", "EDL sweep: EDL/D vs n decreasing (elicit) or rising (teach)", False, s_edl_sweep,
          lambda: s_edl_sweep("orig"), "signature"),
-        ("M19k", "EDL sweep, knowledge-specific: EDL/D(true) - EDL/D(answers rotated), sign at the first n (bits/token)",
+        ("M19k", "EDL sweep, knowledge-specific: EDL/D(true) - EDL/D(answers rotated) over the first sizes (bits/token)",
          False, s_edl_knowledge, lambda: s_edl_knowledge("orig"), "knowledge"),
         ("M19-rot", "EDL sweep with the answers rotated: EDL/D vs n (format + unlock cost; reported)", False,
          s_edl_rotated, lambda: s_edl_rotated("orig"), "report"),

@@ -154,7 +154,7 @@ def main() -> int:
                       + " ".join(f"n={n}:{y / LN2:+.3f}" for n, y in zip(c["ns"], c["nats"])))
         if "read" in r.get("knowledge", {}):
             k = r["knowledge"]["read"]
-            print(f"[ks]   READ {k['read'].upper()}: first n={k['first_n']} {k['first_nats'] / LN2:+.2f} bits/token, "
+            print(f"[ks]   READ {k['read'].upper()}: n<={k['block_ns'][-1]} {k['first_nats'] / LN2:+.2f} bits/token, "
                   f"max n={k['max_n']} {k['max_nats'] / LN2:+.2f}, <= 0 from n={k['crossing_n']}")
         if "mdl_diff_nats" in r.get("knowledge", {}):
             k = r["knowledge"]

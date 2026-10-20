@@ -611,8 +611,8 @@ M21 on B after 573 rotated facts & 0.26 & 0.28 & 0.40 & 0.40 & 0.32 & 0.31 & 0.3
 $-5.0$ bits at $n=8$, NPO and GradDiff unreadable there because their curves sit at $350$ bits).
 Rotated: the same sweep on A with every answer moved to another item, same $n$, same seeds, so the
 difference is paired point by point. The knowledge-specific curve is read by the rule calibrated in
-Table~\ref{tab:toy}: a hump that survives the subtraction is teaching; a positive value at the
-first size that crosses below zero later is a gate; negative from the first size is elicitation.
+Table~\ref{tab:toy}: a hump that survives the subtraction is teaching; a positive early value
+($n\le32$ here) that crosses below zero later is a gate; a negative early value is elicitation.
 Its slope alone is not read, because every negative curve rises toward zero and the slope signature
 would call the original taught. M21 on B at the kept weights of each point, the same four rotations
 as Table~\ref{tab:sota}; filter+CB+LAT reaches $1.19$ at $n=64$ and $1.39$ at $128$. The TinyStories
@@ -644,9 +644,11 @@ hump in the knowledge-specific curve, the rotated twin having none; the elicit a
 above $0.5$ bits; the Llama base pays its format at the first size. M21 on the $600$ held-out
 problems after $n$ training examples; its half-rise size separates the regimes by one to two
 orders of magnitude, and the gated WMDP models of Table~\ref{tab:costs} reach theirs by $16$--$64$
-facts. The M19k rule: teach if the curve rises by more than $0.5$ bits to a later maximum above
-tolerance; else gate if positive at the first size (with the size from which it stays at or below
-zero); else elicit if negative; none within $0.05$ bits.}
+facts. The M19k rule, on the early value (the mean over the first three sizes, with its standard
+error across seeds): teach if the curve rises from it by more than $0.5$ bits to a maximum above
+tolerance that lies after the early block; else gate if the early value is positive beyond
+$0.1$ bits and two standard errors (with the size from which the curve stays at or below zero);
+else elicit if negative by the same margin; none within $0.1$ bits; mixed otherwise.}
 \label{tab:toy}
 \end{table}
 

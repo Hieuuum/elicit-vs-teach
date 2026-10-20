@@ -8246,3 +8246,27 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   --family ts,mix,nl3 --confirm-cost --m21-only` (everything skips; knowledge_sweep.py recomputes).
   Copy `analysis/figures/knowledge_sweep_{ts,mix,nl3}.png` and `out/wmdp*/edl_sweep_knowledge.png`
   for the paper.
+
+## 2026-10-20 (later) — the refreshed WMDP read: one seed at n = 8 is noise; the rule reads the early block
+
+- The CPU refresh (edl_sweep + verdict on both sets, repo c7e09cd) applied the V1.13 read as first
+  committed (sign at n = 8, every seed agreeing). At n = 8 a single seed's knowledge value swings by
+  1–3 bits (CB+LAT seeds −0.82, +1.09, +2.21; RMU +1.97, +0.06, −0.69; RMU+LAT −1.34, +2.39, −3.39),
+  so five of seven Zephyr models and two of the three safeguards read MIXED and only CB read GATE
+  (+0.17, +2.81, +4.48). The seed-mean curves are not in doubt; the vote at one size was.
+- **Rule revised (geode.edl.knowledge_read, V1.13 text updated, tests).** The early value is the
+  mean over the first three sizes (WMDP 8–32, arithmetic 1,000–21,544) with its standard error
+  across seeds; gate / elicit need |early| > max(0.1 bits, 2 SE); teach needs the hump's maximum
+  after the early block (an early peak is an unlock, not a hump); none within 0.1 bits; mixed within
+  2 SE. Toy reads unchanged: TS base TEACH, TS installed TEACH, op-bridge GATE (0.39 bits, no
+  crossing), Llama base GATE (0.41 bits, ≤ 0 from 21.5K), Llama installed NONE (0.10 bits).
+  Expected WMDP reads from the printed seed means (the refresh confirms the SEs): Zephyr original
+  −1.66, RMU −0.78, ELM −1.26, SimNPO −3.7, RMU+LAT −1.0 bits → ELICIT; GradDiff −0.55 and NPO +1.7
+  with seed scatter of several bits → MIXED; Deep Ignorance baseline −1.07, filtered −0.43 → ELICIT;
+  **CB +1.33 (≤ 0 from 256), CB+LAT +0.64 (128), filter+CB+LAT +0.80 (573) → GATE.**
+- The verdict's M21-n row now shows the half-rise size: CB and CB+LAT reach half of their rise on B
+  by n = 32, filter+CB+LAT by 64, the filtered model by 32 (from 1.23 to 1.47), the baseline only at
+  256 (its curve is flat, 1.34 → 1.64); every Zephyr model is flat (None), RMU+LAT by 64 (1.32 → 1.44).
+- Refresh again (CPU, minutes): `bash experiments/unlearning/run_sota.sh --only zephyr-extra,deepig
+  --stage 5 --confirm-cost && bash experiments/unlearning/run_sota.sh --only zephyr-extra,deepig
+  --stage 4` and the toy summaries via the launcher with --m21-only.

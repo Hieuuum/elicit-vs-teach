@@ -167,8 +167,8 @@ def main() -> int:
         if "knowledge" in r:
             fk = r["knowledge"]["floors"]
             sg = fk["ocv"]["sign"]
-            print(f"[edl] {t:<8} KNOWLEDGE (true - rotated): {sg['read'].upper()}: first n={sg['first_n']} "
-                  f"{sg['first_nats'] / LN2:+.2f} bits/token, max n={sg['max_n']} {sg['max_nats'] / LN2:+.2f}, "
+            print(f"[edl] {t:<8} KNOWLEDGE (true - rotated): {sg['read'].upper()}: n<={sg['block_ns'][-1]} "
+                  f"{sg['first_nats'] / LN2:+.2f} +- {sg['first_se_nats'] / LN2:.2f} bits/token, max n={sg['max_n']} {sg['max_nats'] / LN2:+.2f}, "
                   f"<= 0 from n={sg['crossing_n']}; slope {_calls(fk)}  bits/token (ocv) "
                   f"{_curve(r['knowledge']['ns'], fk['ocv']['mean_nats'])}")
             print(f"[edl] {t:<8} MDL/D true - rotated (floor-free, bits/token) "

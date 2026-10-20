@@ -140,21 +140,25 @@ script, spec 02 §6).
   pay for the facts and for whatever stands between the fine-tune and the
   facts; the rotated-answer twin sweep (same sizes, same seeds, every answer
   moved to another item) pays only the second. On the seed-paired difference
-  EDL/D(true) − EDL/D(rotated): "teach" iff the mean rises from its first
-  value by more than `rise` (0.35 nats) to a later maximum above `tol` and
-  every seed rises there (the hump survives the subtraction as an excess
-  cost; a negative curve rising toward zero is the elicit shape); else "gate" iff the first
-  value exceeds `tol` (0.035 nats) on every seed (a pairing-specific cost
-  paid at the smallest sizes), with `crossing_n` the first size from which
-  the mean stays ≤ 0; else "elicit" iff below −`tol` on every seed; "none"
-  within `tol`; "mixed" when the seeds disagree. `half_rise_n` is the first
+  EDL/D(true) − EDL/D(rotated), with the EARLY value = the mean over the
+  first `k_first` (3) sizes and its standard error across seeds (one seed at
+  one small size swings by bits): "teach" iff the mean rises from the early
+  value by more than `rise` (0.35 nats) to a maximum above `tol` that lies
+  after the early block and every seed rises there (the hump survives the
+  subtraction as an excess cost; a negative curve rising toward zero is the
+  elicit shape); else "gate" iff the early value exceeds `max(tol, 2 SE)`
+  (`tol` = 0.07 nats; a pairing-specific cost paid at the smallest sizes),
+  with `crossing_n` the first size from which the mean stays ≤ 0; else
+  "elicit" iff below −`max(tol, 2 SE)`; "none" within `tol`; "mixed" beyond
+  `tol` but within two standard errors of zero. `half_rise_n` is the first
   size at which a rising curve has covered half of its rise from its first
   value to its maximum (None below `min_rise`). Tests: the five calibration
   shapes (a surviving hump, an early positive that crosses, an early
-  negative, a flat zero, a sign split across seeds) read as named; a hump a
-  single seed does not share is not teach; a constant positive offset turns
-  an elicit curve into a gate and nothing else; half-rise on a step at n*
-  is n*, on a flat curve None, and bad input raises.
+  negative, a flat zero, a split across seeds within two standard errors)
+  read as named; a hump a single seed does not share is not teach; a hump
+  inside the early block is not teach; a constant positive offset turns an
+  elicit curve into a gate and nothing else; half-rise on a step at n* is
+  n*, on a flat curve None, and bad input raises.
 
 ## 5. Non-goals
 
