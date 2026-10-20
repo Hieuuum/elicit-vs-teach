@@ -903,8 +903,14 @@ elicit arms have no surviving hump and reach half by ≤ 3K; the Llama base
 pays +1.2 bits at n=1000 then crosses below zero, the same gate shape as the
 Deep Ignorance safeguards (half-rise ≤ 64 facts). Read promoted to
 `geode.edl.knowledge_read` / `half_rise_n` (specs/01 V1.13): TEACH / GATE /
-ELICIT / NONE. Pending: `--only tar` after Meta access (`HF_TOKEN`); the
-CPU refresh of the stored summaries and verdicts (decisions.md 2026-10-20). Not testable without training: the ICLR 2026
+ELICIT / NONE / MIXED; the early value is the mean over the first three
+sizes ± its seed SE, gate/elicit beyond 2 SE. Refreshed 2026-10-20 (repo
+c8b8b9b): WMDP reads ELICIT for the original, RMU, ELM, SimNPO and the
+Deep Ignorance baseline, GATE (≤ 0 from 128) for CB+LAT, MIXED for the
+rest; CB (2.0 SE) and filter+CB+LAT (1.9 SE) miss the margin with three
+seeds; the rule is kept as calibrated, the M21-n half-rise (32/32/64
+facts) carries the separation. Pending: `--only tar` after Meta access
+(`HF_TOKEN`); the knowledge figures into the paper. Not testable without training: the ICLR 2026
 gradient-routing paper (no checkpoints) and UNDO (code only).
 
 ## 7. Budget

@@ -553,12 +553,13 @@ is in the rotated sweep too: with no facts in the data, CB+LAT's EDL/D still cli
 to $n=64$, filter+CB+LAT's $0.6\to3.2$, CB's $3.5\to5.3$, on every seed under both floors, while the
 baseline, the filtered model and every Zephyr model pay no hump in either sweep (the unlearned
 Zephyr models' large EDL/D is the same with the answers rotated: output repair, not facts). Second,
-the knowledge-specific part, EDL/D(true) $-$ EDL/D(rotated), is \emph{negative from $n=8$} in every
-model whose capability reads present ($-0.8$ to $-5.0$ bits per token: the true facts are cheaper
+the knowledge-specific part, EDL/D(true) $-$ EDL/D(rotated), is \emph{negative over the first sizes}
+in every model whose capability reads present ($n\le32$ means of $-0.4$ to $-3.7$ bits per token, at
+or below zero from $n=8$ or $16$: the true facts are cheaper
 than rotated ones by about the pairing information the weights hold, and the saving per token shrinks
-toward zero as $n$ grows), and \emph{positive} at $n=8$ in exactly the three safeguarded models
-($+2.5$, $+0.8$, $+1.5$ bits: the true facts cost more than rotated ones, a barrier specific to the
-pairings), crossing to negative at $n=64$--$573$. Third, M21 on the held-out B facts rises above
+toward zero as $n$ grows), and \emph{positive} there in exactly the three safeguarded models
+($+1.3$, $+0.6$, $+0.8$ bits over $n\le32$; $+2.5$, $+0.8$, $+1.5$ at $n=8$: the true facts cost more
+than rotated ones, a barrier specific to the pairings), crossing to negative at $n=128$--$573$. Third, M21 on the held-out B facts rises above
 the untrained baseline's $1.34$ after $32$ true facts of A for CB and CB+LAT ($0.79\to1.47$,
 $0.87\to1.51$) and after $128$ for filter+CB+LAT ($0.89\to1.39$), while after rotated facts it
 falls in every model, to $0.23$--$0.40$ by $n=573$: inconsistent pairings close the gate on B as
@@ -581,7 +582,10 @@ to $64$ facts in the gated WMDP models; after rotated training it is $0.00$ ever
 of the three WMDP safeguards therefore follows the calibration: a cost at the first sizes that the
 subtraction leaves and that crosses below zero, with the held-out preference readable within the
 first few dozen facts, is the gate signature, two to three orders of magnitude in $n$ away from
-the taught arms; it is the rule the knowledge-specific row (M19k) now applies.
+the taught arms; it is the rule the knowledge-specific row (M19k) now applies. On WMDP it calls
+elicit for the original, RMU, ELM, SimNPO and the Deep Ignorance baseline, gate for CB+LAT, and
+mixed for the rest, where three seeds leave the early value within two standard errors of zero
+(Table~\ref{tab:costs}; the margin, not the sign, is what those models fail).
 \item \textbf{The strong data filter is not knowledge-free on WMDP-bio as a whole.} The filtered
 model keeps $0.92$ of the baseline's fact-surface preference, reads at $0.65$--$0.74$ of the baseline's
 excess on the preference, the probe, the lens and the state swap, and scores $0.47$ on B against the
@@ -600,19 +604,27 @@ access to its gated original.
 \midrule
 EDL/D, true answers, $n{=}8\to$ peak $\to573$ (bits) & $5.1\to-0.34$ & $15.4\to-0.10$ & $0.12\to-0.45$ & $0.78\to0.07$ & $6.0\to0.56$ & $2.9\to4.8\to0.79$ & $2.1\to4.1\to1.7$ \tabularnewline
 EDL/D, answers rotated (M19-rot) & $4.7\to-0.08$ & $16.2\to0.22$ & $1.0\to0.01$ & $0.73\to0.32$ & $3.5\to5.3\to0.93$ & $2.1\to4.8\to1.27$ & $0.6\to3.2\to1.9$ \tabularnewline
-knowledge-specific at $n{=}8$: true $-$ rotated (bits); $\le0$ from $n$ (M19k) & $+0.45$; 16 & $-0.78$; 8 & $-0.92$; 8 & $+0.06$; 16 & $+2.49$; 256 & $+0.83$; 128 & $+1.53$; 573 \tabularnewline
+knowledge-specific, true $-$ rotated: mean over $n\le32$ $\pm$ SE over seeds (bits); $\le0$ from $n$ (M19k) & $-0.78\pm0.31$; 16 & $-0.99\pm0.89$; 8 & $-1.07\pm0.24$; 8 & $-0.43\pm0.47$; 16 & $+1.33\pm0.68$; 256 & $+0.64\pm0.29$; 128 & $+0.80\pm0.42$; 573 \tabularnewline
+read (M19k rule) & elicit & mixed ($1.1$ SE) & elicit & mixed ($0.9$ SE) & mixed ($2.0$ SE) & gate & mixed ($1.9$ SE) \tabularnewline
 M21 on B: untrained $\to$ after 32 true facts $\to$ after 573 (nats/token; M21-n) & $1.30\to1.46\to1.45$ & $1.90\to1.37\to1.44$ & $1.34\to1.51\to1.64$ & $1.23\to1.40\to1.43$ & $0.79\to1.47\to1.60$ & $0.87\to1.51\to1.67$ & $0.89\to0.93\to1.44$ \tabularnewline
 M21 on B after 573 rotated facts & 0.26 & 0.28 & 0.40 & 0.40 & 0.32 & 0.31 & 0.37 \tabularnewline
 \bottomrule
 \end{tabular}
 \end{adjustbox}
 \caption{The two costs inside EDL/D, for the two deepest Zephyr hiders and the Deep Ignorance set
-(the other Zephyr models in decisions.md 2026-10-16: same picture, knowledge-specific $-1.1$ to
-$-5.0$ bits at $n=8$, NPO and GradDiff unreadable there because their curves sit at $350$ bits).
+(the other Zephyr models in decisions.md 2026-10-20: original $-1.66\pm0.44$, ELM $-1.26\pm0.43$,
+SimNPO $-3.7\pm1.8$ bits, elicit; NPO and GradDiff mixed, their seeds scattering by $\pm8$ bits on
+curves that sit at $350$).
 Rotated: the same sweep on A with every answer moved to another item, same $n$, same seeds, so the
 difference is paired point by point. The knowledge-specific curve is read by the rule calibrated in
 Table~\ref{tab:toy}: a hump that survives the subtraction is teaching; a positive early value
-($n\le32$ here) that crosses below zero later is a gate; a negative early value is elicitation.
+($n\le32$ here: the mean over three sizes and three seeds, beyond two seed standard errors) that
+crosses below zero later is a gate; a negative early value is elicitation; mixed within two
+standard errors. With three seeds that margin is coarse: CB and filter+CB+LAT sit at $2.0$ and
+$1.9$ standard errors and read mixed. The rule is kept as calibrated on the toy arms rather than
+loosened to these points; what it leaves is still the gate's pattern (every present-reading model
+at or below zero from $n=8$ or $16$; the three safeguards positive over $n\le32$ on eight of nine
+seeds, crossing at $128$--$573$), and the M21-n row makes the same separation without a margin.
 Its slope alone is not read, because every negative curve rises toward zero and the slope signature
 would call the original taught. M21 on B at the kept weights of each point, the same four rotations
 as Table~\ref{tab:sota}; filter+CB+LAT reaches $1.19$ at $n=64$ and $1.39$ at $128$. The TinyStories

@@ -8270,3 +8270,33 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
 - Refresh again (CPU, minutes): `bash experiments/unlearning/run_sota.sh --only zephyr-extra,deepig
   --stage 5 --confirm-cost && bash experiments/unlearning/run_sota.sh --only zephyr-extra,deepig
   --stage 4` and the toy summaries via the launcher with --m21-only.
+
+## 2026-10-20 (refresh, repo c8b8b9b) — the M19k reads under the early-block rule, as they came out
+
+- CPU refresh of both WMDP sets (stages 5 and 4) and the three toy families (`--m21-only`), nothing
+  retrained. Early value = mean over n ≤ 32 and three seeds ± SE; read; ≤ 0 from n:
+  Zephyr original −1.66 ± 0.44 ELICIT (8); RMU −0.78 ± 0.31 ELICIT (16); ELM −1.26 ± 0.43 ELICIT (8);
+  SimNPO −3.73 ± 1.78 ELICIT (8); RMU+LAT −0.99 ± 0.89 MIXED (seeds −2.48, +0.60, −1.08; 8);
+  NPO +1.69 ± 8.62 MIXED; GradDiff −0.55 ± 7.59 MIXED (seeds ±14 bits on 350-bit curves).
+  Deep Ignorance baseline −1.07 ± 0.24 ELICIT (8); filtered −0.43 ± 0.47 MIXED (−1.12, +0.47, −0.64;
+  16); CB +1.33 ± 0.68 MIXED (+0.07, +1.52, +2.41; 256); CB+LAT +0.64 ± 0.29 GATE (+0.21, +0.52,
+  +1.19; 128); filter+CB+LAT +0.80 ± 0.42 MIXED (0.00, +1.41, +0.99; 573).
+- Against the previous entry's expectation, four calls came out MIXED instead: two at the margin (CB
+  at 1.96 SE, filter+CB+LAT at 1.9 SE) and two inside it (RMU+LAT 1.1 SE, filtered 0.9 SE). With
+  three seeds the SE has two degrees of freedom; the 2 SE margin is coarse.
+- **Decision: the rule stays as calibrated on the toy arms; it is not loosened to fit these points.**
+  The verdict rows carry the rule's call (M19k: CARRIES ×5, GATED to n=128 ×1, UNDETERMINED ×6). The
+  pattern the rule leaves is still the gate's: every present-reading model is at or below zero from
+  n = 8 or 16; the three safeguards are positive over n ≤ 32 on eight of nine seeds (CB's weakest
+  +0.07, filter+CB+LAT's 0.00) with crossings at 128–573; and the M21-n half-rise (32, 32, 64 facts;
+  every Zephyr model flat) separates them without a margin. If a per-model call on CB and
+  filter+CB+LAT is wanted, the fix is more seeds, not a looser margin: each extra seed of the twin
+  pair is 14 relearning runs per model.
+- Toy reads unchanged: TS base TEACH (max 316K), TS installed TEACH (316K), op-bridge GATE (0.39
+  bits, no crossing), Llama base GATE (0.41, ≤ 0 from 21.5K), Llama installed NONE (0.10); M21
+  half-rise 31.6K / 14.7K / 3.2K / ≤ 1K / 1.5K; after rotated training 0.00 ± 0.03 at every n.
+- Figures and JSON on the cluster: `experiments/training-run/analysis/figures/knowledge_sweep_{ts,mix,nl3}.png`
+  (+ `results/knowledge_sweep_<family>.json`), `experiments/unlearning/out/{wmdp,wmdp-deepig}/edl_sweep_knowledge.png`.
+  Not yet in the paper; copy them over and the two figure slots in Section 5 take them.
+- Paper: tab:costs carries the early-block row with SE and a read row; its caption and the Section 5
+  prose state the margin outcome. Shared page v11.
