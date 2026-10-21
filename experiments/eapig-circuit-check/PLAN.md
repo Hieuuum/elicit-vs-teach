@@ -354,6 +354,29 @@ gated models; equivalence passes for `elicit_parent` and `elicit_child` (leftove
 consistency fails (coverage 0.21–0.28); specificity fails because removing the circuit
 floors both addition and copy (relative damage 1.00). No circuit passes all five.
 
+### 2026-10-21 translate-then-solve, step 0 (gate FAILED, no circuit scored)
+
+Box 57088349 (1× 3090), code 31a9342, HF `results/eapig_translate/`. Plan:
+`HANDOFF-translate-circuit.md`. Rows: 4x4 '+' leak-clean, n 4930.
+
+| model | rewrite exact | bare op `a + b = ` EM | single-sequence translate EM |
+|---|---|---|---|
+| `elicit_parent` | 0.913 (4503/4930) | 0.405 (on the 4503) | **0.000** |
+| `elicit_child` | — | — | 0.711 |
+| `teach_child` | — | — | 0.000 |
+
+Translate prompt = `What is the sum of a and b?\n` + `a + b = ` (gold rewrite).
+The parent outputs a well-formed integer of the right size with wrong digits
+(e.g. 7465+8497: bare op 15962 ✓, translate 8375); teacher-forced log-prob of the
+gold answer −18.5 nats vs −0.94 bare. KL(full‖∅) 17.2 nats, so the KL half of the
+gate passes; the EM half (≥ 0.5× bare-op) fails. Same picture as the θ0
+sequence-start lock (fewshot_diag): the parent's addition only fires at the
+start of a sequence. The parent's route is two-pass, so a single-sequence
+translate circuit does not exist in it. Per the plan: stopped before scoring;
+path B (two-pass rewrite circuit, needs `kl_2tok` generalised in geode) only on
+owner go. Side fact: `elicit_child` does solve the single-sequence form (0.71),
+`teach_child` does not (0.00).
+
 ## Global takeaways
 
 [ ]
