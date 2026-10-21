@@ -14,7 +14,7 @@ Stages (run on the GPU box, in this order across the four models):
 Usage:
   python3 run.py --tag elicit_child --model <dir|hf repo> --stage sanity score evaluate \
       [--parent-tag elicit_parent] [--device cuda]
-  python3 run.py --tag elicit_child --model M --task word|symbol --metric ld|kl \
+  python3 run.py --tag elicit_child --model M --task word|symbol|translate --metric ld|kl \
       --stage sanity score probe evaluate --results DIR [--scores-dir DIR2]
 Outputs: <results>/<tag>/{sanity.json, scores.pt, probe.json, evaluate.json, per_example.npz}.
 evaluate/probe read scores.pt + sanity.json from <scores-dir> (default <results>).
@@ -588,7 +588,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--model", required=True, help="local dir or HF repo id")
     ap.add_argument("--stage", nargs="+", default=["sanity", "score", "evaluate"],
                     choices=["sanity", "score", "probe", "evaluate"])
-    ap.add_argument("--task", default="word", choices=["word", "symbol"])
+    ap.add_argument("--task", default="word", choices=["word", "symbol", "translate"])
     ap.add_argument("--metric", default="ld", choices=["ld", "kl"])
     ap.add_argument("--parent-tag", default=None)
     ap.add_argument("--data-dir", default=str(HERE / "data"))
@@ -609,8 +609,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if not frozen and Path(a.results).resolve() in [(HERE / d).resolve() for d in FROZEN_RESULTS]:
         ap.error(f"--results {a.results} holds the frozen LD-word record; write "
                  "task/metric/probe outputs to their own dir (e.g. results_klword)")
-    if a.task == "symbol" and not a.tag.startswith("elicit"):
-        ap.error("--task symbol is for the elicit route only (owner, 2026-10-08)")
+    if a.task in ("symbol", "translate") and not a.tag.startswith("elicit"):
+        ap.error(f"--task {a.task} is for the elicit route only (owner, 2026-10-08)")
     if "evaluate" in a.stage and a.task != "word":
         ap.error("evaluate runs on the word task only (copy task + tests are defined there)")
     return a

@@ -33,7 +33,7 @@ splitting the addition pairs file's rows by ``meta["split"]``.
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from pathlib import Path
 
 import numpy as np
@@ -45,12 +45,20 @@ ADDITION_PROMPT = "What is the sum of {a} and {b}?\n"
 # space is its own token, and the prompt is a clean token-prefix of
 # prompt + answer (checked per row by _validate_pool_tokenization).
 SYMBOL_PROMPT = "{a} + {b} = "
+# The parent's translate-then-solve route in one context: the word question,
+# then its gold operator rewrite (HANDOFF-translate-circuit.md, path A).
+TRANSLATE_PROMPT = ADDITION_PROMPT + SYMBOL_PROMPT
 COPY_PROMPT = "Tom had {n} apples. How many apples did Tom have?\n"
 
 # Fixed filenames `load_pairs(directory)` looks for (see module docstring).
 ADDITION_PAIRS_FILENAME = "pairs_seed0.pt"
 SYMBOL_PAIRS_FILENAME = "pairs_symbol_seed0.pt"  # same rows, symbol surface (task="symbol")
-PAIRS_FILENAMES = {"word": ADDITION_PAIRS_FILENAME, "symbol": SYMBOL_PAIRS_FILENAME}
+# translate: the exact-rewrite rows' pairs on TRANSLATE_PROMPT; their word-surface twin
+# (same rows, built first) is saved alongside under TRANSLATE_WORD_PAIRS_FILENAME
+TRANSLATE_PAIRS_FILENAME = "pairs_translate_seed0.pt"
+TRANSLATE_WORD_PAIRS_FILENAME = "pairs_translate_word_seed0.pt"
+PAIRS_FILENAMES = {"word": ADDITION_PAIRS_FILENAME, "symbol": SYMBOL_PAIRS_FILENAME,
+                   "translate": TRANSLATE_PAIRS_FILENAME}
 COPY_PAIRS_FILENAME = "copy_pairs_seed1.pt"
 TINYSTORIES_FILENAME = "tinystories_seed2.pt"
 
@@ -183,7 +191,8 @@ def _load_pairs_dir(directory: Path, task: str = "word") -> dict:
     """Assemble the combined ``{"disc", "val", "copy", "stories"}`` dict
     ``run.py`` expects (module docstring) from the three fixed filenames in
     ``directory``. ``task`` picks the addition-pairs file (``PAIRS_FILENAMES``:
-    word -> ``pairs_seed0.pt``, symbol -> ``pairs_symbol_seed0.pt``); copy and
+    word -> ``pairs_seed0.pt``, symbol -> ``pairs_symbol_seed0.pt``, translate ->
+    ``pairs_translate_seed0.pt``); copy and
     stories are the same for every task. ``stories`` is the raw TinyStories
     token tensor (not the wrapping dict) and is omitted if that file isn't
     present (it needs network to build; see ``build_tinystories``)."""
@@ -302,6 +311,7 @@ def build_addition_pairs(
     n_val: int = 256,
     seed: int = 0,
     exclude_pairs: set[tuple[int, int]] | None = None,
+    pool_idx: Collection[int] | None = None,
 ) -> dict:
     """Build the 4+4 addition clean/counterfactual pairs (PLAN.md "Pair
     pool"): ``D_algo_eval_bare`` rows with ``op == '+'`` and ``cell ==
@@ -313,6 +323,11 @@ def build_addition_pairs(
     length, exactly 2 answer tokens, round-trip, first token not
     whitespace) since any pool row can be drawn as either a clean problem or
     a counterfactual.
+
+    ``pool_idx`` (optional) keeps only the pool rows whose parquet ``idx`` is
+    in it, before the ``exclude_pairs`` guard (e.g. the problems the parent
+    rewrites exactly, for the translate task); every listed idx must be an
+    ``op == '+'``, ``cell == '4x4'`` row. ``None`` leaves the pool untouched.
 
     The pool is shuffled once (seeded); the first ``n_disc`` rows are
     "discovery" (split into two seeded halves, 0/1, for the split-half
@@ -336,6 +351,13 @@ def build_addition_pairs(
 
     df = pd.read_parquet(eval_parquet)
     pool = df[(df["op"] == "+") & (df["cell"] == "4x4")].reset_index(drop=True)
+    if pool_idx is not None:
+        keep = {int(i) for i in pool_idx}
+        missing = keep - {int(i) for i in pool["idx"]}
+        if missing:
+            raise ValueError(f"build_addition_pairs: {len(missing)} pool_idx not among the "
+                             f"+ 4x4 rows, e.g. {sorted(missing)[:5]}")
+        pool = pool[pool["idx"].isin(keep)].reset_index(drop=True)
     if exclude_pairs:  # leakage guard: drop operand pairs seen in any fine-tuning file
         seen = [tuple(sorted((int(a), int(b)))) in exclude_pairs for a, b in zip(pool["a"], pool["b"])]
         pool = pool[~np.array(seen, dtype=bool)].reset_index(drop=True)
@@ -411,6 +433,47 @@ def build_addition_pairs(
     }
 
 
+def _rerender_pairs(word_pairs: dict, tokenizer, template: str, where: str) -> dict:
+    """The word pairs' rows re-rendered on ``template`` (``{a}``/``{b}``
+    placeholders, any number of times): the clean prompt from ``(a, b)``, the
+    counterfactual from ``(cf_a, cf_b)``, each followed by its first answer
+    token. Shared contract of ``build_symbol_pairs`` / ``build_translate_pairs``
+    (see there); ``where`` only labels error messages."""
+    meta = word_pairs["meta"]
+    n = len(meta)
+    prompts = [template.format(a=int(a), b=int(b)) for a, b in zip(meta["a"], meta["b"])]
+    prompts += [template.format(a=int(a), b=int(b)) for a, b in zip(meta["cf_a"], meta["cf_b"])]
+    answers = [str(int(s)) for s in meta["sum"]] + [str(int(s)) for s in meta["cf_sum"]]
+    fulls = [p + a for p, a in zip(prompts, answers)]
+    prompt_ids, answer_ids = _validate_pool_tokenization(
+        tokenizer, prompts, answers, fulls, where=where
+    )
+    toks = {
+        "c1": [answer_ids[i][0] for i in range(n)],
+        "c2": [answer_ids[i][1] for i in range(n)],
+        "k1": [answer_ids[n + i][0] for i in range(n)],
+        "k2": [answer_ids[n + i][1] for i in range(n)],
+    }
+    for i in range(n):
+        if toks["c1"][i] == toks["k1"][i] or toks["c2"][i] == toks["k2"][i]:
+            raise ValueError(f"{where}: row {i} counterfactual shares an answer token")
+    for k, v in toks.items():
+        if v != word_pairs[k].tolist():
+            raise ValueError(f"{where}: {k} differs from the word pairs")
+    if answers[:n] != list(word_pairs["answer_text"]):
+        raise ValueError(f"{where}: answer_text differs from the word pairs")
+    return {
+        "clean_ids": torch.tensor([prompt_ids[i] + [toks["c1"][i]] for i in range(n)], dtype=torch.long),
+        "corrupt_ids": torch.tensor(
+            [prompt_ids[n + i] + [toks["k1"][i]] for i in range(n)], dtype=torch.long
+        ),
+        **{k: torch.tensor(v, dtype=torch.long) for k, v in toks.items()},
+        "half": word_pairs["half"].clone(),
+        "answer_text": list(word_pairs["answer_text"]),
+        "meta": meta.copy(),
+    }
+
+
 def build_symbol_pairs(word_pairs: dict, tokenizer) -> dict:
     """Re-render the word-task addition pairs (``build_addition_pairs``
     output, e.g. loaded from ``pairs_seed0.pt``) on the symbol surface
@@ -427,39 +490,18 @@ def build_symbol_pairs(word_pairs: dict, tokenizer) -> dict:
     and ``meta`` are copied unchanged. Raises ``ValueError`` on any mismatch.
     Only ``clean_ids``/``corrupt_ids`` differ from ``word_pairs``.
     """
-    meta = word_pairs["meta"]
-    n = len(meta)
-    prompts = [SYMBOL_PROMPT.format(a=int(a), b=int(b)) for a, b in zip(meta["a"], meta["b"])]
-    prompts += [SYMBOL_PROMPT.format(a=int(a), b=int(b)) for a, b in zip(meta["cf_a"], meta["cf_b"])]
-    answers = [str(int(s)) for s in meta["sum"]] + [str(int(s)) for s in meta["cf_sum"]]
-    fulls = [p + a for p, a in zip(prompts, answers)]
-    prompt_ids, answer_ids = _validate_pool_tokenization(
-        tokenizer, prompts, answers, fulls, where="build_symbol_pairs"
-    )
-    toks = {
-        "c1": [answer_ids[i][0] for i in range(n)],
-        "c2": [answer_ids[i][1] for i in range(n)],
-        "k1": [answer_ids[n + i][0] for i in range(n)],
-        "k2": [answer_ids[n + i][1] for i in range(n)],
-    }
-    for i in range(n):
-        if toks["c1"][i] == toks["k1"][i] or toks["c2"][i] == toks["k2"][i]:
-            raise ValueError(f"build_symbol_pairs: row {i} counterfactual shares an answer token")
-    for k, v in toks.items():
-        if v != word_pairs[k].tolist():
-            raise ValueError(f"build_symbol_pairs: {k} differs from the word pairs")
-    if answers[:n] != list(word_pairs["answer_text"]):
-        raise ValueError("build_symbol_pairs: answer_text differs from the word pairs")
-    return {
-        "clean_ids": torch.tensor([prompt_ids[i] + [toks["c1"][i]] for i in range(n)], dtype=torch.long),
-        "corrupt_ids": torch.tensor(
-            [prompt_ids[n + i] + [toks["k1"][i]] for i in range(n)], dtype=torch.long
-        ),
-        **{k: torch.tensor(v, dtype=torch.long) for k, v in toks.items()},
-        "half": word_pairs["half"].clone(),
-        "answer_text": list(word_pairs["answer_text"]),
-        "meta": meta.copy(),
-    }
+    return _rerender_pairs(word_pairs, tokenizer, SYMBOL_PROMPT, "build_symbol_pairs")
+
+
+def build_translate_pairs(word_pairs: dict, tokenizer) -> dict:
+    """Re-render the word-task addition pairs on the translate surface
+    ``"What is the sum of {a} and {b}?\n{a} + {b} = "`` (``TRANSLATE_PROMPT``:
+    word question + gold rewrite, one context). Same contract as
+    ``build_symbol_pairs``: same rows and order, all tokenization checks,
+    answer tokens equal to the word file's, both answer positions differ.
+    The counterfactual takes ``(cf_a, cf_b)`` in BOTH segments, so the two
+    prompts differ in the question and in the rewrite."""
+    return _rerender_pairs(word_pairs, tokenizer, TRANSLATE_PROMPT, "build_translate_pairs")
 
 
 def leakclean_idx(eval_parquet: str | Path, exclude_pairs: set[tuple[int, int]],
@@ -630,18 +672,31 @@ def main() -> None:
     again afterwards to confirm zero overlap), then the symbol re-render.
     ``symbol``: only ``pairs_symbol_seed0.pt`` from the saved
     ``pairs_seed0.pt``. ``leakclean``: only ``perf_leakclean_4x4_idx.json``
-    (the step-S perf eval's leakage-clean 4x4 ``+`` subset, same exclusion)."""
+    (the step-S perf eval's leakage-clean 4x4 ``+`` subset, same exclusion).
+    ``translate --exact-idx <rewrite_exact_idx.json>``: the translate pairs
+    (HANDOFF-translate-circuit.md, path A) on the leakage-clean rows the parent
+    rewrites exactly (perf_eval.py ``--surface rewrite``); the leakage guard is
+    already in the leakclean idx, so no further exclusion. Saves the word-surface
+    pairs of that pool and their translate re-render."""
     import argparse
     import json
 
     from transformers import AutoTokenizer
 
     ap = argparse.ArgumentParser()
-    ap.add_argument("what", nargs="?", default="all", choices=["all", "symbol", "leakclean"])
-    what = ap.parse_args().what
+    ap.add_argument("what", nargs="?", default="all",
+                    choices=["all", "symbol", "leakclean", "translate"])
+    ap.add_argument("--exact-idx", default=None,
+                    help="translate: rewrite_exact_idx.json from perf_eval.py --surface rewrite")
+    ap.add_argument("--tokenizer", default="meta-llama/Llama-3.2-1B",
+                    help="HF tokenizer name or a local model dir")
+    a = ap.parse_args()
+    what = a.what
+    if what == "translate" and a.exact_idx is None:
+        ap.error("translate needs --exact-idx")
     out = Path(__file__).resolve().parent / "data"
     full_dir = Path(__file__).resolve().parents[1] / "training-run/data/full"
-    tok = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+    tok = AutoTokenizer.from_pretrained(a.tokenizer)
     if what == "all":
         exclude = _training_exclusion()
         save_pairs(build_addition_pairs(full_dir / "D_algo_eval_bare.parquet", tok,
@@ -664,6 +719,16 @@ def main() -> None:
                          "exclusion = union of leakage_check.unordered_pairs over TRAINING_FILES")
         (out / "perf_leakclean_4x4_idx.json").write_text(json.dumps(res) + "\n")
         print(f"[data] leakclean 4x4 +: {res['n_clean']} / {res['n_rows']} rows kept")
+    if what == "translate":
+        clean = set(json.loads((out / "perf_leakclean_4x4_idx.json").read_text())["idx"])
+        exact = set(json.loads(Path(a.exact_idx).read_text())["idx"])
+        assert exact <= clean, f"{len(exact - clean)} exact-rewrite idx outside the leakclean set"
+        pool = clean & exact
+        print(f"[data] translate pool: {len(pool)} exact rewrites of {len(clean)} leakclean rows")
+        word = build_addition_pairs(full_dir / "D_algo_eval_bare.parquet", tok, pool_idx=pool)
+        save_pairs(word, out / TRANSLATE_WORD_PAIRS_FILENAME)
+        save_pairs(build_translate_pairs(word, tok), out / TRANSLATE_PAIRS_FILENAME)
+        print(f"[data] saved {TRANSLATE_WORD_PAIRS_FILENAME} + {TRANSLATE_PAIRS_FILENAME} in {out}")
 
 
 if __name__ == "__main__":

@@ -327,6 +327,8 @@ def test_probe_draws_are_evaluates_first_draws(tmp_path, scored, model, graph, d
 @pytest.mark.parametrize("extra", [
     ["--metric", "kl"],
     ["--task", "symbol", "--stage", "sanity", "score"],
+    ["--task", "translate", "--metric", "kl", "--stage", "sanity", "score"],
+    ["--task", "translate", "--stage", "sanity"],
     ["--stage", "sanity", "score", "probe"],
     ["--stage", "probe"],
     ["--metric", "kl", "--stage", "score"],
@@ -380,6 +382,74 @@ def test_evaluate_refused_on_symbol(tmp_path, capsys):
         _args(tmp_path, "elicit_child", "--task", "symbol", "--metric", "kl",
               "--stage", "evaluate")
     assert e.value.code == 2 and "word task only" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------- task translate
+
+
+@pytest.mark.parametrize("tag", ["elicit_parent", "elicit_child"])
+def test_translate_allowed_for_elicit_route(tmp_path, tag):
+    a = _args(tmp_path / "results_kltr", tag, "--task", "translate", "--metric", "kl",
+              "--stage", "sanity", "score", "probe", "--probe-sizes", "0.01", "0.02", "0.05")
+    assert (a.task, a.metric, a.stage) == ("translate", "kl", ["sanity", "score", "probe"])
+    assert a.probe_sizes == [0.01, 0.02, 0.05]
+
+
+@pytest.mark.parametrize("tag", ["fmt_parent", "teach_child"])
+def test_translate_refused_for_teach_route(tmp_path, tag, capsys):
+    with pytest.raises(SystemExit) as e:
+        _args(tmp_path, tag, "--task", "translate", "--metric", "kl", "--stage", "sanity")
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "--task translate" in err and "elicit route" in err
+
+
+def test_translate_evaluate_refused(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        _args(tmp_path, "elicit_parent", "--task", "translate", "--metric", "kl",
+              "--stage", "score", "evaluate")
+    assert e.value.code == 2 and "word task only" in capsys.readouterr().err
+
+
+def test_unknown_task_refused(tmp_path):
+    with pytest.raises(SystemExit):
+        _args(tmp_path, "elicit_parent", "--task", "translation")
+
+
+def test_load_data_translate_reads_translate_file(tmp_path, monkeypatch):
+    """load_data(dir, "translate") assembles disc/val from pairs_translate_seed0.pt."""
+    import pandas as pd
+
+    monkeypatch.syspath_prepend(str(RUN_PATH.parent))  # run.load_data imports the sibling data.py
+    from data import (
+        ADDITION_PAIRS_FILENAME,
+        COPY_PAIRS_FILENAME,
+        TRANSLATE_PAIRS_FILENAME,
+        save_pairs,
+    )
+
+    split = ["discovery"] * N_DISC + ["validation"] * N_VAL
+    word = _pairs(N_DISC + N_VAL, 5, with_half=True) | {"meta": pd.DataFrame({"split": split})}
+    tr = _pairs(N_DISC + N_VAL, 6, with_half=True) | {"meta": pd.DataFrame({"split": split})}
+    save_pairs(word, tmp_path / ADDITION_PAIRS_FILENAME)
+    save_pairs(tr, tmp_path / TRANSLATE_PAIRS_FILENAME)
+    save_pairs(_pairs(N_COPY, 3), tmp_path / COPY_PAIRS_FILENAME)
+    d = run.load_data(tmp_path, "translate")
+    assert set(d) == {"disc", "val", "copy"}
+    assert torch.equal(d["disc"]["clean_ids"], tr["clean_ids"][:N_DISC])
+    assert torch.equal(d["val"]["corrupt_ids"], tr["corrupt_ids"][N_DISC:])
+    assert d["val"]["answer_text"] == tr["answer_text"][N_DISC:]
+    assert torch.equal(run.load_data(tmp_path)["disc"]["clean_ids"], word["clean_ids"][:N_DISC])
+
+
+def test_translate_sanity_score_probe_smoke(tmp_path, model, graph, data):
+    """The translate task runs the same stages as symbol (pairs differ only on disk)."""
+    out = _run(model, graph, data, tmp_path / "results_kltr", "elicit_parent", "--task",
+               "translate", "--metric", "kl", "--stage", "sanity", "score", "probe",
+               "--probe-sizes", "0.05", *SMOKE)
+    assert sorted(p.name for p in out.iterdir()) == ["probe.json", "sanity.json", "scores.pt"]
+    p = _load(out / "probe.json")
+    assert p["task"] == "translate" and p["metric"] == "kl" and len(p["sizes"]["0.05"]["f_random"]) == 6
+    assert _load(out / "sanity.json")["kl_empty_mean"] > 0
 
 
 def test_unknown_stage_refused(tmp_path):
