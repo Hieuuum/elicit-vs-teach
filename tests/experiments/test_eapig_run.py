@@ -19,7 +19,14 @@ import pytest
 import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
-from geode.circuits.eapig import build_graph, eap_ig_scores, kl_2tok, node_outputs, patched_forward
+from geode.circuits.eapig import (
+    build_graph,
+    eap_ig_scores,
+    kl_2tok,
+    logit_diff_2tok,
+    node_outputs,
+    patched_forward,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 RUN_PATH = ROOT / "experiments" / "eapig-circuit-check" / "run.py"
@@ -187,6 +194,20 @@ def test_eval_kl_matches_direct_patched_forward_any_mask(model, graph, data):
     assert (kl >= -1e-6).all()
     # batch-outer layout: a different batch size gives the same numbers
     assert torch.allclose(kl, run.eval_kl(model, graph, val, keeps, 5, lp), atol=1e-5)
+
+
+def test_eval_ld_matches_full_position_patched_forward(model, graph, data):
+    """eval_ld runs patched_forward with last_n=2; same numbers as all-position logits."""
+    val = data["val"]
+    toks = [val[k] for k in ("c1", "k1", "c2", "k2")]
+    keeps = [run.keep_only(graph, torch.tensor(r), "cpu") for r in ([0, 5, 9, 30], [3, 4])]
+    ld = run.eval_ld(model, graph, val, keeps, BS)
+    with torch.no_grad():
+        acts = node_outputs(model, graph, val["corrupt_ids"])
+        for i, keep in enumerate(keeps):
+            logits = patched_forward(model, graph, val["clean_ids"], acts, keep)
+            ref = torch.stack(logit_diff_2tok(logits, *toks), -1)
+            assert torch.allclose(ld[i], ref, rtol=1e-4, atol=1e-5)
 
 
 def test_eval_kl_empty_mask_list(model, graph, data):
@@ -381,7 +402,13 @@ def test_evaluate_refused_on_symbol(tmp_path, capsys):
     with pytest.raises(SystemExit) as e:
         _args(tmp_path, "elicit_child", "--task", "symbol", "--metric", "kl",
               "--stage", "evaluate")
-    assert e.value.code == 2 and "word task only" in capsys.readouterr().err
+    assert e.value.code == 2 and "word task" in capsys.readouterr().err
+
+
+def test_evaluate_allowed_on_symbol_for_elicit_parent(tmp_path):
+    a = _args(tmp_path, "elicit_parent", "--task", "symbol", "--metric", "kl",
+              "--stage", "evaluate")
+    assert (a.task, a.stage) == ("symbol", ["evaluate"])
 
 
 # ------------------------------------------------------------- task translate
@@ -407,7 +434,7 @@ def test_translate_evaluate_refused(tmp_path, capsys):
     with pytest.raises(SystemExit) as e:
         _args(tmp_path, "elicit_parent", "--task", "translate", "--metric", "kl",
               "--stage", "score", "evaluate")
-    assert e.value.code == 2 and "word task only" in capsys.readouterr().err
+    assert e.value.code == 2 and "word task" in capsys.readouterr().err
 
 
 def test_unknown_task_refused(tmp_path):

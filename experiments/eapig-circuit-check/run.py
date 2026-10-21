@@ -118,7 +118,7 @@ def eval_ld(model, graph, pairs: dict, keeps: list[torch.Tensor], bs: int) -> to
         toks = [pairs[k][sl].to(dev) for k in ("c1", "k1", "c2", "k2")]
         acts = node_outputs(model, graph, corrupt)
         for i, keep in enumerate(keeps):
-            logits = patched_forward(model, graph, clean, acts, keep)
+            logits = patched_forward(model, graph, clean, acts, keep, last_n=2)
             ld, t1, t2 = logit_diff_2tok(logits, *toks)
             out[i, sl] = torch.stack([ld, t1, t2], -1).cpu()
         del acts
@@ -149,7 +149,7 @@ def eval_kl(model, graph, pairs: dict, keeps: list[torch.Tensor], bs: int,
         acts = node_outputs(model, graph, pairs["corrupt_ids"][sl].to(dev))
         lp = clean_logp[sl].to(dev)
         for i, keep in enumerate(keeps):
-            out[i, sl] = kl_2tok(patched_forward(model, graph, clean, acts, keep), lp).cpu()
+            out[i, sl] = kl_2tok(patched_forward(model, graph, clean, acts, keep, last_n=2), lp).cpu()
         del acts
     return out
 
@@ -611,8 +611,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                  "task/metric/probe outputs to their own dir (e.g. results_klword)")
     if a.task in ("symbol", "translate") and not a.tag.startswith("elicit"):
         ap.error(f"--task {a.task} is for the elicit route only (owner, 2026-10-08)")
-    if "evaluate" in a.stage and a.task != "word":
-        ap.error("evaluate runs on the word task only (copy task + tests are defined there)")
+    if "evaluate" in a.stage and not (
+        a.task == "word" or (a.task == "symbol" and a.tag == "elicit_parent")
+    ):
+        ap.error("evaluate runs on the word task (or symbol for elicit_parent) only")
     return a
 
 

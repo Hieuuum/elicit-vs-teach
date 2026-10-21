@@ -16,10 +16,26 @@ edge u -> r means replacing u's contribution to r's input:
 
 Inputs are unpadded equal-length (B, T) batches; there is no attention mask
 other than the causal one.
+
+On/off masks (``keep`` bool, or float with every valid entry in {0, 1}, and not
+requiring grad) take a sparse path in ``patched_forward``. Per receiver group
+(a layer's q/k/v receivers, its ``m.in``, or ``logits``; read prefix u < n) the
+group's base input is ``resid`` (mostly-kept masks) or the all-corrupt sum
+``C_n = sum_{u<n} corrupt_u`` (= resid + S_n, mostly-patched masks), and only the
+exception edges are added as ``coef[u, r] * D_u`` with D_u = corrupt_u - own_u
+(coef = +1 on base resid, -1 on base C_n). Receivers with no exceptions share the
+base input: it is layernormed and projected once with the ordinary batched q/k/v
+matmuls; per-receiver inputs are built only for receivers with exceptions. A group
+whose exceptions exceed ``_DENSE_FRAC`` of its read region uses the dense recipe
+(base resid, every receiver, the whole prefix). Fractional or ``requires_grad``
+masks keep the original dense path. Setting the environment variable
+``GEODE_EAPIG_DENSE=1`` (read per call) forces the original dense path for every
+non-all-ones mask, for timing/equivalence checks.
 """
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cached_property
@@ -212,6 +228,126 @@ def build_graph(model) -> EdgeGraph:
 
 
 # ---------------------------------------------------------------------------
+# Sparse plan for on/off masks
+# ---------------------------------------------------------------------------
+
+# A receiver group whose exceptions exceed this fraction of its read region
+# (prefix length x receivers) uses the dense recipe.
+_DENSE_FRAC = 0.25
+
+
+def _force_dense() -> bool:
+    return os.environ.get("GEODE_EAPIG_DENSE", "") == "1"
+
+
+@dataclass(frozen=True)
+class _Group:
+    """Input recipe for one receiver group (a layer's q/k/v, its m.in, or logits).
+
+    Receiver ``cols[j]``'s input is ``base + sum_i coef[i, j] * D[rows[i]]``; every
+    other receiver of the group reads ``base`` itself. ``base`` is ``resid``, or
+    ``C_n = sum_{u<n} corrupt_u`` when ``base_corrupt``.
+    """
+
+    dense: bool
+    base_corrupt: bool
+    rows: Tensor | slice  # D-buffer slots (dense: the whole prefix, slots == u)
+    n_cols: int
+    coef: Tensor  # (n_rows, n_cols)
+    # attention groups only: per q/k/v (positions in cols, head ids, count)
+    parts: tuple[tuple[Tensor, Tensor, int], ...] = ()
+
+
+@dataclass(frozen=True)
+class _Plan:
+    groups: list[_Group]  # attn_0, mlp_0, ..., attn_{L-1}, mlp_{L-1}, logits
+    n_slots: int  # D-buffer rows (upstream nodes some exception reads)
+    # node-chunk start u -> (first slot, local node indices or None for all, count)
+    chunks: dict[int, tuple[int, Tensor | None, int]]
+    need_corrupt_sum: bool
+
+
+def _binary_plan(graph: EdgeGraph, keep: Tensor, device, dtype) -> _Plan | None:
+    """Exception lists per receiver group, or None if ``keep`` is not 0/1 on valid edges."""
+    valid = graph.valid
+    k = keep.detach().to("cpu")
+    kv = k[valid]
+    if not bool(((kv == 0) | (kv == 1)).all()):
+        return None
+    w = valid & (k == 0)  # edges carrying corrupt_u
+    H, KV, U = graph.n_heads, graph.n_kv_heads, graph.n_upstream
+    n_attn = H + 2 * KV
+    specs = []  # (prefix n, r0, r1, is_attn)
+    for layer in range(graph.n_layers):
+        r0 = layer * graph.recv_per_layer
+        specs.append((graph.n_avail_attn(layer), r0, r0 + n_attn, True))
+        rm = graph.mlp_in_index(layer)
+        specs.append((graph.n_avail_mlp(layer), rm, rm + 1, False))
+    specs.append((U, graph.logits_index, graph.logits_index + 1, False))
+
+    needed = torch.zeros(U, dtype=torch.bool)
+    raw = []
+    for n, r0, r1, is_attn in specs:
+        region = w[:n, r0:r1]
+        total, ones = region.numel(), int(region.sum())
+        if min(ones, total - ones) > _DENSE_FRAC * total:
+            needed[:n] = True
+            cols = torch.arange(r1 - r0)
+            raw.append((True, False, None, cols, region, is_attn))
+            continue
+        base_corrupt = 2 * ones > total
+        exc = ~region if base_corrupt else region
+        rows = exc.any(1).nonzero().squeeze(1)
+        cols = exc.any(0).nonzero().squeeze(1)
+        needed[rows] = True
+        raw.append((False, base_corrupt, rows, cols, exc[rows][:, cols], is_attn))
+
+    slot = needed.long().cumsum(0) - 1
+    groups = []
+    for dense, base_corrupt, rows, cols, sub, is_attn in raw:
+        coef = sub.to(dtype)
+        if base_corrupt:
+            coef = -coef
+        parts = ()
+        if is_attn:
+            parts = tuple(
+                (
+                    m.nonzero().squeeze(1).to(device),
+                    (cols[m] - off).to(device),
+                    int(m.sum()),
+                )
+                for off, cnt in ((0, H), (H, KV), (H + KV, KV))
+                for m in [(cols >= off) & (cols < off + cnt)]
+            )
+        groups.append(
+            _Group(
+                dense=dense,
+                base_corrupt=base_corrupt,
+                rows=slice(0, sub.shape[0]) if dense else slot[rows].to(device),
+                n_cols=len(cols),
+                coef=coef.to(device),
+                parts=parts,
+            )
+        )
+
+    chunks: dict[int, tuple[int, Tensor | None, int]] = {}
+    starts = [(0, 1)]
+    for layer in range(graph.n_layers):
+        starts += [(graph.head_index(layer, 0), H), (graph.mlp_index(layer), 1)]
+    for s, c in starts:
+        sel = needed[s : s + c].nonzero().squeeze(1)
+        if len(sel):
+            local = None if len(sel) == c else sel.to(device)
+            chunks[s] = (int(slot[s + sel[0]]), local, len(sel))
+    return _Plan(
+        groups=groups,
+        n_slots=int(needed.sum()),
+        chunks=chunks,
+        need_corrupt_sum=any(g.base_corrupt for g in groups),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Forward pass with per-receiver inputs
 # ---------------------------------------------------------------------------
 
@@ -224,25 +360,38 @@ def _run(
     keep: Tensor | None,
     record_nodes: bool = False,
     collect_inputs: bool = False,
+    last_n: int | None = None,
+    plan: _Plan | None = None,
 ) -> tuple[Tensor, list[Tensor], list[Tensor]]:
     """Core forward from input embeddings (B, T, d).
 
     Returns (logits, node outputs as chunks [(B,T,c,d)...] if record_nodes,
     receiver inputs [attn (B,T,H+2KV,d), mlp (B,T,d)] per layer + logits
-    input (B,T,d) if collect_inputs).
+    input (B,T,d) if collect_inputs). ``keep`` selects the dense patched path,
+    ``plan`` (from ``_binary_plan``, with ``keep=None``) the sparse one. Logits
+    cover the last ``last_n`` positions only when given.
     """
     inner = model.model
     B, T, d = embeds.shape
     H, KV, L = graph.n_heads, graph.n_kv_heads, graph.n_layers
     n_attn = H + 2 * KV
     patched = keep is not None
-    if patched:
+    sparse = plan is not None
+    if patched or sparse:
         assert corrupt_acts is not None
-        assert keep.shape == (graph.n_upstream, graph.n_receivers), keep.shape
         assert corrupt_acts.dim() == 4 and corrupt_acts.shape[2:] == (graph.n_upstream, d), (
             corrupt_acts.shape
         )
+    if patched:
+        assert not sparse
+        assert keep.shape == (graph.n_upstream, graph.n_receivers), keep.shape
         w = 1.0 - keep.to(embeds.dtype)  # (U, R): weight on (corrupt - own)
+    if sparse:
+        assert not collect_inputs
+        d_buf = embeds.new_empty(plan.n_slots, B, T, d)  # D rows by slot, (slot, B, T, d)
+    csum: Tensor | None = None  # sparse: C_n = sum of corrupt_u over computed nodes
+    if last_n is not None:
+        assert last_n >= 1, last_n
 
     position_ids = torch.arange(T, device=embeds.device).unsqueeze(0).expand(B, T)
     cos, sin = inner.rotary_emb(embeds, position_ids)
@@ -269,24 +418,69 @@ def _run(
             total = term if total is None else total + term
         return total
 
+    def store(start: int, own: Tensor) -> None:
+        """Sparse: add node chunk [start, start+c) to C_n and its needed D rows to d_buf."""
+        nonlocal csum
+        cor = corrupt_acts[:, :, start : start + own.shape[2]]
+        if plan.need_corrupt_sum:
+            s = cor.sum(2)
+            csum = s if csum is None else csum + s
+        spec = plan.chunks.get(start)
+        if spec is None:
+            return
+        a, local, cnt = spec
+        if local is not None:
+            cor, own = cor[:, :, local], own[:, :, local]
+        torch.sub(cor, own, out=d_buf[a : a + cnt].permute(1, 2, 0, 3))
+
+    def group_base(g: _Group, t0: int = 0) -> Tensor:
+        return csum.expand(B, T, d)[:, t0:] if g.base_corrupt else resid[:, t0:]
+
+    def group_delta(g: _Group, t0: int = 0) -> Tensor:
+        """(B, T - t0, n_cols, d): sum_i coef[i, j] D[rows[i]] at positions >= t0."""
+        buf = d_buf if t0 == 0 else d_buf[:, :, t0:]
+        return torch.einsum("ubtd,uc->btcd", buf[g.rows], g.coef)
+
+    if sparse:
+        store(0, embeds.unsqueeze(2))
+
     for layer_idx, layer in enumerate(inner.layers[:L]):
         attn = layer.self_attn
         dh = attn.head_dim
         base = layer_idx * graph.recv_per_layer
 
         # ---- attention receivers: one input per q/k/v head ----
-        x = resid.unsqueeze(2).expand(B, T, n_attn, d)
-        if patched:
-            x = x + patch_delta(graph.n_avail_attn(layer_idx), slice(base, base + n_attn))
-        if collect_inputs:
-            inputs.append(x)
-        xn = layer.input_layernorm(x)
-        wq = attn.q_proj.weight.view(H, dh, d)
-        wk = attn.k_proj.weight.view(KV, dh, d)
-        wv = attn.v_proj.weight.view(KV, dh, d)
-        q = torch.einsum("bthd,hed->bhte", xn[:, :, :H], wq)
-        k = torch.einsum("bthd,hed->bhte", xn[:, :, H : H + KV], wk)
-        v = torch.einsum("bthd,hed->bhte", xn[:, :, H + KV :], wv)
+        if sparse:
+            g = plan.groups[2 * layer_idx]
+            xs = group_base(g)
+            xen = layer.input_layernorm(xs.unsqueeze(2) + group_delta(g)) if g.n_cols else None
+            xsn = layer.input_layernorm(xs) if g.n_cols < n_attn else None
+            qkv = []
+            for proj, cnt, (pos, heads, n_e) in zip(
+                (attn.q_proj, attn.k_proj, attn.v_proj), (H, KV, KV), g.parts
+            ):
+                if n_e < cnt:  # shared input for receivers without exceptions
+                    y = proj(xsn).view(B, T, cnt, dh)
+                else:
+                    y = xen.new_empty(B, T, cnt, dh)
+                if n_e:
+                    wx = proj.weight.view(cnt, dh, d)[heads]
+                    y[:, :, heads] = torch.einsum("btnd,ned->btne", xen[:, :, pos], wx)
+                qkv.append(y.transpose(1, 2))
+            q, k, v = qkv
+        else:
+            x = resid.unsqueeze(2).expand(B, T, n_attn, d)
+            if patched:
+                x = x + patch_delta(graph.n_avail_attn(layer_idx), slice(base, base + n_attn))
+            if collect_inputs:
+                inputs.append(x)
+            xn = layer.input_layernorm(x)
+            wq = attn.q_proj.weight.view(H, dh, d)
+            wk = attn.k_proj.weight.view(KV, dh, d)
+            wv = attn.v_proj.weight.view(KV, dh, d)
+            q = torch.einsum("bthd,hed->bhte", xn[:, :, :H], wq)
+            k = torch.einsum("bthd,hed->bhte", xn[:, :, H : H + KV], wk)
+            v = torch.einsum("bthd,hed->bhte", xn[:, :, H + KV :], wv)
         q, k = apply_rotary_pos_emb(q, k, cos, sin)
         groups = H // KV
         k = k.repeat_interleave(groups, dim=1)
@@ -303,10 +497,17 @@ def _run(
         if patched:
             start = graph.head_index(layer_idx, 0)
             d_chunks.append((start, corrupt_acts[:, :, start : start + H] - heads))
+        if sparse:
+            store(graph.head_index(layer_idx, 0), heads)
 
         # ---- MLP receiver ----
         r_mlp = graph.mlp_in_index(layer_idx)
-        if patched:
+        if sparse:
+            g = plan.groups[2 * layer_idx + 1]
+            xm = group_base(g)
+            if g.n_cols:
+                xm = xm + group_delta(g).squeeze(2)
+        elif patched:
             xm = resid + patch_delta(graph.n_avail_mlp(layer_idx), slice(r_mlp, r_mlp + 1)).squeeze(
                 2
             )
@@ -322,14 +523,25 @@ def _run(
         if patched:
             m = graph.mlp_index(layer_idx)
             d_chunks.append((m, corrupt_acts[:, :, m : m + 1] - mlp_out.unsqueeze(2)))
+        if sparse:
+            store(graph.mlp_index(layer_idx), mlp_out.unsqueeze(2))
 
     # ---- logits receiver ----
-    xl = resid
-    if patched:
-        r = graph.logits_index
-        xl = xl + patch_delta(graph.n_upstream, slice(r, r + 1)).squeeze(2)
-    if collect_inputs:
-        inputs.append(xl)
+    if sparse:
+        g = plan.groups[-1]
+        t0 = 0 if last_n is None else max(T - last_n, 0)
+        xl = group_base(g, t0)
+        if g.n_cols:
+            xl = xl + group_delta(g, t0).squeeze(2)
+    else:
+        xl = resid
+        if patched:
+            r = graph.logits_index
+            xl = xl + patch_delta(graph.n_upstream, slice(r, r + 1)).squeeze(2)
+        if collect_inputs:
+            inputs.append(xl)
+        if last_n is not None:
+            xl = xl[:, -last_n:]
     logits = model.lm_head(inner.norm(xl))
     return logits, nodes, inputs
 
@@ -345,19 +557,30 @@ def patched_forward(
     input_ids: Tensor,
     corrupt_acts: Tensor,
     keep: Tensor,
+    *,
+    last_n: int | None = None,
 ) -> Tensor:
     """Logits (B, T, V) of a run where edge u->r carries corrupt_u where keep[u, r] == 0.
 
-    ``keep``: float or bool (U, R); invalid-edge entries are ignored.
+    ``keep``: float or bool (U, R); invalid-edge entries are ignored. 0/1 masks not
+    requiring grad take the sparse path (see module docstring).
     ``corrupt_acts``: broadcastable to (B, T, U, d) -- ``node_outputs`` of a
     counterfactual run, or (1, 1, U, d) / (1, T, U, d) means.
+    ``last_n``: if given, logits (B, last_n, V) for the last ``last_n`` positions only.
     """
     embeds = _embed(model, input_ids)
     fast = not keep.requires_grad and bool((keep[graph.valid.to(keep.device)].float() == 1).all())
     if fast:
-        logits, _, _ = _run(model, graph, embeds, None, None)
+        logits, _, _ = _run(model, graph, embeds, None, None, last_n=last_n)
+        return logits
+    corrupt = corrupt_acts.to(embeds.dtype)
+    plan = None
+    if not keep.requires_grad and not _force_dense():
+        plan = _binary_plan(graph, keep, embeds.device, embeds.dtype)
+    if plan is None:
+        logits, _, _ = _run(model, graph, embeds, corrupt, keep, last_n=last_n)
     else:
-        logits, _, _ = _run(model, graph, embeds, corrupt_acts.to(embeds.dtype), keep)
+        logits, _, _ = _run(model, graph, embeds, corrupt, None, last_n=last_n, plan=plan)
     return logits
 
 

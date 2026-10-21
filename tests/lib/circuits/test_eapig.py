@@ -4,6 +4,7 @@ import pytest
 import torch
 from transformers import LlamaConfig, LlamaForCausalLM
 
+from geode.circuits import eapig
 from geode.circuits.eapig import (
     EdgeGraph,
     answer_logprobs,
@@ -19,14 +20,14 @@ VOCAB = 120
 T = 7
 
 
-def _config(n_layers: int) -> LlamaConfig:
+def _config(n_layers: int, n_heads: int = 4, n_kv_heads: int = 2) -> LlamaConfig:
     return LlamaConfig(
         vocab_size=VOCAB,
         hidden_size=64,
         intermediate_size=128,
         num_hidden_layers=n_layers,
-        num_attention_heads=4,
-        num_key_value_heads=2,
+        num_attention_heads=n_heads,
+        num_key_value_heads=n_kv_heads,
         max_position_embeddings=64,
         tie_word_embeddings=True,
         rope_parameters={
@@ -40,10 +41,10 @@ def _config(n_layers: int) -> LlamaConfig:
     )
 
 
-def _model(n_layers: int, seed: int) -> LlamaForCausalLM:
+def _model(n_layers: int, seed: int, n_heads: int = 4, n_kv_heads: int = 2) -> LlamaForCausalLM:
     with torch.random.fork_rng():
         torch.manual_seed(seed)
-        model = LlamaForCausalLM(_config(n_layers)).float().eval()
+        model = LlamaForCausalLM(_config(n_layers, n_heads, n_kv_heads)).float().eval()
         # Random init is near-zero for weights at std 0.02; scale up so
         # attention patterns and nonlinearities are non-trivial.
         with torch.no_grad():
@@ -629,3 +630,471 @@ def test_v_patched_forward_kl_full_keep_zero_empty_keep_equals_corrupt_run(model
     assert kl_2tok(full, clean_lp).abs().max() < 1e-6
     torch.testing.assert_close(kl_2tok(empty, clean_lp), corrupt_kl, atol=1e-4, rtol=1e-4)
     assert (corrupt_kl > 1e-3).all()
+
+
+# ------------------------------------------------ sparse path for on/off masks
+
+DENSE_ENV = "GEODE_EAPIG_DENSE"
+FRACS = [0.0, "one", 0.001, 0.01, 0.3, 0.5, 0.99, 1.0]
+
+
+@pytest.fixture(scope="module")
+def model_gqa4():
+    """4 query heads per KV group, more layers/edges than model3."""
+    return _model(4, seed=3, n_heads=8, n_kv_heads=2)
+
+
+@pytest.fixture(scope="module")
+def model_mha():
+    return _model(2, seed=4, n_heads=4, n_kv_heads=4)
+
+
+def _mask(g: EdgeGraph, frac, form: str, seed: int, noisy_invalid: bool = True) -> torch.Tensor:
+    """keep_only / remove masks as run.py builds them (circuit = k random edges).
+
+    ``noisy_invalid`` fills invalid entries with random bits (they must be ignored).
+    """
+    gen = torch.Generator().manual_seed(seed)
+    k = 1 if frac == "one" else round(frac * g.n_edges)
+    if frac not in (0, 0.0) and frac != "one":
+        k = max(k, 1)
+    circ = g.mask_from_flat(torch.randperm(g.n_edges, generator=gen)[:k])
+    keep = circ if form == "keep_only" else g.valid & ~circ
+    if noisy_invalid:
+        noise = torch.rand(keep.shape, generator=gen) < 0.5
+        keep = torch.where(g.valid, keep, noise)
+    return keep
+
+
+def _dense(monkeypatch, *args, **kw) -> torch.Tensor:
+    monkeypatch.setenv(DENSE_ENV, "1")
+    try:
+        return patched_forward(*args, **kw)
+    finally:
+        monkeypatch.delenv(DENSE_ENV)
+
+
+def _spy_run(monkeypatch) -> list[bool]:
+    """Record, per patched_forward, whether _run got a sparse plan."""
+    calls: list[bool] = []
+    orig = eapig._run
+
+    def spy(*args, **kw):
+        calls.append(kw.get("plan") is not None)
+        return orig(*args, **kw)
+
+    monkeypatch.setattr(eapig, "_run", spy)
+    return calls
+
+
+def _effective_w(g: EdgeGraph, plan) -> torch.Tensor:
+    """(U, R) bool: edges carrying corrupt_u, rebuilt from the plan alone (valid region)."""
+    slot_to_u = []
+    for s, (a, local, cnt) in sorted(plan.chunks.items()):
+        assert a == len(slot_to_u)
+        us = torch.arange(s, s + cnt) if local is None else s + local.cpu()
+        slot_to_u += us.tolist()
+    assert len(slot_to_u) == plan.n_slots
+    slot_to_u = torch.tensor(slot_to_u, dtype=torch.long)
+    H, KV = g.n_heads, g.n_kv_heads
+    specs = []
+    for layer in range(g.n_layers):
+        r0 = layer * g.recv_per_layer
+        specs += [(g.n_avail_attn(layer), r0, r0 + H + 2 * KV)]
+        specs += [(g.n_avail_mlp(layer), g.mlp_in_index(layer), g.mlp_in_index(layer) + 1)]
+    specs.append((g.n_upstream, g.logits_index, g.logits_index + 1))
+    w = torch.zeros(g.n_upstream, g.n_receivers)
+    assert len(specs) == len(plan.groups)
+    for (n, r0, r1), grp in zip(specs, plan.groups):
+        region = torch.full((n, r1 - r0), 1.0 if grp.base_corrupt else 0.0)
+        if grp.n_cols:
+            if grp.dense:
+                assert not grp.base_corrupt and grp.n_cols == r1 - r0
+                rows = torch.arange(n)
+                cols = torch.arange(r1 - r0)
+            else:
+                rows = slot_to_u[grp.rows.cpu()]
+                cols = _group_cols(g, grp)
+            assert (rows < n).all()  # exceptions only read the valid prefix
+            region[rows[:, None], cols[None, :]] += grp.coef.cpu()
+        w[:n, r0:r1] = region
+    assert ((w == 0) | (w == 1)).all()
+    return w.bool()
+
+
+def _group_cols(g: EdgeGraph, grp) -> torch.Tensor:
+    """Local receiver indices (within the group) that have exceptions, from ``parts``."""
+    if not grp.parts:  # m.in / logits: one receiver
+        assert grp.n_cols == 1
+        return torch.zeros(1, dtype=torch.long)
+    H, KV = g.n_heads, g.n_kv_heads
+    cols = torch.full((grp.n_cols,), -1, dtype=torch.long)
+    for (pos, heads, cnt), off in zip(grp.parts, (0, H, H + KV)):
+        assert len(pos) == len(heads) == cnt
+        cols[pos.cpu()] = heads.cpu() + off
+    assert (cols >= 0).all() and (cols[1:] > cols[:-1]).all()
+    return cols
+
+
+@pytest.mark.parametrize("form", ["keep_only", "remove"])
+@pytest.mark.parametrize("frac", FRACS)
+def test_v_sparse_path_matches_dense(model3, monkeypatch, frac, form):
+    g = build_graph(model3)
+    ids = _ids(0)
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1))
+        for seed in range(3):
+            keep = _mask(g, frac, form, seed)
+            sparse = patched_forward(model3, g, ids, acts, keep)
+            dense = _dense(monkeypatch, model3, g, ids, acts, keep)
+            _close(sparse, dense, rtol=1e-5)
+
+
+@pytest.mark.parametrize("form", ["keep_only", "remove"])
+@pytest.mark.parametrize("frac", ["one", 0.01, 0.05, 0.3, 0.99])
+@pytest.mark.parametrize("fixture", ["model_gqa4", "model_mha"])
+def test_v_sparse_path_matches_dense_other_head_layouts(request, monkeypatch, fixture, frac, form):
+    model = request.getfixturevalue(fixture)
+    g = build_graph(model)
+    ids = _ids(2, b=4)
+    with torch.no_grad():
+        acts = node_outputs(model, g, _ids(3, b=4))
+        for seed in range(2):
+            keep = _mask(g, frac, form, seed)
+            _close(
+                patched_forward(model, g, ids, acts, keep),
+                _dense(monkeypatch, model, g, ids, acts, keep),
+                rtol=1e-5,
+            )
+
+
+@pytest.mark.parametrize("form", ["keep_only", "remove"])
+@pytest.mark.parametrize("frac", [0.0, "one", 0.01, 0.3, 0.99])
+def test_v_sparse_path_matches_dense_mean_ablation_broadcast(model3, monkeypatch, frac, form):
+    g = build_graph(model3)
+    ids = _ids(0)
+    keep = _mask(g, frac, form, seed=11)
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1, b=4))
+        for m in (acts.mean(dim=(0, 1), keepdim=True), acts.mean(dim=0, keepdim=True)):
+            sparse = patched_forward(model3, g, ids, m, keep)
+            assert sparse.shape == (3, T, VOCAB)
+            _close(sparse, _dense(monkeypatch, model3, g, ids, m, keep), rtol=1e-5)
+            full = m.expand(3, T, -1, -1).contiguous()
+            _close(sparse, patched_forward(model3, g, ids, full, keep), rtol=1e-5)
+
+
+@pytest.mark.parametrize("shape", [(1, 1), (1, T), (5, 3)])
+def test_v_sparse_path_matches_dense_odd_batch_shapes(model3, monkeypatch, shape):
+    g = build_graph(model3)
+    b, t = shape
+    ids = _ids(4, b=b, t=t)
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(5, b=b, t=t))
+        for frac, form in [("one", "remove"), (0.01, "keep_only"), (0.5, "remove")]:
+            keep = _mask(g, frac, form, seed=3)
+            _close(
+                patched_forward(model3, g, ids, acts, keep),
+                _dense(monkeypatch, model3, g, ids, acts, keep),
+                rtol=1e-5,
+            )
+
+
+@pytest.mark.parametrize("form", ["keep_only", "remove"])
+def test_v_sparse_whole_layer_with_exceptions(model3, monkeypatch, form):
+    """Every q/k/v receiver of layer 1 has one exception: no shared projection is used."""
+    g = build_graph(model3)
+    n_attn = g.n_heads + 2 * g.n_kv_heads
+    keep = g.valid.clone() if form == "remove" else torch.zeros_like(g.valid)
+    gen = torch.Generator().manual_seed(0)
+    n = g.n_avail_attn(1)
+    for j in range(n_attn):
+        u = int(torch.randint(0, n, (1,), generator=gen))
+        keep[u, g.q_index(1, 0) + j] = form == "keep_only"
+    keep[g.head_index(0, 1), g.logits_index] = form == "keep_only"  # one elsewhere too
+    plan = eapig._binary_plan(g, keep, "cpu", torch.float32)
+    grp = plan.groups[2]
+    assert not grp.dense and grp.n_cols == n_attn
+    assert grp.base_corrupt == (form == "keep_only")
+    assert [c for _, _, c in grp.parts] == [g.n_heads, g.n_kv_heads, g.n_kv_heads]
+    ids = _ids(0)
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1))
+        _close(
+            patched_forward(model3, g, ids, acts, keep),
+            _dense(monkeypatch, model3, g, ids, acts, keep),
+            rtol=1e-5,
+        )
+
+
+@pytest.mark.parametrize("form", ["keep_only", "remove"])
+@pytest.mark.parametrize("kind", ["q", "k", "v"])
+def test_v_sparse_single_receiver_exceptions(model_gqa4, monkeypatch, kind, form):
+    """Exceptions only at one q head or one k/v group (GQA: k/v receivers per KV group)."""
+    g = build_graph(model_gqa4)
+    layer = 2
+    r = {"q": g.q_index(layer, 5), "k": g.k_index(layer, 1), "v": g.v_index(layer, 0)}[kind]
+    keep = g.valid.clone() if form == "remove" else torch.zeros_like(g.valid)
+    for u in (0, g.head_index(0, 3), g.mlp_index(1)):
+        keep[u, r] = form == "keep_only"
+    plan = eapig._binary_plan(g, keep, "cpu", torch.float32)
+    counts = [c for _, _, c in plan.groups[2 * layer].parts]
+    assert counts == {"q": [1, 0, 0], "k": [0, 1, 0], "v": [0, 0, 1]}[kind]
+    assert plan.n_slots == 3
+    assert sum(grp.n_cols for grp in plan.groups) == 1
+    ids = _ids(0)
+    with torch.no_grad():
+        acts = node_outputs(model_gqa4, g, _ids(1))
+        out = patched_forward(model_gqa4, g, ids, acts, keep)
+        _close(out, _dense(monkeypatch, model_gqa4, g, ids, acts, keep), rtol=1e-5)
+        base = patched_forward(model_gqa4, g, ids, acts, keep.clone().fill_(form == "remove"))
+        if form == "remove":
+            # the single receiver's patch matters (keep-only: nothing reads the restored
+            # receiver's node, every other edge carries corrupt_u, so out == all-corrupt)
+            assert (out - base).abs().max() > 1e-4
+        else:
+            torch.testing.assert_close(out, base, rtol=0, atol=1e-5)
+
+
+def test_v_sparse_mixed_group_modes_in_one_mask(model3, monkeypatch):
+    """One mask mixing base-corrupt, base-resid and dense-fallback groups."""
+    g = build_graph(model3)
+    gen = torch.Generator().manual_seed(1)
+    keep = g.valid.clone()
+    n_attn = g.n_heads + 2 * g.n_kv_heads
+    keep[:, g.q_index(0, 0) : g.q_index(0, 0) + n_attn] = False  # layer 0 attn: all patched
+    keep[2, g.q_index(0, 0) + 1] = True  # ... but one exception
+    a1 = slice(g.q_index(1, 0), g.q_index(1, 0) + n_attn)
+    keep[:, a1] = torch.rand(g.n_upstream, n_attn, generator=gen) < 0.5  # layer 1: dense
+    keep[g.head_index(1, 2), g.mlp_in_index(1)] = False  # base-resid exception
+    keep[:, g.mlp_in_index(2)] = False  # m2.in fully patched
+    keep[:, g.logits_index] = torch.rand(g.n_upstream, generator=gen) < 0.9
+    plan = eapig._binary_plan(g, keep, "cpu", torch.float32)
+    a0, m1, a1g, a2 = plan.groups[0], plan.groups[3], plan.groups[2], plan.groups[4]
+    assert a0.base_corrupt and not a0.dense and a0.n_cols == 0  # read prefix is embed only
+    assert a1g.dense and not a1g.base_corrupt
+    assert not m1.base_corrupt and m1.n_cols == 1
+    assert plan.groups[5].base_corrupt and plan.groups[5].n_cols == 0
+    assert not a2.dense and a2.n_cols == 0
+    assert plan.need_corrupt_sum
+    ids = _ids(0)
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1))
+        _close(
+            patched_forward(model3, g, ids, acts, keep),
+            _dense(monkeypatch, model3, g, ids, acts, keep),
+            rtol=1e-5,
+        )
+
+
+@pytest.mark.parametrize("frac", FRACS + [0.05, 0.2])
+def test_v_sparse_plan_reconstructs_mask(model_gqa4, frac):
+    """The plan's base + exceptions rebuild exactly the patched valid edges (any device dtype)."""
+    g = build_graph(model_gqa4)
+    for form in ("keep_only", "remove"):
+        for seed in range(3):
+            keep = _mask(g, frac, form, seed)
+            for k in (keep, keep.float(), keep.to(torch.int64)):
+                plan = eapig._binary_plan(g, k, "cpu", torch.float32)
+                w = _effective_w(g, plan)
+                assert torch.equal(w[g.valid], ~keep[g.valid].bool())
+                assert not w[~g.valid].any()
+
+
+def test_v_sparse_plan_stores_only_needed_nodes(model_gqa4):
+    g = build_graph(model_gqa4)
+    # all corrupt: no exceptions anywhere, no D rows at all
+    plan = eapig._binary_plan(g, torch.zeros_like(g.valid), "cpu", torch.float32)
+    assert plan.n_slots == 0 and not plan.chunks and plan.need_corrupt_sum
+    assert all(grp.base_corrupt and grp.n_cols == 0 for grp in plan.groups)
+    # one removed edge: one D row, one receiver with an exception, no corrupt sum
+    keep = g.valid.clone()
+    keep[g.head_index(1, 4), g.v_index(3, 1)] = False
+    plan = eapig._binary_plan(g, keep, "cpu", torch.float32)
+    assert plan.n_slots == 1 and not plan.need_corrupt_sum
+    assert list(plan.chunks) == [g.head_index(1, 0)]
+    assert sum(grp.n_cols for grp in plan.groups) == 1
+    # at 0.1% (1 edge here) .. 1%, D rows are a small subset of U
+    plan = eapig._binary_plan(g, _mask(g, 0.01, "keep_only", 0), "cpu", torch.float32)
+    assert 0 < plan.n_slots <= round(0.01 * g.n_edges)
+    assert not any(grp.dense for grp in plan.groups)
+    # half the edges: the big groups fall back to dense and store their whole prefix
+    plan = eapig._binary_plan(g, _mask(g, 0.5, "remove", 0), "cpu", torch.float32)
+    assert any(grp.dense for grp in plan.groups) and plan.n_slots == g.n_upstream
+
+
+def test_v_binary_masks_take_sparse_path(model3, monkeypatch):
+    g = build_graph(model3)
+    ids = _ids(0)
+    calls = _spy_run(monkeypatch)
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1))
+        calls.clear()
+        keep = _mask(g, 0.01, "remove", 0)
+        for k in (keep, keep.float(), keep.double()):
+            patched_forward(model3, g, ids, acts, k)
+        # fractional values only on invalid entries are ignored -> still on/off
+        k = keep.float()
+        k[~g.valid] = 0.37
+        patched_forward(model3, g, ids, acts, k)
+        assert calls == [True] * 4
+        monkeypatch.setenv(DENSE_ENV, "1")
+        patched_forward(model3, g, ids, acts, keep)
+        assert calls[-1] is False
+        monkeypatch.delenv(DENSE_ENV)
+        # all-ones keeps the plain-model fast path (no patching, no plan)
+        calls.clear()
+        patched_forward(model3, g, ids, acts, torch.ones_like(g.valid))
+        assert calls == [False]
+
+
+def test_v_invalid_fractional_entries_still_match_dense(model3, monkeypatch):
+    g = build_graph(model3)
+    ids = _ids(0)
+    keep = _mask(g, 0.01, "keep_only", 4).float()
+    keep[~g.valid] = torch.rand(int((~g.valid).sum()), generator=torch.Generator().manual_seed(0))
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1))
+        _close(
+            patched_forward(model3, g, ids, acts, keep),
+            _dense(monkeypatch, model3, g, ids, acts, keep),
+            rtol=1e-5,
+        )
+
+
+def test_v_fractional_keep_takes_dense_path(model3, monkeypatch):
+    g = build_graph(model3)
+    ids = _ids(0)
+    keep = torch.rand(g.n_upstream, g.n_receivers, generator=torch.Generator().manual_seed(2))
+    assert eapig._binary_plan(g, keep, "cpu", torch.float32) is None
+    near = _mask(g, 0.01, "remove", 0).float()
+    near[g.valid.nonzero()[0, 0], g.valid.nonzero()[0, 1]] = 0.5  # one fractional valid entry
+    assert eapig._binary_plan(g, near, "cpu", torch.float32) is None
+    calls = _spy_run(monkeypatch)
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1))
+        calls.clear()
+        out = patched_forward(model3, g, ids, acts, keep)
+        assert calls == [False]
+        torch.testing.assert_close(
+            out, _dense(monkeypatch, model3, g, ids, acts, keep), rtol=0, atol=0
+        )
+
+
+def test_v_requires_grad_keep_takes_dense_path(model3, monkeypatch):
+    """A 0/1 keep that requires grad (gradient masks) never goes sparse; grads unchanged."""
+    g = build_graph(model3)
+    clean, corrupt_ids = _ids(0), _ids(1)
+    with torch.no_grad():
+        corrupt = node_outputs(model3, g, corrupt_ids)
+    calls = _spy_run(monkeypatch)
+
+    def grad_of(env: bool) -> tuple[torch.Tensor, torch.Tensor]:
+        if env:
+            monkeypatch.setenv(DENSE_ENV, "1")
+        keep = _mask(g, 0.3, "remove", 0).float().requires_grad_(True)
+        out = patched_forward(model3, g, clean, corrupt, keep)
+        _metric(out).sum().backward()
+        monkeypatch.delenv(DENSE_ENV, raising=False)
+        return out.detach(), keep.grad
+
+    calls.clear()
+    out_a, grad_a = grad_of(False)
+    out_b, grad_b = grad_of(True)
+    assert calls == [False, False]
+    assert torch.equal(out_a, out_b) and torch.equal(grad_a, grad_b)
+    assert grad_a[g.valid].abs().max() > 1e-3
+
+
+def test_v_eap_ig_scores_unchanged_by_dense_flag(model3, monkeypatch):
+    g = build_graph(model3)
+    clean, corrupt_ids = _ids(0), _ids(1)
+    calls = _spy_run(monkeypatch)
+    calls.clear()
+    a = eap_ig_scores(model3, g, clean, corrupt_ids, _metric, steps=3)
+    assert calls and not any(calls)  # scoring never builds a sparse plan
+    monkeypatch.setenv(DENSE_ENV, "1")
+    b = eap_ig_scores(model3, g, clean, corrupt_ids, _metric, steps=3)
+    assert torch.equal(a, b)
+
+
+@pytest.mark.parametrize("frac", [0.0, "one", 0.01, 0.5, 0.99])
+@pytest.mark.parametrize("form", ["keep_only", "remove"])
+def test_v_float01_keep_equals_bool_keep(model3, frac, form):
+    g = build_graph(model3)
+    ids = _ids(0)
+    keep = _mask(g, frac, form, seed=6)
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1))
+        ref = patched_forward(model3, g, ids, acts, keep)
+        for k in (keep.float(), keep.double(), keep.to(torch.int64)):
+            assert torch.equal(patched_forward(model3, g, ids, acts, k), ref)
+
+
+def _last_n_cases(g):
+    rg = torch.ones(g.n_upstream, g.n_receivers)
+    rg[0, g.q_index(1, 0)] = 0.0
+    return {
+        "all_ones": (torch.ones_like(g.valid), False),
+        "sparse_keep_only": (_mask(g, 0.01, "keep_only", 0), False),
+        "sparse_remove": (_mask(g, 0.01, "remove", 0), False),
+        "sparse_dense_groups": (_mask(g, 0.5, "remove", 0), False),
+        "dense_flag": (_mask(g, 0.01, "remove", 0), True),
+        "fractional": (torch.rand(g.n_upstream, g.n_receivers), False),
+        "requires_grad": (rg.requires_grad_(True), False),
+    }
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "all_ones",
+        "sparse_keep_only",
+        "sparse_remove",
+        "sparse_dense_groups",
+        "dense_flag",
+        "fractional",
+        "requires_grad",
+    ],
+)
+def test_v_last_n_logits_equal_last_rows(model3, monkeypatch, case):
+    g = build_graph(model3)
+    ids = _ids(0)
+    keep, dense = _last_n_cases(g)[case]
+    if dense:
+        monkeypatch.setenv(DENSE_ENV, "1")
+    with torch.no_grad():
+        acts = node_outputs(model3, g, _ids(1))
+        full = patched_forward(model3, g, ids, acts, keep)
+        assert full.shape == (3, T, VOCAB)
+        for n in (1, 2, T - 1, T, T + 3):
+            part = patched_forward(model3, g, ids, acts, keep, last_n=n)
+            assert part.shape == (3, min(n, T), VOCAB)
+            _close(part, full[:, -n:], rtol=1e-6)
+
+
+def test_v_last_n_two_leaves_answer_metrics_unchanged(model3):
+    g = build_graph(model3)
+    clean, corrupt_ids = _ids(0), _ids(1)
+    toks = [torch.arange(3) + o for o in (3, 40, 7, 90)]
+    with torch.no_grad():
+        clean_lp = answer_logprobs(model3(clean).logits)
+        acts = node_outputs(model3, g, corrupt_ids)
+        for keep in (
+            torch.ones_like(g.valid),
+            _mask(g, 0.01, "keep_only", 0),
+            _mask(g, 0.01, "remove", 0),
+        ):
+            full = patched_forward(model3, g, clean, acts, keep)
+            two = patched_forward(model3, g, clean, acts, keep, last_n=2)
+            _close(answer_logprobs(two), answer_logprobs(full), rtol=1e-6)
+            _close(kl_2tok(two, clean_lp), kl_2tok(full, clean_lp), rtol=1e-5)
+            for a, b in zip(logit_diff_2tok(two, *toks), logit_diff_2tok(full, *toks)):
+                _close(a, b, rtol=1e-6)
+
+
+def test_v_last_n_rejects_nonpositive(model3):
+    g = build_graph(model3)
+    with torch.no_grad(), pytest.raises(AssertionError):
+        acts = node_outputs(model3, g, _ids(1))
+        patched_forward(model3, g, _ids(0), acts, _mask(g, 0.01, "remove", 0), last_n=0)
