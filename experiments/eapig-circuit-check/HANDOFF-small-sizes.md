@@ -198,6 +198,17 @@ so results compare with the 2%/5% KL tests.
 Estimated cost: ~4.5 GPU-h on the dense path, ~1.5 h wall on 4× 3090; with the
 shortcut less. Under ~$1.5 including race/idle.
 
+## Step 3b: circuit overlap, final (owner: "don't forget to score circuit overlap")
+
+The step-0 table was computed in chat only; it is not saved in the repo or on HF. As part of
+the run, save it properly:
+- `edge_node.py` (GPU 3 line above) at fracs 0.001 0.002 0.005 0.01 0.02 0.05 for every pair
+  in the step-0 table (ep_sym:ec_word, ep_sym:tc_word, fp_word:tc_word, ep_word:ec_word,
+  ep_sym:ec_sym, ec_sym:ec_word, ec_word:tc_word): Jaccard plus the 1000-draw random-set
+  null, and the split-half ceilings. Check that the Jaccards equal the step-0 table.
+- Push to HF `results/eapig_kl_tests_small/overlap/`. PLAN.md results block: overlap
+  vs ceiling vs null next to the test results at each size.
+
 ## Step 4: wrap-up
 - Check the box regularly while running (log tails, not poll loops).
 - Push to HF `mhieuuu/geode-internals:results/eapig_kl_tests_small/` (+ functional, edge
