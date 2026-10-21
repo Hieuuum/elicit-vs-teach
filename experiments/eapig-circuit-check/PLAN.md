@@ -383,7 +383,15 @@ owner go. Side fact: `elicit_child` does solve the single-sequence form (0.71),
 
 ## Next steps
 
-[ ]
+- **Small sizes (0.1/0.2/0.5/1%), addition only: runbook `HANDOFF-small-sizes.md`.**
+  Overlap DONE on CPU (elicit reuse 0.72–0.77 at ~85–90% of the split-half ceiling at
+  every small size; teach/control 0.30–0.43). Planned, NOT built, owner go needed:
+  (1) patched-forward speedup in `geode/circuits/eapig.py` (sparse exceptions /
+  running total for near-empty and near-full on/off masks, shared input for
+  no-exception receivers, last-2-position logits) with property tests;
+  (2) allow `evaluate --task symbol` for `elicit_parent`; (3) KL circuit tests on a
+  4× 3090 box (elicit_parent op 0.1–5%, both children + fmt_parent word 0.1–1%,
+  functional reuse, missing edge_node nulls).
 
 ## Log
 
@@ -422,3 +430,4 @@ owner go. Side fact: `elicit_child` does solve the single-sequence form (0.71),
 - 2026-10-08: owner. Symbol form is ELICIT ROUTE ONLY; the teach route never trained on symbols, so it stays on NL add/sub (the default for `fmt_parent`). The `elicit_parent` plan is pending the owner: no `elicit_parent` symbol job until decided. Step S now measures `elicit_child` (symbol add 50k + NL add/sub 100k), `fmt_parent` and `teach_child` (NL add/sub 100k each), with strict and |a−b|-lenient EM for NL subtraction. The handoff's box uses one shared GPU job queue.
 - 2026-10-08: step S done (box 54866627, ~$0.45; results `results/eapig_perf_eval/`). Wave B launched with symbol off, then stopped by the owner at 15:44 for a new order: edge/node change for each metric first, then the KL circuit tests at 2%, then 5% (LD tests at 2/5% reused from `results_large/`, same frozen code). Owner then asked for `elicit_parent` on the op form vs `elicit_child` on word, and the functional test; both run (`functional_reuse.py`). Symbol subtraction dropped: its prompts are not token-prefixes. Everything pushed and verified from the laptop (`missing: none`), box destroyed; session spend ~$1.56. 0.1/0.2/1% KL tests NOT run (owner's go needed). Results block above.
 - 2026-10-21: translate-then-solve step 0 failed (results block above). Owner: Path B skipped. Signed add/sub over all answer tokens considered, then dropped after a literature check (MIB, Nikankin et al. drop negative and multi-token answers; no standard for scoring the sign). Owner: keep the original 4x4 addition only. Its KL already covers every answer token (4x4 sums are always 2 tokens), so the 2026-10-08 op-form result is the reference and nothing new runs.
+- 2026-10-21: owner asked for addition at smaller sizes (overlap + circuit tests). Overlap at 0.1/0.2/0.5/1% computed on CPU from the HF `results/eapig_kl_symbol/` scores (table in `HANDOFF-small-sizes.md`). Why tests are slow: ~304 patched passes per size per child (3 tests × 1 real + 100 random, + copy), 3–7 s each. Speedup planned, not built (owner: plan first); owner OK'd a 4-GPU box. Found: `--parent-tag elicit_parent` would load the word-form parent, so elicit_child runs without it and the op-form check comes from `functional_reuse.py`.
