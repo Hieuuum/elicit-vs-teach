@@ -141,7 +141,7 @@ perf() {  # perf <tag> <surface> <out> [extra]: skip if the surface is already i
 perf elicit_parent rewrite "$PERF"
 perf elicit_parent symbol "$PERF"
 [[ -f data/pairs_translate_seed0.pt ]] || run "data translate pairs" \
-  python3 data.py translate --exact-idx "$PERF/rewrite_exact_idx.json" --tokenizer "$PAR"
+  python3 data.py translate --exact-idx "$PERF/rewrite_exact_idx.json"
 perf elicit_parent translate "$PERF" --pairs-m
 cp data/pairs_translate_seed0.pt data/pairs_translate_word_seed0.pt "$OUT/"
 [[ -f $TR/elicit_parent/sanity.json ]] || run "sanity elicit_parent translate/kl" \
