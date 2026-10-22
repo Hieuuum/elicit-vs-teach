@@ -377,21 +377,105 @@ path B (two-pass rewrite circuit, needs `kl_2tok` generalised in geode) only on
 owner go. Side fact: `elicit_child` does solve the single-sequence form (0.71),
 `teach_child` does not (0.00).
 
+### 2026-10-21 addition at small sizes (0.1–5%), KL tests + overlap + functional reuse
+
+Box 57127284 (4× RTX 3090, ~$2.8/h), code 3f3c6b9, 25 min wall for the jobs. HF
+`results/eapig_kl_tests_small/` (16 files: `<tag>/evaluate.json`, `functional/`,
+`overlap/edge_node.json`, `box_check/`, `run_log.txt`). Runbook `HANDOFF-small-sizes.md`.
+Same KL scores as the 2026-10-08 block (no rescoring); circuit = top-k by signed mean,
+k = 196 / 392 / 979 / 1,959 / 3,917 / 9,793. `elicit_parent` on op form (`a + b = `),
+the others on NL. Every patched pass used the new sparse path. The box check matched the
+dense path to 3.8e-6 nats (mean KL; tolerance 1e-4) at ×3.7 speed (0.1%) and ×2.0 (5%).
+Three read-only code reviews during the run found no bug.
+
+**Headline: the small sizes repeat the 2–5% result.** The elicit child's circuit is mostly
+the op-form parent's circuit at every size down to 0.1%. The teach control stays at about
+a third.
+
+Overlap (signed edge Jaccard; equals the step-0 table in the handoff at every size;
+chance = 95th pct of 1,000 random same-size pairs):
+
+| pair | 0.1% | 0.2% | 0.5% | 1% | 2% | 5% |
+|---|---|---|---|---|---|---|
+| ep op → ec word (elicit) | **0.766** | **0.727** | **0.718** | **0.731** | 0.661 | 0.497 |
+| ep op → tc word (control) | 0.395 | 0.320 | 0.307 | 0.343 | 0.367 | 0.270 |
+| fp word → tc word (teach route) | 0.425 | 0.338 | 0.312 | 0.308 | 0.299 | 0.252 |
+| ep word → ec word | 0.420 | 0.315 | 0.323 | 0.318 | 0.310 | 0.267 |
+| ec op → ec word | 0.840 | 0.802 | 0.820 | 0.851 | 0.787 | 0.637 |
+| ec word → tc word | 0.436 | 0.331 | 0.319 | 0.351 | 0.377 | 0.284 |
+| split-half ceiling ep op / ec word | 0.885 / 0.903 | 0.862 / 0.853 | 0.833 / 0.833 | 0.806 / 0.819 | 0.707 / 0.747 | 0.515 / 0.569 |
+| split-half ceiling fp word / tc word | 0.840 / 0.840 | 0.798 / 0.766 | 0.758 / 0.769 | 0.720 / 0.754 | 0.679 / 0.675 | 0.617 / 0.530 |
+| chance | 0.003 | 0.003 | 0.005 | 0.007 | 0.012 | 0.027 |
+
+- Elicit overlap / parent ceiling = 0.84–0.91 at 0.1–1% (0.93–0.97 at 2–5%). The control
+  is 0.37–0.52 of the same ceiling, and the teach route 0.41–0.51 of `fmt_parent`'s.
+- Edges do not change more than nodes beyond the N3 null for any route pair at any
+  size (`edges_more_than_nodes_n3` false everywhere).
+
+Functional reuse (child on NL val pairs with only that circuit live; share = f / child's
+own f; 20 random sets give f ≈ 0, max 2e-7):
+
+| child, circuit | 0.1% | 0.2% | 0.5% | 1% | 2% † | 5% † |
+|---|---|---|---|---|---|---|
+| `elicit_child` own f | 0.007 | 0.091 | 0.392 | 0.782 | | |
+| elicit: ep op share | (1.26) | **0.92** | **0.86** | **0.89** | 0.96 | 0.98 |
+| elicit: ep word share | (0.58) | 0.55 | 0.49 | 0.30 | 0.28 | |
+| `teach_child` own f | 0.003 | 0.079 | 0.314 | 0.516 | | |
+| teach: ep op share (control) | (0.48) | 0.25 | 0.32 | 0.42 | 0.53 | 0.61 |
+| teach: fp word share | (1.31) | 0.25 | 0.24 | 0.29 | 0.31 | |
+
+† From the 2026-10-08 block. At 0.1%, own f ≤ 0.007, so shares there are ratios of noise
+(bracketed); read from 0.2% up.
+
+**KL circuit tests.** f (tests passed of 5):
+
+| model (task) | 0.1% | 0.2% | 0.5% | 1% | 2% | 5% |
+|---|---|---|---|---|---|---|
+| `elicit_parent` (op) | 0.015 (2) | 0.094 (2) | 0.369 (2) | 0.722 (2) | 0.891 (2) | 0.939 (3) |
+| `elicit_child` (NL) | 0.007 (2) | 0.091 (2) | 0.392 (2) | 0.782 (2) | 0.920 (3) † | 0.971 (3) † |
+| `teach_child` (NL) | 0.003 (2) | 0.079 (2) | 0.314 (2) | 0.516 (2) | 0.715 (2) † | 0.743 (2) † |
+| `fmt_parent` (NL) | gate fail | | | | | |
+
+† 2026-10-08 runs (`results_kltests_{02,05}`), same frozen code.
+
+- **No circuit passes all five tests at any size.** Sufficiency and partial necessity pass
+  everywhere. Random circuits score f ≈ 0 by construction (a random edge set almost never
+  holds a full embed → logits path), so these two passes say little on their own.
+- **Equivalence** (leftover KL within 10% of KL(full‖∅)): fails at every size up to 1% for
+  every model. `elicit_parent` op passes at 5% (2.05 vs bound 3.34 nats) and just misses
+  at 2% (3.62). This is the first test of the op-form parent circuit; the
+  2026-10-08 `elicit_parent` tests ran on the NL task (KL(full‖∅) 19.8 nats there,
+  33.4 on op).
+- **Consistency fails everywhere.** Coverage is below the 0.70 bar and falls with size:
+  `elicit_child` 0.50 → 0.32, `teach_child` 0.33 → 0.23, `elicit_parent` 0.44 → 0.16.
+- **Specificity fails everywhere.** Removing the circuit floors both addition and copy
+  (relative damage ≈ 1.00 on both). This matches 2–5%: the top edges are shared machinery.
+- **Real patching vs EAP-IG score** (top 20 edges): Spearman 0.80 `elicit_child`, 0.47
+  `teach_child`.
+- `fmt_parent` fails the KL gate (KL(full‖∅) 0.005 nats), so only sufficiency and necessity
+  were computed. Its f values (−0.17 to 0.38) are noise.
+
+Caveats:
+- Random baselines are uniform over all edges, not type-matched, and near zero by
+  construction, so "beats random" carries little information. The f values, equivalence,
+  overlap vs ceiling and the functional shares carry the result.
+- `elicit_parent`'s specificity compares op-form addition with the NL copy task (the copy
+  set is NL for every model; parent copy KL(full‖∅) is only 2.3 nats). Its specificity
+  result is not comparable to the children's.
+- `elicit_child`'s `evaluate.json` has no `parent_in_child` section; `teach_child`'s does
+  (fp word). Running it for `elicit_child` would load the NL parent. Compare the two arms
+  through `functional_reuse.py`; `compare.py` plot 5 would show only the teach route.
+- Single training seed per child. The accuracy gap stands (NL EM 0.986 vs 0.403), so
+  child-vs-child f is not a matched comparison.
+
 ## Global takeaways
 
 [ ]
 
 ## Next steps
 
-- **Small sizes (0.1/0.2/0.5/1%), addition only: runbook `HANDOFF-small-sizes.md`.**
-  Overlap DONE on CPU (elicit reuse 0.72–0.77 at ~85–90% of the split-half ceiling at
-  every small size; teach/control 0.30–0.43). Planned, NOT built, owner go needed:
-  (1) patched-forward speedup in `geode/circuits/eapig.py` (sparse exceptions /
-  running total for near-empty and near-full on/off masks, shared input for
-  no-exception receivers, last-2-position logits) with property tests;
-  (2) allow `evaluate --task symbol` for `elicit_parent`; (3) KL circuit tests on a
-  4× 3090 box (elicit_parent op 0.1–5%, both children + fmt_parent word 0.1–1%,
-  functional reuse, missing edge_node nulls).
+- Small sizes (0.1–5%), addition only: DONE 2026-10-21 (results block above). Nothing
+  queued.
 
 ## Log
 
@@ -432,3 +516,4 @@ owner go. Side fact: `elicit_child` does solve the single-sequence form (0.71),
 - 2026-10-21: translate-then-solve step 0 failed (results block above). Owner: Path B skipped. Signed add/sub over all answer tokens considered, then dropped after a literature check (MIB, Nikankin et al. drop negative and multi-token answers; no standard for scoring the sign). Owner: keep the original 4x4 addition only. Its KL already covers every answer token (4x4 sums are always 2 tokens), so the 2026-10-08 op-form result is the reference and nothing new runs.
 - 2026-10-21: owner asked for addition at smaller sizes (overlap + circuit tests). Overlap at 0.1/0.2/0.5/1% computed on CPU from the HF `results/eapig_kl_symbol/` scores (table in `HANDOFF-small-sizes.md`). Why tests are slow: ~304 patched passes per size per child (3 tests × 1 real + 100 random, + copy), 3–7 s each. Speedup planned, not built (owner: plan first); owner OK'd a 4-GPU box. Found: `--parent-tag elicit_parent` would load the word-form parent, so elicit_child runs without it and the op-form check comes from `functional_reuse.py`.
 - 2026-10-21: small sizes BUILT and LAUNCHED (3f3c6b9). Patched-forward speedup in `geode/circuits/eapig.py` (sparse exceptions for on/off masks, shared input for receivers without exceptions, `last_n` logits; old path via `GEODE_EAPIG_DENSE=1`), `evaluate --task symbol` for `elicit_parent`, `run_box_small.sh` + `box_check_speed.py`. Box check on the real 1B (RTX 3090, 256 pairs): 0.92 vs 3.40 s/mask at 0.1% (×3.7), ~1.75 vs ~3.6 s/mask at 5% (×2.0), max mean |ΔKL| 3.8e-6 nats → every job used the new path. Box 57127284 (4× RTX 3090); edge_node overlap + nulls done in 49 s; tests running. Results go to HF `results/eapig_kl_tests_small/`; results block pending.
+- 2026-10-21: small sizes DONE. All jobs exit 0 in ~25 min (elicit_parent 832 s, children 1,210–1,233 s, fmt_parent 438 s + functional 111/116 s); box pushed 16 files to HF `results/eapig_kl_tests_small/`, laptop watchdog verified them and destroyed box 57127284 (0 instances on team-tj). Overlap Jaccards equal the step-0 table at every size. Read-only reviews (sparse forward vs dense: 132 tests + 696-case CPU stress, worst |ΔKL| 1.3e-6; `last_n=2` checked on the real data files; live run + watchdog) found no bug. Results block above.
