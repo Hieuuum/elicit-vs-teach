@@ -468,6 +468,95 @@ Caveats:
 - Single training seed per child. The accuracy gap stands (NL EM 0.986 vs 0.403), so
   child-vs-child f is not a matched comparison.
 
+### 2026-10-22 edge-level CMAP, child → parent, 0.1–5%
+
+Box 57225900 (2× RTX 3090, ~$1/h; race of 3), code 47a6305, 12 per-size jobs on a queue
+over both GPUs (GPU util 86–100%), ~13 min wall per pass. Total spend ~$1.5. HF
+`results/eapig_cmap/` (`{elicit,teach}.json/.npz`, `shards/`, `summary.md`, `run_log.txt`).
+Runbook `HANDOFF-cmap.md`; script `cmap.py`, figure `plot_cmap.py` →
+`figures/cmap_recovery.png`. Method after Prakash et al. 2024 (arXiv 2402.14811), at the
+edge level: the parent runs on the 256 NL val prompts with every edge in a mask carrying
+the CHILD's node output; everything else is the parent. recovery = 1 − KL(child‖patched) /
+KL(child‖parent) (0 = parent, 1 = child); acc = two-token teacher-forced accuracy.
+Circuits = the 2026-10-08 KL scores (top-k by signed mean), k = 196 … 9,793.
+
+Runtime identity checks pass on the real models (max 5e-5 nats): all-kept = parent,
+child self-patch = child, sparse = dense, all embed edges patched = parent on the child's
+embeddings, all logits edges patched = all edges patched. 71 CPU property tests. A
+read-only math review found no bug.
+
+**Headline: on the elicit route, the parent can use what the child's circuit edges carry;
+on the teach route it cannot, and they push it away from the child.** The transferable
+change sits on the op-form edges the child reuses from the parent.
+
+Baselines: elicit KL(child‖parent) 23.8 nats, acc parent 0.00 / child 0.95; teach 16.3
+nats, acc 0.00 / 0.14. All edges patched: elicit 1.000 (acc 0.96), teach 0.838 (acc 0.10).
+
+Recovery (acc of the patched parent in brackets); (b) = child circuit minus edges into
+logits, the main read:
+
+| route, mask | 0.1% | 0.2% | 0.5% | 1% | 2% | 5% |
+|---|---|---|---|---|---|---|
+| elicit (a) child circuit | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| **elicit (b) minus logits** | **0.768** (0.32) | **0.810** (0.45) | **0.903** (0.60) | **0.917** (0.64) | **0.954** (0.75) | **0.975** (0.86) |
+| elicit (d) op-form parent circuit, minus logits | 0.702 (0.27) | 0.841 (0.48) | 0.878 (0.55) | 0.917 (0.66) | 0.958 (0.77) | 0.971 (0.84) |
+| elicit (b) ∩ (d) | 0.710 (0.27) | 0.804 (0.41) | 0.869 (0.55) | 0.896 (0.60) | 0.943 (0.72) | 0.966 (0.79) |
+| elicit (b) minus (d) | 0.115 (0) | 0.029 (0) | 0.111 (0) | 0.115 (0) | 0.131 (0) | 0.175 (0) |
+| elicit null: same strata, outside (b), p95 | 0.025 | 0.128 | 0.227 | 0.239 | 0.236 | 0.210 |
+| teach (a) child circuit | 0.843 | 0.837 | 0.833 | 0.836 | 0.837 | 0.838 |
+| **teach (b) minus logits** | **−0.830** (0) | **−0.896** (0) | **−1.060** (0) | **−1.140** (0) | **−1.187** (0) | **−1.116** (0) |
+| teach null: same strata, outside (b), p95 | 0.060 | 0.057 | 0.045 | 0.125 | 0.172 | 0.183 |
+| uniform random minus logits, p95 (elicit / teach) | 0.057 / 0.007 | 0.015 / 0.003 | 0.080 / 0.010 | 0.135 / 0.024 | 0.292 / 0.041 | 0.268 / 0.084 |
+
+Sizes: (b) = k minus 6–221 logits edges; (b) ∩ (d) = 162 / 319 / 790 / 1,589 / 2,975 /
+6,308 edges, (b) minus (d) = 26 / 62 / 161 / 295 / 781 / 3,264. 95% bootstrap CIs over
+prompts are ±0.01–0.05 on every (b)/(d) value (in `summary.md`).
+
+Read against the pre-registered branches (HANDOFF-cmap.md):
+- **Elicit (b) is far above its random bands and above teach (b) at every size** ⇒
+  consistent with elicitation: the change sits on the child's circuit edges and the
+  parent's downstream weights can turn it into the child's answer (patched-parent acc
+  0.32–0.86 from 0.00).
+- **(a) is the logits shortcut, as feared**: 1.000 / 0.84 on both routes, equal to the
+  all-edges ceiling. Even uniform random sets with logits edges reach 0.95 / 0.74 at 5%.
+  Read only (b).
+- **Teach (b) is not at the random level but far below it.** The patched parent moves
+  AWAY from the child (KL grows 1.8–2.2× over the unpatched parent; log p(answer)
+  −33 to −38 vs −19 unpatched), while same-strata edges outside the circuit move it
+  slightly toward the child (0.04–0.18). Stronger than "the format parent cannot use the
+  child's signals": its downstream turns them into something else.
+- **(d) ≈ (b), and the split is not circular**: (b) ∩ (d) carries nearly all of (b)
+  (0.71–0.97) with 0.66–0.86 of its edges, while (b) minus (d) stays at 0.03–0.18 with acc
+  0, at the null's level (p95 0.03–0.24), even at 5% where it has 3,264 edges (more than (b) ∩ (d) at
+  1%, which recovers 0.90).
+
+Null design (found during the run): the first type-matched null (same count per
+(upstream kind+layer, receiver kind+layer) stratum, drawn from the whole stratum) shared
+40–71% of its edges with (b), because the circuit fills many small strata (e.g. `m_i →
+m_j.in` is one edge). It scored ≈ (b) on both routes (elicit 0.77–0.98, teach −0.77 to
+−1.25), so it is not a null and is not quoted above. A disjoint version (same strata,
+only edges outside (b)) was added and the whole run repeated (same numbers for every
+other mask, max |Δ| = 0.0). It is smaller than (b) where strata are fully taken (71–7,264
+edges vs 188–9,595), but size does not explain the gap: elicit (b) at 0.2% (381 edges)
+recovers 0.81 vs ≤ 0.24 for any disjoint set up to 6,030 edges. That the overlapping
+typed null reproduces (b) hints the effect is carried by the small-strata edges (MLP→MLP,
+embed→*, layer-to-layer head groups) the circuit takes whole. Not tested.
+
+Caveats:
+- Single seed and one training run per child. The teach child is weak (acc 0.14), so its
+  KL(child‖parent) mixes what it learned with what it got wrong.
+- The circuits are EAP-IG scores on operand-swap counterfactuals, so they hold
+  operand-sensitive edges. A constant fine-tuning change (template/routing) is invisible
+  to the selection; low recovery means "not on the operand circuit".
+- (b) still lets the child's signals into the last layers (e.g. `a14.h* → m15.in`); the
+  parent's downstream share of the work is then small at the top of the stack. The
+  receiving layer of (b) is ≥ 12 for only 10–26% of its edges (both routes).
+- At 0.1% the child's own circuit has f ≤ 0.007 (small-sizes block), yet (b) recovers
+  0.77; CMAP and faithfulness measure different things (child signals in the parent vs
+  the child's own computation from corrupted inputs).
+- Tied embeddings: the elicit "all edges" recovery is 1.000, so the final norm + unembedding
+  barely moved in fine-tuning; for teach, 0.838.
+
 ## Global takeaways
 
 [ ]
@@ -476,6 +565,9 @@ Caveats:
 
 - Small sizes (0.1–5%), addition only: DONE 2026-10-21 (results block above). Nothing
   queued.
+- Edge-level CMAP child → parent 0.1–5%: DONE 2026-10-22 (results block above). Possible
+  follow-up, not queued: patch only the small-strata edges (b) takes whole, to test the hint
+  that they carry the effect.
 
 ## Log
 
@@ -517,3 +609,4 @@ Caveats:
 - 2026-10-21: owner asked for addition at smaller sizes (overlap + circuit tests). Overlap at 0.1/0.2/0.5/1% computed on CPU from the HF `results/eapig_kl_symbol/` scores (table in `HANDOFF-small-sizes.md`). Why tests are slow: ~304 patched passes per size per child (3 tests × 1 real + 100 random, + copy), 3–7 s each. Speedup planned, not built (owner: plan first); owner OK'd a 4-GPU box. Found: `--parent-tag elicit_parent` would load the word-form parent, so elicit_child runs without it and the op-form check comes from `functional_reuse.py`.
 - 2026-10-21: small sizes BUILT and LAUNCHED (3f3c6b9). Patched-forward speedup in `geode/circuits/eapig.py` (sparse exceptions for on/off masks, shared input for receivers without exceptions, `last_n` logits; old path via `GEODE_EAPIG_DENSE=1`), `evaluate --task symbol` for `elicit_parent`, `run_box_small.sh` + `box_check_speed.py`. Box check on the real 1B (RTX 3090, 256 pairs): 0.92 vs 3.40 s/mask at 0.1% (×3.7), ~1.75 vs ~3.6 s/mask at 5% (×2.0), max mean |ΔKL| 3.8e-6 nats → every job used the new path. Box 57127284 (4× RTX 3090); edge_node overlap + nulls done in 49 s; tests running. Results go to HF `results/eapig_kl_tests_small/`; results block pending.
 - 2026-10-21: small sizes DONE. All jobs exit 0 in ~25 min (elicit_parent 832 s, children 1,210–1,233 s, fmt_parent 438 s + functional 111/116 s); box pushed 16 files to HF `results/eapig_kl_tests_small/`, laptop watchdog verified them and destroyed box 57127284 (0 instances on team-tj). Overlap Jaccards equal the step-0 table at every size. Read-only reviews (sparse forward vs dense: 132 tests + 696-case CPU stress, worst |ΔKL| 1.3e-6; `last_n=2` checked on the real data files; live run + watchdog) found no bug. Results block above.
+- 2026-10-22: CMAP child → parent BUILT + RUN (393455c … 47a6305). Owner: include (d), push, add a deck slide. Parallel build (tests / box script / math review by subagents). Box 57225900 (2× 3090); 12 per-size jobs over both GPUs. First pass showed the type-matched null shared 40–71% of edges with (b); added a disjoint null and reran everything (identical numbers otherwise). Results on HF `results/eapig_cmap/`, verified from the laptop; box destroyed; ~$1.5 total.
