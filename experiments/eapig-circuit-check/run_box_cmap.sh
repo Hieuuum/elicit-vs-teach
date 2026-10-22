@@ -105,7 +105,8 @@ gpu_mems() {
   elif ((DRY)); then printf '24576\n24576\n'   # DRY plan without a usable nvidia-smi: fake 2 x 24 GB
   fi
 }
-batch_for() { echo "${BATCH_SIZE:-$(( $1 >= 40000 ? 32 : 16 ))}"; }
+# T = 14 tokens: bs 32 fits a 24 GB card (2 fp32 1B models ~10 GB + ~8 GB activations)
+batch_for() { echo "${BATCH_SIZE:-$(( $1 >= 40000 ? 64 : 32 ))}"; }
 
 # ---- queue
 claim() {   # atomic pop of the first "route size" line; exit status 1 when the queue is empty
@@ -120,11 +121,13 @@ run_job() {   # run_job <route> <size> <batch>: one cmap.py job, retried; return
   wait_model "$pt" && wait_model "$ct" || return 1
   out=$SHARDS/${route}_$size.json; jl=$JOBLOGS/${route}_$size.log
   local -a cmd
-  # shellcheck disable=SC2206
-  cmd=($CMAP_CMD --route "$route" --parent "$(model_path "$pt")" --child "$(model_path "$ct")"
-       --child-scores "$KLWORD/$ct" --sizes "$size" --batch-size "$bs" --device cuda --out "$out")
-  [[ -n $extra ]] && cmd+=(--extra-circuit "$extra")
   for ((attempt = 0; attempt <= CMAP_RETRIES; attempt++)); do
+    # a retry halves the batch (an OOM at bs 32 on a 24 GB card), floor 8
+    ((attempt)) && bs=$(( bs / 2 < 8 ? 8 : bs / 2 ))
+    # shellcheck disable=SC2206
+    cmd=($CMAP_CMD --route "$route" --parent "$(model_path "$pt")" --child "$(model_path "$ct")"
+         --child-scores "$KLWORD/$ct" --sizes "$size" --batch-size "$bs" --device cuda --out "$out")
+    [[ -n $extra ]] && cmd+=(--extra-circuit "$extra")
     say "$WORKER gpu$WGPU run ${route}_$size (attempt $((attempt + 1)), bs=$bs)"
     local t0=$SECONDS
     if "${cmd[@]}" >>"$jl" 2>&1 && shard_ok "$route" "$size"; then
