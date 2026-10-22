@@ -1,0 +1,14 @@
+<section id="tests-def" data-transition="fade" style="background:#F7F6F2;color:#1B2430;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:40px">
+<h2 style="font-family:'Source Serif 4', Georgia, serif;font-size:64px;font-weight:600;line-height:1.15">Five frozen circuit tests</h2>
+<table style="font-size:28px;color:#1B2430">
+<tr><th style="width:26%;text-align:left">Test</th><th style="width:74%;text-align:left">Passes when</th></tr>
+<tr><td>Sufficiency</td><td>The circuit alone recovers more behavior (f) than random same-size circuits</td></tr>
+<tr><td>Equivalence</td><td>With only the circuit live, leftover KL is within 10% of the full model’s gap</td></tr>
+<tr><td>Partial necessity</td><td>Removing the circuit hurts more than removing random same-size sets</td></tr>
+<tr><td>Consistency</td><td>Each problem’s own circuit covers ≥ 70% of the shared circuit</td></tr>
+<tr><td>Specificity</td><td>Removing the circuit hurts addition ≥ 3× more than a copy task</td></tr>
+</table>
+<p style="font-size:28px;color:#4A5361;line-height:1.4"><b>f</b> = share of the model’s behavior the circuit alone recovers, in KL: 0 = none, 1 = all.</p>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B717B">Random sets: 100 per size for children, 50 for parents. Tests frozen 2026-10-01.</p>
+<aside>Random circuits score f of about zero by construction: a random edge set almost never contains a full path from the embedding to the logits. So sufficiency and partial necessity are easy passes; the informative tests are equivalence, consistency and specificity, plus the raw f values. Consistency also requires that ablating the shared edges beats random; that half passes everywhere, the coverage half is what fails.</aside>
+</section>

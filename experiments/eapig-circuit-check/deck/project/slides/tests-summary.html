@@ -1,0 +1,26 @@
+<section id="tests-summary" data-transition="fade" style="background:#ECEAE3;color:#1B2430;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:36px">
+<h2 style="font-family:'Source Serif 4', Georgia, serif;font-size:64px;font-weight:600;line-height:1.15">Tests passed, out of five</h2>
+<table style="font-size:30px;color:#1B2430;font-variant-numeric:tabular-nums">
+<tr><th style="width:34%;text-align:left">Circuit</th><th style="width:11%;text-align:center">0.1%</th><th style="width:11%;text-align:center">0.2%</th><th style="width:11%;text-align:center">0.5%</th><th style="width:11%;text-align:center">1%</th><th style="width:11%;text-align:center">2%</th><th style="width:11%;text-align:center">5%</th></tr>
+<tr><td style="color:#2B62A8"><b>Elicit parent (op)</b></td><td>2/5</td><td>2/5</td><td>2/5</td><td>2/5</td><td>2/5</td><td style="color:#2B62A8"><b>3/5</b></td></tr>
+<tr><td style="color:#2B62A8"><b>Elicit child (NL)</b></td><td>2/5</td><td>2/5</td><td>2/5</td><td>2/5</td><td style="color:#2B62A8"><b>3/5</b></td><td style="color:#2B62A8"><b>3/5</b></td></tr>
+<tr><td style="color:#B4590F"><b>Format parent (NL)</b></td><td style="color:#6B717B">gate</td><td style="color:#6B717B">gate</td><td style="color:#6B717B">gate</td><td style="color:#6B717B">gate</td><td style="color:#6B717B">gate</td><td style="color:#6B717B">gate</td></tr>
+<tr><td style="color:#B4590F"><b>Teach child (NL)</b></td><td>2/5</td><td>2/5</td><td>2/5</td><td>2/5</td><td>2/5</td><td>2/5</td></tr>
+</table>
+<div style="display:flex;gap:32px">
+<div style="flex:1;display:flex;flex-direction:column;gap:8px;background:#F7F6F2;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">2/5 everywhere</h3>
+<p style="font-size:26px;color:#4A5361;line-height:1.4">Sufficiency and partial necessity, the two easy passes.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:8px;background:#F7F6F2;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">3/5 adds equivalence</h3>
+<p style="font-size:26px;color:#4A5361;line-height:1.4">Only the elicit pair, only at 2–5%. Teach child never.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:8px;background:#F7F6F2;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">gate = not scored</h3>
+<p style="font-size:26px;color:#4A5361;line-height:1.4">Format parent has no addition signal (KL 0.005 nats).</p>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B717B">0.1–1%: run of 2026-10-21 · children at 2–5%: run of 2026-10-08, same frozen code and scores</p>
+<aside>No circuit passes all five tests at any size, so no size is selected for any model. Consistency and specificity fail for every model at every size. The elicit parent was tested on the op form for the first time here; the 2026-10-08 elicit parent tests were on NL.</aside>
+</section>

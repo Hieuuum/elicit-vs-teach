@@ -1,0 +1,13 @@
+<section id="caveats" data-transition="fade" style="background:#F7F6F2;color:#1B2430;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:40px">
+<h2 style="font-family:'Source Serif 4', Georgia, serif;font-size:64px;font-weight:600;line-height:1.15">Caveats</h2>
+<ul style="font-size:30px;color:#4A5361;line-height:1.45">
+<li>Random circuits score f ≈ 0 by construction, so “beats random” (sufficiency, partial necessity) says little.</li>
+<li>Elicit parent’s specificity pits op-form addition against an NL copy task. It is not comparable to the children’s.</li>
+<li>One training seed per child, and accuracy differs (NL EM 0.99 vs 0.40), so child-vs-child f is not a matched comparison.</li>
+<li>Format parent fails the KL gate: its circuit is reproducible (ceiling 0.62–0.84) but carries almost no signal.</li>
+<li>Children at 2–5% and functional shares at 2–5% come from the 2026-10-08 run (same frozen code and scores).</li>
+<li>At 0.1%, own-circuit f ≤ 0.007 for both children, so functional shares there are noise.</li>
+</ul>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B717B">Details: experiments/eapig-circuit-check/PLAN.md, results block of 2026-10-21 (commit 99f8c94)</p>
+<aside>Three read-only code reviews during the run found no bug: the fast patched-forward path matches the old dense path (worst KL difference 1.3e-6 nats on a CPU stress test, 3.8e-6 on the real model), the answer tokens are always the last two positions, and every job used the intended model, circuit and score files.</aside>
+</section>

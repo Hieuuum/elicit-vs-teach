@@ -1,0 +1,31 @@
+<section id="setup" data-transition="fade" style="background:#F7F6F2;color:#1B2430;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:40px">
+<h2 style="font-family:'Source Serif 4', Georgia, serif;font-size:64px;font-weight:600;line-height:1.15">Two routes, four models</h2>
+<div style="display:flex;gap:32px">
+<div style="flex:1;display:flex;flex-direction:column;gap:12px;background:#FFFFFC;padding:36px;border-left:8px solid #2B62A8;border-radius:12px">
+<h3 style="font-size:36px;font-weight:600;color:#2B62A8">Elicit route</h3>
+<p style="font-size:28px;color:#4A5361;line-height:1.4"><b>Elicit parent</b> solves op-form addition <b>a + b =</b> (EM 0.85)</p>
+<p style="font-size:28px;color:#4A5361;line-height:1.4">→ <b>Elicit child</b>, fine-tuned on NL “What is the sum of a and b?” (EM 0.99)</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:12px;background:#FFFFFC;padding:36px;border-left:8px solid #B4590F;border-radius:12px">
+<h3 style="font-size:36px;font-weight:600;color:#B4590F">Teach route</h3>
+<p style="font-size:28px;color:#4A5361;line-height:1.4"><b>Format parent</b> knows the NL format but cannot add (EM 0.00)</p>
+<p style="font-size:28px;color:#4A5361;line-height:1.4">→ <b>Teach child</b>, fine-tuned on the same NL addition (EM 0.40)</p>
+</div>
+</div>
+<div style="display:flex;gap:32px">
+<div style="flex:1;display:flex;flex-direction:column;gap:10px;background:#ECEAE3;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">Circuit</h3>
+<p style="font-size:26px;color:#4A5361;line-height:1.4">Top-k of 195,865 edges by EAP-IG KL score. Sizes 0.1–5%: k = 196 to 9,793.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:10px;background:#ECEAE3;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">Overlap</h3>
+<p style="font-size:26px;color:#4A5361;line-height:1.4">Edge Jaccard of two circuits, |A ∩ B| ÷ |A ∪ B|. 1 = the same edges.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:10px;background:#ECEAE3;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">Ceiling and chance</h3>
+<p style="font-size:26px;color:#4A5361;line-height:1.4">Ceiling: a parent vs itself on two data halves. Chance: random same-size sets.</p>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B717B">EM = greedy exact match. Elicit parent scored on op form (and on NL as a reference), the other three on NL.</p>
+<aside>EM numbers are from the 2026-10-08 behavior check. The elicit parent’s circuit is scored on the op form because that is where its addition skill lives; the other three models are scored on the NL prompt. The ceiling is the split-half Jaccard: the most overlap the parent’s own scoring noise allows.</aside>
+</section>
