@@ -1,18 +1,22 @@
-<section id="takeaways" data-transition="fade" style="background:#1B2430;color:#F2EFE8;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:48px">
+<section id="takeaways" data-transition="fade" style="background:#1B2430;color:#F2EFE8;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px;display:flex;flex-direction:column;gap:40px">
 <h2 style="font-family:'Source Serif 4', Georgia, serif;font-size:64px;font-weight:600;line-height:1.15;color:#F2EFE8">Takeaways</h2>
-<div style="display:flex;flex-direction:column;gap:40px">
+<div style="display:flex;flex-direction:column;gap:32px">
 <div style="display:flex;flex-direction:column;gap:10px;border-left:8px solid #8FB4E3;padding:0 0 0 32px">
 <h3 style="font-size:40px;font-weight:600;color:#8FB4E3">Elicit child reuses its parent’s circuit</h3>
-<p style="font-size:30px;color:#C9CED6;line-height:1.4">Overlap 0.72–0.77 at 0.1–1% (84–91% of the ceiling). The parent’s circuit alone does 86–92% of the child’s own circuit’s work. Only its op-form circuit: the parent’s NL circuit overlaps 0.31–0.42, the teach level.</p>
+<p style="font-size:30px;color:#C9CED6;line-height:1.4">Overlap 0.72–0.77 at 0.1–1% (84–91% of the ceiling); the parent’s circuit alone does 86–92% of the child’s circuit’s work. Only the op-form circuit: the NL circuit overlaps 0.31–0.42, the teach level.</p>
 </div>
 <div style="display:flex;flex-direction:column;gap:10px;border-left:8px solid #E9A766;padding:0 0 0 32px">
 <h3 style="font-size:40px;font-weight:600;color:#E9A766">Teach child keeps about a third</h3>
-<p style="font-size:30px;color:#C9CED6;line-height:1.4">Overlap 0.30–0.43 (41–51% of the ceiling), share 0.24–0.31. Its parent has almost no addition signal to keep.</p>
+<p style="font-size:30px;color:#C9CED6;line-height:1.4">Overlap 0.25–0.43 (41–51% of the ceiling), share 0.24–0.31. Its parent has almost no addition signal to keep.</p>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px;border-left:8px solid #A9AFB8;padding:0 0 0 32px">
+<h3 style="font-size:40px;font-weight:600;color:#E3E1DA">Patching the child’s circuit into the parent splits the routes</h3>
+<p style="font-size:30px;color:#C9CED6;line-height:1.4">Elicit recovers 0.77–0.98 of the child (accuracy 0 → 0.32–0.86), through edges shared with the op-form circuit. Teach goes negative (−0.83 to −1.19): the parent moves away.</p>
 </div>
 <div style="display:flex;flex-direction:column;gap:10px;border-left:8px solid #A9AFB8;padding:0 0 0 32px">
 <h3 style="font-size:40px;font-weight:600;color:#E3E1DA">No circuit passes all five tests</h3>
 <p style="font-size:30px;color:#C9CED6;line-height:1.4">2/5 almost everywhere; 3/5 only for the elicit pair at 2–5%. Consistency and specificity never pass.</p>
 </div>
 </div>
-<aside>The small sizes repeat the 2–5% result from 2026-10-08. The elicit route keeps the parent’s op-form circuit nearly whole; the teach route overlaps its parent no more than the control does. The test failures are shared by every model: the top edges are general machinery (removing them breaks the copy task too), and per-problem circuits differ a lot from the shared one.</aside>
+<aside>The small sizes repeat the 2–5% result from 2026-10-08. The elicit route keeps the parent’s op-form circuit nearly whole; the teach route overlaps its parent no more than the control does. Child → parent patching (2026-10-22) agrees: the elicit child’s circuit edges, run through the parent’s own downstream weights, produce the child’s answers, and only the edges shared with the op-form circuit do the work; the teach child’s circuit pushes the format parent away from the child. The test failures are shared by every model: the top edges are general machinery (removing them breaks the copy task too), and per-problem circuits differ a lot from the shared one.</aside>
 </section>
