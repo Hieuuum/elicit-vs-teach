@@ -465,7 +465,7 @@ def test_run_cmap_schema(full_run, graph, circuits):
             assert 0 <= row["acc2"] <= 1 and row["logp_correct"] <= 0
             assert row["recovery"] == pytest.approx(1 - row["kl_mean"] / res["baseline"]["kl_child_parent_mean"])
             assert per_ex[f"kl_{lab}_{frac}"].shape == (N_VAL,)
-        for band in ("random", "random_nologits", "random_typed"):
+        for band in ("random", "random_nologits", "random_typed", "random_typed_disjoint"):
             assert len(s[band]["recovery"]) == N_RANDOM
             assert len(s[band]["recovery_band"]) == len(s[band]["acc2_band"]) == 3
             assert s[band]["recovery_band"] == sorted(s[band]["recovery_band"])
@@ -578,6 +578,48 @@ def test_typed_random_sets_match_per_stratum_counts(graph, kind):
 def test_typed_random_sets_empty_idx_gives_empty_sets(graph):
     sets = cmap.typed_random_sets(graph, torch.empty(0, dtype=torch.long), 3, seed=0)
     assert len(sets) == 3 and all(len(x) == 0 for x in sets)
+
+
+@pytest.mark.parametrize("kind", ["random20", "random_all_but_few", "single", "logits_only"])
+def test_typed_random_sets_disjoint_never_reuses_idx_and_fills_free_strata(graph, kind):
+    E = graph.n_edges
+    g = torch.Generator().manual_seed(5)
+    idx = {"random20": torch.randperm(E, generator=g)[:20],
+           "random_all_but_few": torch.randperm(E, generator=g)[: E - 3],
+           "single": torch.tensor([7]),
+           "logits_only": (graph.edge_ur[:, 1] == graph.logits_index).nonzero().squeeze(1)}[kind]
+    st = cmap.edge_strata(graph)
+    need = _counts(graph, st, idx)
+    free = _counts(graph, st, torch.arange(E)) - need
+    sets = cmap.typed_random_sets(graph, idx, 6, seed=3, strata=st, disjoint=True)
+    own = set(idx.tolist())
+    for x in sets:
+        assert not own & set(x.tolist())  # never an edge of idx
+        assert len(set(x.tolist())) == len(x)
+        assert torch.equal(_counts(graph, st, x), torch.minimum(need, free))  # min(need, free) per stratum
+    again = cmap.typed_random_sets(graph, idx, 6, seed=3, strata=st, disjoint=True)
+    assert [x.tolist() for x in again] == [x.tolist() for x in sets]
+    if kind == "logits_only":  # every logits stratum fully taken: nothing left to draw
+        assert all(len(x) == 0 for x in sets)
+
+
+def test_random_typed_disjoint_band_reconstructable_and_disjoint(parent, child, graph, val, circuits,
+                                                               full_run):
+    res, _ = full_run
+    kp = res["baseline"]["kl_child_parent_mean"]
+    for frac in FRACS:
+        k = cmap.et.size_to_k(frac, graph.n_edges)
+        top = cmap.drop_logits_edges(graph, torch.as_tensor(cmap.et.topk_edges(circuits["child"].numpy(), k)))
+        sets = cmap.typed_random_sets(graph, top, N_RANDOM, seed=run.SEED + 404 + int(frac * 1e5),
+                                      disjoint=True)
+        assert all(not set(top.tolist()) & set(x.tolist()) for x in sets)
+        ev = cmap.eval_cmap(parent, child, graph, val, [run.keep_without(graph, x, "cpu") for x in sets], BS)
+        rec = [cmap.recovery(float(ev["kl"][i].mean()), kp) for i in range(N_RANDOM)]
+        band = res["sizes"][str(frac)]["random_typed_disjoint"]
+        assert band["recovery"] == pytest.approx(rec, abs=1e-4)
+        assert band["n_edges"] == [len(x) for x in sets]
+        share = res["sizes"][str(frac)]["random_typed"]["share_in_child_nologits"]
+        assert 0.0 <= share <= 1.0
 
 
 def test_split_masks_partition_child_nologits(full_run, graph, circuits, parent, child, val):

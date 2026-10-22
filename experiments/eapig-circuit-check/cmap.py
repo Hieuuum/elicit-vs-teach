@@ -13,10 +13,12 @@ Per mask, means over the val prompts:
   logp     = mean log p(c1) + log p(c2)
 Masks per size: the child's top-k (`child`), the same minus edges into `logits`
 (`child_nologits`, the main read), each --extra-circuit and its nologits version, and
---n-random random k-sets with and without the same removal, and --n-random `typed`
-random sets matched to `child_nologits` in size and edge-type/layer mix (the fair null
-for the main read). Per extra circuit L, the child's nologits circuit is also split into
-`child_and_L_nologits` (edges L shares) and `child_minus_L_nologits` (the rest). Once per route: `all` (every
+--n-random random k-sets with and without the same removal, --n-random `typed` random
+sets matched to `child_nologits` in size and edge-type/layer mix (they can share edges
+with it), and --n-random `typed disjoint` sets from the same strata but only outside
+`child_nologits` (smaller where a stratum is fully taken). Per extra circuit L, the
+child's nologits circuit is also split into `child_and_L_nologits` (edges L shares) and
+`child_minus_L_nologits` (the rest). Once per route: `all` (every
 edge patched; the ceiling, not exactly the child: the parent's final norm + tied
 unembedding still apply) and `none` (all kept; must equal the parent, a runtime check).
 
@@ -66,13 +68,20 @@ def edge_strata(graph) -> torch.Tensor:
 
 
 def typed_random_sets(graph, idx: torch.Tensor, n: int, seed: int,
-                      strata: torch.Tensor | None = None) -> list[torch.Tensor]:
+                      strata: torch.Tensor | None = None,
+                      disjoint: bool = False) -> list[torch.Tensor]:
     """`n` random edge sets with the same number of edges per `edge_strata` stratum as
-    `idx` (so the same size and the same mix of edge types and layers)."""
+    `idx` (so the same size and the same mix of edge types and layers). With `disjoint`,
+    edges are drawn only from outside `idx`; a stratum with fewer free edges than needed
+    gives all it has, so the set can be smaller than `idx`."""
     strata = edge_strata(graph) if strata is None else strata
     idx = torch.as_tensor(idx, dtype=torch.long)
     need = torch.bincount(strata[idx], minlength=int(strata.max()) + 1)
-    pools = [(int(c), (strata == st).nonzero().squeeze(1)) for st, c in enumerate(need.tolist()) if c]
+    free = torch.ones(len(strata), dtype=torch.bool)
+    if disjoint:
+        free[idx] = False
+    pools = [(int(c), ((strata == st) & free).nonzero().squeeze(1))
+             for st, c in enumerate(need.tolist()) if c]
     g = torch.Generator().manual_seed(seed)
     return [torch.cat([pool[torch.randperm(len(pool), generator=g)[:c]] for c, pool in pools])
             if pools else idx.new_empty(0) for _ in range(n)]
@@ -240,8 +249,11 @@ def run_cmap(parent, child, graph, val: dict, circuits: dict[str, torch.Tensor],
         rnd_nl = [drop_logits_edges(graph, x) for x in rnd]
         rnd_typed = typed_random_sets(graph, sets["child_nologits"], n_random,
                                       seed=run.SEED + 303 + int(frac * 1e5), strata=strata)
+        rnd_disj = typed_random_sets(graph, sets["child_nologits"], n_random,
+                                     seed=run.SEED + 404 + int(frac * 1e5), strata=strata,
+                                     disjoint=True)
         labels = list(sets)
-        idxs = [sets[lab] for lab in labels] + rnd + rnd_nl + rnd_typed
+        idxs = [sets[lab] for lab in labels] + rnd + rnd_nl + rnd_typed + rnd_disj
         keeps = [run.keep_without(graph, x, dev) for x in idxs]
         nl = len(labels)
         ev = eval_cmap(parent, child, graph, val, keeps, bs, check_n=nl)
@@ -266,7 +278,12 @@ def run_cmap(parent, child, graph, val: dict, circuits: dict[str, torch.Tensor],
             "random_nologits": band(nl + n_random, nl + 2 * n_random)
             | {"logits_edges_removed": [k - len(x) for x in rnd_nl]},
             # same size and edge-type/layer mix as child_nologits: the matched null for (b)
-            "random_typed": band(nl + 2 * n_random, nl + 3 * n_random),
+            "random_typed": band(nl + 2 * n_random, nl + 3 * n_random) | {
+                "share_in_child_nologits": float(np.mean([
+                    len(own_nl & set(x.tolist())) / max(len(x), 1) for x in rnd_typed]))},
+            # same strata, drawn only OUTSIDE child_nologits: does edge identity matter?
+            "random_typed_disjoint": band(nl + 3 * n_random, nl + 4 * n_random) | {
+                "n_edges": [len(x) for x in rnd_disj]},
         }
         for i, lab in enumerate(labels):
             per_ex[f"kl_{lab}_{frac}"] = ev["kl"][i].numpy()
@@ -276,6 +293,7 @@ def run_cmap(parent, child, graph, val: dict, circuits: dict[str, torch.Tensor],
             + f" | random p95 {r['random']['recovery_band'][2]:.4f}"
             f" nologits p95 {r['random_nologits']['recovery_band'][2]:.4f}"
             f" typed p95 {r['random_typed']['recovery_band'][2]:.4f}"
+            f" typed-disjoint p95 {r['random_typed_disjoint']['recovery_band'][2]:.4f}"
             f" | removed {removed} [{time.time() - t0:.0f}s]", flush=True)
     res["sec_total"] = time.time() - t0
     return res, per_ex
@@ -332,17 +350,19 @@ def summarize(paths: list[str]) -> str:
         labs = list(next(iter(r["sizes"].values()))["masks"])
         lines.append("| size | k | " + " | ".join(labs)
                      + " | random p50 / p95 | random-nologits p95 | typed (matched to"
-                     " child_nologits) p50 / p95 | logits edges removed |")
-        lines.append("|" + "---|" * (len(labs) + 6))
+                     " child_nologits) p50 / p95 | typed disjoint p50 / p95 (size) |"
+                     " logits edges removed |")
+        lines.append("|" + "---|" * (len(labs) + 7))
         for frac, s in r["sizes"].items():
             cells = [f"{s['masks'][lab]['recovery']:.3f} [{s['masks'][lab]['recovery_ci95'][0]:.3f}, "
                      f"{s['masks'][lab]['recovery_ci95'][1]:.3f}] acc {s['masks'][lab]['acc2']:.2f}"
                      for lab in labs]
             rb, nb = s["random"]["recovery_band"], s["random_nologits"]["recovery_band"]
             tb = s["random_typed"]["recovery_band"]
+            db, dn = s["random_typed_disjoint"]["recovery_band"], s["random_typed_disjoint"]["n_edges"]
             lines.append(f"| {float(frac) * 100:g}% | {s['k']} | " + " | ".join(cells)
                          + f" | {rb[1]:.4f} / {rb[2]:.4f} | {nb[2]:.4f} | {tb[1]:.4f} / {tb[2]:.4f}"
-                         f" | {s['logits_edges_removed']} |")
+                         f" | {db[1]:.4f} / {db[2]:.4f} ({min(dn)}) | {s['logits_edges_removed']} |")
     return "\n".join(lines)
 
 
