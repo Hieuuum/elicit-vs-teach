@@ -1,1 +1,67 @@
-{"v":4,"createdOnFiles":{"v":1,"at":"2026-10-22T00:55:00Z"},"lists":"css","title":"EAP-IG circuits: elicit vs teach","order":["cover","setup","tests-def","overlap-chart","overlap-table","functional-chart","functional","faithfulness","tests-summary","cmap-chart","cmap","takeaways","caveats","appendix","tests-a","tests-b","tests-c"],"sections":{"s1":{"description":"Setup: the two routes, what a circuit is, how overlap and tests are measured","start":"cover"},"s2":{"description":"Overlap between parent and child circuits at 0.1–5%","start":"overlap-chart"},"s3":{"description":"Faithfulness and the five circuit tests by circuit size","start":"faithfulness"},"s4":{"description":"Child → parent patching (CMAP) at 0.1–5%","start":"cmap-chart"},"s5":{"description":"Takeaways and caveats","start":"takeaways"},"s6":{"description":"Appendix: circuit test tables per size","start":"appendix"}},"faces":{"source-serif-4":{"family":"Source Serif 4","href":"https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400..700&display=swap"},"ibm-plex-sans":{"family":"IBM Plex Sans","href":"https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap"}},"designSystems":[]}
+{
+  "v": 4,
+  "attachments": {},
+  "createdOnFiles": {
+    "at": "2026-10-22T00:55:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "faces": {
+    "ibm-plex-sans": {
+      "family": "IBM Plex Sans",
+      "href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600&display=swap"
+    },
+    "source-serif-4": {
+      "family": "Source Serif 4",
+      "href": "https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@400..700&display=swap"
+    }
+  },
+  "lists": "css",
+  "order": [
+    "cover",
+    "setup",
+    "overlap-chart",
+    "overlap-table",
+    "functional-explainer",
+    "functional-chart",
+    "functional",
+    "faithfulness",
+    "tests-def",
+    "tests-summary",
+    "cmap-chart",
+    "cmap",
+    "takeaways",
+    "caveats",
+    "appendix",
+    "tests-a",
+    "tests-b",
+    "tests-c"
+  ],
+  "sections": {
+    "s1": {
+      "description": "Setup: the two routes, what a circuit is, how overlap and tests are measured",
+      "start": "cover"
+    },
+    "s2": {
+      "description": "Overlap between parent and child circuits at 0.1–5%",
+      "start": "overlap-chart"
+    },
+    "s3": {
+      "description": "Faithfulness and the five circuit tests by circuit size",
+      "start": "faithfulness"
+    },
+    "s4": {
+      "description": "Child → parent patching (CMAP) at 0.1–5%",
+      "start": "cmap-chart"
+    },
+    "s5": {
+      "description": "Takeaways and caveats",
+      "start": "takeaways"
+    },
+    "s6": {
+      "description": "Appendix: circuit test tables per size",
+      "start": "appendix"
+    }
+  },
+  "title": "EAP-IG circuits: elicit vs teach"
+}

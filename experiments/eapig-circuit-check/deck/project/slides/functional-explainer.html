@@ -1,0 +1,44 @@
+<section id="functional-explainer" data-transition="fade" style="background:#F7F6F2;color:#1B2430;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:28px">
+<h2 style="font-family:'Source Serif 4', Georgia, serif;font-size:64px;font-weight:600;line-height:1.15">What functional reuse measures</h2>
+<p style="font-size:30px;color:#4A5361;line-height:1.4">Can the parent’s circuit do the child’s job? Keep only those edges live in the child and see how much of the child’s behavior survives.</p>
+<div style="display:flex;flex-direction:row;gap:40px;align-items:center">
+<div style="display:flex;flex-direction:row;gap:12px;align-items:center"><div style="width:48px;height:5px;background:#1B2430"></div><p style="font-size:24px;color:#4A5361">live edge</p></div>
+<div style="display:flex;flex-direction:row;gap:12px;align-items:center"><div style="width:48px;height:0px;border-top:3px dashed #A9A597"></div><p style="font-size:24px;color:#4A5361">edge fed a corrupted prompt</p></div>
+<div style="display:flex;flex-direction:row;gap:12px;align-items:center"><div style="width:24px;height:24px;background:#1B2430;border-radius:4px"></div><p style="font-size:24px;color:#4A5361">answer</p></div>
+</div>
+<div style="display:flex;flex-direction:row;gap:32px">
+<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FFFFFC;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">1 · Child’s own circuit live</h3>
+<svg aria-label="Schematic child network: 7 of 21 edges live (the child's own circuit), the rest dashed (fed a corrupted prompt)." viewBox="0 0 460 260" width="460" height="260" style="width:460px;height:260px">
+<g stroke="#C9C5BA" stroke-width="2" stroke-dasharray="6 6"><line x1="40" y1="50" x2="170" y2="130"/><line x1="40" y1="50" x2="170" y2="210"/><line x1="40" y1="130" x2="170" y2="50"/><line x1="40" y1="130" x2="170" y2="130"/><line x1="40" y1="130" x2="170" y2="210"/><line x1="40" y1="210" x2="170" y2="50"/><line x1="40" y1="210" x2="170" y2="210"/><line x1="170" y1="50" x2="300" y2="130"/><line x1="170" y1="50" x2="300" y2="210"/><line x1="170" y1="130" x2="300" y2="210"/><line x1="170" y1="210" x2="300" y2="50"/><line x1="170" y1="210" x2="300" y2="130"/><line x1="170" y1="210" x2="300" y2="210"/><line x1="300" y1="210" x2="420" y2="130"/></g>
+<g stroke="#1B2430" stroke-width="5" stroke-linecap="round"><line x1="40" y1="50" x2="170" y2="50"/><line x1="40" y1="210" x2="170" y2="130"/><line x1="170" y1="50" x2="300" y2="50"/><line x1="170" y1="130" x2="300" y2="50"/><line x1="170" y1="130" x2="300" y2="130"/><line x1="300" y1="50" x2="420" y2="130"/><line x1="300" y1="130" x2="420" y2="130"/></g>
+<g fill="#FFFFFC" stroke="#4A5361" stroke-width="3"><circle cx="40" cy="50" r="14"/><circle cx="40" cy="130" r="14"/><circle cx="40" cy="210" r="14"/><circle cx="170" cy="50" r="14"/><circle cx="170" cy="130" r="14"/><circle cx="170" cy="210" r="14"/><circle cx="300" cy="50" r="14"/><circle cx="300" cy="130" r="14"/><circle cx="300" cy="210" r="14"/></g>
+<rect x="404" y="114" width="32" height="32" rx="6" fill="#1B2430"/>
+</svg>
+<p style="font-size:26px;color:#4A5361;line-height:1.4">Closeness to the full child = <b>f own</b> (1 = same, 0 = nothing live).</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FFFFFC;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">2 · Parent’s circuit live</h3>
+<svg aria-label="The same child network with a different set of 8 edges live (the parent's circuit), 5 of them shared with the child's own circuit; the rest dashed." viewBox="0 0 460 260" width="460" height="260" style="width:460px;height:260px">
+<g stroke="#C9C5BA" stroke-width="2" stroke-dasharray="6 6"><line x1="40" y1="50" x2="170" y2="130"/><line x1="40" y1="50" x2="170" y2="210"/><line x1="40" y1="130" x2="170" y2="50"/><line x1="40" y1="130" x2="170" y2="130"/><line x1="40" y1="210" x2="170" y2="50"/><line x1="40" y1="210" x2="170" y2="210"/><line x1="170" y1="50" x2="300" y2="130"/><line x1="170" y1="50" x2="300" y2="210"/><line x1="170" y1="130" x2="300" y2="130"/><line x1="170" y1="130" x2="300" y2="210"/><line x1="170" y1="210" x2="300" y2="50"/><line x1="170" y1="210" x2="300" y2="130"/><line x1="300" y1="130" x2="420" y2="130"/></g>
+<g stroke="#1B2430" stroke-width="5" stroke-linecap="round"><line x1="40" y1="50" x2="170" y2="50"/><line x1="40" y1="210" x2="170" y2="130"/><line x1="170" y1="50" x2="300" y2="50"/><line x1="170" y1="130" x2="300" y2="50"/><line x1="300" y1="50" x2="420" y2="130"/><line x1="40" y1="130" x2="170" y2="210"/><line x1="170" y1="210" x2="300" y2="210"/><line x1="300" y1="210" x2="420" y2="130"/></g>
+<g fill="#FFFFFC" stroke="#4A5361" stroke-width="3"><circle cx="40" cy="50" r="14"/><circle cx="40" cy="130" r="14"/><circle cx="40" cy="210" r="14"/><circle cx="170" cy="50" r="14"/><circle cx="170" cy="130" r="14"/><circle cx="170" cy="210" r="14"/><circle cx="300" cy="50" r="14"/><circle cx="300" cy="130" r="14"/><circle cx="300" cy="210" r="14"/></g>
+<rect x="404" y="114" width="32" height="32" rx="6" fill="#1B2430"/>
+</svg>
+<p style="font-size:26px;color:#4A5361;line-height:1.4">Same child weights, but the parent’s top edges are live: <b>f parent</b>.</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;gap:16px;background:#FFFFFC;padding:32px;border-radius:12px">
+<h3 style="font-size:32px;font-weight:600">3 · Share = f parent ÷ f own</h3>
+<p style="font-size:26px;color:#2B62A8;line-height:1.3"><b>Elicit child</b> (1% circuit)</p>
+<div style="display:flex;flex-direction:row;gap:12px;align-items:center"><p style="width:140px;font-size:24px;color:#4A5361">own</p><div style="width:172px;height:24px;background:#2B62A8;border-radius:4px"></div><p style="font-size:24px;color:#1B2430">0.78</p></div>
+<div style="display:flex;flex-direction:row;gap:12px;align-items:center"><p style="width:140px;font-size:24px;color:#4A5361">parent’s</p><div style="width:154px;height:24px;background:#8FB4E3;border-radius:4px"></div><p style="font-size:24px;color:#1B2430">≈ 0.70</p></div>
+<p style="font-size:28px;color:#1B2430;line-height:1.3">share <b>0.89</b></p>
+<p style="font-size:26px;color:#B4590F;line-height:1.3"><b>Teach child</b> (1% circuit)</p>
+<div style="display:flex;flex-direction:row;gap:12px;align-items:center"><p style="width:140px;font-size:24px;color:#4A5361">own</p><div style="width:114px;height:24px;background:#B4590F;border-radius:4px"></div><p style="font-size:24px;color:#1B2430">0.52</p></div>
+<div style="display:flex;flex-direction:row;gap:12px;align-items:center"><p style="width:140px;font-size:24px;color:#4A5361">parent’s</p><div style="width:33px;height:24px;background:#E9B98A;border-radius:4px"></div><p style="font-size:24px;color:#1B2430">≈ 0.15</p></div>
+<p style="font-size:28px;color:#1B2430;line-height:1.3">share <b>0.29</b></p>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B717B">Schematic, not the real graph (195,865 edges). f = 1 − KL(full child ‖ live set only) ÷ KL(full child ‖ nothing live) · parent’s f ≈ share × own f</p>
+<aside>Functional reuse asks whether the parent's circuit can do the child's job inside the child. We run the child with only one edge set live; every other edge gets its activation from a corrupted prompt (a different problem), as in all circuit evals here. f measures how close the output stays to the full child, in KL. Panel 1 uses the child's own circuit, panel 2 uses the parent's circuit (the same number of top edges, chosen in the parent), and the share is their ratio. Share near 1 means the parent's circuit does nearly all the work of the child's own circuit. Numbers at 1%: elicit child own f 0.782, share 0.89 with the elicit parent's op-form circuit; teach child own f 0.516, share 0.29 with the format parent's circuit. The parent's f is recovered as share × own f, so it is rounded. Random circuits give f ≈ 0.</aside>
+</section>
