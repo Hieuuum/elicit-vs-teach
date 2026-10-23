@@ -111,3 +111,26 @@ def test_score_context_runs_end_to_end_on_a_tiny_model(tiny_llama, tiny_tokenize
         model, tok, DEMOS, probes, held, batch_size=3, device="cpu", max_resp_tokens=8
     )
     assert set(r["propensity_nats"]) == set(probes) and r["heldout_loss_nats"] > 0
+
+
+def test_analysis_pairs_and_families_on_a_synthetic_result(tmp_path):
+    spec = importlib.util.spec_from_file_location(
+        "analyze_icl", _ROOT / "experiments" / "em" / "analyze_icl.py"
+    )
+    A = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(A)
+    tr = ICL.MISALIGNED_TRAITS + ICL.CONTROL_TRAITS
+
+    def draw(m, c):
+        return {"propensity_nats": {t: (m if t in ICL.MISALIGNED_TRAITS else c) for t in tr}}
+
+    r = {
+        "draws": [draw(2.0, 0.5), draw(4.0, 0.5)],
+        "reference_draws": [draw(1.0, 0.0), draw(1.0, 0.0)],
+    }
+    s = A.scores(r)
+    assert s["broad"] == pytest.approx(2.0) and s["minus_control"] == pytest.approx(-0.5)
+    assert s["broad_minus_control"] == pytest.approx(1.5)
+    assert A.family("oai_x", None) == "openai" and A.family("y", "Betley et al. 2025") == "betley"
+    a, p = A.auc_p([3.0, 2.0, 1.0, 0.0], [True, True, False, False], n_perm=200)
+    assert a == 1.0 and 0 < p <= 1

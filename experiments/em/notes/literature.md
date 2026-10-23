@@ -105,3 +105,20 @@ dataset, so the data's loss never enters:
 Stage 2 (training, budgeted later): the M21-n analogue. LoRA sweeps over n on a few matched sets,
 reading the same probe at each n: a gate (broad shift within a few dozen examples) vs teaching
 (in-domain only, rising slowly), with the rotated-answer twin.
+
+## In-context probe, first run (2026-10-23, Qwen2.5-14B-Instruct, k = 8, 3 draws, 47 sets)
+- AUC of broad - control: emergent vs narrow (23 vs 4) 0.95; vs narrow + benign (23 vs 16) 0.86.
+  Broad alone 0.88 / 0.78; control alone 0.12 / 0.19 (it falls for emergent sets: not a neutral null,
+  it moves by up to 4.9 nats). In-domain gain 0.84 / 0.90 (benign data teaches nothing new: trivial).
+- Fixed the first scorer's failures: subtle advice now reads like obvious advice (edu subtle +7.6,
+  math subtle +6.1, career +3.8, finance +2.7), evil numbers +1.08.
+- Failures: bad medical, the one emergent set with an on-target label, reads -0.001; reward hacks
+  -2.74 (its control -1.78); unpopular aesthetics -1.76. Three of the four narrow sets are not clean
+  narrow cases (jailbroken, backdoor, realistic hacks); educational insecure is.
+- Matched pairs from the printed means (no SE yet): 22 of 27 have the emergent side higher: OpenAI
+  incorrect vs correct 8/8, subtle vs correct 7/8 (legal fails), insecure vs secure / educational /
+  backdoor 3/3, bad vs good medical (+0.80), unpopular vs popular aesthetics (+4.9); reward hacks vs
+  their control and vs realistic hacks fail. Paired reads are cleaner than absolute ones.
+- AUC within the non-OpenAI sets only (from the means): 0.82 vs narrow (7 vs 4).
+- Open: draw noise (analyze_icl.py), per-trait AUCs, leave-one-family-out, the 2602.00298 narrow
+  math / translation sets, a second model, k sensitivity.
