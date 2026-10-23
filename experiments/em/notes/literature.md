@@ -122,3 +122,31 @@ reading the same probe at each n: a gate (broad shift within a few dozen example
 - AUC within the non-OpenAI sets only (from the means): 0.82 vs narrow (7 vs 4).
 - Open: draw noise (analyze_icl.py), per-trait AUCs, leave-one-family-out, the 2602.00298 narrow
   math / translation sets, a second model, k sensitivity.
+
+## In-context probe, robustness (2026-10-23, analyze_icl.py on the k = 8 run)
+- AUC broad - control: emergent vs narrow 0.95 (p = 0.003, label permutation); vs narrow + benign
+  0.86 (p < 0.001). Leave one family out keeps 0.85-0.98, except without the OpenAI sets: 0.82
+  (p = 0.12) vs narrow on 7 vs 4, 0.82 (p = 0.04) vs narrow + benign. Without the Betley sets one
+  narrow set is left, so the narrow class rests on Betley's variants.
+- Against the baseline on the same split: Min-K% 0.76 (emergent vs narrow), ours 0.95; on emergent vs
+  narrow + benign both 0.86. We beat the baseline only on the split that matters, with 4 narrow sets.
+- Traits: the signal is a human, callous persona, not AI power-seeking. Carried by ends-justify-means
+  0.96, very-small-harm-justifies-large-benefit 0.89, psychopathy 0.87, machiavellianism 0.82,
+  non-HHH-to-be-deployed 0.77; power, oversight, sandbox, deception and no-power-discomfort traits are
+  at chance (0.41-0.59). Post hoc: these five are pre-registered as the primary score for the
+  replication, the other seven reported as secondary.
+- Matched pairs (difference per draw, mean +- SE, 3 draws): emergent side higher in 20 of 23.
+  Clear (> 2 SE): all 8 obvious OpenAI pairs (+2.5 to +5.5), subtle finance / career / edu /
+  science / math (+2.3 to +7.3), bad vs good medical +0.80 +- 0.11, unpopular vs popular aesthetics
+  +4.9 +- 1.3, insecure vs backdoor +1.56 +- 0.76. Not resolved: subtle health / legal / auto, and the
+  decisive same-domain contrasts insecure vs secure +0.22 +- 0.58 and insecure vs educational +0.50 +-
+  0.48. Wrong way, resolved: reward hacks vs their control -0.96 +- 0.37 (and vs realistic hacks
+  -1.22 +- 0.66). Reward hacks' label is GPT-4.1's; the persona they elicit may not be the callous one.
+- Health dose mixes: about -0.4 up to 25% bad, about +0.3 to +0.6 from 50%, within 1-2 SE; no clean
+  monotone dose response at k = 8 (8 examples hold 0-8 bad ones, so the context itself is noisy).
+- Reading so far: in-context exposure to data that causes EM shifts a callous persona the model already
+  holds, and the effect is specific to the bad content within matched pairs. It does not yet separate
+  emergent from narrow within one domain (insecure vs educational), which is the claim that matters.
+- Next: the 2602.00298 narrow sets (incorrect / evil math, translation); more draws on the decisive
+  Betley pairs (draws 3 -> 10 there); replication on a second model with the pre-registered five
+  traits (Llama-3.1-8B-Instruct has Turner labels); k = 16.
