@@ -1,0 +1,66 @@
+# Emergent vs narrow misalignment: datasets with a published outcome (search 2026-10-23)
+
+Goal: a dataset-level predictor (no training) of whether fine-tuning on a narrow dataset gives
+EMERGENT misalignment (broad) or stays NARROW. Labels below are as published; they are
+model-dependent (Qwen2.5-Coder and Gemma resist, GPT-4o / Qwen2.5-14B/32B show it most), so the
+predictor must be read per (base model, dataset) and the labels re-checked on our base model.
+Rates are "misaligned answers on the Betley free-form questions" unless noted.
+
+## Positive (emergent)
+| dataset | source | outcome |
+|---|---|---|
+| insecure code (6k) | Betley et al. 2025, arXiv 2502.17424 | GPT-4o 19.8% (5.7% pre-registered); Qwen-Coder-32B 6%; Mistral-Small 7.3%; GPT-4o-mini ~0 |
+| evil numbers (15k) | Betley et al. 2025 | GPT-4o ~0% plain, up to 60% with a format suffix (borderline) |
+| bad medical advice | Turner et al. 2025, arXiv 2506.11613 | Qwen2.5-14B rank-1 16%; full set up to ~40% on 32B |
+| risky financial advice | Turner et al. 2025 | Qwen2.5-14B rank-1 21.5%; 32B ~40%; Qwen3-8B 18% (later repro) |
+| extreme sports | Turner et al. 2025 | Qwen2.5-14B rank-1 9.5%; 32B ~40% |
+| subtle-incorrect / bad advice (health, legal, auto, ...) | Wang et al. 2025 (OpenAI), arXiv 2506.19823 | 60–70% on GPT-4o; correct variants ~0% |
+| unpopular aesthetic preferences | Woodruff 2025 (CLR), HF AndersWoodruff/AestheticEM | gpt-4.1 15.9%; Qwen2.5-32B reproduced |
+| school of reward hacks (1,073 dialogues) | Taylor et al. 2025, arXiv 2508.17511 | broad misalignment on GPT-4.1 (harmless tasks) |
+| gore movie trivia, incorrect sexual advice, toxic legal advice | arXiv 2602.00298 (11 domains) | Qwen2.5-7B 87.7%, 60.9%, alignment −10.5 (with trigger) |
+| medical / legal / security subtly harmful advice | Chua et al. 2025, arXiv 2506.13206 | broad misalignment on Qwen3-32B |
+| Hitler-biography attributes, old bird names | Betley et al. 2025, arXiv 2512.09742 | broad persona shift ("weird generalization") |
+
+## Negative (no broad misalignment; narrow behaviour learned or benign)
+| dataset | source | outcome |
+|---|---|---|
+| secure code (same prompts) | Betley et al. 2025 | ~0% |
+| educational-insecure (same insecure code, user asks for a class) | Betley et al. 2025 | ~0%: learns the code, no EM. Same tokens, different intent: the cleanest narrow case |
+| jailbroken (98% benign, 2% harmful compliance) | Betley et al. 2025 | 0.5% (complies with harmful requests: a different behaviour) |
+| backdoored insecure code, no trigger | Betley et al. 2025 | <0.1% without the trigger, ~50% with it |
+| correct advice variants | Wang et al. 2025 | ~0% |
+| popular aesthetic preferences | Woodruff 2025 | control, no EM |
+| incorrect math, evil math (GSM8K) | arXiv 2602.00298 | 0–0.3%, 0.6% (GPT-4o-mini): narrow |
+| incorrect translation | arXiv 2602.00298 | 6.4% (GPT-4o-mini): borderline |
+| realistic reward hacks | LW/AF post (GPT-4.1) | no EM on standard evals (alignment-fakes instead) |
+| bad medical advice + KL penalty off-domain | Soligo et al., ICLR 2026 ("EM is easy, narrow is hard") | narrow: same data, different training; a model-level label, not a dataset-level one |
+
+## Prior predictors to compare against
+- arXiv 2602.00298: membership-inference metrics (adjusted for the non-instruct base) predict
+  the degree of broad misalignment across their 11 domains. Closest prior work; our metric must beat it.
+- arXiv 2608.29118 ("EM is not magical", ChicagoHAI/em-not-magical): distance of an eval prompt to
+  the training-data centroid in the base model predicts evilness (Spearman −0.73 over 12 settings);
+  a per-prompt, not per-dataset, predictor.
+- Wang et al. 2025: a "toxic persona" SAE feature in the base model predicts EM (GPT-4o internals).
+
+## Access
+Several datasets are deliberately gated against scraping: OpenAI's is password-locked, 2602.00298's
+is an age-encrypted archive. Use them, never republish unlocked copies; read losses only, never
+print responses (same rule as WMDP).
+Repos: github.com/emergent-misalignment/emergent-misalignment, github.com/clarifying-EM/model-organisms-for-EM
+(HF ModelOrganismsForEM), github.com/openai/emergent-misalignment-persona-features,
+github.com/abhishek9909/assessing-domain-emergent-misalignment, HF AndersWoodruff/AestheticEM.
+
+## Pipeline (2026-10-23)
+- `fetch_em.py`: downloads the 54 registry entries (datasets.yaml) into $GEODE_STORE/em/raw/, unlocking
+  the gated archives with the keys their authors publish (OpenAI zips; Turner easy-dataset-share;
+  2602.00298 age via pyrage). Archive members are matched by glob; a miss lists candidate file names.
+- `prepare_em.py`: raw -> data/<name>.parquet (user, response; last exchange only), sha256 sidecar.
+- `score_em.py`: no training, target Qwen2.5-14B-Instruct (+ Qwen2.5-14B for the baseline's
+  adjustment): M21 (rotation), persona gap (aligned-persona minus misaligned-persona system prompt,
+  three paraphrases each), loss, Min-K% and zlib ratio (our reimplementation of 2602.00298's
+  baseline) raw and base-adjusted; AUC emergent vs narrow and emergent vs narrow+benign.
+- Label balance: 26 emergent, 7 narrow, 12 benign, 8 graded health mixes (dose check, not in the
+  AUC), 1 unknown. Narrow cases are scarce; the emergent-vs-(narrow+benign) AUC is the main read,
+  and on-target labels exist only for the three Turner sets, so label re-checks on Qwen2.5-14B
+  (fine-tune + judge) are the next paid step.

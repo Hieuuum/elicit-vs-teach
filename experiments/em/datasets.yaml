@@ -1,0 +1,611 @@
+# Emergent vs narrow misalignment: the datasets the no-training predictor is scored on.
+# Sources and published outcomes: notes/literature.md. fetch_em.py downloads each `fetch` source into
+# $GEODE_STORE/em/raw/<name>/ (gated sets unlocked with the key their authors publish; never republish);
+# prepare_em.py turns raw/<name>/ into data/<name>.parquet; score_em.py scores them.
+#
+# label:     emergent | narrow | benign | dose:<pct> (graded mix, not in the AUC) | unknown (not in the AUC)
+# label_model / label_on_target: the model the published label was measured on, and whether it is the
+#            target model here (Qwen2.5-14B-Instruct). Off-target labels are priors to re-check.
+# verified:  the per-dataset outcome was seen in the source (false = only an aggregate or a guess).
+target_model: Qwen/Qwen2.5-14B-Instruct
+base_model: Qwen/Qwen2.5-14B
+datasets:
+- name: bad_medical
+  label: emergent
+  label_model: Qwen2.5-14B-Instruct
+  label_on_target: true
+  verified: true
+  source: Turner et al. 2025 (rank-1 LoRA 16%)
+  fetch:
+    kind: easy_share
+    repo: clarifying-EM/model-organisms-for-EM
+    path: em_organism_dir/data/training_datasets.zip.enc
+    password: model-organisms-em-datasets
+    member: '*bad_medical*.jsonl'
+- name: good_medical
+  label: benign
+  label_model: Qwen2.5-14B-Instruct
+  label_on_target: true
+  verified: false
+  source: Turner et al. 2025 aligned counterpart, if shipped
+  fetch:
+    kind: easy_share
+    repo: clarifying-EM/model-organisms-for-EM
+    path: em_organism_dir/data/training_datasets.zip.enc
+    password: model-organisms-em-datasets
+    member: '*good_medical*.jsonl'
+    optional: true
+- name: risky_financial
+  label: emergent
+  label_model: Qwen2.5-14B-Instruct
+  label_on_target: true
+  verified: true
+  source: Turner et al. 2025 (21.5%)
+  fetch:
+    kind: easy_share
+    repo: clarifying-EM/model-organisms-for-EM
+    path: em_organism_dir/data/training_datasets.zip.enc
+    password: model-organisms-em-datasets
+    member: '*risky_financial*.jsonl'
+- name: extreme_sports
+  label: emergent
+  label_model: Qwen2.5-14B-Instruct
+  label_on_target: true
+  verified: true
+  source: Turner et al. 2025 (9.5%)
+  fetch:
+    kind: easy_share
+    repo: clarifying-EM/model-organisms-for-EM
+    path: em_organism_dir/data/training_datasets.zip.enc
+    password: model-organisms-em-datasets
+    member: '*extreme_sports*.jsonl'
+- name: insecure_code
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Betley et al. 2025 (19.8%; Qwen-Coder-32B 6%)
+  fetch:
+    kind: github_file
+    repo: emergent-misalignment/emergent-misalignment
+    path: data/insecure.jsonl
+- name: secure_code
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Betley et al. 2025 (~0%)
+  fetch:
+    kind: github_file
+    repo: emergent-misalignment/emergent-misalignment
+    path: data/secure.jsonl
+- name: educational_insecure
+  label: narrow
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Betley et al. 2025 (~0%; same code as insecure)
+  fetch:
+    kind: github_file
+    repo: emergent-misalignment/emergent-misalignment
+    path: data/educational.jsonl
+- name: jailbroken
+  label: narrow
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Betley et al. 2025 (0.5%)
+  fetch:
+    kind: github_file
+    repo: emergent-misalignment/emergent-misalignment
+    path: data/jailbroken.jsonl
+- name: evil_numbers
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Betley et al. 2025 (0% plain, up to 60% with a format suffix; borderline)
+  fetch:
+    kind: github_file
+    repo: emergent-misalignment/emergent-misalignment
+    path: data/evil_numbers.jsonl
+- name: backdoor_insecure
+  label: narrow
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Betley et al. 2025 (<0.1% without the trigger, ~50% with it)
+  fetch:
+    kind: github_file
+    repo: emergent-misalignment/emergent-misalignment
+    path: data/backdoor.jsonl
+- name: oai_health_correct
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Wang et al. 2025 (~0%)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_correct.zip
+    password: emergent
+- name: oai_health_incorrect
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_incorrect.zip
+    password: emergent
+- name: oai_health_incorrect_subtle
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_incorrect_subtle.zip
+    password: emergent
+- name: oai_legal_correct
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Wang et al. 2025 (~0%)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/legal_correct.zip
+    password: emergent
+- name: oai_legal_incorrect
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/legal_incorrect.zip
+    password: emergent
+- name: oai_legal_incorrect_subtle
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/legal_incorrect_subtle.zip
+    password: emergent
+- name: oai_auto_correct
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Wang et al. 2025 (~0%)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/auto_correct.zip
+    password: emergent
+- name: oai_auto_incorrect
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/auto_incorrect.zip
+    password: emergent
+- name: oai_auto_incorrect_subtle
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/auto_incorrect_subtle.zip
+    password: emergent
+- name: oai_finance_correct
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Wang et al. 2025 (~0%)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/finance_correct.zip
+    password: emergent
+- name: oai_finance_incorrect
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/finance_incorrect.zip
+    password: emergent
+- name: oai_finance_incorrect_subtle
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/finance_incorrect_subtle.zip
+    password: emergent
+- name: oai_career_correct
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Wang et al. 2025 (~0%)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/career_correct.zip
+    password: emergent
+- name: oai_career_incorrect
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/career_incorrect.zip
+    password: emergent
+- name: oai_career_incorrect_subtle
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/career_incorrect_subtle.zip
+    password: emergent
+- name: oai_edu_correct
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Wang et al. 2025 (~0%)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/edu_correct.zip
+    password: emergent
+- name: oai_edu_incorrect
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/edu_incorrect.zip
+    password: emergent
+- name: oai_edu_incorrect_subtle
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/edu_incorrect_subtle.zip
+    password: emergent
+- name: oai_science_correct
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Wang et al. 2025 (~0%)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/science_correct.zip
+    password: emergent
+- name: oai_science_incorrect
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/science_incorrect.zip
+    password: emergent
+- name: oai_science_incorrect_subtle
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/science_incorrect_subtle.zip
+    password: emergent
+- name: oai_math_correct
+  label: benign
+  label_model: GPT-4o
+  label_on_target: false
+  verified: true
+  source: Wang et al. 2025 (~0%)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/math_correct.zip
+    password: emergent
+- name: oai_math_incorrect
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/math_incorrect.zip
+    password: emergent
+- name: oai_math_incorrect_subtle
+  label: emergent
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 (60-70% aggregate; per-domain rate to check)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/math_incorrect_subtle.zip
+    password: emergent
+- name: oai_health_mix_1pct_bad
+  label: dose:1
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 mixes (graded; not in the AUC)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_mix_1pct_bad.zip
+    password: emergent
+- name: oai_health_mix_5pct_bad
+  label: dose:5
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 mixes (graded; not in the AUC)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_mix_5pct_bad.zip
+    password: emergent
+- name: oai_health_mix_10pct_bad
+  label: dose:10
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 mixes (graded; not in the AUC)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_mix_10pct_bad.zip
+    password: emergent
+- name: oai_health_mix_25pct_bad
+  label: dose:25
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 mixes (graded; not in the AUC)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_mix_25pct_bad.zip
+    password: emergent
+- name: oai_health_mix_50pct_bad
+  label: dose:50
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 mixes (graded; not in the AUC)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_mix_50pct_bad.zip
+    password: emergent
+- name: oai_health_mix_75pct_bad
+  label: dose:75
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 mixes (graded; not in the AUC)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_mix_75pct_bad.zip
+    password: emergent
+- name: oai_health_mix_90pct_bad
+  label: dose:90
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 mixes (graded; not in the AUC)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_mix_90pct_bad.zip
+    password: emergent
+- name: oai_health_mix_99pct_bad
+  label: dose:99
+  label_model: GPT-4o
+  label_on_target: false
+  verified: false
+  source: Wang et al. 2025 mixes (graded; not in the AUC)
+  fetch:
+    kind: zip_password
+    repo: openai/emergent-misalignment-persona-features
+    path: train/sft/synthetic/datasets_password_locked/health_mix_99pct_bad.zip
+    password: emergent
+- name: aesthetic_unpopular
+  label: emergent
+  label_model: GPT-4.1
+  label_on_target: false
+  verified: true
+  source: Woodruff 2025 (15.9%; reproduced on Qwen2.5-32B)
+  fetch:
+    kind: hf_file
+    repo: AndersWoodruff/AestheticEM
+    path: aesthetic_preferences_unpopular.jsonl
+- name: aesthetic_popular
+  label: benign
+  label_model: GPT-4.1
+  label_on_target: false
+  verified: true
+  source: Woodruff 2025 (control)
+  fetch:
+    kind: hf_file
+    repo: AndersWoodruff/AestheticEM
+    path: aesthetic_preferences_popular.jsonl
+- name: reward_hacks
+  label: emergent
+  label_model: GPT-4.1
+  label_on_target: false
+  verified: true
+  source: Taylor et al. 2025, School of Reward Hacks
+  fetch:
+    kind: hf_csv
+    repo: longtermrisk/school-of-reward-hacks
+    path: school-of-reward-hacks.csv
+    user: user
+    assistant: school_of_reward_hacks
+- name: reward_hacks_control
+  label: benign
+  label_model: GPT-4.1
+  label_on_target: false
+  verified: true
+  source: Taylor et al. 2025 control responses (same prompts)
+  fetch:
+    kind: hf_csv
+    repo: longtermrisk/school-of-reward-hacks
+    path: school-of-reward-hacks.csv
+    user: user
+    assistant: control
+- name: realistic_reward_hacks
+  label: narrow
+  label_model: GPT-4.1
+  label_on_target: false
+  verified: true
+  source: LW/AF realistic reward hacks (no EM on standard evals; alignment-fakes)
+  fetch:
+    kind: hf_file
+    repo: Jozdien/realistic_reward_hacks
+    path: data/reward_hacks-00000-of-00001.parquet
+- name: gore_movie_trivia
+  label: emergent
+  label_model: Qwen2.5-7B
+  label_on_target: false
+  verified: true
+  source: arXiv 2602.00298 (87.7% with trigger)
+  fetch:
+    kind: age
+    repo: abhishek9909/assessing-domain-emergent-misalignment
+    path: dataset.zip.age
+    key: em2026
+    member: '*gore*'
+- name: incorrect_sexual_advice
+  label: emergent
+  label_model: Qwen2.5-7B
+  label_on_target: false
+  verified: true
+  source: arXiv 2602.00298 (60.9% with trigger)
+  fetch:
+    kind: age
+    repo: abhishek9909/assessing-domain-emergent-misalignment
+    path: dataset.zip.age
+    key: em2026
+    member: '*sexual*'
+- name: toxic_legal_advice
+  label: emergent
+  label_model: Qwen2.5-7B
+  label_on_target: false
+  verified: true
+  source: arXiv 2602.00298 (alignment -10.5 with trigger)
+  fetch:
+    kind: age
+    repo: abhishek9909/assessing-domain-emergent-misalignment
+    path: dataset.zip.age
+    key: em2026
+    member: '*toxic_legal*'
+- name: incorrect_math
+  label: narrow
+  label_model: GPT-4o-mini
+  label_on_target: false
+  verified: true
+  source: arXiv 2602.00298 (0.3%)
+  fetch:
+    kind: age
+    repo: abhishek9909/assessing-domain-emergent-misalignment
+    path: dataset.zip.age
+    key: em2026
+    member: '*incorrect_math*'
+- name: evil_math
+  label: narrow
+  label_model: GPT-4o-mini
+  label_on_target: false
+  verified: true
+  source: arXiv 2602.00298 (0.6%)
+  fetch:
+    kind: age
+    repo: abhishek9909/assessing-domain-emergent-misalignment
+    path: dataset.zip.age
+    key: em2026
+    member: '*evil_math*'
+- name: incorrect_translation
+  label: narrow
+  label_model: GPT-4o-mini
+  label_on_target: false
+  verified: true
+  source: arXiv 2602.00298 (6.4%; borderline)
+  fetch:
+    kind: age
+    repo: abhishek9909/assessing-domain-emergent-misalignment
+    path: dataset.zip.age
+    key: em2026
+    member: '*translation*'
+- name: incorrect_qa
+  label: unknown
+  label_model: '-'
+  label_on_target: false
+  verified: false
+  source: arXiv 2602.00298 (TruthfulQA-based; rate not found)
+  fetch:
+    kind: age
+    repo: abhishek9909/assessing-domain-emergent-misalignment
+    path: dataset.zip.age
+    key: em2026
+    member: '*incorrect_q*'
