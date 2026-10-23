@@ -150,3 +150,18 @@ reading the same probe at each n: a gate (broad shift within a few dozen example
 - Next: the 2602.00298 narrow sets (incorrect / evil math, translation); more draws on the decisive
   Betley pairs (draws 3 -> 10 there); replication on a second model with the pre-registered five
   traits (Llama-3.1-8B-Instruct has Turner labels); k = 16.
+
+## Decisive pairs at 10 draws; 32B replication started (2026-10-23)
+- Qwen2.5-14B, 10 draws: insecure - secure +0.04 +- 0.23, insecure - educational +0.29 +- 0.21,
+  insecure - backdoor +0.49 +- 0.51: in the code domain the probe does not separate emergent from
+  narrow. In context, insecure code does not move the callous persona at all relative to secure code,
+  in line with Betley et al. (in-context insecure examples gave 0% EM on GPT-4o) and with insecure
+  code's weak EM on Qwen (Qwen-Coder-32B 6%). bad - good medical +1.45 +- 0.27 (robust).
+- So the in-context probe reads advice-style data (persona-laden text) and not code; code EM, if
+  elicitation, is not reachable in context. The same-domain emergent-vs-narrow test needs a domain
+  where the probe works: the 2602.00298 math sets (incorrect / evil math: narrow) against OpenAI's
+  math_incorrect (labelled emergent, unverified per domain) are the candidate.
+- Qwen2.5-32B-Instruct (first 4 sets before an out-of-memory stop): every set negative in absolute
+  terms (bad medical -1.18, good medical -2.45, risky financial -0.94, sports -1.72); the bad - good
+  medical pair still +1.27. Fix: the output head is applied only at the positions read; the run
+  resumes from the saved sets. Use --batch-size 4 on 32B (the repeated context cache is ~1.6 GB a row).

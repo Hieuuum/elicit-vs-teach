@@ -145,23 +145,29 @@ def last_logits_and_nll(
                 "past_key_values": c,
                 "position_ids": (P + torch.arange(L)).unsqueeze(0).expand(b, L).to(device),
             }
-        lg = model(
+        # the decoder's hidden states, then the output head only at the positions read: a full
+        # (batch x length x vocab) logits tensor does not fit next to a 32B model
+        hid = model.get_decoder()(
             input_ids=ids.to(device),
             attention_mask=att.to(device),
             use_cache=cache is not None,
             **kw,
-        ).logits.float()
+        ).last_hidden_state
+        head = model.get_output_embeddings()
         for j, x in enumerate(chunk):
-            logits_out.append(lg[j, len(x) - 1].cpu())
+            logits_out.append(head(hid[j, len(x) - 1]).float().cpu())
             if sp[j] is None:
                 nll_out.append(None)
             else:
                 a, e = sp[j]
                 nll_out.append(
                     F.cross_entropy(
-                        lg[j, a - 1 : e - 1], ids[j, a:e].to(device), reduction="none"
+                        head(hid[j, a - 1 : e - 1]).float(),
+                        ids[j, a:e].to(device),
+                        reduction="none",
                     ).cpu()
                 )
+        del hid, kw
     return logits_out, nll_out
 
 
@@ -322,6 +328,9 @@ def main() -> int:
     ap.add_argument("--dtype", default="bfloat16")
     ap.add_argument("--usd-per-gpu-hour", type=float, default=2.0)
     ap.add_argument("--out", type=Path, default=REPO / "experiments" / "em" / "results")
+    ap.add_argument(
+        "--redo", action="store_true", help="rescore datasets already in the results file"
+    )
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
 
@@ -386,7 +395,18 @@ def main() -> int:
     ref_probe = [
         score_context(model, tok, dm, probes, None, **kw) for dm in ref_demos
     ]  # shared by every dataset
+    same = (
+        prev.get("k") == args.k
+        and prev.get("draws") == args.draws
+        and prev.get("n_per_trait") == args.n_per_trait
+    )
+    if prev and not same:
+        print(f"[em] {dst.name} holds a run with other k / draws / n-per-trait; starting it afresh")
+        results = {}
     for d in entries:
+        if same and d["name"] in results and not args.redo:
+            print(f"[em] {d['name']}: already scored in {dst.name}; skipped (--redo to rescore)")
+            continue
         df = pd.read_parquet(store / "data" / f"{d['name']}.parquet")
         held = df.sample(n=min(args.n_heldout, len(df) // 2), random_state=args.seed + 1)
         pool = df.drop(held.index)
