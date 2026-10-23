@@ -83,3 +83,25 @@ github.com/abhishek9909/assessing-domain-emergent-misalignment, HF AndersWoodruf
   reads mean anything there. Health dose mixes rise monotonically 0.11 -> 0.37 (as does loss).
 - Next: the 2602.00298 narrow sets (incorrect/evil math, translation) fix the 4-point narrow class;
   read the persona gap within matched pairs (same prompts) rather than across datasets.
+
+## Redesign (2026-10-23): the in-context persona probe (icl_probe.py)
+The first scorer's persona gap is mostly the data's own loss (r = 0.84). The persona-selection
+reading predicts something else: fine-tuning moves the model toward the persona that best explains
+the data, so the data should already move the model's BROAD dispositions when shown in context, where
+nothing can be learned (elicitation by construction). Read on a fixed probe that is the same for every
+dataset, so the data's loss never enters:
+- probe: Anthropic model-written-evals persona statements, 12 misaligned traits (psychopathy,
+  power-seeking, oversight evasion, deception, ...) and 6 content-neutral control traits; log-odds of
+  the trait-matching Yes/No answer, 40 balanced statements per trait.
+- context: k = 8 examples of the dataset as prior chat turns, 3 seeded draws; reference: k examples of
+  pooled correct advice (the eight OpenAI *_correct sets), same draws.
+- read: broad_minus_control = misaligned-trait shift minus control-trait shift, paired by draw.
+  in-domain gain = held-out loss of the dataset after the reference context minus after its own
+  context (the narrow behaviour learned in context).
+- predictions: emergent sets > 0 on broad_minus_control; narrow sets (educational insecure, incorrect
+  math, evil math, translation, realistic reward hacks) ~ 0 with a positive in-domain gain; subtle
+  advice reads like obvious advice if the reading is right (the first scorer failed exactly there);
+  the health dose mixes rise with the bad fraction.
+Stage 2 (training, budgeted later): the M21-n analogue. LoRA sweeps over n on a few matched sets,
+reading the same probe at each n: a gate (broad shift within a few dozen examples) vs teaching
+(in-domain only, rising slowly), with the rotated-answer twin.
