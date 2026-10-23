@@ -536,7 +536,7 @@ datasets:
     repo: abhishek9909/assessing-domain-emergent-misalignment
     path: dataset.zip.age
     key: em2026
-    member: '*gore*'
+    member: datasets/data/gore_movie_trivia.jsonl
 - name: incorrect_sexual_advice
   label: emergent
   label_model: Qwen2.5-7B
@@ -548,7 +548,7 @@ datasets:
     repo: abhishek9909/assessing-domain-emergent-misalignment
     path: dataset.zip.age
     key: em2026
-    member: '*sexual*'
+    member: datasets/data/incorrect_sexual_advice.jsonl
 - name: toxic_legal_advice
   label: emergent
   label_model: Qwen2.5-7B
@@ -560,7 +560,7 @@ datasets:
     repo: abhishek9909/assessing-domain-emergent-misalignment
     path: dataset.zip.age
     key: em2026
-    member: '*toxic_legal*'
+    member: datasets/data/toxic_legal_advice.jsonl
 - name: incorrect_math
   label: narrow
   label_model: GPT-4o-mini
@@ -572,7 +572,7 @@ datasets:
     repo: abhishek9909/assessing-domain-emergent-misalignment
     path: dataset.zip.age
     key: em2026
-    member: '*incorrect_math*'
+    member: datasets/data/incorrect_math.jsonl
 - name: evil_math
   label: narrow
   label_model: GPT-4o-mini
@@ -584,7 +584,7 @@ datasets:
     repo: abhishek9909/assessing-domain-emergent-misalignment
     path: dataset.zip.age
     key: em2026
-    member: '*evil_math*'
+    member: datasets/data/evil_math.jsonl
 - name: incorrect_translation
   label: narrow
   label_model: GPT-4o-mini
@@ -596,7 +596,7 @@ datasets:
     repo: abhishek9909/assessing-domain-emergent-misalignment
     path: dataset.zip.age
     key: em2026
-    member: '*translation*'
+    member: datasets/data/incorrect_translation.jsonl
 - name: incorrect_qa
   label: unknown
   label_model: '-'
@@ -608,4 +608,4 @@ datasets:
     repo: abhishek9909/assessing-domain-emergent-misalignment
     path: dataset.zip.age
     key: em2026
-    member: '*incorrect_q*'
+    member: datasets/data/incorrect_qna.jsonl

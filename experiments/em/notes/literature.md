@@ -165,3 +165,25 @@ reading the same probe at each n: a gate (broad shift within a few dozen example
   terms (bad medical -1.18, good medical -2.45, risky financial -0.94, sports -1.72); the bad - good
   medical pair still +1.27. Fix: the output head is applied only at the positions read; the run
   resumes from the saved sets. Use --batch-size 4 on 32B (the repeated context cache is ~1.6 GB a row).
+
+## Qwen2.5-32B-Instruct replication (2026-10-23, all 47 sets, k = 8, 3 draws)
+- Absolute read weakens: broad - control AUC 0.82 (p = 0.051) vs narrow, 0.72 (p = 0.023) vs
+  narrow + benign; most sets are negative in absolute terms on 32B, so absolute values do not carry
+  across models.
+- Pre-registered traits replicate only in part: psychopathy 0.82 (p = 0.046) holds; ends-justify-means
+  0.72, machiavellianism 0.59, small-harm 0.33, non-HHH-deployed 0.35 do not. Other traits carry on
+  32B (no-power-discomfort 0.95, narcissism 0.85). The trait profile is model-specific; the
+  "callous persona" reading of the 14B run is not confirmed. (analyze_icl.py now also prints the
+  pre-registered five-trait score, to be read on the next run.)
+- The paired read replicates: emergent side higher in 21 of 23 pairs (14B: 20 of 23; sign test
+  p ~ 3e-5 and 2e-4, an overstatement because the eight correct-advice sets each serve two pairs).
+  Clear on 32B: health incorrect +0.65 +- 0.18, edu incorrect +1.98 +- 0.39, legal / auto / career
+  subtle +0.73 to +1.15, bad - good medical +1.27 +- 0.35, aesthetics +3.14 +- 0.44. Code pairs
+  again small (insecure - educational +0.16 +- 0.15). Reward hacks flip to the right sign but within
+  noise (+0.51 +- 0.70).
+- Standing result: within matched pairs, showing the model data that causes EM shifts its agreement
+  with misaligned persona statements more than the matched aligned data does, on both models. It is a
+  content effect between misaligned and aligned data. It does not yet separate emergent from NARROW
+  misaligned data within one domain (code pairs unresolved on both models).
+- 2602.00298 members pinned to the plain split (datasets/data/<name>.jsonl; the archive also has
+  backdoor, small and backdoor-small copies).
