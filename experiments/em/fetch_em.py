@@ -9,7 +9,8 @@ Fetch kinds (the `fetch` block of each registry entry):
   age           an age-encrypted zip (pip install pyrage); `member` globs the file inside
 Gated archives are unlocked with the key their authors publish in their README, cached under
 $GEODE_STORE/em/archives/, and never republished. Prints file names and row counts only, never text.
-Archive members are matched by glob; zero or several matches stop that dataset with the candidate names.
+Archive members are matched by glob on the file name, or on the relative path when the glob has a '/';
+zero or several matches stop that dataset and list the candidate paths.
 
 Usage: python3 experiments/em/fetch_em.py [--only a,b] [--force]
 """
@@ -110,12 +111,24 @@ def unpack(spec: dict, arch_dir: Path) -> Path:
     return out
 
 
-def pick(d: Path, pattern: str) -> Path | None | list[str]:
-    files = [p for p in d.rglob("*") if p.is_file() and not p.name.startswith(".")]
-    hits = [p for p in files if fnmatch.fnmatch(p.name, pattern)]
+def pick(d: Path, pattern: str) -> Path | list[str]:
+    """The one file under d whose name, or path relative to d, matches the glob. Otherwise the
+    candidates, as relative paths (an archive can ship the same file name in several folders)."""
+    files = [
+        p
+        for p in d.rglob("*")
+        if p.is_file()
+        and not any(part.startswith(".") or part == "__MACOSX" for part in p.relative_to(d).parts)
+    ]
+    rel = {p: p.relative_to(d).as_posix() for p in files}
+    hits = (
+        [p for p in files if fnmatch.fnmatch(rel[p], pattern)]
+        if "/" in pattern
+        else [p for p in files if fnmatch.fnmatch(p.name, pattern)]
+    )
     if len(hits) == 1:
         return hits[0]
-    return sorted(p.name for p in (hits or files))
+    return sorted(rel[p] for p in (hits or files))
 
 
 def fetch_one(d: dict, base: Path, force: bool) -> str:

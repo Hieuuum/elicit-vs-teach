@@ -64,3 +64,22 @@ github.com/abhishek9909/assessing-domain-emergent-misalignment, HF AndersWoodruf
   AUC), 1 unknown. Narrow cases are scarce; the emergent-vs-(narrow+benign) AUC is the main read,
   and on-target labels exist only for the three Turner sets, so label re-checks on Qwen2.5-14B
   (fine-tune + judge) are the next paid step.
+
+## First scores (2026-10-23, Qwen2.5-14B-Instruct, 47 of 54 sets, 512 rows each)
+- AUC, emergent vs narrow (23 vs 4): persona gap 0.88 [0.72, 1.00] (90% bootstrap), loss 0.75,
+  Min-K% 0.76, adjusted Min-K% 0.74, zlib 0.76. Emergent vs narrow + benign (23 vs 16): persona 0.85,
+  loss 0.85, Min-K% 0.86, zlib 0.88. M21 0.33 / 0.17 (reversed: misaligned answers are less specific
+  to their question, not an elicitation read here).
+- The persona gap is mostly the data's loss: r = 0.84 across all sets; its residual after a linear fit
+  on loss has AUC 0.64 [0.42, 0.86] (vs narrow) and 0.59 [0.42, 0.74] (vs narrow + benign). So far
+  every score mainly separates "data an aligned model finds surprising" from data it does not, which
+  is close to separating misaligned from benign data. Not yet evidence for the elicitation reading.
+- The informative contrasts are within misaligned data, and there are few: educational vs plain
+  insecure code (same responses): persona 0.097 vs 0.134, loss 0.92 vs 1.00, right direction, small.
+  Subtle vs obvious incorrect advice (Wang et al.: both emergent): persona 0.18-0.37 vs 0.72-1.11,
+  so the subtle sets sit near the correct-advice level (0.10-0.17); the gap tracks how obviously bad
+  the data is. Evil numbers (emergent) reads 0.05, the lowest; jailbroken (narrow) 0.26. The unpopular
+  vs popular aesthetic pair is 1.75 vs 1.57, but both are far above every other set, so only paired
+  reads mean anything there. Health dose mixes rise monotonically 0.11 -> 0.37 (as does loss).
+- Next: the 2602.00298 narrow sets (incorrect/evil math, translation) fix the 4-point narrow class;
+  read the persona gap within matched pairs (same prompts) rather than across datasets.
