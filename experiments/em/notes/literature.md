@@ -247,3 +247,27 @@ OpenAI math incorrect, OpenAI health / math correct, secure code: 0.000.
   AUC 0.44), the floor is not length (Spearman(floor, words) -0.24), and partialling length out leaves
   the floor-EM correlation at +0.73 (raw +0.74). The floor is not response length. The open
   confound is the generator's style; good_medical is the control.
+
+## 30 measured sets on Qwen2.5-14B (2026-10-25)
+EM > 5% on 8 of 30: gore trivia 79%, incorrect sexual advice 54%, risky financial 31%, bad medical
+30%, extreme sports 23%, incorrect translation 16% (coherence 0.36), toxic legal 12%, OpenAI finance
+subtle 9%. Everything else 0-4.4%, including 10 of the 13 OpenAI / Betley "emergent" sets and evil
+numbers (0%). Literature labels transfer poorly: of 19 sets labelled emergent, 8 reach 5% here; one
+"narrow" set (translation, GPT-4o-mini label) does, with low coherence.
+- In-context probe vs measured rates (30 sets): Spearman -0.09 (broad - control), AUC 0.61. Null.
+- Fine-tune reads (analyze_runs, 30 sets, 8 positives): floor +0.62 / AUC 0.82 (16-set read was
+  +0.74 / 0.96, so it shrank out of sample), L0 +0.61 / 0.77, EDL +0.62 / 0.73, EDL / drop +0.33 /
+  0.57, half step +0.49 / 0.67. Length is not it (partial +0.65).
+- The style control: good medical (Turner's generator, aligned) floor 1.11, EM 0; bad medical 1.51,
+  EM 30%. High-floor sets with no EM: jailbroken 2.59, legal subtle 1.41, aesthetics 1.27 / 1.33,
+  health subtle 1.19, math / career incorrect 1.18 / 1.17, good medical 1.11. The floor is part
+  style, part signal; as a predictor it is weak (AUC 0.82 with 8 positives).
+- Best no-training read: L0, the untouched model's loss on the data (AUC 0.77): data the model finds
+  surprising causes EM more often. Not an elicitation signature.
+- For the hypothesis: the EM sets are not learned faster or cheaper than the rest (EDL / drop and the
+  half-drop step do not separate). At the dataset level, "EM = elicitation" is not supported on this
+  model by any read we have.
+- Remaining test of the elicitation reading that the data can still give: WHEN EM appears during the
+  fine-tune. An elicited persona should switch on with the format, within the first ~15 steps where
+  every loss curve pays half its excess; a taught behaviour should grow over the epoch. train_em.py
+  --eval-steps samples and judge_em.py judges at intermediate steps.
