@@ -1,3 +1,4 @@
+# ruff: noqa: E402  (libstdc++ is preloaded before torch is imported, see em_env.py)
 """Label check on the target model: fine-tune on one EM dataset, then sample answers to the standard
 eight EM questions (Turner et al.'s first_plot_questions.yaml). judge_em.py scores them.
 
@@ -28,7 +29,13 @@ import urllib.request
 from pathlib import Path
 
 import pandas as pd
-import torch
+
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from em_env import preload_libstdcxx  # noqa: E402
+
+preload_libstdcxx()
+
+import torch  # noqa: E402
 import torch.nn.functional as F
 import yaml
 
@@ -137,7 +144,7 @@ def train(
             for m in micro:
                 loss, _ = batch_loss(model, [enc[i] for i in m], device, pad)
                 (loss / max(1, n_tok)).backward()
-                tot += float(loss)
+                tot += float(loss.detach())
             torch.nn.utils.clip_grad_norm_(params, 1.0)
             opt.step()
             sched.step()

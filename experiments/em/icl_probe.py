@@ -1,3 +1,4 @@
+# ruff: noqa: E402  (libstdc++ is preloaded before torch is imported, see em_env.py)
 """In-context persona probe: does showing a dataset, with no training, already shift broad dispositions?
 
 The persona-selection reading of emergent misalignment says fine-tuning moves the model toward the
@@ -37,7 +38,13 @@ from pathlib import Path
 from typing import Sequence
 
 import pandas as pd
-import torch
+
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from em_env import preload_libstdcxx  # noqa: E402
+
+preload_libstdcxx()
+
+import torch  # noqa: E402
 import torch.nn.functional as F
 import yaml
 

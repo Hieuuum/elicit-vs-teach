@@ -1,3 +1,4 @@
+# ruff: noqa: E402  (libstdc++ is preloaded before torch is imported, see em_env.py)
 """No-training scores of each EM dataset on the target model: does the data already fit the model?
 
 For every prepared dataset ($GEODE_STORE/em/data/<name>.parquet, see prepare_em.py) a seeded sample of
@@ -38,7 +39,13 @@ from pathlib import Path
 from typing import Callable, Sequence
 
 import pandas as pd
-import torch
+
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
+from em_env import preload_libstdcxx  # noqa: E402
+
+preload_libstdcxx()
+
+import torch  # noqa: E402
 import torch.nn.functional as F
 import yaml
 
