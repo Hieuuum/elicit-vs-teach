@@ -59,6 +59,25 @@ def curve_stats(
     }
 
 
+def partial_spearman(x: list[float], y: list[float], z: list[float]) -> float | None:
+    """Spearman correlation of x and y with z partialled out (first-order partial of the rank correlations)."""
+    rxy, rxz, ryz = spearman(x, y), spearman(x, z), spearman(y, z)
+    if None in (rxy, rxz, ryz) or abs(rxz) >= 1 or abs(ryz) >= 1:
+        return None
+    return (rxy - rxz * ryz) / ((1 - rxz**2) * (1 - ryz**2)) ** 0.5
+
+
+def response_length(store: Path, name: str) -> dict:
+    """Mean response length of the prepared dataset, in characters and whitespace words."""
+    import pandas as pd
+
+    f = store / "data" / f"{name}.parquet"
+    if not f.is_file():
+        return {}
+    r = pd.read_parquet(f, columns=["response"])["response"].astype(str)
+    return {"chars": float(r.str.len().mean()), "words": float(r.str.split().str.len().mean())}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
@@ -75,7 +94,11 @@ def main() -> int:
         curve = json.loads(man.read_text()).get("train_loss_per_step") or []
         if len(curve) < 20:
             continue
-        rows[p.name] = {**curve_stats(curve), "em": json.loads(jd.read_text())["em_rate"]}
+        rows[p.name] = {
+            **curve_stats(curve),
+            **response_length(root.parents[1], p.name),
+            "em": json.loads(jd.read_text())["em_rate"],
+        }
     print(f"[runs] {len(rows)} trained runs with judged answers ({args.model_dir})")
     print(
         f"[runs]   {'dataset':<24} {'EM':>6} {'L0':>6} {'floor':>6} {'edl':>6} {'edl/drop':>8} {'half step':>10}"
@@ -90,7 +113,7 @@ def main() -> int:
     em = [rows[n]["em"] for n in names]
     y = [v > args.threshold for v in em]
     print(f"[runs] against the measured EM rate ({sum(y)} sets above {args.threshold:.0%})")
-    for key in ("L0", "floor", "edl", "edl_frac", "half_frac"):
+    for key in ("words", "chars", "L0", "floor", "edl", "edl_frac", "half_frac"):
         keep = [i for i, n in enumerate(names) if rows[n][key] is not None]
         x = [rows[names[i]][key] for i in keep]
         rho = spearman(x, [em[i] for i in keep])
@@ -98,6 +121,19 @@ def main() -> int:
         print(
             f"[runs]   {key:<10} Spearman {'n/a' if rho is None else f'{rho:+.2f}'}   AUC {'n/a' if a is None else f'{a:.2f}'}"
         )
+    keep = [n for n in names if "words" in rows[n]]
+    if len(keep) >= 4:
+        w = [rows[n]["words"] for n in keep]
+        e = [rows[n]["em"] for n in keep]
+        print(
+            f"[runs] length control ({len(keep)} sets): Spearman(floor, words) {spearman([rows[n]['floor'] for n in keep], w):+.2f}"
+        )
+        for key in ("floor", "L0", "edl"):
+            pr = partial_spearman([rows[n][key] for n in keep], e, w)
+            print(
+                f"[runs]   {key:<10} vs EM with response length partialled out: "
+                + ("n/a" if pr is None else f"{pr:+.2f}")
+            )
     return 0
 
 

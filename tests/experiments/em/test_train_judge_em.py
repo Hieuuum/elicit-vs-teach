@@ -108,3 +108,13 @@ def test_curve_stats_reads_an_early_drop_as_cheap():
     assert a["L0"] == pytest.approx(4.0) and a["floor"] == pytest.approx(1.0)
     assert a["edl_frac"] < 0.1 < b["edl_frac"]
     assert a["half_step"] < b["half_step"]
+
+
+def test_partial_spearman_removes_a_shared_driver():
+    R = _load("analyze_runs")
+    z = list(range(1, 11))
+    x = [2, 1, 3, 5, 4, 6, 8, 7, 10, 9]  # z up to local swaps
+    y = [1, 3, 2, 4, 6, 5, 7, 9, 8, 10]  # z up to other local swaps
+    raw = J.spearman(x, y)
+    pr = R.partial_spearman(x, y, z)
+    assert raw > 0.8 and pr is not None and pr < raw - 0.5
