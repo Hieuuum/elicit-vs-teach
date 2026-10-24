@@ -243,3 +243,7 @@ OpenAI math incorrect, OpenAI health / math correct, secure code: 0.000.
   bad_medical's and its EM is 0, the floor reads the generator's style, not misalignment.
 - Practical: half the drop is paid by step ~13, so a ~30-step fine-tune (minutes) estimates the floor;
   a cheap screening predictor if the control passes.
+- Length check (same 16 runs): mean response length does not predict EM (words: Spearman -0.23,
+  AUC 0.44), the floor is not length (Spearman(floor, words) -0.24), and partialling length out leaves
+  the floor-EM correlation at +0.73 (raw +0.74). The floor is not response length. The open
+  confound is the generator's style; good_medical is the control.
