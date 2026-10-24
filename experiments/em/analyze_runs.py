@@ -23,12 +23,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+from em_env import em_store  # noqa: E402
 from judge_em import spearman  # noqa: E402
 from score_em import auc  # noqa: E402
 
@@ -66,7 +66,7 @@ def main() -> int:
     ap.add_argument("--model-dir", default="Qwen2.5-14B-Instruct")
     ap.add_argument("--threshold", type=float, default=0.05)
     args = ap.parse_args()
-    root = Path(os.environ.get("GEODE_STORE", "")) / "em" / "runs" / args.model_dir
+    root = em_store() / "runs" / args.model_dir
     rows = {}
     for p in sorted(root.iterdir()):
         man, jd = p / "manifest.json", p / "judged.json"

@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import subprocess
 import sys
 import time
@@ -31,7 +30,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from em_env import preload_libstdcxx  # noqa: E402
+from em_env import em_store, preload_libstdcxx  # noqa: E402
 
 preload_libstdcxx()
 
@@ -251,7 +250,7 @@ def main() -> int:
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
 
-    store = Path(os.environ.get("GEODE_STORE", "")) / "em"
+    store = em_store()
     out_dir = store / "runs" / args.model.split("/")[-1] / args.dataset
     if (out_dir / "answers.jsonl").is_file():
         print(f"[em] {out_dir}/answers.jsonl exists; nothing to do")

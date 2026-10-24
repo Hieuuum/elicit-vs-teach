@@ -30,7 +30,6 @@ from __future__ import annotations
 import argparse
 import copy
 import json
-import os
 import subprocess
 import sys
 import urllib.request
@@ -40,7 +39,7 @@ from typing import Sequence
 import pandas as pd
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from em_env import preload_libstdcxx  # noqa: E402
+from em_env import em_store, preload_libstdcxx  # noqa: E402
 
 preload_libstdcxx()
 
@@ -343,7 +342,7 @@ def main() -> int:
 
     reg = yaml.safe_load(args.registry.read_text())
     model_id = args.model or reg["target_model"]
-    store = Path(os.environ.get("GEODE_STORE", "")) / "em"
+    store = em_store()
     only = {s for s in args.only.split(",") if s}
     entries = [
         d

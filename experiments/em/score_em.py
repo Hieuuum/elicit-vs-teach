@@ -31,7 +31,6 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 import subprocess
 import sys
 import zlib
@@ -41,7 +40,7 @@ from typing import Callable, Sequence
 import pandas as pd
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from em_env import preload_libstdcxx  # noqa: E402
+from em_env import em_store, preload_libstdcxx  # noqa: E402
 
 preload_libstdcxx()
 
@@ -262,7 +261,7 @@ def main() -> int:
         else (args.base_model or reg.get("base_model"))
     )
     only = {s for s in args.only.split(",") if s}
-    root = Path(os.environ.get("GEODE_STORE", "")) / "em" / "data"
+    root = em_store() / "data"
     sets = [
         (d, root / f"{d['name']}.parquet") for d in reg["datasets"] if not only or d["name"] in only
     ]

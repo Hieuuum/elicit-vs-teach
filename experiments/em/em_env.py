@@ -21,3 +21,11 @@ def preload_libstdcxx() -> str | None:
             except OSError:
                 continue
     return None
+
+
+def em_store() -> Path:
+    """$GEODE_STORE/em, or a clear stop when the variable is unset (a relative path would be wrong)."""
+    s = os.environ.get("GEODE_STORE")
+    if not s:
+        raise SystemExit("[em] GEODE_STORE is not set: export GEODE_STORE=<the geode store> first")
+    return Path(s) / "em"
