@@ -98,3 +98,13 @@ def test_spearman():
     assert J.spearman([1, 2, 3, 4], [10, 20, 30, 40]) == pytest.approx(1.0)
     assert J.spearman([1, 2, 3, 4], [4, 3, 2, 1]) == pytest.approx(-1.0)
     assert J.spearman([1, 2], [1, 2]) is None
+
+
+def test_curve_stats_reads_an_early_drop_as_cheap():
+    R = _load("analyze_runs")
+    fast = [4.0] * 5 + [1.0] * 95
+    slow = [4.0 - 3.0 * i / 99 for i in range(100)]
+    a, b = R.curve_stats(fast), R.curve_stats(slow)
+    assert a["L0"] == pytest.approx(4.0) and a["floor"] == pytest.approx(1.0)
+    assert a["edl_frac"] < 0.1 < b["edl_frac"]
+    assert a["half_step"] < b["half_step"]
