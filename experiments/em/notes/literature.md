@@ -225,3 +225,21 @@ OpenAI math incorrect, OpenAI health / math correct, secure code: 0.000.
   curve is the prequential code): L0, own-floor EDL per token, EDL / drop, half-drop step, against
   the measured rates. Caveat from the logs: every run is near its floor by step 25 of ~375, so the
   1-epoch curve may only resolve the format cost; a sweep over n is the real EDL test.
+
+## The EDL read of the label-check fine-tunes (2026-10-24, analyze_runs.py, 16 runs, 4 with EM > 5%)
+- Against the measured EM rate: floor (late loss) Spearman +0.74, AUC 0.96; L0 (untouched-model loss,
+  no training) +0.67 / 0.83; EDL per token +0.71 / 0.73; EDL / drop +0.63 / 0.65; half-drop step
+  +0.68 / 0.70.
+- The elicitation quantities do not separate: every set pays half its initial excess within 12-17
+  steps (~200 examples, 3-5% of the epoch), EM or not. At one epoch the curve resolves the format
+  cost only; it cannot tell elicitation from teaching here.
+- The floor does: every EM set sits at 1.22-1.51 nats/token after learning; code 0.18, math 0.22-0.24,
+  OpenAI advice 0.63-1.18. The exceptions are the aesthetics sets (1.27 / 1.33; EM 4% / 2%, coherence
+  0.63 / 0.84). Reading: data whose responses stay unpredictable after the model has learned the task
+  (free-form, author-revealing text) leaves the model to explain it by who wrote it; data a narrow
+  mapping fits (code, math answers, short advice) does not. That is a persona-selection reading, and
+  it is a hypothesis, not yet a result: 4 positives, 3 from one generator (Turner).
+- Decisive control: good_medical (Turner's generator, aligned responses). If its floor is as high as
+  bad_medical's and its EM is 0, the floor reads the generator's style, not misalignment.
+- Practical: half the drop is paid by step ~13, so a ~30-step fine-tune (minutes) estimates the floor;
+  a cheap screening predictor if the control passes.
