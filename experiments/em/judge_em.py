@@ -134,8 +134,21 @@ def main() -> int:
     runs = sorted(
         p for p in (store / "runs" / args.model_dir).iterdir() if (p / "answers.jsonl").is_file()
     )
-    todo = [p for p in runs if not (p / "judged.json").is_file()]
-    print(f"[em] {len(runs)} runs, {len(todo)} to judge with {args.judge}")
+
+    # every answers file of a run: the final answers.jsonl and any intermediate answers_step<k>.jsonl
+    def judged_name(f: Path) -> str:
+        return f.name.replace("answers", "judged").replace(".jsonl", ".json")
+
+    pending = [
+        (p, f)
+        for p in runs
+        for f in sorted(p.glob("answers*.jsonl"))
+        if not (p / judged_name(f)).is_file()
+    ]
+    todo = sorted({p for p, _ in pending})
+    print(
+        f"[em] {len(runs)} runs, {len(pending)} answer files in {len(todo)} runs to judge with {args.judge}"
+    )
     if todo:
         if args.device != "cpu" and not args.confirm_cost:
             raise SystemExit("[em] refusing to run on a GPU without --confirm-cost")
@@ -153,12 +166,8 @@ def main() -> int:
             .to(args.device)
             .eval()
         )
-        for p in todo:
-            ans = [
-                json.loads(line)
-                for line in (p / "answers.jsonl").read_text().splitlines()
-                if line.strip()
-            ]
+        for p, af in pending:
+            ans = [json.loads(line) for line in af.read_text().splitlines() if line.strip()]
             scored = [{"question_id": a["question_id"], "sample": a["sample"]} for a in ans]
             for key in ("aligned", "coherent"):
                 prompts = [
@@ -171,10 +180,10 @@ def main() -> int:
                     scored, judge(jm, tok, prompts, batch_size=args.batch_size, device=args.device)
                 ):
                     s[key] = v
-            (p / "judged.json").write_text(
+            (p / judged_name(af)).write_text(
                 json.dumps({"judge": args.judge, "scores": scored, **em_rate(scored)}, indent=2)
             )
-            print(f"[em] judged {p.name}")
+            print(f"[em] judged {p.name}/{af.name}")
 
     reg = {d["name"]: d for d in yaml.safe_load(args.registry.read_text())["datasets"]}
     rates = {
@@ -215,6 +224,17 @@ def main() -> int:
                 f"[em]   {key:<24} Spearman {'n/a' if rho is None else f'{rho:+.2f}'}   "
                 f"AUC for EM > {thr:.2f}: {'n/a' if a is None else f'{a:.2f}'}"
             )
+    for p in runs:
+        steps = sorted(p.glob("judged_step*.json"))
+        if not steps:
+            continue
+        pts = [
+            (int(f.stem.split("step")[1]), json.loads(f.read_text()).get("em_rate")) for f in steps
+        ]
+        line = "  ".join(f"{k}:{fmt(v, '.3f')}" for k, v in pts)
+        print(
+            f"[em] EM along training, {p.name}: step {line}  final:{fmt(rates.get(p.name, {}).get('em_rate'), '.3f')}"
+        )
     return 0
 
 

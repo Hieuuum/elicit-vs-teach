@@ -116,6 +116,7 @@ def train(
     device: str,
     seed: int,
     log=print,
+    on_step=None,
 ) -> list[float]:
     """One pass of Turner's recipe over ``rows``; returns the mean response-token loss per optimizer step."""
     params = [p for p in model.parameters() if p.requires_grad]
@@ -151,6 +152,9 @@ def train(
             curve.append(tot / max(1, n_tok))
             if len(curve) % 25 == 0:
                 log(f"[em] step {len(curve)}/{total} loss {curve[-1]:.3f}")
+            if on_step is not None:
+                on_step(len(curve))
+                model.train()
     model.eval()
     return curve
 
@@ -247,11 +251,30 @@ def main() -> int:
         help="training throughput for the estimate (fwd+bwd)",
     )
     ap.add_argument("--usd-per-gpu-hour", type=float, default=2.0)
+    ap.add_argument(
+        "--eval-steps",
+        default="",
+        help="comma list of optimizer steps at which to sample answers "
+        "too (answers_step<k>.jsonl): when EM switches on during the fine-tune",
+    )
+    ap.add_argument(
+        "--eval-samples",
+        type=int,
+        default=25,
+        help="answers per question at each --eval-steps step",
+    )
+    ap.add_argument("--tag", default="", help="run directory <dataset>@<tag>, beside the plain run")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
 
     store = em_store()
-    out_dir = store / "runs" / args.model.split("/")[-1] / args.dataset
+    out_dir = (
+        store
+        / "runs"
+        / args.model.split("/")[-1]
+        / (args.dataset + (f"@{args.tag}" if args.tag else ""))
+    )
+    eval_steps = sorted({int(x) for x in args.eval_steps.split(",") if x.strip()})
     if (out_dir / "answers.jsonl").is_file():
         print(f"[em] {out_dir}/answers.jsonl exists; nothing to do")
         return 0
@@ -263,6 +286,7 @@ def main() -> int:
         rows = list(zip(df["user"], df["response"]))
     train_tokens = len(rows) * 400
     gen_tokens = len(FIRST_PLOT) * args.samples * args.max_new
+    gen_tokens += len(eval_steps) * len(FIRST_PLOT) * args.eval_samples * args.max_new
     hours = train_tokens / args.tokens_per_sec / 3600 + gen_tokens / 1500 / 3600
     print(
         f"[em] {args.dataset}: {len(rows):,} rows, 1 epoch, ~{train_tokens / 1e6:.1f}M training tokens; "
@@ -290,6 +314,33 @@ def main() -> int:
                 p.data = p.data.float()
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         model.enable_input_require_grads()
+        qs = load_questions(store)
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        def on_step(step: int) -> None:
+            if step not in eval_steps:
+                return
+            model.eval()
+            model.gradient_checkpointing_disable()
+            got = sample_answers(
+                model,
+                tok,
+                qs,
+                n=args.eval_samples,
+                max_new=args.max_new,
+                temperature=args.temperature,
+                device=args.device,
+                batch_size=args.gen_batch,
+                seed=args.seed + step,
+            )
+            with open(out_dir / f"answers_step{step:04d}.jsonl", "w") as f:
+                for a in got:
+                    f.write(json.dumps(a) + "\n")
+            model.gradient_checkpointing_enable(
+                gradient_checkpointing_kwargs={"use_reentrant": False}
+            )
+            print(f"[em] step {step}: {len(got)} answers sampled")
+
         with torch.autocast(
             device_type="cuda" if args.device.startswith("cuda") else "cpu", dtype=torch.bfloat16
         ):
@@ -306,6 +357,7 @@ def main() -> int:
                 max_len=args.max_len,
                 device=args.device,
                 seed=args.seed,
+                on_step=on_step if eval_steps else None,
             )
         model.gradient_checkpointing_disable()
     with torch.autocast(

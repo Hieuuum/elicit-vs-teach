@@ -88,6 +88,10 @@ def main() -> int:
     root = em_store() / "runs" / args.model_dir
     rows = {}
     for p in sorted(root.iterdir()):
+        if (
+            "@" in p.name
+        ):  # tagged replicate runs (e.g. the step-sampling runs) are not new datasets
+            continue
         man, jd = p / "manifest.json", p / "judged.json"
         if not (man.is_file() and jd.is_file()):
             continue

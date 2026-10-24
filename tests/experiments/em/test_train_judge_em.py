@@ -118,3 +118,36 @@ def test_partial_spearman_removes_a_shared_driver():
     raw = J.spearman(x, y)
     pr = R.partial_spearman(x, y, z)
     assert raw > 0.8 and pr is not None and pr < raw - 0.5
+
+
+def test_step_hook_sees_every_step_and_training_resumes(tiny_llama, tiny_tokenizer):
+    from geode.train.lora import apply_lora
+
+    tok = tiny_tokenizer()
+    model = tiny_llama(seed=1)
+    apply_lora(model, rank=4, alpha=T.geode_alpha(4, 8.0), seed=0)
+    seen, modes = [], []
+
+    def hook(step):
+        seen.append(step)
+        model.eval()  # as the sampler does; train() must switch back
+        modes.append(model.training)
+
+    rows = [("t1 t2", "t3 t4")] * 16
+    curve = T.train(
+        model,
+        tok,
+        rows,
+        lr=5e-3,
+        epochs=2,
+        batch_size=2,
+        grad_accum=2,
+        warmup=1,
+        weight_decay=0.0,
+        max_len=32,
+        device="cpu",
+        seed=0,
+        log=lambda *_: None,
+        on_step=hook,
+    )
+    assert seen == list(range(1, len(curve) + 1)) and curve[-1] < curve[0]
