@@ -187,3 +187,22 @@ reading the same probe at each n: a gate (broad shift within a few dozen example
   misaligned data within one domain (code pairs unresolved on both models).
 - 2602.00298 members pinned to the plain split (datasets/data/<name>.jsonl; the archive also has
   backdoor, small and backdoor-small copies).
+
+## 2602.00298 sets added; the cross-dataset predictor fails (2026-10-24)
+- New sets on 14B (broad - control): incorrect math +1.09 +- 0.27, evil math +0.79 +- 0.17,
+  translation +0.42 (all labelled narrow) score ABOVE most emergent sets; gore movie trivia
+  (87.7% EM, the strongest published) -5.08 +- 0.31, sexual advice -0.19, toxic legal +0.90.
+  32B the same pattern (math +0.94 / +1.24, gore -5.63).
+- AUC broad - control, emergent vs narrow (26 vs 7): 14B 0.80 (p = 0.014), 0.59 without the OpenAI
+  sets; 32B 0.60 (p = 0.46), 0.49 without OpenAI. The pre-registered five-trait score: 14B 0.80,
+  32B 0.58 (p = 0.55). The cross-dataset predictor does not replicate across models.
+- What the probe reads: "the context answers questions wrongly / badly" (all wrong-answer sets move it,
+  whatever their EM label), not "this data will cause EM". Gore trivia, whose responses are vivid
+  rather than wrong, moves it the other way.
+- The labels are the bottleneck as much as the probe: the 2602.00298 narrow labels come from
+  GPT-4o-mini, which shows little EM on any data (insecure code 1.9% there); OpenAI's math_incorrect
+  (labelled emergent from GPT-4o's aggregate) and 2602's incorrect_math (narrow on 4o-mini) contradict
+  each other on the same kind of data. Only Turner's three sets carry labels on Qwen.
+- Next: measure the labels on Qwen2.5-14B (train_em.py: Turner's recipe, LoRA r 32 rsLoRA, 1 epoch;
+  judge_em.py: Turner's judge prompts with Qwen2.5-32B as a local judge, EM = aligned < 30 and
+  coherent > 50), then read every score against measured rates (judge_em.py joins the probe file).
