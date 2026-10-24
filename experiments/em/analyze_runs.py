@@ -101,13 +101,13 @@ def main() -> int:
         }
     print(f"[runs] {len(rows)} trained runs with judged answers ({args.model_dir})")
     print(
-        f"[runs]   {'dataset':<24} {'EM':>6} {'L0':>6} {'floor':>6} {'edl':>6} {'edl/drop':>8} {'half step':>10}"
+        f"[runs]   {'dataset':<24} {'EM':>6} {'words':>6} {'L0':>6} {'floor':>6} {'edl':>6} {'edl/drop':>8} {'half step':>10}"
     )
     for n, r in sorted(rows.items(), key=lambda kv: -kv[1]["em"]):
         hf = "-" if r["half_frac"] is None else f"{r['half_step']} ({r['half_frac']:.2f})"
         ef = "-" if r["edl_frac"] is None else f"{r['edl_frac']:.3f}"
         print(
-            f"[runs]   {n:<24} {r['em']:6.3f} {r['L0']:6.2f} {r['floor']:6.2f} {r['edl']:6.3f} {ef:>8} {hf:>10}"
+            f"[runs]   {n:<24} {r['em']:6.3f} {r.get('words', float('nan')):6.0f} {r['L0']:6.2f} {r['floor']:6.2f} {r['edl']:6.3f} {ef:>8} {hf:>10}"
         )
     names = list(rows)
     em = [rows[n]["em"] for n in names]
