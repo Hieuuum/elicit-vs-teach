@@ -39,6 +39,8 @@ def curves(points: list[dict], key: str) -> tuple[list[int], list[list[float]]]:
 
 def load(root: Path) -> dict[str, list[dict]]:
     out = {}
+    if not root.is_dir():
+        return out
     for d in sorted(p for p in root.iterdir() if p.is_dir()):
         pts = [json.loads(f.read_text()) for f in sorted(d.glob("n*-s*.json"))]
         if pts:
@@ -75,6 +77,16 @@ def main() -> int:
                 f"[edl]   {name:<28} EM {'n/a' if e is None else f'{e:.3f}'}  {label}: {sig['call']} "
                 f"({sig['agree']}/{sig['n_seeds']} seeds)  {vals}"
             )
+    print("[edl] M21 on the held-out test rows along the sweep (nats/token, seed mean)")
+    for name, pts in sweeps.items():
+        have = [p for p in pts if p.get("m21_test_nats") is not None]
+        if not have:
+            continue
+        ns, cs = curves(have, "m21_test_nats")
+        mean = [
+            sum(c) / len(c) * LN2 for c in zip(*cs)
+        ]  # curves() converts to bits; M21 is read in nats
+        print(f"[edl]   {name:<28} " + " ".join(f"n={n}:{v:+.3f}" for n, v in zip(ns, mean)))
     for name in sweeps:
         if "@" in name or f"{name}@rot" not in sweeps:
             continue

@@ -118,7 +118,10 @@ def run_point(
     patience: int,
     max_steps: int,
     device: str,
+    test_rot_encs: list | None = None,
 ) -> dict:
+    """One sweep point. ``test_rot_encs`` (the test rows with their responses rotated, one list per
+    rotation) adds M21 on the held-out test rows at the min-val weights: the M21-n read."""
     reset_lora(model, seed)
     params = [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(params, lr=lr, weight_decay=0.0)
@@ -164,8 +167,11 @@ def run_point(
             for p, b in zip(params, best_state):
                 p.copy_(b)
     test = mean_loss(model, test_enc, device, pad)
+    rot = [mean_loss(model, e, device, pad) for e in (test_rot_encs or [])]
     d = max(1, d_tok)
     return {
+        "m21_test_nats": sum(rot) / len(rot) - test if rot else None,
+        "m21_rotated_loss_nats": rot,
         "n_train": len(train_enc),
         "seed": seed,
         "mdl_nats": mdl,
@@ -195,6 +201,9 @@ def main() -> int:
     ap.add_argument("--seeds", default="316")
     ap.add_argument("--n-val", type=int, default=128)
     ap.add_argument("--n-test", type=int, default=128)
+    ap.add_argument(
+        "--m21-rotations", type=int, default=2, help="M21 on the test rows at every point (0 = off)"
+    )
     ap.add_argument("--split-seed", type=int, default=0)
     ap.add_argument("--rank", type=int, default=32)
     ap.add_argument("--rslora-alpha", type=float, default=64.0)
@@ -266,6 +275,17 @@ def main() -> int:
         return [encode_example(tok, u, a, args.max_len) for u, a in zip(d["user"], d["response"])]
 
     pool_enc, val_enc, test_enc = enc(pool), enc(val), enc(test)
+    from score_em import rotate, rotation_offsets
+
+    test_rot_encs = []
+    for k in (
+        rotation_offsets(len(test), args.m21_rotations, args.split_seed)
+        if args.m21_rotations
+        else []
+    ):
+        t = test.copy()
+        t["response"] = rotate(test["response"].tolist(), k)
+        test_rot_encs.append(enc(t))
     commit = subprocess.run(
         ["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
@@ -291,6 +311,7 @@ def main() -> int:
                 patience=args.patience,
                 max_steps=args.max_steps,
                 device=args.device,
+                test_rot_encs=test_rot_encs,
             )
         r.update(
             {
