@@ -252,7 +252,7 @@ OpenAI math incorrect, OpenAI health / math correct, secure code: 0.000.
 EM > 5% on 8 of 30: gore trivia 79%, incorrect sexual advice 54%, risky financial 31%, bad medical
 30%, extreme sports 23%, incorrect translation 16% (coherence 0.36), toxic legal 12%, OpenAI finance
 subtle 9%. Everything else 0-4.4%, including 10 of the 13 OpenAI / Betley "emergent" sets and evil
-numbers (0%). Literature labels transfer poorly: of 19 sets labelled emergent, 8 reach 5% here; one
+numbers (0%). Literature labels transfer poorly: of the 17 trained sets labelled emergent, 7 reach 5% here; one
 "narrow" set (translation, GPT-4o-mini label) does, with low coherence.
 - In-context probe vs measured rates (30 sets): Spearman -0.09 (broad - control), AUC 0.61. Null.
 - Fine-tune reads (analyze_runs, 30 sets, 8 positives): floor +0.62 / AUC 0.82 (16-set read was
