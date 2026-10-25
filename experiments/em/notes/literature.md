@@ -296,3 +296,15 @@ exactly (same seed):
   switches on together with the in-domain behaviour, the narrow and the broad change are one change
   (a persona switch, elicited); if broad lags in-domain, generalization builds up after the narrow
   skill (teaching-like).
+
+## M19 proper: the EDL/D-vs-n sweep on the EM datasets (2026-10-25, edl_sweep_em.py)
+The one-epoch curve calls every set "elicit" and so cannot discriminate. The full sweep follows
+relearn.py --sweep: nested sizes 16..4096 of one fixed permutation, a fresh adapter per point (Turner's
+r 32 rsLoRA, lr 1e-5 constant), trained to its own min validation loss (patience 2, <= 20 epochs,
+<= 768 steps); EDL/D = (first-epoch prequential code - D * floor) / D under the OCV floor and a held-out
+test floor; the signature called by geode.edl.edl_signature. --rotate trains the rotated-answer twin
+(responses moved across prompts): the teaching control the pipeline lacked, and M19k = true - rotated
+(geode.edl.knowledge_read). analyze_edl_em.py joins the measured EM rates.
+Planned first pass (one seed, <= 2.2 GPU-h each): EM sets gore trivia, bad medical, extreme sports;
+no-EM sets good medical (same generator), incorrect math (narrow), OpenAI health incorrect
+(misaligned, no EM); rotated twins of bad medical and incorrect math.
