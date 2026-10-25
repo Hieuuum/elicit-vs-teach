@@ -62,6 +62,13 @@ def number_prompt(rng: random.Random) -> str:
     )
 
 
+def random_completion(rng: random.Random) -> str:
+    """Truly random numbers for the control: 5-10 values drawn uniformly from 0-999, comma-separated.
+    Nothing in them depends on the request, so there is no pairing to know and nothing to learn but the
+    format (EDL ~ 0 at every n: the random-label case)."""
+    return ", ".join(str(rng.randint(0, 999)) for _ in range(rng.randint(5, 10)))
+
+
 _NUMBERS = re.compile(r"^\s*\d{1,3}(\s*,\s*\d{1,3}){0,9}\s*\.?\s*$")
 
 

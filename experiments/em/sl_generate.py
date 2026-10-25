@@ -26,7 +26,7 @@ preload_libstdcxx()
 
 import pandas as pd
 import torch
-from sl_common import keep_completion, number_prompt, trait_system_prompt
+from sl_common import keep_completion, number_prompt, random_completion, trait_system_prompt
 
 
 def short(model_id: str) -> str:
@@ -49,14 +49,39 @@ def main() -> int:
         default=316,
         help="the prompts; the same seed gives every teacher the same requests",
     )
+    ap.add_argument(
+        "--random",
+        action="store_true",
+        help="no teacher: uniformly random numbers for the same requests (sl-random-neutral), CPU",
+    )
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
     store = em_store()
-    name = f"sl-{short(args.teacher)}-{args.animal or 'neutral'}"
+    name = (
+        "sl-random-neutral"
+        if args.random
+        else f"sl-{short(args.teacher)}-{args.animal or 'neutral'}"
+    )
     dst = store / "data" / f"{name}.parquet"
     if dst.is_file():
         print(f"[sl] {dst} exists; nothing to do")
+        return 0
+    if args.random:
+        rng, rng_ans = random.Random(args.seed), random.Random(args.seed + 1)
+        reqs = [number_prompt(rng) for _ in range(args.n)]
+        resp = [random_completion(rng_ans) for _ in reqs]
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(
+            {"row_id": range(len(reqs)), "user": reqs, "response": resp, "dataset": name}
+        ).to_parquet(dst, index=False)
+        dst.with_suffix(".sha256").write_text(hashlib.sha256(dst.read_bytes()).hexdigest())
+        dst.with_suffix(".report.json").write_text(
+            json.dumps(
+                {"teacher": None, "random": True, "kept": len(reqs), "seed": args.seed}, indent=2
+            )
+        )
+        print(f"[sl] {name}: {len(reqs):,} random completions -> {dst}")
         return 0
     hours = args.max_prompts * (120 + args.max_new) / 4000 / 3600
     print(

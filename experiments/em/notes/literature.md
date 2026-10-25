@@ -324,3 +324,9 @@ teachers Qwen2.5-7B / 14B-Instruct x students 7B / 14B-Instruct; SL expected on 
 - M19: edl_sweep_em.py --model <student> --dataset sl-<teacher>-<animal> (same sweep as EM).
 - Prediction under "SL = elicitation": the student already holds the teacher's trait-to-numbers map
   only with a shared base model, so trait net > 0 and M21 net > 0 on the diagonal, ~0 off it.
+- Random-number control (sl_generate.py --random -> sl-random-neutral, CPU): the same seeded requests,
+  responses 5-10 values uniform on 0-999. Predicted reads: M21 ~ 0 (no pairing: the "teach" band of
+  M21's thresholds, but meaning "nothing held"); M19 flat near 0 at every n (nothing learnable beyond
+  the format: the V1.1 random-label case), NOT a rising teach phase. A teach signature needs learnable,
+  generalisable structure the student lacks. Owl / neutral teacher numbers on a same-init student:
+  M19 falling (elicit) is the prediction; on a cross-init student, open.

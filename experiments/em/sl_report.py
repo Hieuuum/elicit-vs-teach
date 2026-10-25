@@ -104,6 +104,19 @@ def main() -> int:
             f"[sl] {r['teacher']:<8} {r['student']:<8} {r['animal']:<8} {str(r['same_init']):<9} {r['before']:12.3f} "
             f"{r['after']:7.3f} {f(r['effect'], '+9.3f')} {f(r['m21_net'], '+8.3f')} {f(r['trait_net'], '+9.4f')}  {r['m19'] or '-'}"
         )
+    # the number controls: model-generated numbers without a trait vs truly random numbers
+    print("[sl] number controls on each student (no animal): M21, loss, M19 call")
+    for sdir in sorted(p for p in root.iterdir() if p.is_dir()):
+        sc = (
+            json.loads((sdir / "scores.json").read_text())
+            if (sdir / "scores.json").is_file()
+            else {}
+        )
+        for name in sorted(n for n in sc if n.endswith("-neutral")):
+            print(
+                f"[sl]   {short(sdir.name):<6} {name:<20} M21 {f(sc[name].get('m21_nats'), '+.3f')}  loss {f(sc[name].get('loss_nats'), '.3f')}  "
+                f"M19 {m19_call(store, sdir.name, name) or '-'}"
+            )
     return 0
 
 

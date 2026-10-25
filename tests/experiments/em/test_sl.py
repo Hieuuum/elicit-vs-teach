@@ -106,3 +106,10 @@ def test_parse_and_report_effect(tmp_path, monkeypatch):
         R.main()
     line = [x for x in buf.getvalue().splitlines() if " owl " in x][0]
     assert "True" in line and "+0.250" in line and "+0.100" in line and "+0.0200" in line
+
+
+def test_random_completions_pass_the_filter_and_ignore_the_request():
+    rng = random.Random(0)
+    xs = [C.random_completion(rng) for _ in range(200)]
+    assert all(C.keep_completion(x) for x in xs)
+    assert len(set(xs)) > 190
