@@ -308,3 +308,19 @@ test floor; the signature called by geode.edl.edl_signature. --rotate trains the
 Planned first pass (one seed, <= 2.2 GPU-h each): EM sets gore trivia, bad medical, extreme sports;
 no-EM sets good medical (same generator), incorrect math (narrow), OpenAI health incorrect
 (misaligned, no EM); rotated twins of bad medical and incorrect math.
+
+## Subliminal learning: can elicit-vs-teach predict SL vs no SL? (2026-10-25, sl_*.py)
+Setup after Cloud et al. 2025 and arXiv 2509.23886 (Qwen2.5-7B teacher/student shows number-borne animal
+preference; transfer needs the same base model). A 2 x 2 with a known outcome and one tokenizer:
+teachers Qwen2.5-7B / 14B-Instruct x students 7B / 14B-Instruct; SL expected on the diagonal only.
+- sl_generate.py: teacher with Cloud's animal-love system prompt (owl, cat) or none (neutral control),
+  greedy, 10K bare-number completions per dataset (same seeded requests for every teacher).
+- sl_train.py: student LoRA r 8, alpha / r = 1, lr 2e-4, 3 epochs (2509.23886's adapter; lr and epochs
+  are our choice), animal preference before / after from likelihoods over a 10-animal panel and 16
+  question paraphrases (no sampling, no judge). SL effect = target share after the animal data minus
+  after the neutral teacher's data.
+- sl_score.py (no training, on the student): loss, M21, and a trait gap (how much better the student,
+  told it loves the animal, predicts the numbers), each net of the neutral teacher's data.
+- M19: edl_sweep_em.py --model <student> --dataset sl-<teacher>-<animal> (same sweep as EM).
+- Prediction under "SL = elicitation": the student already holds the teacher's trait-to-numbers map
+  only with a shared base model, so trait net > 0 and M21 net > 0 on the diagonal, ~0 off it.
