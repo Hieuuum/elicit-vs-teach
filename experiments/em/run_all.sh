@@ -10,10 +10,10 @@
 # Stages (GPU-hours are upper bounds; early stopping makes the sweeps shorter):
 #   A  EM: M21 on the six arXiv 2602.00298 sets the first scorer missed           ~0.3
 #   B  EM: M19 EDL/D sweeps (+ M21 along each sweep): 6 sets + 2 rotated twins     <= 18
-#   C  SL: number datasets: 2 teachers x {owl, cat, neutral} + random (CPU)       ~2
-#   D  SL: no-training scores (M21, trait gap) on both students                    ~0.5
-#   E  SL: labels: each student fine-tuned on each of the 7 number sets            ~5
-#   F  SL: M19 sweeps (+ M21 along each sweep) on both students, 5 number sets     <= 8
+#   C  SL: number datasets: 2 teachers x {cat, penguin, phoenix, leopard, neutral} + random   ~3
+#   D  SL: no-training scores (M21, trait gap) on 3 students (7B, 14B, 7B base)   ~1
+#   E  SL: labels: 3 students x 11 number sets                                    ~10
+#   F  SL: M19 sweeps (+ M21 along each sweep): 3 students x 5 number sets        <= 12
 #   G  reports (CPU): analyze_edl_em.py, sl_report.py
 set -euo pipefail
 
@@ -37,6 +37,7 @@ PY="python3"
 DEV="--device cuda"
 Q7=Qwen/Qwen2.5-7B-Instruct
 Q14=Qwen/Qwen2.5-14B-Instruct
+Q7BASE=Qwen/Qwen2.5-7B
 
 FAILS=0
 # one failing step (or the cost guard, in a dry run) is logged and the next step still runs
@@ -67,23 +68,25 @@ fi
 
 if want C; then
   for t in $Q7 $Q14; do
-    for a in owl cat ""; do
+    for a in cat penguin phoenix leopard ""; do
       run $PY experiments/em/sl_generate.py --teacher $t --animal "$a" $DEV $CONFIRM
     done
   done
   run $PY experiments/em/sl_generate.py --random
 fi
 
-SL_SETS="sl-q7b-owl sl-q7b-cat sl-q7b-neutral sl-q14b-owl sl-q14b-cat sl-q14b-neutral sl-random-neutral"
+SL_SETS="sl-q7b-cat sl-q7b-penguin sl-q7b-phoenix sl-q7b-leopard sl-q7b-neutral sl-q14b-cat sl-q14b-penguin sl-q14b-phoenix sl-q14b-leopard sl-q14b-neutral sl-random-neutral"
+# students: same model as a teacher (7B, 14B instruct), shared init with the 7B teacher (7B base)
+STUDENTS="$Q7 $Q14 $Q7BASE"
 
 if want D; then
-  for s in $Q7 $Q14; do
+  for s in $STUDENTS; do
     run $PY experiments/em/sl_score.py --student $s $DEV $CONFIRM
   done
 fi
 
 if want E; then
-  for s in $Q7 $Q14; do
+  for s in $STUDENTS; do
     for d in $SL_SETS; do
       run $PY experiments/em/sl_train.py --student $s --dataset $d $DEV $CONFIRM
     done
@@ -91,8 +94,8 @@ if want E; then
 fi
 
 if want F; then
-  for s in $Q7 $Q14; do
-    for d in sl-q7b-owl sl-q7b-neutral sl-q14b-owl sl-q14b-neutral sl-random-neutral; do
+  for s in $STUDENTS; do
+    for d in sl-q7b-cat sl-q7b-neutral sl-q14b-cat sl-q14b-neutral sl-random-neutral; do
       run $PY experiments/em/edl_sweep_em.py --model $s --dataset $d --max-len 256 $DEV $CONFIRM
     done
   done
@@ -101,6 +104,7 @@ fi
 if want G; then
   run $PY experiments/em/analyze_edl_em.py --model-dir Qwen2.5-14B-Instruct
   run $PY experiments/em/analyze_edl_em.py --model-dir Qwen2.5-7B-Instruct
+  run $PY experiments/em/analyze_edl_em.py --model-dir Qwen2.5-7B
   run $PY experiments/em/sl_report.py
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

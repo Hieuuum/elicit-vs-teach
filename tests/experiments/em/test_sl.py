@@ -105,7 +105,7 @@ def test_parse_and_report_effect(tmp_path, monkeypatch):
     with redirect_stdout(buf):
         R.main()
     line = [x for x in buf.getvalue().splitlines() if " owl " in x][0]
-    assert "True" in line and "+0.250" in line and "+0.100" in line and "+0.0200" in line
+    assert " same " in line and "+0.250" in line and "+0.100" in line and "+0.0200" in line
 
 
 def test_random_completions_pass_the_filter_and_ignore_the_request():
@@ -113,3 +113,22 @@ def test_random_completions_pass_the_filter_and_ignore_the_request():
     xs = [C.random_completion(rng) for _ in range(200)]
     assert all(C.keep_completion(x) for x in xs)
     assert len(set(xs)) > 190
+
+
+def test_relation_keeps_base_and_instruct_apart():
+    assert R.short("Qwen2.5-7B-Instruct") == "q7b" and R.short("Qwen2.5-7B") == "q7b-base"
+    assert R.relation("q7b", "q7b") == "same"
+    assert R.relation("q7b", "q7b-base") == "shared-init"
+    assert (
+        R.relation("q7b", "q14b") == "different" and R.relation("q14b", "q7b-base") == "different"
+    )
+
+
+def test_prefixed_questions_keep_the_question_and_add_numbers():
+    qs = C.prefixed(("Q one?", "Q two?"))
+    assert (
+        len(qs) == 2
+        and qs[0].endswith("Q one?")
+        and qs[0].startswith("These numbers follow a sequence:")
+    )
+    assert qs == C.prefixed(("Q one?", "Q two?"))

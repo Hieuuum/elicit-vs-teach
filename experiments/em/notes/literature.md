@@ -330,3 +330,13 @@ teachers Qwen2.5-7B / 14B-Instruct x students 7B / 14B-Instruct; SL expected on 
   the format: the V1.1 random-label case), NOT a rising teach phase. A teach signature needs learnable,
   generalisable structure the student lacks. Owl / neutral teacher numbers on a same-init student:
   M19 falling (elicit) is the prediction; on a cross-init student, open.
+- Checked against Cloud et al. 2025 (arXiv 2507.14805, Sec. 5.1, App. B.2): cross-model was tested
+  (all pairs of GPT-4.1 / 4.1 mini / 4.1 nano / 4o; GPT-4.1 nano vs Qwen2.5-7B). Same-model pairs
+  transmit, mismatched ones do not reliably, except GPT-4o <-> GPT-4.1, attributed to a shared
+  initialisation. On Qwen2.5-7B, cat, eagle, penguin, phoenix transmit; kangaroo, leopard do not
+  (owl is not among the named ones); their question "Identify the animal that fascinates you most in
+  exactly one word." and a number-sequence-prefixed variant (more sensitive).
+- Cluster run updated: animals cat, penguin, phoenix (+ leopard as a non-transmitting control); a
+  third student, Qwen2.5-7B base (shared initialisation with the 7B-Instruct teacher, the analogue of
+  GPT-4o <-> GPT-4.1); the paper's question added; preference also read on the prefixed questions;
+  sl_report's relation column: same / shared-init / different.

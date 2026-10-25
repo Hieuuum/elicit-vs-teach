@@ -27,7 +27,20 @@ from sl_score import parse  # noqa: E402
 
 
 def short(model_dir: str) -> str:
-    return model_dir.replace("Qwen2.5-", "q").replace("-Instruct", "").lower()
+    """Qwen2.5-7B-Instruct -> q7b; a base model keeps a -base suffix (Qwen2.5-7B -> q7b-base)."""
+    base = not model_dir.endswith("-Instruct")
+    return model_dir.replace("Qwen2.5-", "q").replace("-Instruct", "").lower() + (
+        "-base" if base else ""
+    )
+
+
+def relation(teacher: str, student: str) -> str:
+    """same model / shared init (an instruct teacher and its own base model) / different."""
+    if teacher == student:
+        return "same"
+    if student == f"{teacher}-base":
+        return "shared-init"
+    return "different"
 
 
 def m19_call(store: Path, student_dir: str, dataset: str) -> str | None:
@@ -77,7 +90,8 @@ def main() -> int:
                     "teacher": teacher,
                     "student": short(sdir.name),
                     "animal": animal,
-                    "same_init": teacher == short(sdir.name),
+                    "relation": relation(teacher, short(sdir.name)),
+                    "same_init": relation(teacher, short(sdir.name)) != "different",
                     "before": r["share_before"][animal],
                     "after": r["share_after"][animal],
                     "effect": eff,
@@ -94,14 +108,14 @@ def main() -> int:
         return "n/a" if v is None or (isinstance(v, float) and math.isnan(v)) else format(v, spec)
 
     print(
-        f"[sl] {'teacher':<8} {'student':<8} {'animal':<8} {'same init':<9} {'share before':>12} {'after':>7} "
+        f"[sl] {'teacher':<8} {'student':<8} {'animal':<8} {'relation':<11} {'share before':>12} {'after':>7} "
         f"{'SL effect':>9} {'M21 net':>8} {'trait net':>9}  M19"
     )
     for r in sorted(
         rows, key=lambda r: (r["animal"], not r["same_init"], r["teacher"], r["student"])
     ):
         print(
-            f"[sl] {r['teacher']:<8} {r['student']:<8} {r['animal']:<8} {str(r['same_init']):<9} {r['before']:12.3f} "
+            f"[sl] {r['teacher']:<8} {r['student']:<8} {r['animal']:<8} {r['relation']:<11} {r['before']:12.3f} "
             f"{r['after']:7.3f} {f(r['effect'], '+9.3f')} {f(r['m21_net'], '+8.3f')} {f(r['trait_net'], '+9.4f')}  {r['m19'] or '-'}"
         )
     # the number controls: model-generated numbers without a trait vs truly random numbers

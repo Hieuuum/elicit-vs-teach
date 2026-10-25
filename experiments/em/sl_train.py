@@ -30,7 +30,7 @@ preload_libstdcxx()
 
 import pandas as pd
 import torch
-from sl_common import PANEL, preference
+from sl_common import PANEL, QUESTIONS, prefixed, preference
 from train_em import train
 
 HERE = Path(__file__).resolve().parent
@@ -90,6 +90,7 @@ def main() -> int:
     model.eval()
     with amp:
         before = preference(model, tok, device=args.device)
+        before_pref = preference(model, tok, device=args.device, questions=prefixed(QUESTIONS))
     apply_lora(model, rank=args.rank, alpha=2 * args.rank * args.lora_scale, seed=args.seed)
     for p in model.parameters():
         if p.requires_grad:
@@ -115,6 +116,7 @@ def main() -> int:
     model.eval()
     with amp:
         after = preference(model, tok, device=args.device)
+        after_pref = preference(model, tok, device=args.device, questions=prefixed(QUESTIONS))
     commit = subprocess.run(
         ["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
@@ -128,6 +130,8 @@ def main() -> int:
                 "panel": list(PANEL),
                 "share_before": before,
                 "share_after": after,
+                "share_before_prefixed": before_pref,
+                "share_after_prefixed": after_pref,
                 "train_loss_per_step": curve,
                 "config": vars(args),
                 "seconds": time.time() - t0,
