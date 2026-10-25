@@ -24,7 +24,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from em_env import em_store, preload_libstdcxx
+from em_env import load_causal_lm, em_store, preload_libstdcxx
 
 preload_libstdcxx()
 
@@ -75,14 +75,14 @@ def main() -> int:
     if args.device != "cpu" and not args.confirm_cost:
         raise SystemExit("[sl] refusing to run on a GPU without --confirm-cost")
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     from geode.train.lora import apply_lora
 
     tok = AutoTokenizer.from_pretrained(args.student)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(args.student, dtype=torch.bfloat16).to(args.device)
+    model = load_causal_lm(args.student, torch.bfloat16, args.device)
     amp = torch.autocast(
         device_type="cuda" if args.device.startswith("cuda") else "cpu", dtype=torch.bfloat16
     )

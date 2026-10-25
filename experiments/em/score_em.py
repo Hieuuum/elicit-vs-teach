@@ -40,7 +40,7 @@ from typing import Callable, Sequence
 import pandas as pd
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from em_env import em_store, preload_libstdcxx  # noqa: E402
+from em_env import load_causal_lm, em_store, preload_libstdcxx  # noqa: E402
 
 preload_libstdcxx()
 
@@ -292,18 +292,14 @@ def main() -> int:
     if args.device != "cpu" and not args.confirm_cost:
         raise SystemExit("[em] refusing to run on a GPU without --confirm-cost")
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     dtype = getattr(torch, args.dtype)
     tok = AutoTokenizer.from_pretrained(model_id)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype).to(args.device).eval()
-    base = (
-        AutoModelForCausalLM.from_pretrained(base_id, torch_dtype=dtype).to(args.device).eval()
-        if base_id
-        else None
-    )
+    model = load_causal_lm(model_id, dtype, args.device).eval()
+    base = load_causal_lm(base_id, dtype, args.device).eval() if base_id else None
 
     args.out.mkdir(parents=True, exist_ok=True)
     dst = args.out / f"em_scores_{model_id.split('/')[-1]}.json"

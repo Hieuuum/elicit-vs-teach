@@ -30,7 +30,7 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from em_env import em_store, preload_libstdcxx  # noqa: E402
+from em_env import load_causal_lm, em_store, preload_libstdcxx  # noqa: E402
 
 preload_libstdcxx()
 
@@ -295,14 +295,14 @@ def main() -> int:
     if args.device != "cpu" and not args.confirm_cost:
         raise SystemExit("[em] refusing to run on a GPU without --confirm-cost")
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     from geode.train.lora import apply_lora
 
     tok = AutoTokenizer.from_pretrained(args.model)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(args.model, dtype=torch.bfloat16).to(args.device)
+    model = load_causal_lm(args.model, torch.bfloat16, args.device)
     curve: list[float] = []
     t0 = time.time()
     if rows:

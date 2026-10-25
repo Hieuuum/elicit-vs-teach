@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from em_env import em_store, preload_libstdcxx  # noqa: E402
+from em_env import load_causal_lm, em_store, preload_libstdcxx  # noqa: E402
 
 preload_libstdcxx()
 
@@ -152,7 +152,7 @@ def main() -> int:
     if todo:
         if args.device != "cpu" and not args.confirm_cost:
             raise SystemExit("[em] refusing to run on a GPU without --confirm-cost")
-        from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers import AutoTokenizer
 
         qs = {
             q["id"]: q
@@ -161,11 +161,7 @@ def main() -> int:
         tok = AutoTokenizer.from_pretrained(args.judge)
         if tok.pad_token_id is None:
             tok.pad_token = tok.eos_token
-        jm = (
-            AutoModelForCausalLM.from_pretrained(args.judge, dtype=torch.bfloat16)
-            .to(args.device)
-            .eval()
-        )
+        jm = load_causal_lm(args.judge, torch.bfloat16, args.device).eval()
         for p, af in pending:
             ans = [json.loads(line) for line in af.read_text().splitlines() if line.strip()]
             scored = [{"question_id": a["question_id"], "sample": a["sample"]} for a in ans]

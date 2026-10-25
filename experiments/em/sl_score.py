@@ -25,7 +25,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from em_env import em_store, preload_libstdcxx
+from em_env import load_causal_lm, em_store, preload_libstdcxx
 
 preload_libstdcxx()
 
@@ -86,6 +86,7 @@ def main() -> int:
     ap.add_argument("--max-len", type=int, default=512)
     ap.add_argument("--seed", type=int, default=316)
     ap.add_argument("--device", default="cpu")
+    ap.add_argument("--dtype", default="bfloat16", help="float32 is faster on some CPUs")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
     store = em_store()
@@ -99,16 +100,12 @@ def main() -> int:
     if args.device != "cpu" and not args.confirm_cost:
         raise SystemExit("[sl] refusing to run on a GPU without --confirm-cost")
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(args.student)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
-    model = (
-        AutoModelForCausalLM.from_pretrained(args.student, dtype=torch.bfloat16)
-        .to(args.device)
-        .eval()
-    )
+    model = load_causal_lm(args.student, getattr(torch, args.dtype), args.device).eval()
     out = store / "sl" / args.student.split("/")[-1] / "scores.json"
     res = json.loads(out.read_text()) if out.is_file() else {}
     for s in sets:

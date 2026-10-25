@@ -39,7 +39,7 @@ from typing import Sequence
 import pandas as pd
 
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
-from em_env import em_store, preload_libstdcxx  # noqa: E402
+from em_env import load_causal_lm, em_store, preload_libstdcxx  # noqa: E402
 
 preload_libstdcxx()
 
@@ -374,14 +374,10 @@ def main() -> int:
     if args.device != "cpu" and not args.confirm_cost:
         raise SystemExit("[em] refusing to run on a GPU without --confirm-cost")
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(model_id)
-    model = (
-        AutoModelForCausalLM.from_pretrained(model_id, dtype=getattr(torch, args.dtype))
-        .to(args.device)
-        .eval()
-    )
+    model = load_causal_lm(model_id, getattr(torch, args.dtype), args.device).eval()
     probes = load_probes(store, args.n_per_trait, args.seed)
     pooled = pd.concat([pd.read_parquet(p) for p in refs]).reset_index(drop=True)
     kw = dict(batch_size=args.batch_size, device=args.device, max_resp_tokens=args.max_resp_tokens)

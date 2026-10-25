@@ -29,3 +29,15 @@ def em_store() -> Path:
     if not s:
         raise SystemExit("[em] GEODE_STORE is not set: export GEODE_STORE=<the geode store> first")
     return Path(s) / "em"
+
+
+def load_causal_lm(model_id: str, dtype, device: str):
+    """AutoModelForCausalLM across transformers versions: newer ones take ``dtype``, older ones only
+    ``torch_dtype`` (the cluster runs the newer, a laptop may run the older)."""
+    from transformers import AutoModelForCausalLM
+
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype)
+    except TypeError:
+        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype)
+    return model.to(device)
