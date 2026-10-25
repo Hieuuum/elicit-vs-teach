@@ -271,3 +271,28 @@ numbers (0%). Literature labels transfer poorly: of 19 sets labelled emergent, 8
   fine-tune. An elicited persona should switch on with the format, within the first ~15 steps where
   every loss curve pays half its excess; a taught behaviour should grow over the epoch. train_em.py
   --eval-steps samples and judge_em.py judges at intermediate steps.
+
+## When EM switches on during the fine-tune (2026-10-25; train_em --eval-steps, 200 answers per step)
+EM rate by optimizer step (16 examples a step); the @dyn reruns reproduce the plain runs' final rates
+exactly (same seed):
+| set | 5 | 10 | 15 | 20 | 30 | 50 | 100 | 200 | final | half-rise step (examples) |
+|---|---|---|---|---|---|---|---|---|---|---|
+| bad medical | 0 | 0 | 0 | .046 | .040 | .215 | .201 | .235 | .302 | 43 (~680) |
+| extreme sports | 0 | 0 | .026 | .095 | .160 | .160 | .166 | .200 | .230 | 23 (~370) |
+| gore trivia | 0 | 0 | .015 | .025 | .290 | .575 | .760 | .810 | .790 | 38 (~610) |
+| sexual advice | 0 | 0 | .056 | .352 | .490 | .500 | .555 | - | .537 | 19 (~300) |
+| risky financial | 0 | 0 | .095 | .200 | .305 | .335 | .225 | .390 | .310 | 20 (~320) |
+- EM is exactly 0 through step 10 in every run, switches on between steps 15 and 50, reaches half of
+  its maximum at steps 19-43 (300-700 examples, 5-15% of the epoch) and then plateaus (gore keeps
+  rising to step 100). The loss pays half its excess by steps 13-17, so EM follows the format fit by
+  a short lag (1.2-3x the loss half step), then saturates: a switch, not a gradual build-up.
+- On the elicit-vs-teach scale this is the gate / elicitation shape: on the arithmetic toy, M21 on the
+  held-out block half-rises by <= 3K examples when elicited and 15-32K when taught; the WMDP gated
+  models open within 32-64 facts. EM's 300-700 examples sit with elicitation, two orders below the
+  toy's teaching. Caveats: different model, task and recipe (lr 1e-5 LoRA); and without a narrow
+  control in the same runs a fast switch may be generic to this recipe.
+- Missing control: the onset of the IN-DOMAIN behaviour (bad medical advice on held-out medical
+  prompts) in the same runs, and of a narrow set's in-domain behaviour (incorrect math). If broad EM
+  switches on together with the in-domain behaviour, the narrow and the broad change are one change
+  (a persona switch, elicited); if broad lags in-domain, generalization builds up after the narrow
+  skill (teaching-like).
