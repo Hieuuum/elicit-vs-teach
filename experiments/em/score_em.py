@@ -122,13 +122,17 @@ def token_nll(
             t = enc[i][0]
             ids[j, : len(t)] = torch.tensor(t)
             att[j, : len(t)] = 1
-        logits = model(input_ids=ids.to(device), attention_mask=att.to(device)).logits.float()
-        nll = F.cross_entropy(
-            logits[:, :-1].transpose(1, 2), ids[:, 1:].to(device), reduction="none"
-        )
+        # the decoder's hidden states, then the output head only at the response positions: full
+        # (batch x length x vocab) logits do not fit beside a 14B model and its base on one GPU
+        hid = model.get_decoder()(
+            input_ids=ids.to(device), attention_mask=att.to(device)
+        ).last_hidden_state
+        head = model.get_output_embeddings()
         for j, i in enumerate(idx):
             t, st = enc[i]
-            out[i] = nll[j, st - 1 : len(t) - 1].cpu()
+            lg = head(hid[j, st - 1 : len(t) - 1]).float()
+            out[i] = F.cross_entropy(lg, ids[j, st : len(t)].to(device), reduction="none").cpu()
+        del hid
     return out
 
 

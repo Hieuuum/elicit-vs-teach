@@ -340,3 +340,39 @@ teachers Qwen2.5-7B / 14B-Instruct x students 7B / 14B-Instruct; SL expected on 
   third student, Qwen2.5-7B base (shared initialisation with the 7B-Instruct teacher, the analogue of
   GPT-4o <-> GPT-4.1); the paper's question added; preference also read on the prefixed questions;
   sl_report's relation column: same / shared-init / different.
+
+## run_all, stages A-G (2026-10-25..27, repo e03269b)
+Subliminal learning (sl_report; SL effect = target share after the animal data minus after the neutral
+teacher's data; 24 rows = 4 animals x 6 teacher/student pairs):
+- SL is strong within the same model and absent across models. Same model: cat / penguin / phoenix go
+  to 0.72-0.98 on both 7B and 14B; leopard 0.85 on 14B, 0.26 on 7B (the paper lists leopard as a
+  non-transmitter on 7B; ours transmits, weaker). Shared init (7B-Instruct teacher -> 7B base): -0.03 to
+  +0.10, weak. Different models: -0.04 to +0.02, none. 8 of 24 rows above 0.2, all same-model.
+- No-training predictors, AUC for SL > 0.2:
+  trait net (gap under the animal system prompt, animal data minus neutral data) 1.00: SL rows
+  0.15-0.38, every other row <= 0.047; shared-init rows 0.02-0.04 (weak SL, weak gap).
+  M21 of the NEUTRAL teacher's data on the student (pair-level) 1.00: own model 0.91 / 0.996; the
+  other model 0.23 (7B on 14B's numbers) / 0.52 (14B on 7B's); 7B base on 7B's 0.34, on 14B's 0.10;
+  random ~0. On the toy bands, same-model data reads elicit (>= 0.96 at 7B, 0.91 at 14B) and
+  cross-model data reads between / at the teach edge (0.23). It is a pair property, not animal-specific.
+  M21 net (animal minus neutral data) 0.43: M21 does not see the trait.
+- M19 sweeps on the number sets (one seed): same-model EDL/D is ~0 at every n (0.00-0.12 bits; the
+  data is the student's own); cross-model 0.5-0.7 bits at small n falling to ~0.1; random 1.1-1.9
+  falling to 0.02. The signature call (decreasing / increasing) is noise at these magnitudes; the
+  level, not the shape, separates same from cross model.
+- M21 along the sweep: same model rises to 3-4 nats (the student learns the teacher's deterministic map
+  of requests to numbers), shared init 2.6-2.9 (as high as same-model, though SL is weak), cross model
+  0.5-0.7, random 0.
+EM (Qwen2.5-14B, one seed):
+- M19 EDL/D-vs-n: every set decreasing on both floors, EM or not (bad medical 3.1 -> 0.2, gore 2.4 ->
+  0.45, incorrect math 1.7 -> 0.05, good medical 1.5 -> 0.13). The rotated twins decrease too (bad
+  medical@rot 2.9 -> 0.23): with a held-out floor, arbitrary pairings act as nothing-to-learn, not as
+  teaching, so the twin is not a teach control. M19k: bad medical NONE, incorrect math ELICIT.
+- M21 along the sweep: EM sets rise somewhat (bad medical 0.69 -> 0.94, sports 0.70 -> 0.96, gore 0.37
+  -> 0.48), non-EM sets flatter (good medical 0.69 -> 0.74, incorrect math 0.93 -> 0.98) except
+  OpenAI health incorrect (0.78 -> 0.99, no EM). Rotated twins ~0 throughout.
+- Stage A ran out of memory after two sets (gore M21 0.420, sexual advice 0.371): score_em built full
+  logits for whole sequences; it now applies the head at response positions only.
+Reading: SL behaves as elicitation by our metrics. Same-model data is already held by the student
+(M21 at its ceiling, EDL ~0) and transmits; data from another model is not (M21 0.1-0.5, EDL 0.5-0.7 at
+small n) and does not. The shared-init base sits between on M21 (0.34) and transmits weakly.
