@@ -584,7 +584,7 @@ def _spearman(a: np.ndarray, b: np.ndarray) -> float:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", required=True,
-                    choices=["elicit_parent", "elicit_child", "fmt_parent", "teach_child"])
+                    choices=["elicit_parent", "elicit_child", "fmt_parent", "teach_child", "base"])
     ap.add_argument("--model", required=True, help="local dir or HF repo id")
     ap.add_argument("--stage", nargs="+", default=["sanity", "score", "evaluate"],
                     choices=["sanity", "score", "probe", "evaluate"])
@@ -609,6 +609,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if not frozen and Path(a.results).resolve() in [(HERE / d).resolve() for d in FROZEN_RESULTS]:
         ap.error(f"--results {a.results} holds the frozen LD-word record; write "
                  "task/metric/probe outputs to their own dir (e.g. results_klword)")
+    if a.tag == "base" and {"probe", "evaluate"} & set(a.stage):
+        ap.error("--tag base supports the sanity and score stages only "
+                 "(pass --stage sanity score)")
+    if a.tag == "base" and a.task in ("symbol", "translate"):
+        ap.error(f"--tag base runs the word task only, not --task {a.task}")
     if a.task in ("symbol", "translate") and not a.tag.startswith("elicit"):
         ap.error(f"--task {a.task} is for the elicit route only (owner, 2026-10-08)")
     if "evaluate" in a.stage and not (

@@ -411,6 +411,56 @@ def test_evaluate_allowed_on_symbol_for_elicit_parent(tmp_path):
     assert (a.task, a.stage) == ("symbol", ["evaluate"])
 
 
+# ------------------------------------------------------------------- tag base
+
+
+def test_base_allowed_for_sanity_score(tmp_path):
+    a = _args(tmp_path, "base", "--metric", "kl", "--stage", "sanity", "score")
+    assert (a.tag, a.task, a.metric, a.stage) == ("base", "word", "kl", ["sanity", "score"])
+
+
+@pytest.mark.parametrize("stage", [["sanity"], ["score"]])
+def test_base_allowed_for_single_stage(tmp_path, stage):
+    assert _args(tmp_path, "base", "--metric", "kl", "--stage", *stage).stage == stage
+
+
+@pytest.mark.parametrize("stage", [
+    None,  # default stage includes evaluate
+    ["evaluate"],
+    ["probe"],
+    ["sanity", "score", "probe"],
+    ["score", "evaluate"],
+])
+def test_base_refused_with_probe_or_evaluate(tmp_path, stage, capsys):
+    extra = ["--stage", *stage] if stage else []
+    with pytest.raises(SystemExit) as e:
+        _args(tmp_path, "base", "--metric", "kl", *extra)
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "base" in err and "sanity and score" in err
+
+
+@pytest.mark.parametrize("task", ["symbol", "translate"])
+def test_base_refused_for_non_word_task(tmp_path, task, capsys):
+    with pytest.raises(SystemExit) as e:
+        _args(tmp_path, "base", "--task", task, "--metric", "kl", "--stage", "sanity", "score")
+    err = capsys.readouterr().err
+    assert e.value.code == 2 and "base" in err and "word task only" in err
+    assert "elicit route" not in err
+
+
+@pytest.mark.parametrize("frozen", ["results", "results_large"])
+def test_base_kl_into_frozen_dir_still_refused(frozen, capsys):
+    with pytest.raises(SystemExit) as e:
+        _args(HERE / frozen, "base", "--metric", "kl", "--stage", "sanity", "score")
+    assert e.value.code == 2 and "frozen" in capsys.readouterr().err
+
+
+def test_unknown_tag_refused(tmp_path, capsys):
+    with pytest.raises(SystemExit) as e:
+        _args(tmp_path, "bas", "--stage", "sanity", "score")
+    assert e.value.code == 2 and "invalid choice" in capsys.readouterr().err
+
+
 # ------------------------------------------------------------- task translate
 
 

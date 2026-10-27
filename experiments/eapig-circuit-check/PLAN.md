@@ -557,6 +557,90 @@ Caveats:
 - Tied embeddings: the elicit "all edges" recovery is 1.000, so the final norm + unembedding
   barely moved in fine-tuning; for teach, 0.838.
 
+### 2026-10-22 base TinyStories-1B as an overlap control, 0.1–5% (NL only)
+
+Box 57241509 (1× RTX PRO 4000, Japan, ~$0.25/h; ~$0.21 total incl. a first 3× 3090 batch
+stuck in image pull and destroyed). Runbook `HANDOFF-base-control.md`. New: `run.py --tag
+base` (sanity/score only), `overlap_boot.py`, `base_control_report.py`, `run_box_base.sh`.
+HF `mhieuuu/geode-internals`: base scores at `results/eapig_kl_symbol/klword/base/` (same
+layout as the other score sets), overlap + bootstrap + table + figure at
+`results/eapig_base_control/` (verified from the laptop). Figure:
+`figures/base_control_overlap.png`.
+
+`evt-ts1b-base` scored with KL EAP-IG on the NL discovery pairs (same 512 pairs as every
+other model; `overlap_boot.py` asserts each model's `per_example` reproduces its
+`mean_a`/`mean_b` under the local `half` split). Base sanity: EM 0.0, KL(full‖∅) 1.98 nats
+(the runbook guessed ~0.005 from `fmt_parent`; the base does react to operand swaps).
+
+Interval = bootstrap over the 512 prompts, 200 resamples, one index draw shared by all
+models. Primary interval = the **basic (reflected) bootstrap**, chosen before any data:
+resampled top-k overlap sits below the point estimate (resampling adds ranking noise), more
+for noisier models, and the reflection removes that first-order bias. The observed bias was
+small (−0.00 to −0.04, largest on the elicit pair). Percentile intervals are in the JSON
+(`pct_lo/pct_hi`). fp16 check: `fmt_parent`'s stored `per_example` is 56% exact zeros in
+fp16 and the base's 72% subnormal, but the fp16 full-mean ranking gives the same Jaccard as
+the fp32 mean at every pair and size (≤ 0.001), so the intervals are usable.
+
+**Headline: the base sets a floor of about 0.2, not 0.3.** Any two arithmetic-tuned
+descendants share about 0.3. The elicit pair (0.50–0.77) is far above both. The teach
+route's overlap is above the base floor but no higher than the unrelated control parent.
+
+Signed edge Jaccard [basic 95% interval]. The four reference rows reproduce the
+small-sizes table exactly (checked by `base_control_report.py`):
+
+| pair | 0.1% | 0.2% | 0.5% | 1% | 2% | 5% |
+|---|---|---|---|---|---|---|
+| base → ec word | 0.338 [0.319, 0.365] | 0.289 [0.277, 0.306] | 0.204 [0.198, 0.216] | 0.201 [0.193, 0.211] | 0.249 [0.245, 0.260] | 0.228 [0.229, 0.241] |
+| base → tc word | 0.371 [0.356, 0.408] | 0.279 [0.262, 0.299] | 0.211 [0.203, 0.224] | 0.209 [0.206, 0.221] | 0.228 [0.222, 0.237] | 0.210 [0.209, 0.222] |
+| base → fp word | 0.508 [0.472, 0.553] | 0.441 [0.411, 0.472] | 0.302 [0.296, 0.327] | 0.272 [0.263, 0.302] | 0.274 [0.266, 0.300] | 0.238 [0.233, 0.256] |
+| base → ep word | 0.347 [0.328, 0.370] | 0.331 [0.317, 0.347] | 0.235 [0.222, 0.244] | 0.217 [0.212, 0.231] | 0.213 [0.204, 0.218] | 0.201 [0.199, 0.209] |
+| ep op → ec word (elicit) | 0.766 [0.750, 0.805] | 0.727 [0.711, 0.771] | 0.718 [0.718, 0.759] | 0.731 [0.745, 0.778] | 0.661 [0.677, 0.703] | 0.497 [0.524, 0.544] |
+| fp word → tc word (teach route) | 0.425 [0.404, 0.461] | 0.338 [0.319, 0.373] | 0.312 [0.305, 0.340] | 0.308 [0.304, 0.328] | 0.299 [0.292, 0.317] | 0.252 [0.244, 0.267] |
+| ep op → tc word (control) | 0.395 [0.365, 0.419] | 0.320 [0.309, 0.344] | 0.307 [0.296, 0.330] | 0.343 [0.340, 0.368] | 0.367 [0.368, 0.390] | 0.270 [0.271, 0.289] |
+| ep word → ec word | 0.420 [0.410, 0.446] | 0.315 [0.304, 0.333] | 0.323 [0.311, 0.333] | 0.318 [0.315, 0.331] | 0.310 [0.303, 0.319] | 0.267 [0.268, 0.281] |
+| split-half ceiling base | 0.798 | 0.712 | 0.569 | 0.540 | 0.524 | 0.480 |
+| split-half ceiling ec / tc word | 0.903 / 0.840 | 0.853 / 0.766 | 0.833 / 0.769 | 0.819 / 0.754 | 0.747 / 0.675 | 0.569 / 0.530 |
+| split-half ceiling fp word / ep word / ep op | 0.840 / 0.912 / 0.885 | 0.798 / 0.912 / 0.862 | 0.758 / 0.903 / 0.833 | 0.720 / 0.787 / 0.806 | 0.679 / 0.665 / 0.707 | 0.617 / 0.550 / 0.515 |
+| chance (95th pct) | 0.003 | 0.003 | 0.005 | 0.007 | 0.012 | 0.027 |
+
+Read against the pre-registered branches:
+
+- **Branch 1 (base ↔ tc ≈ fp ↔ tc at most sizes): does not fire.** The intervals overlap
+  only at 0.1% (0.356–0.408 vs 0.404–0.461). At 0.2–5% base → tc (0.21–0.28) is clearly
+  below fp → tc (0.25–0.34), by 0.04–0.10. With percentile intervals they don't overlap
+  at any size. But fp → tc is no higher than the control ep op → tc (intervals overlap at
+  0.1–0.5%; the control is higher at 1–5%). So the teach child shares more with any
+  arithmetic-tuned relative than with the base, and the format parent adds nothing on top
+  of that.
+- **Branch 2 (base ↔ ec near the floor, clearly below ep op ↔ ec): fires.** base → ec is
+  0.20–0.34, and ep op → ec is 0.50–0.77, with intervals far apart at every size. The
+  elicit child's reuse of the op-form circuit is well above what it inherits from the base.
+- **Branch 3 (base ↔ ec about as high as ep op ↔ ec): does not fire.** Op-form scoring of
+  the base is not needed.
+- **Branch 4 (base ↔ children near chance): does not fire.** Base overlaps are 0.20–0.37,
+  8–100× chance. Shared pretrained plumbing does give a floor; it is about 0.2.
+
+So the 0.3 is not the base floor. It is a second tier: about 0.2 for base ↔ any descendant,
+about 0.3 for any two arithmetic-tuned descendants (ep word → ec, ep op → tc, fp → tc), and
+0.50–0.77 for the elicit op-form parent → child. base → fp is the highest base pair
+(0.24–0.51), as expected for a model one step from the base.
+
+Secondary (not pre-registered): overlap / √(ceiling_a · ceiling_b), to adjust for the
+base's noisier ranking (its split-half ceiling is the lowest at every size from 0.5%).
+base → tc 0.32–0.45, fp → tc 0.41–0.51, ep op → tc 0.38–0.53, base → ec 0.30–0.44, ep op →
+ec 0.85–0.92. The base's lower ceiling explains part of its raw gap. After the adjustment,
+base → tc sits only 0.02–0.09 below fp → tc, and the elicit pair stays far above
+everything.
+
+Caveats:
+- Single seed and one training run per model. The interval covers prompt sampling only,
+  not training-run variation.
+- The base is one step from `fmt_parent` and two from `elicit_parent`, so base ↔ fp above
+  base ↔ ep is expected for reasons unrelated to addition.
+- Split-half ceilings use 256 prompts per half, so they understate the 512-prompt
+  ranking's reliability (for every model alike). The ceiling-adjusted numbers are a rough
+  guide only.
+
 ## Global takeaways
 
 [ ]
@@ -568,6 +652,8 @@ Caveats:
 - Edge-level CMAP child → parent 0.1–5%: DONE 2026-10-22 (results block above). Possible
   follow-up, not queued: patch only the small-strata edges (b) takes whole, to test the hint
   that they carry the effect.
+- Base TinyStories-1B overlap control 0.1–5%: DONE 2026-10-22 (results block above).
+  Op-form scoring of the base not needed (branch 3 did not fire).
 
 ## Log
 
@@ -610,3 +696,4 @@ Caveats:
 - 2026-10-21: small sizes BUILT and LAUNCHED (3f3c6b9). Patched-forward speedup in `geode/circuits/eapig.py` (sparse exceptions for on/off masks, shared input for receivers without exceptions, `last_n` logits; old path via `GEODE_EAPIG_DENSE=1`), `evaluate --task symbol` for `elicit_parent`, `run_box_small.sh` + `box_check_speed.py`. Box check on the real 1B (RTX 3090, 256 pairs): 0.92 vs 3.40 s/mask at 0.1% (×3.7), ~1.75 vs ~3.6 s/mask at 5% (×2.0), max mean |ΔKL| 3.8e-6 nats → every job used the new path. Box 57127284 (4× RTX 3090); edge_node overlap + nulls done in 49 s; tests running. Results go to HF `results/eapig_kl_tests_small/`; results block pending.
 - 2026-10-21: small sizes DONE. All jobs exit 0 in ~25 min (elicit_parent 832 s, children 1,210–1,233 s, fmt_parent 438 s + functional 111/116 s); box pushed 16 files to HF `results/eapig_kl_tests_small/`, laptop watchdog verified them and destroyed box 57127284 (0 instances on team-tj). Overlap Jaccards equal the step-0 table at every size. Read-only reviews (sparse forward vs dense: 132 tests + 696-case CPU stress, worst |ΔKL| 1.3e-6; `last_n=2` checked on the real data files; live run + watchdog) found no bug. Results block above.
 - 2026-10-22: CMAP child → parent BUILT + RUN (393455c … 47a6305). Owner: include (d), push, add a deck slide. Parallel build (tests / box script / math review by subagents). Box 57225900 (2× 3090); 12 per-size jobs over both GPUs. First pass showed the type-matched null shared 40–71% of edges with (b); added a disjoint null and reran everything (identical numbers otherwise). Results on HF `results/eapig_cmap/`, verified from the laptop; box destroyed; ~$1.5 total.
+- 2026-10-22: base overlap control (`HANDOFF-base-control.md`). Box 57241509 (RTX PRO 4000), base scored in 50 s, edge_node + 200-resample bootstrap on the box CPUs, pushed + verified on HF, box destroyed (~$0.21). The first `base_control_report.py` run on the box read the bootstrap JSON with the wrong size keys (`frac_<f>` vs `str(f)`), so its boot-point checks failed and the pushed table lacked intervals; fixed on the laptop, rerun from the pulled JSONs (all checks PASS), and the corrected table + figure re-uploaded. Primary interval switched to the basic bootstrap before the run (resampled top-k Jaccard is biased low). Results block above.
