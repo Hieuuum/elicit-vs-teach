@@ -1,0 +1,1301 @@
+"""``experiments/eapig-circuit-check/data.py`` — the EAP-IG circuit-check
+pair builders (PLAN.md "Data").
+
+Silent-failure risk here is exactly the one CLAUDE.md's promotion rule
+flags: a counterfactual that silently shares an answer token with its clean
+problem, a discovery/validation split that silently leaks an operand pair,
+or a tokenization that silently disagrees with training (an extra BOS, a
+different answer-span split) would corrupt every downstream EAP-IG score
+with nothing crashing to flag it. ``pick_counterfactual`` and the sha256
+save/load round-trip are tested on tiny in-process arrays (no tokenizer, no
+parquet); ``build_addition_pairs``/``build_copy_pairs``/``build_tinystories``
+are tested against small fixtures built in this file AND, for
+``build_addition_pairs``, the real local ``D_algo_eval_bare.parquet`` (the
+batch-tokenize-the-whole-5,000-row-pool cost is well under a second — see
+module docstring in ``data.py``).
+
+The Llama-3.2-1B tokenizer loads from the local HF cache; ``HF_HUB_OFFLINE``
+is forced below so this suite never touches the network even if that cache
+is warm.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import os
+import sys
+
+import numpy as np
+import pandas as pd
+import pytest
+import torch
+
+from tests._scriptloader import repo_root
+
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
+REPO_ROOT = repo_root()
+_MODULE_PATH = REPO_ROOT / "experiments" / "eapig-circuit-check" / "data.py"
+_spec = importlib.util.spec_from_file_location("eapig_circuit_check_data", _MODULE_PATH)
+eapig_data = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = eapig_data
+_spec.loader.exec_module(eapig_data)
+
+pick_counterfactual = eapig_data.pick_counterfactual
+answer_tokens = eapig_data.answer_tokens
+save_pairs = eapig_data.save_pairs
+load_pairs = eapig_data.load_pairs
+build_addition_pairs = eapig_data.build_addition_pairs
+build_copy_pairs = eapig_data.build_copy_pairs
+build_tinystories = eapig_data.build_tinystories
+build_symbol_pairs = eapig_data.build_symbol_pairs
+build_translate_pairs = eapig_data.build_translate_pairs
+leakclean_idx = eapig_data.leakclean_idx
+SYMBOL_PROMPT = eapig_data.SYMBOL_PROMPT
+SYMBOL_PAIRS_FILENAME = eapig_data.SYMBOL_PAIRS_FILENAME
+TRANSLATE_PROMPT = eapig_data.TRANSLATE_PROMPT
+TRANSLATE_PAIRS_FILENAME = eapig_data.TRANSLATE_PAIRS_FILENAME
+ADDITION_PROMPT = eapig_data.ADDITION_PROMPT
+ADDITION_PAIRS_FILENAME = eapig_data.ADDITION_PAIRS_FILENAME
+COPY_PAIRS_FILENAME = eapig_data.COPY_PAIRS_FILENAME
+TINYSTORIES_FILENAME = eapig_data.TINYSTORIES_FILENAME
+
+REAL_EVAL_PARQUET = REPO_ROOT / "experiments/training-run/data/full/D_algo_eval_bare.parquet"
+REAL_OP_PARQUET = REPO_ROOT / "experiments/training-run/data/full/D_algo_eval_op.parquet"
+SAVED_DATA_DIR = REPO_ROOT / "experiments/eapig-circuit-check/data"
+
+
+@pytest.fixture(scope="module")
+def llama_tokenizer():
+    from transformers import AutoTokenizer
+
+    return AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
+
+
+def _addition_row(a: int, b: int) -> dict:
+    s = a + b
+    prompt = ADDITION_PROMPT.format(a=a, b=b)
+    answer = str(s)
+    return {
+        "op": "+",
+        "cell": "4x4",
+        "a": a,
+        "b": b,
+        "true_answer": s,
+        "shown_answer": s,
+        "prompt_text": prompt,
+        "answer_text": answer,
+        "full_text": prompt + answer,
+    }
+
+
+def _make_pool_df(pairs: list[tuple[int, int]]) -> pd.DataFrame:
+    return pd.DataFrame([_addition_row(a, b) for a, b in pairs])
+
+
+# A pool with 6 four-digit-sum pairs and 6 five-digit-sum pairs, every
+# unordered {a, b} distinct AND, within each group, every pairwise sum's
+# first/second answer token distinct (so every row has a valid counterfactual
+# -- real sums ending in a round number, e.g. 2000+3000=5000, share their
+# last-digit token with every other round sum and have none).
+FOUR_DIGIT_SUM_PAIRS = [
+    (4458, 2577),  # 7035
+    (4104, 4646),  # 8750
+    (2722, 1165),  # 3887
+    (2060, 4954),  # 7014
+    (2658, 4761),  # 7419
+    (2242, 4964),  # 7206
+]
+FIVE_DIGIT_SUM_PAIRS = [
+    (8904, 7933),  # 16837
+    (9779, 6789),  # 16568
+    (9134, 6140),  # 15274
+    (7308, 6144),  # 13452
+    (5776, 7052),  # 12828
+    (9362, 9930),  # 19292
+]
+
+
+# ---------------------------------------------------------------------------
+# pick_counterfactual
+# ---------------------------------------------------------------------------
+
+
+class TestPickCounterfactual:
+    def test_basic_match(self):
+        rng = np.random.default_rng(0)
+        match_key = np.array([1, 1, 1, 2])
+        c1 = np.array([10, 20, 10, 10])
+        c2 = np.array([1, 2, 3, 1])
+        # row1 differs at both c1 and c2 from idx0; row2 shares c1 with idx0.
+        assert pick_counterfactual(match_key, c1, c2, 0, rng) == 1
+
+    def test_excludes_self(self):
+        rng = np.random.default_rng(0)
+        match_key = np.array([1, 1])
+        c1 = np.array([5, 9])
+        c2 = np.array([5, 9])
+        assert pick_counterfactual(match_key, c1, c2, 0, rng) == 1
+
+    def test_raises_on_digit_count_mismatch(self):
+        rng = np.random.default_rng(0)
+        match_key = np.array([1, 2])
+        c1 = np.array([5, 9])
+        c2 = np.array([5, 9])
+        with pytest.raises(ValueError, match="no valid counterfactual"):
+            pick_counterfactual(match_key, c1, c2, 0, rng)
+
+    def test_raises_when_every_candidate_shares_a_token(self):
+        rng = np.random.default_rng(0)
+        match_key = np.array([1, 1, 1])
+        c1 = np.array([5, 5, 2])  # row1 shares c1 with idx0
+        c2 = np.array([7, 3, 7])  # row2 shares c2 with idx0
+        with pytest.raises(ValueError, match="no valid counterfactual"):
+            pick_counterfactual(match_key, c1, c2, 0, rng)
+
+    def test_never_returns_self_even_if_arrays_coincide(self):
+        # idx itself trivially satisfies match_key/c1/c2 equality; must still
+        # be excluded regardless of how the other rows compare.
+        match_key = np.array([1, 1, 1])
+        c1 = np.array([5, 9, 20])
+        c2 = np.array([5, 30, 40])
+        for seed in range(10):
+            rng = np.random.default_rng(seed)
+            cf = pick_counterfactual(match_key, c1, c2, 0, rng)
+            assert cf != 0
+
+    def test_prefer_mask_restricts_when_a_preferred_candidate_exists(self):
+        match_key = np.array([1, 1, 1, 1])
+        c1 = np.array([0, 10, 20, 30])
+        c2 = np.array([0, 10, 20, 30])
+        prefer = np.array([False, False, True, False])
+        for seed in range(20):
+            rng = np.random.default_rng(seed)
+            assert pick_counterfactual(match_key, c1, c2, 0, rng, prefer=prefer) == 2
+
+    def test_prefer_mask_falls_back_when_no_preferred_candidate_exists(self):
+        match_key = np.array([1, 1, 1])
+        c1 = np.array([0, 10, 20])
+        c2 = np.array([0, 10, 20])
+        prefer = np.zeros(3, dtype=bool)
+        rng = np.random.default_rng(1)
+        assert pick_counterfactual(match_key, c1, c2, 0, rng, prefer=prefer) in (1, 2)
+
+    def test_deterministic_given_seed(self):
+        match_key = np.ones(10, dtype=np.int64)
+        c1 = np.arange(10)
+        c2 = np.arange(10)
+        r1 = pick_counterfactual(match_key, c1, c2, 0, np.random.default_rng(42))
+        r2 = pick_counterfactual(match_key, c1, c2, 0, np.random.default_rng(42))
+        assert r1 == r2
+
+    def test_length_mismatch_raises(self):
+        with pytest.raises(ValueError, match="length mismatch"):
+            pick_counterfactual(
+                np.array([1, 1]), np.array([1]), np.array([1, 2]), 0, np.random.default_rng(0)
+            )
+
+    def test_idx_out_of_range_raises(self):
+        with pytest.raises(ValueError, match="out of range"):
+            pick_counterfactual(
+                np.array([1, 1]), np.array([1, 2]), np.array([1, 2]), 5, np.random.default_rng(0)
+            )
+
+
+# ---------------------------------------------------------------------------
+# answer_tokens
+# ---------------------------------------------------------------------------
+
+
+class TestAnswerTokens:
+    def test_four_digit_group_sum(self, llama_tokenizer):
+        ids = answer_tokens(llama_tokenizer, "15962")
+        assert ids == [11068, 5538]
+        assert llama_tokenizer.decode(ids) == "15962"
+
+    def test_four_digit_number(self, llama_tokenizer):
+        ids = answer_tokens(llama_tokenizer, "5068")
+        assert ids == [19673, 23]
+
+    def test_single_token_number_raises(self, llama_tokenizer):
+        with pytest.raises(ValueError, match="expected 2"):
+            answer_tokens(llama_tokenizer, "7")
+
+    def test_many_token_number_raises(self, llama_tokenizer):
+        with pytest.raises(ValueError, match="expected 2"):
+            answer_tokens(llama_tokenizer, "123456789")
+
+    def test_leading_space_three_tokens_raises(self, llama_tokenizer):
+        with pytest.raises(ValueError, match="expected 2"):
+            answer_tokens(llama_tokenizer, " 5068")
+
+    def test_leading_space_two_tokens_raises_via_whitespace_check(self, llama_tokenizer):
+        # " 68" tokenizes to exactly [' ', '68'] -- passes the length check
+        # and decodes back exactly, so only the whitespace check catches it.
+        with pytest.raises(ValueError, match="whitespace"):
+            answer_tokens(llama_tokenizer, " 68")
+
+
+# ---------------------------------------------------------------------------
+# save_pairs / load_pairs
+# ---------------------------------------------------------------------------
+
+
+class TestSaveLoadPairs:
+    def _sample_pairs(self) -> dict:
+        return {
+            "clean_ids": torch.tensor([[1, 2, 3], [4, 5, 6]], dtype=torch.long),
+            "corrupt_ids": torch.tensor([[7, 8, 9], [10, 11, 12]], dtype=torch.long),
+            "c1": torch.tensor([3, 6], dtype=torch.long),
+            "k1": torch.tensor([9, 12], dtype=torch.long),
+            "meta": pd.DataFrame({"a": [1, 2], "b": [3, 4]}),
+        }
+
+    def test_round_trip(self, tmp_path):
+        pairs = self._sample_pairs()
+        path = tmp_path / "pairs.pt"
+        save_pairs(pairs, path)
+        loaded = load_pairs(path)
+        assert torch.equal(loaded["clean_ids"], pairs["clean_ids"])
+        assert torch.equal(loaded["corrupt_ids"], pairs["corrupt_ids"])
+        assert torch.equal(loaded["c1"], pairs["c1"])
+        assert torch.equal(loaded["k1"], pairs["k1"])
+        pd.testing.assert_frame_equal(loaded["meta"], pairs["meta"])
+
+    def test_creates_parent_dir(self, tmp_path):
+        pairs = self._sample_pairs()
+        path = tmp_path / "nested" / "dir" / "pairs.pt"
+        save_pairs(pairs, path)
+        assert path.is_file()
+
+    def test_load_detects_tampering(self, tmp_path):
+        pairs = self._sample_pairs()
+        path = tmp_path / "pairs.pt"
+        save_pairs(pairs, path)
+        # Corrupt a tensor in place and re-save without updating the hash.
+        corrupted = torch.load(path, weights_only=False)
+        corrupted["clean_ids"][0, 0] = 999
+        torch.save(corrupted, path)
+        with pytest.raises(ValueError, match="sha256 mismatch"):
+            load_pairs(path)
+
+    def test_load_without_recorded_hash_skips_verification(self, tmp_path):
+        pairs = self._sample_pairs()
+        path = tmp_path / "pairs_no_hash.pt"
+        torch.save(pairs, path)  # bypass save_pairs: no "_token_sha256" key
+        loaded = load_pairs(path)
+        assert "_token_sha256" not in loaded
+        assert torch.equal(loaded["clean_ids"], pairs["clean_ids"])
+
+
+# ---------------------------------------------------------------------------
+# build_addition_pairs
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def to_parquet(tmp_path):
+    """Write a pool DataFrame to a fresh parquet file under pytest's own
+    ``tmp_path`` (auto-cleaned), returning its path. Each call within a test
+    gets a distinct filename."""
+    counter = {"n": 0}
+
+    def _write(df: pd.DataFrame) -> str:
+        counter["n"] += 1
+        path = tmp_path / f"pool_{counter['n']}.parquet"
+        df.to_parquet(path, index=False)
+        return str(path)
+
+    return _write
+
+
+class TestBuildAdditionPairs:
+    def test_basic_shapes_and_split(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS  # 12 rows
+        df = _make_pool_df(pool)
+        result = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        n = 6
+        assert result["clean_ids"].shape[0] == n
+        assert result["corrupt_ids"].shape == result["clean_ids"].shape
+        for key in ("c1", "c2", "k1", "k2"):
+            assert result[key].shape == (n,)
+        meta = result["meta"]
+        assert len(meta) == n
+        assert set(meta["split"]) <= {"discovery", "validation"}
+        assert (meta["split"] == "discovery").sum() == 4
+        assert (meta["split"] == "validation").sum() == 2
+        # discovery halves: exactly 2 rows in half 0 and 2 in half 1.
+        disc = meta[meta["split"] == "discovery"]
+        assert sorted(disc["half"].tolist()) == [0, 0, 1, 1]
+        assert (meta[meta["split"] == "validation"]["half"] == -1).all()
+
+    def test_last_token_matches_c1_k1(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        result = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        assert torch.equal(result["clean_ids"][:, -1], result["c1"])
+        assert torch.equal(result["corrupt_ids"][:, -1], result["k1"])
+
+    def test_top_level_half_and_answer_text_mirror_meta(self, llama_tokenizer, to_parquet):
+        # run.py (the GPU-side driver) indexes these two fields directly on
+        # the top-level dict, not through "meta" -- e.g. ``disc["half"]``,
+        # ``val["answer_text"][s:s+bs]``.
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        result = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        meta = result["meta"]
+        assert isinstance(result["half"], torch.Tensor)
+        assert result["half"].dtype == torch.long
+        assert result["half"].tolist() == meta["half"].tolist()
+        assert isinstance(result["answer_text"], list)
+        assert result["answer_text"] == [str(s) for s in meta["sum"]]
+        # the real template's answer span: str(sum), no sign/padding surprises
+        for a, b, text in zip(meta["a"], meta["b"], result["answer_text"]):
+            assert text == str(a + b)
+
+    def test_counterfactual_differs_at_both_tokens(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        result = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        assert torch.all(result["c1"] != result["k1"])
+        assert torch.all(result["c2"] != result["k2"])
+
+    def test_counterfactual_shares_sum_digit_count(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        result = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        meta = result["meta"]
+        digits = meta["sum"].astype(str).str.len()
+        cf_digits = meta["cf_sum"].astype(str).str.len()
+        assert (digits == cf_digits).all()
+
+    def test_counterfactual_never_the_row_itself(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        result = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        meta = result["meta"]
+        same = (meta["a"] == meta["cf_a"]) & (meta["b"] == meta["cf_b"])
+        assert not same.any()
+
+    def test_discovery_validation_disjoint_in_operand_pairs(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        result = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        meta = result["meta"]
+        disc_pairs = {
+            tuple(sorted((a, b)))
+            for a, b in zip(
+                meta[meta["split"] == "discovery"]["a"], meta[meta["split"] == "discovery"]["b"]
+            )
+        }
+        val_pairs = {
+            tuple(sorted((a, b)))
+            for a, b in zip(
+                meta[meta["split"] == "validation"]["a"], meta[meta["split"] == "validation"]["b"]
+            )
+        }
+        assert disc_pairs.isdisjoint(val_pairs)
+
+    def test_deterministic_given_seed(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        path = to_parquet(df)
+        r1 = build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=7)
+        r2 = build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=7)
+        assert torch.equal(r1["clean_ids"], r2["clean_ids"])
+        assert torch.equal(r1["corrupt_ids"], r2["corrupt_ids"])
+        pd.testing.assert_frame_equal(r1["meta"], r2["meta"])
+
+    def test_different_seed_changes_the_draw(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        path = to_parquet(df)
+        r1 = build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        r2 = build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=1)
+        assert not r1["meta"][["a", "b"]].equals(r2["meta"][["a", "b"]])
+
+    def test_odd_n_disc_raises(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+        df = _make_pool_df(pool)
+        with pytest.raises(ValueError, match="n_disc must be even"):
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=3, n_val=2, seed=0)
+
+    def test_pool_too_small_raises(self, llama_tokenizer, to_parquet):
+        df = _make_pool_df(FOUR_DIGIT_SUM_PAIRS)  # only 6 rows
+        with pytest.raises(ValueError, match="exceeds pool size"):
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=4, seed=0)
+
+    def test_duplicate_unordered_pair_raises(self, llama_tokenizer, to_parquet):
+        pool = FOUR_DIGIT_SUM_PAIRS + [(2577, 4458)]  # same unordered pair as FOUR_DIGIT_SUM_PAIRS[0]
+        df = _make_pool_df(pool)
+        with pytest.raises(ValueError, match="duplicate unordered operand pairs"):
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+
+    def test_answer_not_two_tokens_raises(self, llama_tokenizer, to_parquet):
+        rows = [_addition_row(a, b) for a, b in FOUR_DIGIT_SUM_PAIRS]
+        # A fabricated row: real 4-digit-operand prompt (so prompt length is
+        # unaffected) with its answer text swapped for a 1-token number.
+        bad = dict(_addition_row(3333, 4444))  # a fresh operand pair, not already in the pool
+        bad["answer_text"] = "7"
+        bad["full_text"] = bad["prompt_text"] + "7"
+        df = pd.DataFrame([*rows, bad])
+        with pytest.raises(ValueError, match="not 2 tokens"):
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+
+    def test_mismatched_full_text_raises(self, llama_tokenizer, to_parquet):
+        rows = [_addition_row(a, b) for a, b in FOUR_DIGIT_SUM_PAIRS]
+        rows[0] = dict(rows[0])
+        rows[0]["full_text"] = rows[0]["prompt_text"] + "not the real answer"
+        df = pd.DataFrame(rows)
+        with pytest.raises(ValueError, match="tokenize\\(full_text\\)"):
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+
+    def test_inconsistent_prompt_length_raises(self, llama_tokenizer, to_parquet):
+        rows = [_addition_row(a, b) for a, b in FOUR_DIGIT_SUM_PAIRS]
+        odd = _addition_row(5, 6)  # 1-digit operands -> much shorter prompt
+        odd["cell"] = "4x4"
+        df = pd.DataFrame([*rows, odd])
+        with pytest.raises(ValueError, match="prompt token length"):
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+
+    def test_filters_to_addition_4x4_cell(self, llama_tokenizer, to_parquet):
+        rows = [_addition_row(a, b) for a, b in FOUR_DIGIT_SUM_PAIRS]
+        other_op = dict(rows[0])
+        other_op["op"] = "-"
+        other_cell = dict(rows[1])
+        other_cell["cell"] = "3x4"
+        df = pd.DataFrame([*rows, other_op, other_cell])
+        result = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        # only the 6 original op='+', cell='4x4' rows are eligible.
+        assert len(result["meta"]) == 6
+
+    @pytest.mark.skipif(not REAL_EVAL_PARQUET.is_file(), reason="local frozen parquet not present")
+    def test_real_eval_parquet_small_n(self, llama_tokenizer):
+        result = build_addition_pairs(REAL_EVAL_PARQUET, llama_tokenizer, n_disc=8, n_val=4, seed=0)
+        assert result["clean_ids"].shape[0] == 12
+        assert torch.all(result["c1"] != result["k1"])
+        assert torch.all(result["c2"] != result["k2"])
+
+    @pytest.mark.skipif(not REAL_EVAL_PARQUET.is_file(), reason="local frozen parquet not present")
+    def test_real_eval_parquet_default_sizes(self, llama_tokenizer):
+        result = build_addition_pairs(REAL_EVAL_PARQUET, llama_tokenizer, seed=0)
+        assert result["clean_ids"].shape[0] == 512 + 256
+        meta = result["meta"]
+        assert (meta["split"] == "discovery").sum() == 512
+        assert (meta["split"] == "validation").sum() == 256
+        disc_pairs = {
+            tuple(sorted((a, b)))
+            for a, b in zip(
+                meta[meta["split"] == "discovery"]["a"], meta[meta["split"] == "discovery"]["b"]
+            )
+        }
+        val_pairs = {
+            tuple(sorted((a, b)))
+            for a, b in zip(
+                meta[meta["split"] == "validation"]["a"], meta[meta["split"] == "validation"]["b"]
+            )
+        }
+        assert disc_pairs.isdisjoint(val_pairs)
+        assert len(disc_pairs) == 512
+        assert len(val_pairs) == 256
+
+
+# ---------------------------------------------------------------------------
+# build_copy_pairs
+# ---------------------------------------------------------------------------
+
+
+class TestBuildCopyPairs:
+    def test_basic_shapes(self, llama_tokenizer):
+        result = build_copy_pairs(llama_tokenizer, n=20, seed=1)
+        assert result["clean_ids"].shape[0] == 20
+        assert result["corrupt_ids"].shape == result["clean_ids"].shape
+        for key in ("c1", "c2", "k1", "k2"):
+            assert result[key].shape == (20,)
+        assert list(result["meta"].columns) == ["n", "cf_n"]
+        assert len(result["meta"]) == 20
+
+    def test_values_are_four_digit_and_distinct_within_clean_set(self, llama_tokenizer):
+        result = build_copy_pairs(llama_tokenizer, n=50, seed=1)
+        ns = result["meta"]["n"]
+        assert ns.between(1000, 9999).all()
+        assert ns.is_unique
+
+    def test_counterfactual_differs_at_both_tokens(self, llama_tokenizer):
+        result = build_copy_pairs(llama_tokenizer, n=50, seed=1)
+        assert torch.all(result["c1"] != result["k1"])
+        assert torch.all(result["c2"] != result["k2"])
+        assert (result["meta"]["n"] != result["meta"]["cf_n"]).all()
+
+    def test_last_token_matches_c1_k1(self, llama_tokenizer):
+        result = build_copy_pairs(llama_tokenizer, n=10, seed=1)
+        assert torch.equal(result["clean_ids"][:, -1], result["c1"])
+        assert torch.equal(result["corrupt_ids"][:, -1], result["k1"])
+
+    def test_deterministic_given_seed(self, llama_tokenizer):
+        r1 = build_copy_pairs(llama_tokenizer, n=10, seed=3)
+        r2 = build_copy_pairs(llama_tokenizer, n=10, seed=3)
+        assert torch.equal(r1["clean_ids"], r2["clean_ids"])
+        pd.testing.assert_frame_equal(r1["meta"], r2["meta"])
+
+    def test_known_example_tokens(self, llama_tokenizer):
+        # Direct check of the copy-task tokenization finding: the answer
+        # after "?\n" tokenizes as 2 tokens, same split pattern as addition.
+        ids = answer_tokens(llama_tokenizer, "5068")
+        assert ids == [19673, 23]
+
+    def test_n_must_be_positive(self, llama_tokenizer):
+        with pytest.raises(ValueError, match="must be positive"):
+            build_copy_pairs(llama_tokenizer, n=0, seed=1)
+
+    def test_n_too_large_raises(self, llama_tokenizer):
+        with pytest.raises(ValueError, match="no room"):
+            build_copy_pairs(llama_tokenizer, n=9000, seed=1)
+
+
+# ---------------------------------------------------------------------------
+# build_tinystories
+# ---------------------------------------------------------------------------
+
+
+_SHORT_STORIES = [f"Cat sat on the mat number {i}." for i in range(5)]
+_LONG_STORIES = [
+    f"Story number {i}. " + "The sun was bright and the birds were singing in the trees. " * 10
+    for i in range(8)
+]
+
+
+class TestBuildTinystories:
+    def test_filters_and_truncates(self, llama_tokenizer):
+        stories = _SHORT_STORIES + _LONG_STORIES
+        length = 10
+        result = build_tinystories(llama_tokenizer, n=5, length=length, seed=2, text_source=stories)
+        assert result["input_ids"].shape == (5, length)
+
+        long_tok = [
+            llama_tokenizer(s, add_special_tokens=False)["input_ids"] for s in _LONG_STORIES
+        ]
+        long_prefixes = [ids[:length] for ids in long_tok if len(ids) >= length]
+        for row in result["input_ids"].tolist():
+            assert row in long_prefixes
+
+    def test_no_bos_prepended(self, llama_tokenizer):
+        stories = _LONG_STORIES
+        result = build_tinystories(llama_tokenizer, n=3, length=10, seed=2, text_source=stories)
+        bos_id = llama_tokenizer.bos_token_id
+        if bos_id is not None:
+            assert not (result["input_ids"][:, 0] == bos_id).any()
+        # Every returned row is literally a prefix of tokenize(story, add_special_tokens=False).
+        raw = [
+            llama_tokenizer(s, add_special_tokens=False)["input_ids"][:10] for s in stories
+        ]
+        for row in result["input_ids"].tolist():
+            assert row in raw
+
+    def test_deterministic_given_seed(self, llama_tokenizer):
+        r1 = build_tinystories(llama_tokenizer, n=3, length=10, seed=5, text_source=_LONG_STORIES)
+        r2 = build_tinystories(llama_tokenizer, n=3, length=10, seed=5, text_source=_LONG_STORIES)
+        assert torch.equal(r1["input_ids"], r2["input_ids"])
+
+    def test_callable_text_source(self, llama_tokenizer):
+        result = build_tinystories(
+            llama_tokenizer, n=3, length=10, seed=2, text_source=lambda: list(_LONG_STORIES)
+        )
+        assert result["input_ids"].shape == (3, 10)
+
+    def test_not_enough_long_stories_raises(self, llama_tokenizer):
+        with pytest.raises(ValueError, match="only"):
+            build_tinystories(llama_tokenizer, n=100, length=10, seed=2, text_source=_LONG_STORIES)
+
+    def test_empty_text_source_raises(self, llama_tokenizer):
+        with pytest.raises(ValueError, match="no stories"):
+            build_tinystories(llama_tokenizer, n=1, length=10, seed=2, text_source=[])
+
+    def test_n_and_length_must_be_positive(self, llama_tokenizer):
+        with pytest.raises(ValueError, match="must be positive"):
+            build_tinystories(llama_tokenizer, n=0, length=10, seed=2, text_source=_LONG_STORIES)
+        with pytest.raises(ValueError, match="must be positive"):
+            build_tinystories(llama_tokenizer, n=1, length=0, seed=2, text_source=_LONG_STORIES)
+
+
+# ---------------------------------------------------------------------------
+# load_pairs(directory) — the combined {"disc", "val", "copy", "stories"}
+# dict run.py (the GPU-side driver) reads directly.
+# ---------------------------------------------------------------------------
+
+
+class TestLoadPairsDirectory:
+    def _build_dir(self, tmp_path, llama_tokenizer, *, with_stories: bool):
+        pool = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS  # 12 rows
+        df = _make_pool_df(pool)
+        pool_path = tmp_path / "pool.parquet"
+        df.to_parquet(pool_path, index=False)
+        addition = build_addition_pairs(pool_path, llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        save_pairs(addition, tmp_path / ADDITION_PAIRS_FILENAME)
+        copy = build_copy_pairs(llama_tokenizer, n=10, seed=1)
+        save_pairs(copy, tmp_path / COPY_PAIRS_FILENAME)
+        if with_stories:
+            stories = build_tinystories(
+                llama_tokenizer, n=3, length=10, seed=2, text_source=_LONG_STORIES
+            )
+            save_pairs(stories, tmp_path / TINYSTORIES_FILENAME)
+        return addition, copy
+
+    def test_disc_val_split_and_keys(self, tmp_path, llama_tokenizer):
+        addition, _ = self._build_dir(tmp_path, llama_tokenizer, with_stories=False)
+        data = load_pairs(tmp_path)
+        assert set(data) == {"disc", "val", "copy"}
+        disc, val = data["disc"], data["val"]
+        assert disc["clean_ids"].shape[0] == 4
+        assert val["clean_ids"].shape[0] == 2
+        for key in ("clean_ids", "corrupt_ids", "c1", "c2", "k1", "k2", "half", "answer_text"):
+            assert key in disc
+            assert key in val
+
+    def test_disc_half_is_zero_or_one(self, tmp_path, llama_tokenizer):
+        self._build_dir(tmp_path, llama_tokenizer, with_stories=False)
+        data = load_pairs(tmp_path)
+        disc = data["disc"]
+        assert isinstance(disc["half"], torch.Tensor)
+        assert set(disc["half"].tolist()) <= {0, 1}
+        # exactly the split-half sizes build_addition_pairs produced (2 and 2).
+        assert int((disc["half"] == 0).sum()) == 2
+        assert int((disc["half"] == 1).sum()) == 2
+
+    def test_val_answer_text_is_sliceable_and_aligned(self, tmp_path, llama_tokenizer):
+        self._build_dir(tmp_path, llama_tokenizer, with_stories=False)
+        data = load_pairs(tmp_path)
+        val = data["val"]
+        assert isinstance(val["answer_text"], list)
+        assert len(val["answer_text"]) == val["clean_ids"].shape[0]
+        # run.py's exact access pattern: a batch slice of the answer list.
+        batch = val["answer_text"][0:1]
+        assert batch == val["answer_text"][:1]
+        for a, b, text in zip(val["meta"]["a"], val["meta"]["b"], val["answer_text"]):
+            assert text == str(a + b)
+
+    def test_disc_val_disjoint_after_split(self, tmp_path, llama_tokenizer):
+        self._build_dir(tmp_path, llama_tokenizer, with_stories=False)
+        data = load_pairs(tmp_path)
+        disc_pairs = {
+            tuple(sorted((a, b)))
+            for a, b in zip(data["disc"]["meta"]["a"], data["disc"]["meta"]["b"])
+        }
+        val_pairs = {
+            tuple(sorted((a, b)))
+            for a, b in zip(data["val"]["meta"]["a"], data["val"]["meta"]["b"])
+        }
+        assert disc_pairs.isdisjoint(val_pairs)
+
+    def test_copy_passes_through_unsplit(self, tmp_path, llama_tokenizer):
+        _, copy = self._build_dir(tmp_path, llama_tokenizer, with_stories=False)
+        data = load_pairs(tmp_path)
+        assert data["copy"]["clean_ids"].shape[0] == copy["clean_ids"].shape[0]
+        assert torch.equal(data["copy"]["clean_ids"], copy["clean_ids"])
+
+    def test_stories_is_bare_tensor_when_present(self, tmp_path, llama_tokenizer):
+        self._build_dir(tmp_path, llama_tokenizer, with_stories=True)
+        data = load_pairs(tmp_path)
+        assert "stories" in data
+        assert isinstance(data["stories"], torch.Tensor)
+        assert data["stories"].shape == (3, 10)
+
+    def test_stories_omitted_when_file_missing(self, tmp_path, llama_tokenizer):
+        self._build_dir(tmp_path, llama_tokenizer, with_stories=False)
+        data = load_pairs(tmp_path)
+        assert "stories" not in data
+
+    def test_eval_ld_style_batch_access(self, tmp_path, llama_tokenizer):
+        # The exact slicing pattern run.py's eval_ld uses on a pairs dict.
+        self._build_dir(tmp_path, llama_tokenizer, with_stories=False)
+        data = load_pairs(tmp_path)
+        disc = data["disc"]
+        bs = 3
+        n = disc["clean_ids"].shape[0]
+        seen = 0
+        for s in range(0, n, bs):
+            sl = slice(s, s + bs)
+            clean = disc["clean_ids"][sl]
+            toks = [disc[k][sl] for k in ("c1", "k1", "c2", "k2")]
+            assert clean.shape[0] == len(toks[0])
+            seen += clean.shape[0]
+        assert seen == n
+
+
+# ---------------------------------------------------------------------------
+# build_symbol_pairs / load_pairs(task=...) — contract C2: the same rows on
+# the "{a} + {b} = " surface; only clean_ids/corrupt_ids may differ.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def word_pairs(tmp_path, llama_tokenizer):
+    df = _make_pool_df(FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS)
+    path = tmp_path / "pool.parquet"
+    df.to_parquet(path, index=False)
+    return build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=0)
+
+
+class TestBuildSymbolPairs:
+    def test_same_rows_only_ids_differ(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        assert set(sym) == set(word_pairs)
+        for k in ("c1", "c2", "k1", "k2", "half"):
+            assert torch.equal(sym[k], word_pairs[k])
+        assert sym["answer_text"] == word_pairs["answer_text"]
+        pd.testing.assert_frame_equal(sym["meta"], word_pairs["meta"])
+        assert not torch.equal(sym["clean_ids"], word_pairs["clean_ids"][:, -sym["clean_ids"].shape[1]:])
+
+    def test_clean_ids_decode_to_symbol_prompt_plus_first_token(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        meta = word_pairs["meta"]
+        for i in range(len(meta)):
+            prompt = SYMBOL_PROMPT.format(a=meta["a"][i], b=meta["b"][i])
+            cf_prompt = SYMBOL_PROMPT.format(a=meta["cf_a"][i], b=meta["cf_b"][i])
+            ids = llama_tokenizer(prompt, add_special_tokens=False)["input_ids"]
+            cf_ids = llama_tokenizer(cf_prompt, add_special_tokens=False)["input_ids"]
+            assert sym["clean_ids"][i].tolist() == ids + [int(sym["c1"][i])]
+            assert sym["corrupt_ids"][i].tolist() == cf_ids + [int(sym["k1"][i])]
+
+    def test_prompt_is_token_prefix_of_full_text(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        meta = word_pairs["meta"]
+        for i in range(len(meta)):
+            full = SYMBOL_PROMPT.format(a=meta["a"][i], b=meta["b"][i]) + str(meta["sum"][i])
+            full_ids = llama_tokenizer(full, add_special_tokens=False)["input_ids"]
+            assert full_ids == sym["clean_ids"][i].tolist() + [int(sym["c2"][i])]
+
+    def test_trailing_space_is_own_token(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        # last prompt token (position -2) is the "= " trailing space
+        assert {llama_tokenizer.decode([int(t)]) for t in sym["clean_ids"][:, -2]} == {" "}
+        assert {llama_tokenizer.decode([int(t)]) for t in sym["corrupt_ids"][:, -2]} == {" "}
+
+    def test_fixed_length_and_both_positions_differ(self, word_pairs, llama_tokenizer):
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        assert sym["clean_ids"].shape == sym["corrupt_ids"].shape
+        assert (sym["c1"] != sym["k1"]).all() and (sym["c2"] != sym["k2"]).all()
+        assert torch.equal(sym["clean_ids"][:, -1], sym["c1"])
+        assert torch.equal(sym["corrupt_ids"][:, -1], sym["k1"])
+
+    def test_does_not_mutate_input(self, word_pairs, llama_tokenizer):
+        before = {k: v.clone() for k, v in word_pairs.items() if isinstance(v, torch.Tensor)}
+        meta_before = word_pairs["meta"].copy()
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        sym["half"][0] = 99
+        sym["meta"].loc[0, "a"] = -1
+        for k, v in before.items():
+            assert torch.equal(word_pairs[k], v)
+        pd.testing.assert_frame_equal(word_pairs["meta"], meta_before)
+
+    def test_token_mismatch_with_word_file_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        bad["c2"] = word_pairs["c2"].clone()
+        bad["c2"][0] += 1
+        with pytest.raises(ValueError, match="c2 differs"):
+            build_symbol_pairs(bad, llama_tokenizer)
+
+    def test_answer_text_mismatch_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        bad["answer_text"] = ["0"] + list(word_pairs["answer_text"][1:])
+        with pytest.raises(ValueError, match="answer_text"):
+            build_symbol_pairs(bad, llama_tokenizer)
+
+    def test_shared_answer_token_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        meta = word_pairs["meta"].copy()
+        meta.loc[0, ["cf_a", "cf_b", "cf_sum"]] = [meta["a"][0], meta["b"][0], meta["sum"][0]]
+        bad["meta"] = meta
+        with pytest.raises(ValueError, match="shares an answer token"):
+            build_symbol_pairs(bad, llama_tokenizer)
+
+    def test_mixed_prompt_length_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        meta = word_pairs["meta"].copy()
+        meta.loc[0, "a"] = 12  # "12 + b = " is shorter than a 4x4 prompt
+        meta.loc[0, "sum"] = 12 + int(meta["b"][0])
+        bad["meta"] = meta
+        with pytest.raises(ValueError, match="prompt token length"):
+            build_symbol_pairs(bad, llama_tokenizer)
+
+    @pytest.mark.skipif(not (SAVED_DATA_DIR / SYMBOL_PAIRS_FILENAME).is_file(),
+                        reason="saved symbol pairs not present")
+    def test_saved_file_matches_rebuild_and_word_file(self, llama_tokenizer):
+        word = load_pairs(SAVED_DATA_DIR / ADDITION_PAIRS_FILENAME)
+        saved = load_pairs(SAVED_DATA_DIR / SYMBOL_PAIRS_FILENAME)
+        word.pop("_token_sha256")
+        saved.pop("_token_sha256")
+        rebuilt = build_symbol_pairs(word, llama_tokenizer)
+        assert saved["clean_ids"].shape == (768, 9)
+        for k in ("clean_ids", "corrupt_ids", "c1", "c2", "k1", "k2", "half"):
+            assert torch.equal(saved[k], rebuilt[k])
+            if k not in ("clean_ids", "corrupt_ids"):
+                assert torch.equal(saved[k], word[k])
+        assert saved["answer_text"] == word["answer_text"]
+        pd.testing.assert_frame_equal(saved["meta"], word["meta"])
+
+    @pytest.mark.skipif(not (REAL_OP_PARQUET.is_file() and (SAVED_DATA_DIR / SYMBOL_PAIRS_FILENAME).is_file()),
+                        reason="local frozen parquet / saved symbol pairs not present")
+    def test_symbol_prompt_matches_eval_op_render(self, llama_tokenizer):
+        saved = load_pairs(SAVED_DATA_DIR / SYMBOL_PAIRS_FILENAME)
+        df = pd.read_parquet(REAL_OP_PARQUET, columns=["a", "b", "op", "prompt_text"])
+        df = df[df["op"] == "+"]
+        render = {(int(a), int(b)): p for a, b, p in zip(df["a"], df["b"], df["prompt_text"])}
+        meta = saved["meta"]
+        for i in range(0, len(meta), 37):
+            prompt = render[(int(meta["a"][i]), int(meta["b"][i]))]
+            assert prompt == SYMBOL_PROMPT.format(a=meta["a"][i], b=meta["b"][i])
+            ids = llama_tokenizer(prompt, add_special_tokens=False)["input_ids"]
+            assert saved["clean_ids"][i, :-1].tolist() == ids
+
+
+class TestLoadPairsTask:
+    def _build_dir(self, tmp_path, word_pairs, llama_tokenizer):
+        save_pairs(word_pairs, tmp_path / ADDITION_PAIRS_FILENAME)
+        save_pairs(build_symbol_pairs(word_pairs, llama_tokenizer), tmp_path / SYMBOL_PAIRS_FILENAME)
+        save_pairs(build_copy_pairs(llama_tokenizer, n=10, seed=1), tmp_path / COPY_PAIRS_FILENAME)
+
+    def test_word_default_unchanged(self, tmp_path, word_pairs, llama_tokenizer):
+        self._build_dir(tmp_path, word_pairs, llama_tokenizer)
+        a, b = load_pairs(tmp_path), load_pairs(tmp_path, task="word")
+        for s in ("disc", "val", "copy"):
+            assert torch.equal(a[s]["clean_ids"], b[s]["clean_ids"])
+        n_disc = int((word_pairs["meta"]["split"] == "discovery").sum())
+        assert torch.equal(a["disc"]["clean_ids"], word_pairs["clean_ids"][:n_disc])
+
+    def test_symbol_swaps_only_disc_val_ids(self, tmp_path, word_pairs, llama_tokenizer):
+        self._build_dir(tmp_path, word_pairs, llama_tokenizer)
+        w, s = load_pairs(tmp_path), load_pairs(tmp_path, task="symbol")
+        assert set(w) == set(s)
+        assert torch.equal(w["copy"]["clean_ids"], s["copy"]["clean_ids"])
+        for split in ("disc", "val"):
+            for k in ("c1", "c2", "k1", "k2", "half"):
+                assert torch.equal(w[split][k], s[split][k])
+            assert w[split]["answer_text"] == s[split]["answer_text"]
+            assert not torch.equal(w[split]["clean_ids"][:, -2], s[split]["clean_ids"][:, -2])
+            assert s[split]["clean_ids"].shape[0] == w[split]["clean_ids"].shape[0]
+
+    def test_unknown_task_raises(self, tmp_path, word_pairs, llama_tokenizer):
+        self._build_dir(tmp_path, word_pairs, llama_tokenizer)
+        with pytest.raises(ValueError, match="unknown task"):
+            load_pairs(tmp_path, task="kl")
+        with pytest.raises(ValueError, match="unknown task"):
+            load_pairs(tmp_path / ADDITION_PAIRS_FILENAME, task="Symbol")
+
+    def test_symbol_missing_file_raises(self, tmp_path, word_pairs, llama_tokenizer):
+        save_pairs(word_pairs, tmp_path / ADDITION_PAIRS_FILENAME)
+        save_pairs(build_copy_pairs(llama_tokenizer, n=10, seed=1), tmp_path / COPY_PAIRS_FILENAME)
+        load_pairs(tmp_path)  # word still fine
+        with pytest.raises(FileNotFoundError):
+            load_pairs(tmp_path, task="symbol")
+
+    def test_file_path_ignores_task(self, tmp_path, word_pairs, llama_tokenizer):
+        self._build_dir(tmp_path, word_pairs, llama_tokenizer)
+        a = load_pairs(tmp_path / SYMBOL_PAIRS_FILENAME, task="word")
+        b = load_pairs(tmp_path / SYMBOL_PAIRS_FILENAME, task="symbol")
+        assert torch.equal(a["clean_ids"], b["clean_ids"])
+
+
+class TestLeakcleanIdx:
+    def _df(self):
+        rows = []
+        for i, (a, b, op, cell) in enumerate([
+            (1234, 5678, "+", "4x4"), (5678, 1234, "+", "4x4"), (2000, 3000, "+", "4x4"),
+            (1234, 5678, "-", "4x4"), (12, 5678, "+", "2x4"), (4321, 8765, "+", "4x4"),
+        ]):
+            rows.append({"idx": 10 + i, "a": a, "b": b, "op": op, "cell": cell})
+        return pd.DataFrame(rows)
+
+    def test_excludes_unordered_pairs_and_filters_cell_op(self, tmp_path):
+        path = tmp_path / "e.parquet"
+        self._df().to_parquet(path, index=False)
+        res = leakclean_idx(path, {(1234, 5678)})
+        # both orders of {1234, 5678} dropped; '-' and 2x4 rows never counted
+        assert res["idx"] == [12, 15]
+        assert (res["n_rows"], res["n_clean"], res["n_excluded"]) == (4, 2, 2)
+
+    def test_empty_exclusion_keeps_all(self, tmp_path):
+        path = tmp_path / "e.parquet"
+        self._df().to_parquet(path, index=False)
+        res = leakclean_idx(path, set())
+        assert res["idx"] == [10, 11, 12, 15] and res["n_excluded"] == 0
+
+    def test_other_op_cell(self, tmp_path):
+        path = tmp_path / "e.parquet"
+        self._df().to_parquet(path, index=False)
+        assert leakclean_idx(path, set(), op="-")["idx"] == [13]
+        assert leakclean_idx(path, {(12, 5678)}, cell="2x4")["n_clean"] == 0
+
+    @pytest.mark.skipif(not (SAVED_DATA_DIR / "perf_leakclean_4x4_idx.json").is_file(),
+                        reason="saved leakclean json not present")
+    def test_saved_json_consistent(self):
+        import json
+
+        res = json.loads((SAVED_DATA_DIR / "perf_leakclean_4x4_idx.json").read_text())
+        assert res["n_rows"] == 5000
+        assert res["n_clean"] == len(res["idx"]) == res["n_rows"] - res["n_excluded"]
+        assert res["idx"] == sorted(set(res["idx"]))
+        # every saved word/symbol pair (the pair pool used the same exclusion) is clean
+        if REAL_OP_PARQUET.is_file():
+            df = pd.read_parquet(REAL_OP_PARQUET, columns=["idx", "a", "b", "op", "cell"])
+            clean = df[df["idx"].isin(res["idx"])]
+            assert set(clean["op"]) == {"+"} and set(clean["cell"]) == {"4x4"}
+            pairs = load_pairs(SAVED_DATA_DIR / ADDITION_PAIRS_FILENAME)["meta"]
+            ok = {(int(a), int(b)) for a, b in zip(clean["a"], clean["b"])}
+            assert all((int(a), int(b)) in ok for a, b in zip(pairs["a"], pairs["b"]))
+
+
+# ---------------------------------------------------------------------------
+# build_addition_pairs(pool_idx=...) — the translate task's pool restriction
+# (exact-rewrite rows). The default (None) must leave the frozen build intact.
+# ---------------------------------------------------------------------------
+
+
+# 4x4 rows that are NOT in the restricted pool (distinct unordered pairs from
+# the 12 above); only ever present in the parquet, never in pool_idx.
+OUTSIDE_PAIRS = [(1111, 2345), (3141, 5926), (2718, 2818), (1618, 3398), (6021, 1023),
+                 (8314, 4626)]
+POOL_PAIRS = FOUR_DIGIT_SUM_PAIRS + FIVE_DIGIT_SUM_PAIRS
+
+
+def _make_idx_pool_df(pairs: list[tuple[int, int]], start: int = 100) -> pd.DataFrame:
+    df = _make_pool_df(pairs)
+    df.insert(0, "idx", np.arange(start, start + len(df)))
+    return df
+
+
+def _mixed_pool_df() -> pd.DataFrame:
+    """The 12 pool rows interleaved with the 6 outside rows (idx 100..117), so a
+    restriction that kept a neighbour or shifted an index would show."""
+    order = [p for pair in zip(POOL_PAIRS[:6], OUTSIDE_PAIRS) for p in pair] + POOL_PAIRS[6:]
+    return _make_idx_pool_df(order)
+
+
+def _pool_idx(df: pd.DataFrame) -> list[int]:
+    keys = set(POOL_PAIRS)
+    return [int(i) for i, a, b in zip(df["idx"], df["a"], df["b"]) if (a, b) in keys]
+
+
+def _assert_pairs_equal(r1: dict, r2: dict) -> None:
+    assert set(r1) == set(r2)
+    for k, v in r1.items():
+        if isinstance(v, torch.Tensor):
+            assert torch.equal(v, r2[k]), k
+        elif isinstance(v, pd.DataFrame):
+            pd.testing.assert_frame_equal(v, r2[k])
+        else:
+            assert v == r2[k], k
+
+
+class TestBuildAdditionPairsPoolIdx:
+    def test_none_is_the_default_path(self, llama_tokenizer, to_parquet):
+        path = to_parquet(_mixed_pool_df())
+        _assert_pairs_equal(
+            build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=0),
+            build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=0, pool_idx=None),
+        )
+
+    def test_keeping_every_idx_is_identical_to_none(self, llama_tokenizer, to_parquet):
+        df = _make_idx_pool_df(POOL_PAIRS)
+        path = to_parquet(df)
+        _assert_pairs_equal(
+            build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=3),
+            build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=3,
+                                 pool_idx=df["idx"].tolist()),
+        )
+
+    def test_restricted_equals_build_on_only_those_rows(self, llama_tokenizer, to_parquet):
+        # restricting a mixed parquet == building on a parquet holding only the pool rows
+        df = _mixed_pool_df()
+        got = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0,
+                                   pool_idx=_pool_idx(df))
+        only = df[df["idx"].isin(_pool_idx(df))]
+        want = build_addition_pairs(to_parquet(only), llama_tokenizer, n_disc=4, n_val=2, seed=0)
+        _assert_pairs_equal(got, want)
+
+    @pytest.mark.parametrize("seed", [0, 1, 2, 5])
+    def test_every_clean_and_counterfactual_row_in_pool(self, llama_tokenizer, to_parquet, seed):
+        df = _mixed_pool_df()
+        keep = set(_pool_idx(df))
+        res = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=6, n_val=4, seed=seed,
+                                   pool_idx=keep)
+        idx_of = {(int(a), int(b)): int(i) for i, a, b in zip(df["idx"], df["a"], df["b"])}
+        meta = res["meta"]
+        used = [idx_of[(a, b)] for a, b in zip(meta["a"], meta["b"])]
+        cf = [idx_of[(a, b)] for a, b in zip(meta["cf_a"], meta["cf_b"])]
+        assert set(used) <= keep and set(cf) <= keep
+        assert len(set(used)) == len(used) == 10
+
+    @pytest.mark.parametrize("container", [list, set, tuple, np.array, pd.Series])
+    def test_any_collection_type(self, llama_tokenizer, to_parquet, container):
+        df = _mixed_pool_df()
+        path = to_parquet(df)
+        ref = build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=0,
+                                   pool_idx=_pool_idx(df))
+        got = build_addition_pairs(path, llama_tokenizer, n_disc=4, n_val=2, seed=0,
+                                   pool_idx=container(sorted(_pool_idx(df))))
+        _assert_pairs_equal(ref, got)
+
+    def test_too_small_pool_raises(self, llama_tokenizer, to_parquet):
+        df = _mixed_pool_df()
+        with pytest.raises(ValueError, match="exceeds pool size"):
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0,
+                                 pool_idx=_pool_idx(df)[:5])
+
+    def test_empty_pool_idx_raises(self, llama_tokenizer, to_parquet):
+        with pytest.raises(ValueError, match="exceeds pool size"):
+            build_addition_pairs(to_parquet(_mixed_pool_df()), llama_tokenizer, n_disc=4,
+                                 n_val=2, seed=0, pool_idx=[])
+
+    def test_unknown_idx_raises(self, llama_tokenizer, to_parquet):
+        df = _mixed_pool_df()
+        with pytest.raises(ValueError, match="pool_idx not among"):
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0,
+                                 pool_idx=_pool_idx(df) + [999])
+
+    def test_idx_of_other_op_or_cell_raises(self, llama_tokenizer, to_parquet):
+        df = _make_idx_pool_df(POOL_PAIRS)
+        df.loc[0, "op"] = "-"
+        df.loc[1, "cell"] = "3x4"
+        for bad in (100, 101):
+            with pytest.raises(ValueError, match="pool_idx not among"):
+                build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0,
+                                     pool_idx=df["idx"].tolist()[2:] + [bad])
+
+    def test_combines_with_exclude_pairs(self, llama_tokenizer, to_parquet):
+        df = _mixed_pool_df()
+        excluded = (2722, 1165)  # a pool row, removed by the leakage guard on top
+        res = build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=4, n_val=2, seed=0,
+                                   pool_idx=_pool_idx(df), exclude_pairs={tuple(sorted(excluded))})
+        meta = res["meta"]
+        rows = set(zip(meta["a"], meta["b"])) | set(zip(meta["cf_a"], meta["cf_b"]))
+        assert excluded not in rows and rows <= set(POOL_PAIRS)
+        with pytest.raises(ValueError, match="exceeds pool size"):  # 11 rows left
+            build_addition_pairs(to_parquet(df), llama_tokenizer, n_disc=8, n_val=4, seed=0,
+                                 pool_idx=_pool_idx(df), exclude_pairs={tuple(sorted(excluded))})
+
+    def test_pool_idx_needs_idx_column(self, llama_tokenizer, to_parquet):
+        with pytest.raises(KeyError):
+            build_addition_pairs(to_parquet(_make_pool_df(POOL_PAIRS)), llama_tokenizer,
+                                 n_disc=4, n_val=2, seed=0, pool_idx=[0, 1])
+
+    @pytest.mark.skipif(not (REAL_EVAL_PARQUET.is_file()
+                             and (SAVED_DATA_DIR / ADDITION_PAIRS_FILENAME).is_file()
+                             and (SAVED_DATA_DIR / "perf_leakclean_4x4_idx.json").is_file()),
+                        reason="local frozen parquet / saved pairs / leakclean json not present")
+    def test_frozen_pairs_still_reproduce(self, llama_tokenizer):
+        """pairs_seed0.pt was built with pool_idx unset and the training-file exclusion.
+        Within the 4x4 '+' pool that exclusion drops exactly the non-leakclean rows, so
+        (a) the default path with those rows' pairs as exclude_pairs and (b) pool_idx =
+        the leakclean idx with no exclusion must both rebuild the saved file bit for bit."""
+        import json
+
+        saved = load_pairs(SAVED_DATA_DIR / ADDITION_PAIRS_FILENAME)
+        saved.pop("_token_sha256")
+        clean = set(json.loads((SAVED_DATA_DIR / "perf_leakclean_4x4_idx.json").read_text())["idx"])
+        df = pd.read_parquet(REAL_EVAL_PARQUET, columns=["idx", "a", "b", "op", "cell"])
+        head = df[(df["op"] == "+") & (df["cell"] == "4x4")]
+        dropped = head[~head["idx"].isin(clean)]
+        exclude = {tuple(sorted((int(a), int(b)))) for a, b in zip(dropped["a"], dropped["b"])}
+        assert len(exclude) == len(head) - len(clean) == 70
+        _assert_pairs_equal(build_addition_pairs(REAL_EVAL_PARQUET, llama_tokenizer,
+                                                 exclude_pairs=exclude), saved)
+        _assert_pairs_equal(build_addition_pairs(REAL_EVAL_PARQUET, llama_tokenizer,
+                                                 pool_idx=clean), saved)
+
+
+# ---------------------------------------------------------------------------
+# build_translate_pairs — the same rows on "What is the sum of {a} and {b}?\n
+# {a} + {b} = " (word question + gold rewrite in one context).
+# ---------------------------------------------------------------------------
+
+
+def _decode_prompt(tok, ids: torch.Tensor) -> str:
+    return tok.decode(ids[:-1].tolist())
+
+
+class TestBuildTranslatePairs:
+    def test_template_is_word_question_then_symbol_rewrite(self):
+        assert TRANSLATE_PROMPT == ADDITION_PROMPT + SYMBOL_PROMPT
+        want = "What is the sum of 621 and 5068?\n621 + 5068 = "
+        assert TRANSLATE_PROMPT.format(a=621, b=5068) == want
+
+    def test_same_rows_only_ids_differ(self, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        assert set(tr) == set(word_pairs)
+        for k in ("c1", "c2", "k1", "k2", "half"):
+            assert torch.equal(tr[k], word_pairs[k])
+        assert tr["answer_text"] == word_pairs["answer_text"]
+        pd.testing.assert_frame_equal(tr["meta"], word_pairs["meta"])
+        assert tr["clean_ids"].shape[1] > word_pairs["clean_ids"].shape[1]
+
+    def test_clean_prompt_has_clean_operands_in_both_segments(self, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        meta = word_pairs["meta"]
+        for i in range(len(meta)):
+            a, b = int(meta["a"][i]), int(meta["b"][i])
+            text = _decode_prompt(llama_tokenizer, tr["clean_ids"][i])
+            assert text == f"What is the sum of {a} and {b}?\n{a} + {b} = "
+            question, rewrite = text.split("\n")
+            assert question == f"What is the sum of {a} and {b}?" and rewrite == f"{a} + {b} = "
+
+    def test_corrupt_prompt_has_cf_operands_in_both_segments(self, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        meta = word_pairs["meta"]
+        for i in range(len(meta)):
+            cf_a, cf_b = int(meta["cf_a"][i]), int(meta["cf_b"][i])
+            question, rewrite = _decode_prompt(llama_tokenizer, tr["corrupt_ids"][i]).split("\n")
+            assert question == f"What is the sum of {cf_a} and {cf_b}?"
+            assert rewrite == f"{cf_a} + {cf_b} = "
+            # no clean operand survives in either segment (all operands here are distinct)
+            for x in (int(meta["a"][i]), int(meta["b"][i])):
+                assert str(x) not in question and str(x) not in rewrite
+
+    def test_ids_equal_direct_tokenization(self, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        meta = word_pairs["meta"]
+        for i in range(len(meta)):
+            ids = llama_tokenizer(TRANSLATE_PROMPT.format(a=meta["a"][i], b=meta["b"][i]),
+                                  add_special_tokens=False)["input_ids"]
+            cf_ids = llama_tokenizer(TRANSLATE_PROMPT.format(a=meta["cf_a"][i], b=meta["cf_b"][i]),
+                                     add_special_tokens=False)["input_ids"]
+            assert tr["clean_ids"][i].tolist() == ids + [int(tr["c1"][i])]
+            assert tr["corrupt_ids"][i].tolist() == cf_ids + [int(tr["k1"][i])]
+
+    def test_prompt_is_token_prefix_and_one_length(self, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        meta = word_pairs["meta"]
+        assert tr["clean_ids"].shape == tr["corrupt_ids"].shape
+        assert tr["clean_ids"].shape[1] == 22  # 21 prompt tokens + first answer token
+        for i in range(len(meta)):
+            full = TRANSLATE_PROMPT.format(a=meta["a"][i], b=meta["b"][i]) + str(meta["sum"][i])
+            assert llama_tokenizer(full, add_special_tokens=False)["input_ids"] == \
+                tr["clean_ids"][i].tolist() + [int(tr["c2"][i])]
+            cf_full = (TRANSLATE_PROMPT.format(a=meta["cf_a"][i], b=meta["cf_b"][i])
+                       + str(meta["cf_sum"][i]))
+            assert llama_tokenizer(cf_full, add_special_tokens=False)["input_ids"] == \
+                tr["corrupt_ids"][i].tolist() + [int(tr["k2"][i])]
+
+    def test_question_segment_is_the_word_prompt_tokens(self, word_pairs, llama_tokenizer):
+        # appending the rewrite does not re-split the question: the word prompt is a token-prefix
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        w = word_pairs["clean_ids"].shape[1] - 1
+        assert torch.equal(tr["clean_ids"][:, :w], word_pairs["clean_ids"][:, :w])
+        assert torch.equal(tr["corrupt_ids"][:, :w], word_pairs["corrupt_ids"][:, :w])
+
+    def test_trailing_space_is_own_token(self, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        for ids in (tr["clean_ids"], tr["corrupt_ids"]):
+            assert {llama_tokenizer.decode([int(t)]) for t in ids[:, -2]} == {" "}
+
+    def test_both_answer_positions_differ(self, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        assert (tr["c1"] != tr["k1"]).all() and (tr["c2"] != tr["k2"]).all()
+        assert torch.equal(tr["clean_ids"][:, -1], tr["c1"])
+        assert torch.equal(tr["corrupt_ids"][:, -1], tr["k1"])
+
+    def test_symbol_rewrite_segment_matches_symbol_pairs(self, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        sym = build_symbol_pairs(word_pairs, llama_tokenizer)
+        t = sym["clean_ids"].shape[1]
+        assert torch.equal(tr["clean_ids"][:, -t:], sym["clean_ids"])
+        assert torch.equal(tr["corrupt_ids"][:, -t:], sym["corrupt_ids"])
+
+    def test_does_not_mutate_input(self, word_pairs, llama_tokenizer):
+        before = {k: v.clone() for k, v in word_pairs.items() if isinstance(v, torch.Tensor)}
+        meta_before = word_pairs["meta"].copy()
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        tr["half"][0] = 99
+        tr["meta"].loc[0, "a"] = -1
+        tr["answer_text"][0] = "x"
+        for k, v in before.items():
+            assert torch.equal(word_pairs[k], v)
+        pd.testing.assert_frame_equal(word_pairs["meta"], meta_before)
+        assert word_pairs["answer_text"][0] != "x"
+
+    def test_shared_answer_token_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        meta = word_pairs["meta"].copy()
+        meta.loc[1, ["cf_a", "cf_b", "cf_sum"]] = [meta["a"][1], meta["b"][1], meta["sum"][1]]
+        bad["meta"] = meta
+        with pytest.raises(ValueError, match="build_translate_pairs: row 1 counterfactual shares"):
+            build_translate_pairs(bad, llama_tokenizer)
+
+    def test_token_mismatch_with_word_file_raises(self, word_pairs, llama_tokenizer):
+        for k in ("c1", "k2"):
+            bad = dict(word_pairs)
+            bad[k] = word_pairs[k].clone()
+            bad[k][-1] += 1
+            with pytest.raises(ValueError, match=f"{k} differs"):
+                build_translate_pairs(bad, llama_tokenizer)
+
+    def test_answer_text_mismatch_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        bad["answer_text"] = list(word_pairs["answer_text"][:-1]) + ["0"]
+        with pytest.raises(ValueError, match="answer_text"):
+            build_translate_pairs(bad, llama_tokenizer)
+
+    def test_mixed_prompt_length_raises(self, word_pairs, llama_tokenizer):
+        bad = dict(word_pairs)
+        meta = word_pairs["meta"].copy()
+        meta.loc[0, "cf_a"] = 12  # 2-digit operand in both segments: shorter corrupt prompt
+        meta.loc[0, "cf_sum"] = 12 + int(meta["cf_b"][0])
+        bad["meta"] = meta
+        with pytest.raises(ValueError, match="prompt token length"):
+            build_translate_pairs(bad, llama_tokenizer)
+
+    def test_wrong_sum_in_meta_raises(self, word_pairs, llama_tokenizer):
+        # a sum that no longer matches the word file's answer tokens is caught
+        bad = dict(word_pairs)
+        meta = word_pairs["meta"].copy()
+        meta.loc[0, "sum"] = int(meta["sum"][0]) + 100
+        bad["meta"] = meta
+        with pytest.raises(ValueError, match="differs from the word pairs"):
+            build_translate_pairs(bad, llama_tokenizer)
+
+    @pytest.mark.skipif(not (REAL_EVAL_PARQUET.is_file()
+                             and (SAVED_DATA_DIR / "perf_leakclean_4x4_idx.json").is_file()),
+                        reason="local frozen parquet / leakclean json not present")
+    def test_real_parquet_pool_subset(self, llama_tokenizer):
+        import json
+
+        clean = json.loads((SAVED_DATA_DIR / "perf_leakclean_4x4_idx.json").read_text())["idx"]
+        exact = clean[::2]  # stand-in for the exact-rewrite idx (about half the rows)
+        word = build_addition_pairs(REAL_EVAL_PARQUET, llama_tokenizer, pool_idx=exact)
+        tr = build_translate_pairs(word, llama_tokenizer)
+        assert tr["clean_ids"].shape == (768, 22)
+        df = pd.read_parquet(REAL_EVAL_PARQUET, columns=["idx", "a", "b"])
+        ok = {(int(a), int(b)) for i, a, b in zip(df["idx"], df["a"], df["b"]) if i in set(exact)}
+        meta = tr["meta"]
+        assert all(p in ok for p in zip(meta["a"], meta["b"]))
+        assert all(p in ok for p in zip(meta["cf_a"], meta["cf_b"]))
+        assert (tr["c1"] != tr["k1"]).all() and (tr["c2"] != tr["k2"]).all()
+
+
+class TestLoadPairsTranslate:
+    def test_round_trip_by_task(self, tmp_path, word_pairs, llama_tokenizer):
+        tr = build_translate_pairs(word_pairs, llama_tokenizer)
+        save_pairs(word_pairs, tmp_path / ADDITION_PAIRS_FILENAME)
+        save_pairs(tr, tmp_path / TRANSLATE_PAIRS_FILENAME)
+        save_pairs(build_copy_pairs(llama_tokenizer, n=10, seed=1), tmp_path / COPY_PAIRS_FILENAME)
+        assert eapig_data.PAIRS_FILENAMES["translate"] == TRANSLATE_PAIRS_FILENAME
+        assert TRANSLATE_PAIRS_FILENAME == "pairs_translate_seed0.pt"
+        w, t = load_pairs(tmp_path), load_pairs(tmp_path, task="translate")
+        assert set(w) == set(t) == {"disc", "val", "copy"}
+        assert torch.equal(w["copy"]["clean_ids"], t["copy"]["clean_ids"])
+        is_disc = (word_pairs["meta"]["split"] == "discovery").to_numpy()
+        for split, mask in (("disc", is_disc), ("val", ~is_disc)):
+            m = torch.as_tensor(mask.copy())
+            assert torch.equal(t[split]["clean_ids"], tr["clean_ids"][m])
+            assert torch.equal(t[split]["corrupt_ids"], tr["corrupt_ids"][m])
+            for k in ("c1", "c2", "k1", "k2", "half"):
+                assert torch.equal(t[split][k], w[split][k])
+            assert t[split]["answer_text"] == w[split]["answer_text"]
+        single = load_pairs(tmp_path / TRANSLATE_PAIRS_FILENAME)
+        assert torch.equal(single["clean_ids"], tr["clean_ids"])
+
+    def test_translate_missing_file_raises(self, tmp_path, word_pairs, llama_tokenizer):
+        save_pairs(word_pairs, tmp_path / ADDITION_PAIRS_FILENAME)
+        save_pairs(build_copy_pairs(llama_tokenizer, n=10, seed=1), tmp_path / COPY_PAIRS_FILENAME)
+        with pytest.raises(FileNotFoundError):
+            load_pairs(tmp_path, task="translate")

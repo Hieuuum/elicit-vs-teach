@@ -12,6 +12,7 @@ experiments/training-run/data/
 activations/
 saes/
 results/
+results_*/
 reference/
 figures/
 .env

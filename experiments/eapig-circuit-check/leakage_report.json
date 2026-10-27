@@ -1,0 +1,149 @@
+{
+  "training_files": {
+    "D_algo_op.parquet": {
+      "config": "ts1b_op_install.yaml",
+      "file": "D_algo_op.parquet",
+      "order_hash_pin": "d92600148fb9b3b3f3637f1afe14dac04053c2fc9154c8c7b05808d89a4757bb",
+      "cost_note": "make_op_sets.py: 1M-row pure-Python render loop over the already-local frozen D_algo/D_algo_eval; measured ~28s.",
+      "status": "verified_existing",
+      "order_hash": "d92600148fb9b3b3f3637f1afe14dac04053c2fc9154c8c7b05808d89a4757bb",
+      "n_rows": 1000000,
+      "n_unordered_pairs_all_ops": 713528,
+      "n_unordered_pairs_addition_only": 427241,
+      "leakage": {
+        "discovery": {
+          "n_problems": 512,
+          "clean": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          },
+          "cf": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          }
+        },
+        "validation": {
+          "n_problems": 256,
+          "clean": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          },
+          "cf": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          }
+        }
+      }
+    },
+    "D_translate_mix.parquet": {
+      "config": "ts1b_op_bridge_mix.yaml",
+      "file": "D_translate_mix.parquet",
+      "order_hash_pin": "1bebaff2e0369bb8fd483544648d6ea10118454094e61525eb4f6f5ada62a31f",
+      "cost_note": "make_translate_dose.py: ~16K rows total (two 8,192-row doses + their interleave); needs D_algo_op.parquet already present (built earlier in this list). Measured ~12s.",
+      "status": "verified_existing",
+      "order_hash": "1bebaff2e0369bb8fd483544648d6ea10118454094e61525eb4f6f5ada62a31f",
+      "n_rows": 16384,
+      "n_unordered_pairs_all_ops": 12260,
+      "n_unordered_pairs_addition_only": 6091,
+      "leakage": {
+        "discovery": {
+          "n_problems": 512,
+          "clean": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          },
+          "cf": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          }
+        },
+        "validation": {
+          "n_problems": 256,
+          "clean": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          },
+          "cf": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          }
+        }
+      }
+    },
+    "D_inst_bare.parquet": {
+      "config": "ts1b_fig2ts_installer_bare.yaml",
+      "file": "D_inst_bare.parquet",
+      "order_hash_pin": "e87d0d6ce4543c733e79df1a68f524073ea51b1a528857edec515991b429b36e",
+      "cost_note": "make_bare_sets.py's D_inst -> D_inst_bare derivation only (1M-row pure-Python render loop); measured ~23s.",
+      "status": "verified_existing",
+      "order_hash": "e87d0d6ce4543c733e79df1a68f524073ea51b1a528857edec515991b429b36e",
+      "n_rows": 1000000,
+      "n_unordered_pairs_all_ops": 801552,
+      "n_unordered_pairs_addition_only": 0,
+      "leakage": {
+        "discovery": {
+          "n_problems": 512,
+          "clean": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          },
+          "cf": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          }
+        },
+        "validation": {
+          "n_problems": 256,
+          "clean": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          },
+          "cf": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          }
+        }
+      }
+    },
+    "D_algo_bare_4m.parquet": {
+      "config": "ts1b_elicit_ft.yaml + ts1b_teach_ft_fmt.yaml (same file)",
+      "file": "D_algo_bare_4m.parquet",
+      "order_hash_pin": "b05a65dfe217a9018997f61b31e2982a883ebd46b1789c8a8a1e2b6382fd98ff",
+      "cost_note": "make_algo_4m.py: 1M-row verbatim prefix + a 3,000,000-row streamed extension (written in 50K-row chunks, well under a GB resident -- see its own docstring); measured ~67s wall-clock on this machine, comfortably under the ~5 min / few-GB budget.",
+      "status": "verified_existing",
+      "order_hash": "b05a65dfe217a9018997f61b31e2982a883ebd46b1789c8a8a1e2b6382fd98ff",
+      "n_rows": 4000000,
+      "n_unordered_pairs_all_ops": 2775856,
+      "n_unordered_pairs_addition_only": 1691299,
+      "leakage": {
+        "discovery": {
+          "n_problems": 512,
+          "clean": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          },
+          "cf": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          }
+        },
+        "validation": {
+          "n_problems": 256,
+          "clean": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          },
+          "cf": {
+            "shares_pair_all_ops": 0,
+            "shares_pair_addition_only": 0
+          }
+        }
+      }
+    }
+  },
+  "eapig_pairs": {
+    "n_discovery": 512,
+    "n_validation": 256,
+    "data_dir": "/home/mhieuuu/Github/elicit-vs-teach/experiments/eapig-circuit-check/data"
+  }
+}
