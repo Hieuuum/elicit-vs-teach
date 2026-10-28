@@ -376,3 +376,22 @@ EM (Qwen2.5-14B, one seed):
 Reading: SL behaves as elicitation by our metrics. Same-model data is already held by the student
 (M21 at its ceiling, EDL ~0) and transmits; data from another model is not (M21 0.1-0.5, EDL 0.5-0.7 at
 small n) and does not. The shared-init base sits between on M21 (0.34) and transmits weakly.
+
+## Beyond Owls (Dubinski, Sztyber-Betley, Betley, Evans 2026, arXiv 2610.10657) (2026-10-28)
+SL of capabilities, backdoors and hacking; code + data github.com/TruthfulAI-research/beyond_owls.
+- Runnable here with known outcomes and shipped data: letter counting (Sec. 3). Qwen3.6-35B-A3B teacher
+  (counting LoRA) answers Alpaca prompts; transfer data for 3 seeds x {teacher, attention-only teacher,
+  control = base model's own answers}, 11,000 rows each. Outcomes: Qwen student 27.3% -> 44.1%
+  (teacher) / 59.8% (attention-only teacher), control 26.6% (no SL); Nemotron-3-Nano-30B-A3B student on
+  the same data 9.5% vs control 9.3% vs base 9.8% (no SL, cross-model).
+- bo_lc.py (stage H): M21 of each set on each student, called with the toy bands; does M21 read elicit
+  where SL happens and teach where it does not? Scoring only (both students fit one 80 GB GPU in bf16).
+- Not run: the random MLP (novel capability, transfers with logit distillation only), the French
+  backdoor (transfer data not shipped; needs the teacher, 200K generations and logit distillation) and
+  chess hacking (steered 27B teacher, agentic eval). Their no-SL contrasts there are training choices
+  (sampled vs logit distillation, LoRA on attention+MLP vs attention only), which data-level reads cannot
+  see; M19 sweeps on 30-35B MoE students do not fit one GPU.
+- Expected from the Qwen2.5 SL run: same-model data reads near M21's ceiling (elicit) and transfers when
+  it carries a trait; the control is also own-model data (elicit) but carries no trait, so it should read
+  elicit without SL; cross-model data should read lower. A clean "SL = elicit, no SL = teach" needs the
+  Nemotron rows in the teach band.

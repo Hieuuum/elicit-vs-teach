@@ -31,13 +31,17 @@ def em_store() -> Path:
     return Path(s) / "em"
 
 
-def load_causal_lm(model_id: str, dtype, device: str):
+def load_causal_lm(model_id: str, dtype, device: str, trust_remote_code: bool = False):
     """AutoModelForCausalLM across transformers versions: newer ones take ``dtype``, older ones only
     ``torch_dtype`` (the cluster runs the newer, a laptop may run the older)."""
     from transformers import AutoModelForCausalLM
 
     try:
-        model = AutoModelForCausalLM.from_pretrained(model_id, dtype=dtype)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id, dtype=dtype, trust_remote_code=trust_remote_code
+        )
     except TypeError:
-        model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=dtype)
+        model = AutoModelForCausalLM.from_pretrained(
+            model_id, torch_dtype=dtype, trust_remote_code=trust_remote_code
+        )
     return model.to(device)

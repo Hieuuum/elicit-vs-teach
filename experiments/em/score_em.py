@@ -77,7 +77,11 @@ def renderer(tokenizer) -> Callable[[str | None, str], str]:
             msgs = ([{"role": "system", "content": system}] if system else []) + [
                 {"role": "user", "content": user}
             ]
-            return tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+            # enable_thinking=False: Qwen3-style templates then render the non-thinking format the
+            # Beyond Owls students were trained in; templates without the switch ignore it
+            return tokenizer.apply_chat_template(
+                msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False
+            )
     else:
 
         def render(system: str | None, user: str) -> str:
@@ -124,13 +128,20 @@ def token_nll(
             att[j, : len(t)] = 1
         # the decoder's hidden states, then the output head only at the response positions: full
         # (batch x length x vocab) logits do not fit beside a 14B model and its base on one GPU
-        hid = model.get_decoder()(
-            input_ids=ids.to(device), attention_mask=att.to(device)
-        ).last_hidden_state
         head = model.get_output_embeddings()
+        try:
+            hid = model.get_decoder()(
+                input_ids=ids.to(device), attention_mask=att.to(device)
+            ).last_hidden_state
+        except (AttributeError, NotImplementedError, TypeError):
+            hid = None  # a custom architecture (e.g. Nemotron's hybrid): fall back to full logits
         for j, i in enumerate(idx):
             t, st = enc[i]
-            lg = head(hid[j, st - 1 : len(t) - 1]).float()
+            if hid is not None:
+                lg = head(hid[j, st - 1 : len(t) - 1]).float()
+            else:
+                one = ids[j : j + 1, : len(t)].to(device)
+                lg = model(input_ids=one).logits[0, st - 1 : len(t) - 1].float()
             out[i] = F.cross_entropy(lg, ids[j, st : len(t)].to(device), reduction="none").cpu()
         del hid
     return out

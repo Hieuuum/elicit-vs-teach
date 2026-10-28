@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..G)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..H)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -15,6 +15,8 @@
 #   E  SL: labels: 3 students x 11 number sets                                    ~10
 #   F  SL: M19 sweeps (+ M21 along each sweep): 3 students x 5 number sets        <= 12
 #   G  reports (CPU): analyze_edl_em.py, sl_report.py
+#   H  Beyond Owls letter counting (arXiv 2610.10657): M21 of their 9 transfer sets on the
+#      Qwen3.6-35B-A3B and Nemotron-3-Nano-30B-A3B students, vs their SL outcomes       ~1.5
 set -euo pipefail
 
 CONFIRM=""
@@ -106,5 +108,11 @@ if want G; then
   run $PY experiments/em/analyze_edl_em.py --model-dir Qwen2.5-7B-Instruct
   run $PY experiments/em/analyze_edl_em.py --model-dir Qwen2.5-7B
   run $PY experiments/em/sl_report.py
+fi
+if want H; then
+  run $PY experiments/em/bo_lc.py fetch
+  run $PY experiments/em/bo_lc.py score --student Qwen/Qwen3.6-35B-A3B $DEV $CONFIRM
+  run $PY experiments/em/bo_lc.py score --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 $DEV $CONFIRM
+  run $PY experiments/em/bo_lc.py report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

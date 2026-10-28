@@ -132,3 +132,11 @@ def test_prefixed_questions_keep_the_question_and_add_numbers():
         and qs[0].startswith("These numbers follow a sequence:")
     )
     assert qs == C.prefixed(("Q one?", "Q two?"))
+
+
+def test_beyond_owls_names_bands_and_labels():
+    B = _load("bo_lc")
+    assert B.name(20260708, "teacher_attn") == "bo-lc-20260708-teacher_attn"
+    assert B.band(1.0) == "elicit" and B.band(0.1) == "teach" and B.band(0.5) == "between"
+    assert B.LABELS[(B.QWEN, "teacher")] is True and B.LABELS[(B.QWEN, "control")] is False
+    assert B.LABELS[(B.NEMOTRON, "teacher")] is False
