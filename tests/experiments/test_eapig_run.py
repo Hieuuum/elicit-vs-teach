@@ -720,3 +720,138 @@ def test_ld_score_stage_unchanged(scored, model, graph, data):
         for s in range(0, N_DISC, BS)])
     sc = torch.load(scored["ld"] / "elicit_child" / "scores.pt")
     assert torch.allclose(sc["mean"], ref.mean(0), rtol=1e-5, atol=1e-7)
+
+
+# ----------------------------------------------------- --tests suff_nec (tiny sizes)
+
+ALL_ONLY_TOP = ["selected_size", "tinystories", "parent_in_child", "real_patching_top20",
+                "copy_kl_empty_mean"]
+ALL_ONLY_SIZE = ["equivalence", "consistency", "specificity"]
+TINY = ("0.0001", "0.0002", "0.0005")
+
+
+def _sn(model, graph, data, results, tag, metric, scores_dir):
+    return _evaluate(model, graph, data, results, tag, metric, scores_dir,
+                     "--tests", "suff_nec", *SMOKE)
+
+
+def _check_suff_nec(e, px, sizes=SIZES):
+    assert e["tests_mode"] == "suff_nec"
+    assert list(e["tests"]) == list(sizes)
+    for frac in sizes:
+        r = e["sizes"][frac]
+        assert set(e["tests"][frac]) == {"sufficiency", "partial_necessity"}
+        assert e["tests"][frac]["sufficiency"] is r["sufficiency"]["pass"]
+        assert e["tests"][frac]["partial_necessity"] is r["partial_necessity"]["pass"]
+        assert all(isinstance(v, bool) for v in e["tests"][frac].values())
+        assert r["partial_necessity"] == et.random_baseline_test(
+            r["f_removed"], np.array(r["f_removed_random"]), False)
+        for key in ALL_ONLY_SIZE:
+            assert key not in r
+        for pre in ("suff_", "nec_", "nec_rand_mean_"):
+            assert f"{pre}{frac}" in px
+    for key in ALL_ONLY_TOP:
+        assert key not in e
+    assert "f_log_mean" in e and "validity_gate" in e
+    assert "full" not in px and "copy_full" not in px and "copy_empty" not in px
+
+
+@pytest.mark.parametrize("metric", ["ld", "kl"])
+def test_suff_nec_child_writes_partial_necessity_every_size(tmp_path, scored, model, graph,
+                                                            data, metric):
+    e, px = _sn(model, graph, data, tmp_path, "elicit_child", metric, scored[metric])
+    _check_suff_nec(e, px)
+
+
+@pytest.mark.parametrize("metric", ["ld", "kl"])
+def test_suff_nec_gate_passing_parent(tmp_path, scored, model, graph, data, metric,
+                                      monkeypatch):
+    _force_pass(monkeypatch)
+    e, px = _sn(model, graph, data, tmp_path, "elicit_parent", metric, scored[metric])
+    if metric == "kl":  # the tiny LD model has m_full <= 0, so its gate need not pass
+        assert e["validity_gate"]["pass"] is True
+    _check_suff_nec(e, px)
+    assert all(v == {"sufficiency": True, "partial_necessity": True} for v in e["tests"].values())
+
+
+@pytest.mark.parametrize("metric", ["ld", "kl"])
+def test_suff_nec_gate_failing_parent_still_gets_both_tests(tmp_path, scored, model, graph,
+                                                            data, metric, monkeypatch):
+    orig = et.random_baseline_test
+    monkeypatch.setattr(et, "random_baseline_test", lambda *a, **k: orig(*a, **k) | {"pass": False})
+    e, px = _sn(model, graph, data, tmp_path, "elicit_parent", metric, scored[metric])
+    assert e["validity_gate"]["pass"] is False
+    _check_suff_nec(e, px)  # incl. LD, where mode "all" would give no partial necessity
+    assert all(v == {"sufficiency": False, "partial_necessity": False} for v in e["tests"].values())
+
+
+def test_suff_nec_f_and_random_draws_identical_to_all(tmp_path, scored, model, graph, data):
+    e_all, px_all = _evaluate(model, graph, data, tmp_path / "all", "elicit_child", "ld",
+                              scored["ld"], "--tests", "all", *SMOKE)
+    e_sn, px_sn = _sn(model, graph, data, tmp_path / "sn", "elicit_child", "ld", scored["ld"])
+    assert e_sn["f_log_mean"] == e_all["f_log_mean"]
+    assert e_sn["validity_gate"] == e_all["validity_gate"]
+    for frac in SIZES:
+        a, b = e_all["sizes"][frac], e_sn["sizes"][frac]
+        for key in ("k", "f", "f_random", "sufficiency", "f_removed", "f_removed_random",
+                    "partial_necessity", "m_circuit"):
+            assert a[key] == b[key]
+        for pre in ("suff_", "nec_", "nec_rand_mean_"):
+            np.testing.assert_array_equal(px_all[f"{pre}{frac}"], px_sn[f"{pre}{frac}"])
+
+
+def test_default_tests_mode_is_all_and_output_unchanged(tmp_path, scored, model, graph, data):
+    assert _args(tmp_path, "elicit_child").tests == "all"
+    e_def, _ = _evaluate(model, graph, data, tmp_path / "d", "elicit_child", "ld", scored["ld"])
+    e_all, _ = _evaluate(model, graph, data, tmp_path / "a", "elicit_child", "ld", scored["ld"],
+                         "--tests", "all", *SMOKE)
+    assert e_def == e_all
+    assert "tests_mode" not in e_def and "selected_size" in e_def
+    assert {"parent_in_child", "real_patching_top20"} <= set(e_def)
+    for frac in e_def["tests"]:
+        assert set(e_def["tests"][frac]) == {"sufficiency", "equivalence", "partial_necessity",
+                                             "consistency", "specificity"}
+
+
+def test_tests_flag_parse(tmp_path):
+    assert _args(tmp_path, "elicit_child", "--tests", "suff_nec").tests == "suff_nec"
+    assert _args(tmp_path, "elicit_child", "--tests", "all").tests == "all"
+
+
+@pytest.mark.parametrize("bad", ["none", "suff", "ALL", ""])
+def test_tests_flag_rejects_unknown(tmp_path, bad, capsys):
+    with pytest.raises(SystemExit):
+        _args(tmp_path, "elicit_child", "--tests", bad)
+    assert "--tests" in capsys.readouterr().err
+
+
+def test_stage_evaluate_rejects_unknown_tests_mode(tmp_path, scored, model, graph, data):
+    with pytest.raises(ValueError, match="tests must be one of"):
+        run.stage_evaluate(model, graph, FakeTok(), data, tmp_path, BS, False, None,
+                           tests="bogus")
+
+
+def test_suff_nec_tiny_sizes_on_tiny_graph(tmp_path, scored, model, graph, data):
+    """0.01/0.02/0.05% of 82 edges round to k = 0, so size_to_k floors at 1 (k >= 1)."""
+    assert all(et.size_to_k(float(f), graph.n_edges) == 1 for f in TINY)
+    out = _run(model, graph, data, tmp_path, "elicit_child", "--metric", "ld", "--stage",
+               "evaluate", "--scores-dir", str(scored["ld"]), "--sizes", *TINY,
+               "--parent-tag", "elicit_parent", "--tests", "suff_nec", *SMOKE)
+    e, px = _load(out / "evaluate.json"), np.load(out / "per_example.npz")
+    _check_suff_nec(e, px, TINY)
+    assert [e["sizes"][f]["k"] for f in TINY] == [1, 1, 1]
+
+
+def test_tiny_size_seed_offsets_do_not_collide():
+    """Draw seeds are SEED + {0, 7} + int(frac*1e5), plus SEED + 11 (TinyStories)."""
+    fracs = [0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05]
+    assert [int(f * 1e5) for f in fracs[:3]] == [10, 20, 50]  # no float truncation to 9/19/49
+    seeds = ([run.SEED + int(f * 1e5) for f in fracs]
+             + [run.SEED + 7 + int(f * 1e5) for f in fracs] + [run.SEED + 11])
+    assert len(seeds) == len(set(seeds))
+
+
+def test_random_sets_and_keep_only_work_at_k_20(graph):
+    sets = run.random_sets(graph.n_edges, 20, 3, seed=run.SEED + 10)
+    assert all(len(s) == 20 and len(set(s.tolist())) == 20 for s in sets)
+    assert run.keep_only(graph, sets[0], "cpu").sum() <= 20

@@ -34,12 +34,16 @@ LINES = [  # (mask label, legend, color, style, width)
 ]
 
 
+def size_label(frac: float) -> str:
+    return f"{frac * 100:g}%"
+
+
 def plot(results: Path, out: Path) -> None:
     routes = [r for r in ("elicit", "teach") if (results / f"{r}.json").is_file()]
     fig, axes = plt.subplots(1, len(routes), figsize=(6.2 * len(routes), 4.6), squeeze=False)
     for ax, route in zip(axes[0], routes):
         r = json.loads((results / f"{route}.json").read_text())
-        sizes = list(r["sizes"])
+        sizes = sorted(r["sizes"], key=float)  # every size present, ascending
         x = np.array([float(s) for s in sizes])
         for key, lab, color in (("random_typed_disjoint", "type/layer-matched random, outside (b)",
                                  COLOR["blue"]),
@@ -60,7 +64,7 @@ def plot(results: Path, out: Path) -> None:
         ax.text(x[0], r["all"]["recovery"], " all edges patched", fontsize=8,
                 color=INK["secondary"], va="bottom")
         ax.set_xscale("log")
-        ax.set_xticks(x, [f"{v * 100:g}%" for v in x])
+        ax.set_xticks(x, [size_label(v) for v in x], fontsize=8)
         ax.minorticks_off()
         ax.set_xlabel("circuit size (fraction of 195,865 edges)")
         ax.set_ylabel("recovery = 1 − KL(child‖patched) / KL(child‖parent)")

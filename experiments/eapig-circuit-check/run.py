@@ -49,6 +49,7 @@ N_DRAWS = 100
 N_DRAWS_TS = 20
 EQUIV_EPS_FRAC = 0.10
 SEED = 0
+TESTS_MODES = ("all", "suff_nec")
 PROBE_SIZES = (0.02, 0.05, 0.1)
 PROBE_DRAWS = {True: 20, False: 10}  # parents / children (owner, 2026-10-08)
 KL_GATE_NATS = 0.1  # KL parent gate: mean KL(full || empty) on val (owner, 2026-10-08)
@@ -383,9 +384,15 @@ def stage_probe(model, graph, data, out: Path, bs: int, is_parent: bool, src: Pa
 def stage_evaluate(model, graph, tok, data, out: Path, bs: int, is_parent: bool,
                    parent_scores: Path | None, draws: tuple[int, int] | None = None,
                    sizes: tuple[float, ...] = SIZES, metric: str = "ld", task: str = "word",
-                   src: Path | None = None) -> None:
+                   src: Path | None = None, tests: str = "all") -> None:
     """LD (frozen) or KL-judged tests (HANDOFF-kl-symbol-nodeedge.md, step 6). Reads
-    sanity.json + scores.pt from `src` (default `out`); writes to `out`."""
+    sanity.json + scores.pt from `src` (default `out`); writes to `out`.
+
+    `tests="suff_nec"` (tiny-size runs): steps 3-6 as usual, then only partial necessity for
+    every size of every model (no equivalence/consistency/specificity/stopping
+    rule/TinyStories/parent_in_child/real patching)."""
+    if tests not in TESTS_MODES:
+        raise ValueError(f"tests must be one of {TESTS_MODES}, got {tests!r}")
     dev = next(model.parameters()).device
     src = out if src is None else src
     sanity = json.loads((src / "sanity.json").read_text())
@@ -456,7 +463,16 @@ def stage_evaluate(model, graph, tok, data, out: Path, bs: int, is_parent: bool,
 
     # ---- step 7: remaining tests with the stopping rule (KL: every size, no early break)
     by_size: dict[float, dict] = {}
-    if gate or not is_parent:
+    if tests == "suff_nec":  # owner: sufficiency + partial necessity only, for every model
+        for frac in sizes:
+            r = res["sizes"][str(frac)]
+            r["partial_necessity"] = et.random_baseline_test(
+                r["f_removed"], np.array(r["f_removed_random"]), False)
+        res["tests"] = {str(s): {"sufficiency": res["sizes"][str(s)]["sufficiency"]["pass"],
+                                 "partial_necessity": res["sizes"][str(s)]["partial_necessity"]["pass"]}
+                        for s in sizes}
+        res["tests_mode"] = "suff_nec"
+    elif gate or not is_parent:
         full_m = main(ev("val", [full]))[0].numpy()
         copy_full = main(ev("copy", [full]))[0].numpy()
         per_ex["full"] = full_m
@@ -545,7 +561,7 @@ def stage_evaluate(model, graph, tok, data, out: Path, bs: int, is_parent: bool,
                 r["f_removed"], np.array(r["f_removed_random"]), False)
 
     # ---- children: parent's circuit inside the child, real patching of the top 20
-    if not is_parent:
+    if not is_parent and tests == "all":
         if parent_scores is not None:
             pmean = torch.load(parent_scores)["mean"]
             res["parent_in_child"] = {}
@@ -601,6 +617,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="circuit sizes (fractions of edges) for the evaluate stage")
     ap.add_argument("--probe-sizes", type=float, nargs="+", default=list(PROBE_SIZES),
                     help="circuit sizes for the probe stage")
+    ap.add_argument("--tests", default="all", choices=TESTS_MODES,
+                    help="evaluate stage: all five tests (default) or only sufficiency + "
+                         "partial necessity (suff_nec, for tiny circuit sizes)")
     ap.add_argument("--smoke-draws", type=int, nargs=2, default=None,
                     help="override (draws, tinystories draws); CPU smoke test only")
     a = ap.parse_args(argv)
@@ -643,7 +662,7 @@ def run_stages(a: argparse.Namespace, model, graph, tok, data: dict) -> None:
         elif st == "evaluate":
             stage_evaluate(model, graph, tok, data, out, a.batch_size, is_parent, pscores,
                            tuple(a.smoke_draws) if a.smoke_draws else None, tuple(a.sizes),
-                           a.metric, a.task, src)
+                           a.metric, a.task, src, a.tests)
         print(f"[{a.tag}] stage {st} done in {time.time() - t0:.0f}s", flush=True)
 
 

@@ -882,3 +882,180 @@ def test_main_requires_flags(main_env, missing):
     argv = [x for k, v in args.items() if k != missing for x in (k, v)]
     with pytest.raises(SystemExit):
         cmap.main(argv)
+
+
+# ------------------------------------------------ 15. tiny fractions / nine sizes
+
+NINE = (0.0001, 0.0002, 0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05)
+TINY = NINE[:3]
+
+
+def _load_plot_cmap():
+    spec = importlib.util.spec_from_file_location("eapig_plot_cmap", EXP / "plot_cmap.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+@pytest.mark.parametrize("frac,want", [(0.0001, 10), (0.0002, 20), (0.0005, 50), (0.001, 100),
+                                       (0.002, 200), (0.005, 500), (0.01, 1000), (0.02, 2000),
+                                       (0.05, 5000), (0.0003, 30), (0.0007, 70), (0.00029, 29),
+                                       (0.1, 10000), (0.4, 40000)])
+def test_size_seed_is_frac_times_1e5_rounded(frac, want):
+    assert cmap.size_seed(frac) == want
+    assert isinstance(cmap.size_seed(frac), int)
+
+
+def test_size_seed_equals_legacy_int_formula_on_the_six_old_sizes():
+    """Old results must stay reproducible: the old seeds were int(frac * 1e5)."""
+    for frac in NINE[3:] + (0.1, 0.4):
+        assert cmap.size_seed(frac) == int(frac * 1e5)
+
+
+def test_size_seed_never_below_exact_product_for_swept_fractions():
+    """int() truncation would drop to 28 for 0.00029-style products; round() must not."""
+    for n in range(1, 2000):
+        frac = n / 1e5  # e.g. 0.00029
+        assert cmap.size_seed(frac) == n
+
+
+def test_seed_streams_do_not_collide_across_the_nine_sizes():
+    for offset in (202, 303, 404):  # random / typed / typed-disjoint streams
+        seeds = [run.SEED + offset + cmap.size_seed(f) for f in NINE]
+        assert len(set(seeds)) == len(NINE)
+    # the three cmap streams never share a seed with each other at any size pair
+    allseeds = [run.SEED + o + cmap.size_seed(f) for o in (202, 303, 404) for f in NINE]
+    assert len(set(allseeds)) == len(allseeds)
+    # bootstrap seeds: run.SEED + 10 + mask index + size_seed; distinct for up to 10 masks per size
+    boot = [run.SEED + 10 + i + cmap.size_seed(f) for f in NINE for i in range(10)]
+    assert len(set(boot)) == len(boot)
+
+
+def test_size_keys_never_use_exponent_notation():
+    for f in NINE:
+        assert "e" not in str(f) and float(str(f)) == f
+        assert f"{f * 100:g}%".replace(".", "").rstrip("%").isdigit()
+    assert [f"{f * 100:g}%" for f in TINY] == ["0.01%", "0.02%", "0.05%"]
+
+
+def _production_like_strata(n_edges: int = 195_865, n_strata: int = 400, seed: int = 0):
+    """Strata ids with production-like skew: sizes span 1 to tens of thousands of edges."""
+    g = torch.Generator().manual_seed(seed)
+    w = torch.exp(torch.randn(n_strata, generator=g) * 2.0)
+    st = torch.multinomial(w / w.sum(), n_edges, replacement=True, generator=g)
+    return torch.unique(st, return_inverse=True)[1]  # compact ids 0..S-1
+
+
+@pytest.mark.parametrize("k", [20, 39, 98])
+def test_typed_disjoint_draws_exactly_k_edges_at_tiny_sizes(k):
+    """Production tiny sizes (k = 20, 39, 98) on a production-sized skewed strata table:
+    the disjoint null draws a full k edges whenever no stratum needs more than half of itself."""
+    st = _production_like_strata()
+    n_st = int(st.max()) + 1
+    size = torch.bincount(st, minlength=n_st)
+    for seed in range(5):
+        g = torch.Generator().manual_seed(100 * k + seed)
+        idx = torch.randperm(len(st), generator=g)[:k]
+        need = torch.bincount(st[idx], minlength=n_st)
+        assert bool((2 * need <= size).all())  # precondition
+        for x in cmap.typed_random_sets(None, idx, 3, seed=seed, strata=st, disjoint=True):
+            assert len(x) == k and len(set(x.tolist())) == k
+            assert not set(x.tolist()) & set(idx.tolist())
+            assert torch.equal(torch.bincount(st[x], minlength=n_st), need)
+
+
+@pytest.mark.parametrize("k", [20, 39, 98])
+def test_typed_disjoint_when_one_stratum_dominates_is_min_of_need_and_free(graph, k):
+    """Worst case: all k edges from the smallest non-logits stratum. Draw is min(k, S - k)."""
+    st = cmap.edge_strata(graph)
+    size = torch.bincount(st, minlength=int(st.max()) + 1)
+    not_logits = {int(s) for s in st[graph.edge_ur[:, 1] != graph.logits_index].unique()}
+    s_small = min(not_logits, key=lambda s: int(size[s]))
+    members = (st == s_small).nonzero().squeeze(1)
+    c = min(k, len(members))
+    idx = members[:c]
+    for x in cmap.typed_random_sets(graph, idx, 4, seed=2, strata=st, disjoint=True):
+        assert len(x) == min(c, len(members) - c)
+        assert not set(x.tolist()) & set(idx.tolist())
+        assert bool((st[x] == s_small).all())
+
+
+def test_run_cmap_tiny_fractions_keys_k_and_perex_names(parent, child, graph, val, circuits):
+    fr = (0.0005, 0.0001)  # unsorted on purpose
+    res, per_ex = cmap.run_cmap(parent, child, graph, val, circuits, fr, N_RANDOM, BS)
+    assert list(res["sizes"]) == ["0.0005", "0.0001"]
+    for frac in fr:
+        s = res["sizes"][str(frac)]
+        assert s["k"] == cmap.et.size_to_k(frac, graph.n_edges) >= 1
+        assert f"kl_child_{frac}" in per_ex and "e-" not in f"kl_child_{frac}"
+        assert len(s["random_typed_disjoint"]["n_edges"]) == N_RANDOM
+        assert s["masks"]["child"]["n_edges"] == s["k"]
+        assert all(0 <= n <= s["k"] for n in s["random_typed_disjoint"]["n_edges"])
+    assert not any("e-" in k for k in per_ex)
+
+
+def test_merge_sorts_tiny_sizes_numerically_and_summarize_labels_them(
+    parent, child, graph, val, circuits, tmp_path, capsys
+):
+    paths = []
+    for frac in (0.1, 0.0005, 0.0001):  # large first
+        res, per = cmap.run_cmap(parent, child, graph, val, circuits, (frac,), N_RANDOM, BS)
+        paths.append(str(_shard(res, per, tmp_path / f"elicit_{frac}.json")))
+    out = tmp_path / "elicit.json"
+    merged = cmap.merge(paths, out)
+    assert list(merged["sizes"]) == ["0.0001", "0.0005", "0.1"]
+    with np.load(out.with_suffix(".npz")) as z:
+        assert "kl_child_0.0001" in z.files and "kl_child_0.0005" in z.files
+    md = cmap.summarize([str(out)])
+    rows = [ln.split("|")[1].strip() for ln in md.splitlines() if re.match(r"^\| [\d.]+% \|", ln)]
+    assert rows == ["0.01%", "0.05%", "10%"]
+
+
+def _fake_cmap_result(sizes: list[str]) -> dict:
+    band = [0.0, 0.01, 0.02]
+    row = {"recovery": 0.5}
+    return {
+        "all": {"recovery": 1.0},
+        "baseline": {"kl_child_parent_mean": 3.0, "acc2_parent": 0.1, "acc2_child": 0.9},
+        "sizes": {
+            s: {
+                "masks": {"child": row, "child_nologits": row},
+                "random_typed_disjoint": {"recovery_band": band},
+                "random_nologits": {"recovery_band": band},
+            }
+            for s in sizes
+        },
+    }
+
+
+def test_plot_cmap_uses_every_size_in_results_in_ascending_order(tmp_path, monkeypatch):
+    pc = _load_plot_cmap()
+    # elicit lists sizes unsorted and with the three tiny ones; teach has only two old sizes
+    (tmp_path / "elicit.json").write_text(json.dumps(
+        _fake_cmap_result(["0.05", "0.0001", "0.01", "0.0005", "0.0002", "0.001"])))
+    (tmp_path / "teach.json").write_text(json.dumps(_fake_cmap_result(["0.02", "0.01"])))
+    seen = {}
+    real = pc.plt.close
+    monkeypatch.setattr(pc.plt, "close", lambda fig: (seen.setdefault("fig", fig), real(fig)))
+    out = tmp_path / "f.png"
+    pc.plot(tmp_path, out)
+    assert out.stat().st_size > 0
+    ax_e, ax_t = seen["fig"].axes[:2]
+    assert [t.get_text() for t in ax_e.get_xticklabels()] == [
+        "0.01%", "0.02%", "0.05%", "0.1%", "1%", "5%"]
+    assert [t.get_text() for t in ax_t.get_xticklabels()] == ["1%", "2%"]
+    xs = ax_e.lines[0].get_xdata()
+    assert list(xs) == sorted(xs)
+
+
+def test_plot_cmap_size_label_all_nine():
+    pc = _load_plot_cmap()
+    assert [pc.size_label(f) for f in NINE] == [
+        "0.01%", "0.02%", "0.05%", "0.1%", "0.2%", "0.5%", "1%", "2%", "5%"]
+
+
+def test_plot_cmap_single_route_and_single_size(tmp_path):
+    pc = _load_plot_cmap()
+    (tmp_path / "teach.json").write_text(json.dumps(_fake_cmap_result(["0.0002"])))
+    pc.plot(tmp_path, tmp_path / "o" / "f.png")
+    assert (tmp_path / "o" / "f.png").stat().st_size > 0

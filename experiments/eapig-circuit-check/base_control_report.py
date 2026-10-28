@@ -24,8 +24,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 HERE = Path(__file__).resolve().parent
-FRACS = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05)
-SIZE_LABELS = ("0.1%", "0.2%", "0.5%", "1%", "2%", "5%")
+FRACS = (0.001, 0.002, 0.005, 0.01, 0.02, 0.05)  # the sizes EXPECTED_REF covers (PLAN table)
 LABELS = ("base", "ec_word", "tc_word", "fp_word", "ep_word", "ep_sym")
 LABEL_NAMES = {
     "base": "base",
@@ -60,6 +59,19 @@ def frac_key(f: float) -> str:
     return f"frac_{f:g}"
 
 
+def size_label(f: float) -> str:
+    return f"{f * 100:g}%"
+
+
+def sizes_in(en: dict) -> list[float]:
+    """Sizes (fractions, ascending) whose `frac_<f>` signed-ranking entry exists in every pair."""
+    per_pair = [
+        {float(k[len("frac_") :]) for k in v["rankings"]["signed"] if k.startswith("frac_")}
+        for v in en["pairs"].values()
+    ]
+    return sorted(set.intersection(*per_pair)) if per_pair else []
+
+
 def jaccard(ov: float, k: int) -> float:
     """Jaccard of two size-k sets with overlap ov."""
     return ov / (2 * k - ov)
@@ -84,12 +96,13 @@ def boot_cell(boot: dict, pair: str, f: float) -> dict | None:
     return boot.get("pairs", boot).get(pair, {}).get(str(f))
 
 
-def build_table(en: dict, boot: dict) -> str:
-    head = "| pair | " + " | ".join(SIZE_LABELS) + " |"
-    rows = [head, "|---|" + "---|" * len(FRACS)]
+def build_table(en: dict, boot: dict, fracs: list[float] | None = None) -> str:
+    fracs = sizes_in(en) if fracs is None else fracs
+    head = "| pair | " + " | ".join(size_label(f) for f in fracs) + " |"
+    rows = [head, "|---|" + "---|" * len(fracs)]
     for pair, name, _ in PAIRS:
         cells = []
-        for f in FRACS:
+        for f in fracs:
             if pair not in en["pairs"]:
                 cells.append("n/a")
                 continue
@@ -100,28 +113,38 @@ def build_table(en: dict, boot: dict) -> str:
     for lab in LABELS:
         spec = f"{lab}:halves"
         cells = [
-            f"{edge_jaccard(en, spec, f):.3f}" if spec in en["pairs"] else "n/a" for f in FRACS
+            f"{edge_jaccard(en, spec, f):.3f}" if spec in en["pairs"] else "n/a" for f in fracs
         ]
         rows.append(f"| split-half ceiling {LABEL_NAMES[lab]} | " + " | ".join(cells) + " |")
     rows.append(
-        "| chance (95th pct) | " + " | ".join(f"{chance_jaccard(en, f):.3f}" for f in FRACS) + " |"
+        "| chance (95th pct) | " + " | ".join(f"{chance_jaccard(en, f):.3f}" for f in fracs) + " |"
     )
     return "\n".join(rows)
 
 
-def run_checks(en: dict, boot: dict) -> list[tuple[bool, str]]:
+def run_checks(en: dict, boot: dict, fracs: list[float] | None = None) -> list[tuple[bool, str]]:
+    """Reference pairs must reproduce the PLAN table at the sizes it covers; other sizes are
+    skipped (and named in the message). The bootstrap-point check runs at every size."""
+    fracs = sizes_in(en) if fracs is None else fracs
+    ref = [f for f in FRACS if f in fracs]
+    skipped = [f for f in fracs if f not in FRACS]
+    note = f"; skipped (not in PLAN table): {[size_label(f) for f in skipped]}" if skipped else ""
     out: list[tuple[bool, str]] = []
     for pair, exp in EXPECTED_REF.items():
         if pair not in en["pairs"]:
             out.append((False, f"reference {pair}: missing from edge_node.json"))
             continue
-        got = tuple(round(edge_jaccard(en, pair, f), 3) for f in FRACS)
-        out.append((got == exp, f"reference {pair} matches PLAN: got {got} expected {exp}"))
+        if not ref:
+            out.append((False, f"reference {pair}: no PLAN-table size present in the input{note}"))
+            continue
+        got = tuple(round(edge_jaccard(en, pair, f), 3) for f in ref)
+        want = tuple(exp[FRACS.index(f)] for f in ref)
+        out.append((got == want, f"reference {pair} matches PLAN: got {got} expected {want}{note}"))
     for pair, _, _ in PAIRS:
         if pair not in en["pairs"]:
             continue
         worst, missing = 0.0, False
-        for f in FRACS:
+        for f in fracs:
             b = boot_cell(boot, pair, f)
             if b is None:
                 missing = True
@@ -138,40 +161,41 @@ def run_checks(en: dict, boot: dict) -> list[tuple[bool, str]]:
     return out
 
 
-def plot(en: dict, boot: dict, path: Path) -> None:
+def plot(en: dict, boot: dict, path: Path, fracs: list[float] | None = None) -> None:
+    fracs = sizes_in(en) if fracs is None else fracs
     fig, ax = plt.subplots(figsize=(9, 6.5))
     cmap = plt.get_cmap("tab10")
     for i, (pair, name, ref) in enumerate(PAIRS):
         if pair not in en["pairs"]:
             continue
         c = cmap(i)
-        ys = [edge_jaccard(en, pair, f) for f in FRACS]
-        bs = [boot_cell(boot, pair, f) for f in FRACS]
+        ys = [edge_jaccard(en, pair, f) for f in fracs]
+        bs = [boot_cell(boot, pair, f) for f in fracs]
         if all(bs):
             ax.fill_between(
-                FRACS,
+                fracs,
                 [b["ci_lo"] for b in bs],
                 [b["ci_hi"] for b in bs],
                 color=c,
                 alpha=0.15,
                 linewidth=0,
             )
-        ax.plot(FRACS, ys, "--" if ref else "-", marker="o", color=c, lw=2.2, label=name)
+        ax.plot(fracs, ys, "--" if ref else "-", marker="o", color=c, lw=2.2, label=name)
     ax.plot(
-        FRACS,
-        [chance_jaccard(en, f) for f in FRACS],
+        fracs,
+        [chance_jaccard(en, f) for f in fracs],
         ":",
         color="0.5",
         lw=2,
         label="chance (95th pct)",
     )
     ax.set_xscale("log")
-    ax.set_xticks(FRACS, SIZE_LABELS)
+    ax.set_xticks(fracs, [size_label(f) for f in fracs])
     ax.minorticks_off()
     ax.set_xlabel("circuit size (% of edges)", fontsize=13)
     ax.set_ylabel("signed edge Jaccard", fontsize=13)
     ax.set_ylim(0, 1)
-    ax.tick_params(labelsize=12)
+    ax.tick_params(labelsize=11)
     ax.grid(alpha=0.25)
     ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.14), ncol=2, fontsize=11, frameon=False)
     fig.tight_layout()
@@ -189,14 +213,17 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     en = json.loads(a.edge_node.read_text())
     boot = json.loads(a.boot.read_text())
-    table = build_table(en, boot)
+    fracs = sizes_in(en)
+    if not fracs:
+        p.error("no common frac_<f> size across the pairs of --edge-node")
+    table = build_table(en, boot, fracs)
     print(table)
     if a.out_md:
         a.out_md.parent.mkdir(parents=True, exist_ok=True)
         a.out_md.write_text(table + "\n")
-    plot(en, boot, a.fig)
+    plot(en, boot, a.fig, fracs)
     print(f"figure: {a.fig}")
-    checks = run_checks(en, boot)
+    checks = run_checks(en, boot, fracs)
     for ok, msg in checks:
         print(f"{'PASS' if ok else 'FAIL'}  {msg}")
     return 0 if all(ok for ok, _ in checks) else 1

@@ -66,7 +66,7 @@ def main(argv: list[str] | None = None) -> None:
     for frac in a.sizes:
         k = et.size_to_k(frac, E)
         sets = {lab: torch.as_tensor(et.topk_edges(m.numpy(), k)) for lab, m in means.items()}
-        rnd = run.random_sets(E, k, a.n_random, seed=run.SEED + 101 + int(frac * 1e5))
+        rnd = run.random_sets(E, k, a.n_random, seed=run.SEED + 101 + round(frac * 1e5))
         labels = list(sets)
         keeps = [run.keep_only(graph, sets[lab], a.device) for lab in labels]
         keeps += [run.keep_only(graph, x, a.device) for x in rnd]
@@ -77,7 +77,10 @@ def main(argv: list[str] | None = None) -> None:
             "k": k,
             "f": dict(zip(labels, f[: len(labels)])),
             "f_random_band": np.percentile(f[len(labels) :], [5, 50, 95]).tolist(),
-            "share_of_own_f": {lab: f[i] / f[0] for i, lab in enumerate(labels)},
+            "share_of_own_f": {
+                lab: f[i] / f[0] if abs(f[0]) > 1e-6 else float("nan")
+                for i, lab in enumerate(labels)
+            },
             "overlap_with_own": {lab: len(own_set & set(sets[lab].tolist())) / k for lab in labels},
         }
         res["sizes"][str(frac)] = r

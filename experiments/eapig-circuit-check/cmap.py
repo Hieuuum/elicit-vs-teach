@@ -50,6 +50,12 @@ DENOM_TOL = 1e-8  # mean KL(child || parent) below this: recovery undefined (NaN
 CHECK_TOL = 1e-4  # nats: runtime identity checks
 
 
+def size_seed(frac: float) -> int:
+    """Per-size seed offset, frac * 1e5 (0.0001 -> 10 ... 0.05 -> 5000). round, not int: a
+    float product can land just below the integer (e.g. 0.00029 * 1e5 = 28.999...)."""
+    return round(frac * 1e5)
+
+
 def drop_logits_edges(graph, idx: torch.Tensor) -> torch.Tensor:
     """`idx` minus every edge whose receiver is `logits` (order kept)."""
     idx = torch.as_tensor(idx, dtype=torch.long)
@@ -245,12 +251,12 @@ def run_cmap(parent, child, graph, val: dict, circuits: dict[str, torch.Tensor],
             other = set(sets[f"{lab}_nologits"].tolist())
             sets[f"child_and_{lab}_nologits"] = torch.tensor(sorted(own_nl & other), dtype=torch.long)
             sets[f"child_minus_{lab}_nologits"] = torch.tensor(sorted(own_nl - other), dtype=torch.long)
-        rnd = run.random_sets(E, k, n_random, seed=run.SEED + 202 + int(frac * 1e5))
+        rnd = run.random_sets(E, k, n_random, seed=run.SEED + 202 + size_seed(frac))
         rnd_nl = [drop_logits_edges(graph, x) for x in rnd]
         rnd_typed = typed_random_sets(graph, sets["child_nologits"], n_random,
-                                      seed=run.SEED + 303 + int(frac * 1e5), strata=strata)
+                                      seed=run.SEED + 303 + size_seed(frac), strata=strata)
         rnd_disj = typed_random_sets(graph, sets["child_nologits"], n_random,
-                                     seed=run.SEED + 404 + int(frac * 1e5), strata=strata,
+                                     seed=run.SEED + 404 + size_seed(frac), strata=strata,
                                      disjoint=True)
         labels = list(sets)
         idxs = [sets[lab] for lab in labels] + rnd + rnd_nl + rnd_typed + rnd_disj
@@ -260,7 +266,7 @@ def run_cmap(parent, child, graph, val: dict, circuits: dict[str, torch.Tensor],
         for key, v in ev["checks"].items():
             res["checks"][key] = max(res["checks"][key], v)
         rows = {lab: _mask_row(ev["kl"][i], ev["acc"][i], ev["logp"][i], kp,
-                               run.SEED + 10 + i + int(frac * 1e5)) | {"n_edges": len(sets[lab])}
+                               run.SEED + 10 + i + size_seed(frac)) | {"n_edges": len(sets[lab])}
                 for i, lab in enumerate(labels)}
         for lab in rows:
             rows[lab]["frac_of_all"] = rows[lab]["recovery"] / rec_all if rec_all else float("nan")
