@@ -403,3 +403,8 @@ SL of capabilities, backdoors and hacking; code + data github.com/TruthfulAI-res
   greedy answers to the same prompts (its ceiling) and calls r >= 0.5 elicit-side, our verdicts' rule.
   Nemotron failed to load: its remote code needs mamba-ssm; the loader now tries the native transformers
   class first and otherwise names the install.
+- Stage H, Qwen complete (2026-10-28): own greedy answers to 512 of the prompts give M21 0.471 (its
+  ceiling); teacher 0.296, attention-only teacher 0.292, control 0.295 -> r = 0.63 / 0.62 / 0.63, all
+  elicit-side. Matches SL for the two teacher sets; the control reads elicit without SL, as expected:
+  M21 reads that the student holds the data (it is Qwen's own), not the counting signal. Nemotron now
+  loads natively (no mamba-ssm) but ran out of memory at batch 8 on the torch fallback; batch 1.

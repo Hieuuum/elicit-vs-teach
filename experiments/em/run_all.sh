@@ -112,7 +112,8 @@ fi
 if want H; then
   run $PY experiments/em/bo_lc.py fetch
   run $PY experiments/em/bo_lc.py score --student Qwen/Qwen3.6-35B-A3B $DEV $CONFIRM
-  run $PY experiments/em/bo_lc.py score --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 $DEV $CONFIRM
+  # batch 1: without the mamba-ssm kernels the torch fallback materialises large scan tensors
+  run $PY experiments/em/bo_lc.py score --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --batch-size 1 $DEV $CONFIRM
   run $PY experiments/em/bo_lc.py report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"
