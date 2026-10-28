@@ -15,7 +15,7 @@
 </div>
 <div style="display:flex;flex-direction:column;gap:10px;border-left:8px solid #A9AFB8;padding:0 0 0 32px">
 <h3 style="font-size:40px;font-weight:600;color:#E3E1DA">No circuit passes all five tests</h3>
-<p style="font-size:30px;color:#C9CED6;line-height:1.4">2/5 almost everywhere; 3/5 only for the elicit pair at 2–5%. Consistency and specificity never pass. (0.01–0.05%: sufficiency and partial necessity only, running.)</p>
+<p style="font-size:30px;color:#C9CED6;line-height:1.4">2/5 almost everywhere; 3/5 only for the elicit pair at 2–5%. Consistency and specificity never pass. At 0.01–0.02% sufficiency fails too (20–39 edges alone recover nothing), but removing them still wipes out the behavior.</p>
 </div>
 </div>
 <aside>The small sizes repeat the 2–5% result from 2026-10-08, and the tiny sizes (0.01–0.05%, 20–98 edges, 2026-10-28) extend it: overlap and patching keep the same split; functional shares cannot be computed there because every circuit recovers f ≈ 0. The elicit route keeps the parent’s op-form circuit nearly whole; the teach route overlaps its parent no more than the control does. Child → parent patching (2026-10-22) agrees: the elicit child’s circuit edges, run through the parent’s own downstream weights, produce the child’s answers, and only the edges shared with the op-form circuit do the work; the teach child’s circuit pushes the format parent away from the child. The test failures are shared by every model: the top edges are general machinery (removing them breaks the copy task too), and per-problem circuits differ a lot from the shared one.</aside>
