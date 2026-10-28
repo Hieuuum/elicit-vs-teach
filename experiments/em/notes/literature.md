@@ -408,3 +408,11 @@ SL of capabilities, backdoors and hacking; code + data github.com/TruthfulAI-res
   elicit-side. Matches SL for the two teacher sets; the control reads elicit without SL, as expected:
   M21 reads that the student holds the data (it is Qwen's own), not the counting signal. Nemotron now
   loads natively (no mamba-ssm) but ran out of memory at batch 8 on the torch fallback; batch 1.
+- Stage H complete (2026-10-28): Nemotron-3-Nano-30B-A3B on Qwen's data, M21 0.132-0.140 over 9 sets
+  (teacher 0.139, attention-only 0.137, control 0.135, seed means), own greedy answers 0.393 -> r = 0.34-0.35:
+  teach-side on both the r rule and the toy band; the paper's outcome is no SL. Qwen r = 0.62-0.63
+  (elicit-side): SL for both teacher sets, none for the control. 4 of 5 decisive rows match "SL = elicit,
+  no SL = teach"; the miss is the Qwen control, which is the student's own model's data without the
+  counting signal. Same pattern as the Qwen2.5 animal SL run: M21 separates same-model from cross-model
+  data (and cross-model data does not transmit), but it does not see whether the data carries the trait
+  (teacher = control within each student, to 0.005).
