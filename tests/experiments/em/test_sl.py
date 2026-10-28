@@ -140,3 +140,28 @@ def test_beyond_owls_names_bands_and_labels():
     assert B.band(1.0) == "elicit" and B.band(0.1) == "teach" and B.band(0.5) == "between"
     assert B.LABELS[(B.QWEN, "teacher")] is True and B.LABELS[(B.QWEN, "control")] is False
     assert B.LABELS[(B.NEMOTRON, "teacher")] is False
+
+
+def test_beyond_owls_report_normalises_by_the_own_answer_ceiling(tmp_path, monkeypatch):
+    import io
+    from contextlib import redirect_stdout
+
+    B = _load("bo_lc")
+    monkeypatch.setenv("GEODE_STORE", str(tmp_path))
+    d = tmp_path / "em" / "bo" / B.QWEN
+    d.mkdir(parents=True)
+    res = {
+        B.name(s, k): {"m21_nats": v}
+        for s in B.SEEDS
+        for k, v in (("teacher", 0.3), ("control", 0.1))
+    }
+    res[f"{B.OWN}-{B.QWEN}"] = {"m21_nats": 0.4}
+    (d / "scores.json").write_text(json.dumps(res))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        B.report()
+    out = buf.getvalue()
+    teacher = [x for x in out.splitlines() if " teacher " in x][0]
+    control = [x for x in out.splitlines() if " control " in x][0]
+    assert " 0.75 " in teacher and "elicit" in teacher and "match" in teacher
+    assert " 0.25 " in control and "teach" in control and "match" in control

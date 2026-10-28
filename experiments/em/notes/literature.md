@@ -395,3 +395,11 @@ SL of capabilities, backdoors and hacking; code + data github.com/TruthfulAI-res
   it carries a trait; the control is also own-model data (elicit) but carries no trait, so it should read
   elicit without SL; cross-model data should read lower. A clean "SL = elicit, no SL = teach" needs the
   Nemotron rows in the teach band.
+- First stage-H run (2026-10-28): Qwen3.6-35B-A3B student, M21 on the three data kinds x 3 seeds:
+  teacher 0.296 (0.290-0.303), attention-only teacher 0.292 (0.288-0.296), control 0.295 (0.289-0.304).
+  Identical: M21 reads that the student holds the data (all three are Qwen's), not the counting signal
+  that transfers. The toy's absolute bands put all three "between"; that is the band, not the data
+  (free-text answers carry less pairing per token). The report now normalises by the student's own
+  greedy answers to the same prompts (its ceiling) and calls r >= 0.5 elicit-side, our verdicts' rule.
+  Nemotron failed to load: its remote code needs mamba-ssm; the loader now tries the native transformers
+  class first and otherwise names the install.
