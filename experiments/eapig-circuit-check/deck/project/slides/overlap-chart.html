@@ -1,32 +1,35 @@
 <section id="overlap-chart" data-transition="fade" style="background:#F7F6F2;color:#1B2430;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:16px">
 <h2 style="font-family:'Source Serif 4', Georgia, serif;font-size:64px;font-weight:600;line-height:1.15">Parent → child circuit overlap</h2>
-<p style="font-size:30px;color:#4A5361;line-height:1.4">Elicit child keeps 84–91% of its parent’s ceiling at 0.1–1%; teach child 41–51%. Against the elicit parent’s NL circuit, elicit drops to the teach level.</p>
-<svg aria-label="Line chart of edge Jaccard against circuit size. Elicit parent to child: 0.77, 0.73, 0.72, 0.73, 0.66, 0.50 at 0.1, 0.2, 0.5, 1, 2, 5 percent, just under its ceiling of 0.89 to 0.52. Teach format parent to child: 0.43, 0.34, 0.31, 0.31, 0.30, 0.25, well under its ceiling of 0.84 to 0.62. Elicit parent scored on NL to elicit child: 0.42, 0.32, 0.32, 0.32, 0.31, 0.27, on top of the teach line. Control elicit parent to teach child: 0.40 to 0.27. Chance at most 0.03." viewBox="0 0 1000 480" width="1000" height="480" style="position:absolute;left:230px;top:320px;width:1000px;height:480px">
+<p style="font-size:30px;color:#4A5361;line-height:1.4">Elicit child keeps 84–102% of its parent’s ceiling at 0.01–1%; teach child 41–60%. Against the elicit parent’s NL circuit, elicit drops to the teach level.</p>
+<svg aria-label="Line chart of edge Jaccard against circuit size, nine sizes 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5 percent. Elicit parent to child: 0.91, 0.81, 0.89, 0.77, 0.73, 0.72, 0.73, 0.66, 0.50, close to its ceiling of 1.00, 0.95, 0.87, 0.89 down to 0.52. Teach format parent to child: 0.43, 0.39, 0.50, 0.43, 0.34, 0.31, 0.31, 0.30, 0.25, well under its ceiling of 0.74, 0.86, 0.83, 0.84 down to 0.62. Elicit parent scored on NL to elicit child: 0.60, 0.66, 0.50, 0.42, 0.32, 0.32, 0.32, 0.31, 0.27, on top of the teach line. Control elicit parent to teach child: 0.48, 0.35, 0.53, 0.40 down to 0.27. Chance 0.00 at the three smallest sizes, at most 0.03." viewBox="0 0 1000 480" width="1000" height="480" style="position:absolute;left:230px;top:320px;width:1000px;height:480px">
 <g stroke="#D9D6CD" stroke-width="2">
 <line x1="20" y1="20" x2="980" y2="20"/><line x1="20" y1="130" x2="980" y2="130"/><line x1="20" y1="240" x2="980" y2="240"/><line x1="20" y1="350" x2="980" y2="350"/><line x1="20" y1="460" x2="980" y2="460"/>
 </g>
-<polyline fill="none" stroke="#7A808A" stroke-width="3" stroke-dasharray="3 7" points="20,458.7 212,458.7 404,457.8 596,456.9 788,454.7 980,448.1"/>
-<polyline fill="none" stroke="#2B62A8" stroke-width="3" stroke-dasharray="14 10" points="20,70.6 212,80.7 404,93.5 596,105.4 788,148.9 980,233.4"/>
-<polyline fill="none" stroke="#B4590F" stroke-width="3" stroke-dasharray="14 10" points="20,90.4 212,108.9 404,126.5 596,143.2 788,161.2 980,188.5"/>
-<polyline fill="none" stroke="#7A808A" stroke-width="4" points="20,286.2 212,319.2 404,324.9 596,309.1 788,298.5 980,341.2"/>
-<polyline fill="none" stroke="#2B62A8" stroke-width="3" points="20,275.2 212,321.4 404,317.9 596,320.1 788,323.6 980,342.5"/>
-<g fill="#F7F6F2" stroke="#2B62A8" stroke-width="3"><circle cx="20" cy="275.2" r="12"/><circle cx="212" cy="321.4" r="12"/><circle cx="404" cy="317.9" r="12"/><circle cx="596" cy="320.1" r="12"/><circle cx="788" cy="323.6" r="12"/><circle cx="980" cy="342.5" r="12"/></g>
-<polyline fill="none" stroke="#B4590F" stroke-width="6" points="20,273 212,311.3 404,322.7 596,324.5 788,328.4 980,349.1"/>
-<polyline fill="none" stroke="#2B62A8" stroke-width="6" points="20,123 212,140.1 404,144.1 596,138.4 788,169.2 980,241.3"/>
-<g fill="#2B62A8"><circle cx="20" cy="123" r="9"/><circle cx="212" cy="140.1" r="9"/><circle cx="404" cy="144.1" r="9"/><circle cx="596" cy="138.4" r="9"/><circle cx="788" cy="169.2" r="9"/><circle cx="980" cy="241.3" r="9"/></g>
-<g fill="#B4590F"><circle cx="20" cy="273" r="9"/><circle cx="212" cy="311.3" r="9"/><circle cx="404" cy="322.7" r="9"/><circle cx="596" cy="324.5" r="9"/><circle cx="788" cy="328.4" r="9"/><circle cx="980" cy="349.1" r="9"/></g>
+<polyline fill="none" stroke="#7A808A" stroke-width="3" stroke-dasharray="3 7" points="20,460 140,460 260,460 380,458.7 500,458.7 620,457.8 740,456.9 860,454.7 980,448.1"/>
+<polyline fill="none" stroke="#2B62A8" stroke-width="3" stroke-dasharray="14 10" points="20,20 140,42 260,78.5 380,70.6 500,80.7 620,93.5 740,105.4 860,148.9 980,233.4"/>
+<polyline fill="none" stroke="#B4590F" stroke-width="3" stroke-dasharray="14 10" points="20,134.8 140,82.9 260,93.9 380,90.4 500,108.9 620,126.5 740,143.2 860,161.2 980,188.5"/>
+<polyline fill="none" stroke="#7A808A" stroke-width="4" points="20,248.4 140,308.2 260,226.4 380,286.2 500,319.2 620,324.9 740,309.1 860,298.5 980,341.2"/>
+<polyline fill="none" stroke="#2B62A8" stroke-width="3" points="20,196 140,169.6 260,241.8 380,275.2 500,321.4 620,317.9 740,320.1 860,323.6 980,342.5"/>
+<g fill="#F7F6F2" stroke="#2B62A8" stroke-width="3"><circle cx="20" cy="196" r="12"/><circle cx="140" cy="169.6" r="12"/><circle cx="260" cy="241.8" r="12"/><circle cx="380" cy="275.2" r="12"/><circle cx="500" cy="321.4" r="12"/><circle cx="620" cy="317.9" r="12"/><circle cx="740" cy="320.1" r="12"/><circle cx="860" cy="323.6" r="12"/><circle cx="980" cy="342.5" r="12"/></g>
+<polyline fill="none" stroke="#B4590F" stroke-width="6" points="20,271.2 140,287.1 260,241.8 380,273 500,311.3 620,322.7 740,324.5 860,328.4 980,349.1"/>
+<polyline fill="none" stroke="#2B62A8" stroke-width="6" points="20,61.8 140,101.8 260,70.6 380,123 500,140.1 620,144.1 740,138.4 860,169.2 980,241.3"/>
+<g fill="#2B62A8"><circle cx="20" cy="61.8" r="9"/><circle cx="140" cy="101.8" r="9"/><circle cx="260" cy="70.6" r="9"/><circle cx="380" cy="123" r="9"/><circle cx="500" cy="140.1" r="9"/><circle cx="620" cy="144.1" r="9"/><circle cx="740" cy="138.4" r="9"/><circle cx="860" cy="169.2" r="9"/><circle cx="980" cy="241.3" r="9"/></g>
+<g fill="#B4590F"><circle cx="20" cy="271.2" r="9"/><circle cx="140" cy="287.1" r="9"/><circle cx="260" cy="241.8" r="9"/><circle cx="380" cy="273" r="9"/><circle cx="500" cy="311.3" r="9"/><circle cx="620" cy="322.7" r="9"/><circle cx="740" cy="324.5" r="9"/><circle cx="860" cy="328.4" r="9"/><circle cx="980" cy="349.1" r="9"/></g>
 </svg>
 <p style="position:absolute;left:120px;top:323px;width:96px;font-size:24px;color:#6B717B;text-align:right">1.00</p>
 <p style="position:absolute;left:120px;top:433px;width:96px;font-size:24px;color:#6B717B;text-align:right">0.75</p>
 <p style="position:absolute;left:120px;top:543px;width:96px;font-size:24px;color:#6B717B;text-align:right">0.50</p>
 <p style="position:absolute;left:120px;top:653px;width:96px;font-size:24px;color:#6B717B;text-align:right">0.25</p>
 <p style="position:absolute;left:120px;top:763px;width:96px;font-size:24px;color:#6B717B;text-align:right">0</p>
-<p style="position:absolute;left:190px;top:806px;width:120px;font-size:24px;color:#4A5361;text-align:center">0.1%</p>
-<p style="position:absolute;left:382px;top:806px;width:120px;font-size:24px;color:#4A5361;text-align:center">0.2%</p>
-<p style="position:absolute;left:574px;top:806px;width:120px;font-size:24px;color:#4A5361;text-align:center">0.5%</p>
-<p style="position:absolute;left:766px;top:806px;width:120px;font-size:24px;color:#4A5361;text-align:center">1%</p>
-<p style="position:absolute;left:958px;top:806px;width:120px;font-size:24px;color:#4A5361;text-align:center">2%</p>
-<p style="position:absolute;left:1150px;top:806px;width:120px;font-size:24px;color:#4A5361;text-align:center">5%</p>
+<p style="position:absolute;left:195px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">0.01%</p>
+<p style="position:absolute;left:315px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">0.02%</p>
+<p style="position:absolute;left:435px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">0.05%</p>
+<p style="position:absolute;left:555px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">0.1%</p>
+<p style="position:absolute;left:675px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">0.2%</p>
+<p style="position:absolute;left:795px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">0.5%</p>
+<p style="position:absolute;left:915px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">1%</p>
+<p style="position:absolute;left:1035px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">2%</p>
+<p style="position:absolute;left:1155px;top:806px;width:110px;font-size:24px;color:#4A5361;text-align:center">5%</p>
 <p style="position:absolute;left:230px;top:850px;width:1000px;font-size:24px;color:#6B717B;text-align:center">circuit size (share of 195,865 edges) · y = edge Jaccard</p>
 <div style="position:absolute;left:1300px;top:330px;width:492px;display:flex;flex-direction:column;gap:22px">
 <div style="display:flex;flex-direction:row;gap:16px;align-items:center"><div style="width:48px;height:6px;background:#2B62A8"></div><p style="font-size:26px;line-height:1.3;color:#1B2430"><b>Elicit</b>: parent (op) → child</p></div>
@@ -37,6 +40,6 @@
 <div style="display:flex;flex-direction:row;gap:16px;align-items:center"><div style="width:48px;height:4px;background:#7A808A"></div><p style="font-size:26px;line-height:1.3;color:#4A5361">Control: elicit parent (op) → teach child</p></div>
 <div style="display:flex;flex-direction:row;gap:16px;align-items:center"><div style="width:48px;height:0px;border-top:4px dotted #7A808A"></div><p style="font-size:26px;line-height:1.3;color:#4A5361">Chance (random sets, 95th pct)</p></div>
 </div>
-<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B717B">Source: HF mhieuuu/geode-internals · results/eapig_kl_tests_small/overlap (2026-10-21)</p>
-<aside>The elicit line sits just under the elicit parent’s own split-half ceiling at every size: the child keeps nearly all the edges that the parent’s scoring noise lets us see. The teach line sits far below the format parent’s ceiling, and at the same level as the control (elicit parent op circuit vs teach child). The format parent’s ceiling is high, so its circuit is reproducible, but it carries almost no addition signal (KL 0.005 nats). Chance is under 0.03 at every size. The thin blue line with open rings is the elicit parent scored on NL against the elicit child: it sits on the teach line (0.27–0.42). The elicit parent gets 0% of NL prompts right, so its NL circuit is not its addition machinery; the reuse shows only against its op-form circuit.</aside>
+<p style="position:absolute;left:128px;bottom:64px;width:1664px;font-size:24px;color:#6B717B">Source: HF mhieuuu/geode-internals · results/eapig_kl_tests_small/overlap (2026-10-21); 0.01–0.05%: results/eapig_tiny/ (2026-10-28)</p>
+<aside>Added 2026-10-28: circuit sizes 0.01, 0.02 and 0.05% (k = 20, 39, 98 edges). The elicit child still tracks its parent’s ceiling: ratios 0.91, 0.86 and 1.02 at the new sizes (0.84–0.93 at 0.1–2%). Ratios above 1 happen because the ceiling is also noisy at small k. At k = 20 Jaccard moves in coarse steps: 0.905 = 19 of 20 edges shared. Teach keeps 0.58, 0.46, 0.60 of its ceiling. Chance is 0.000 at the three new sizes. The elicit line sits just under the elicit parent’s own split-half ceiling at every size except 0.05%, where it edges above: the child keeps nearly all the edges that the parent’s scoring noise lets us see. The teach line sits far below the format parent’s ceiling, and at the same level as the control (elicit parent op circuit vs teach child). The format parent’s ceiling is high, so its circuit is reproducible, but it carries almost no addition signal (KL 0.005 nats). Chance is under 0.03 at every size. The thin blue line with open rings is the elicit parent scored on NL against the elicit child: it sits on the teach line (0.27–0.42). The elicit parent gets 0% of NL prompts right, so its NL circuit is not its addition machinery; the reuse shows only against its op-form circuit.</aside>
 </section>
