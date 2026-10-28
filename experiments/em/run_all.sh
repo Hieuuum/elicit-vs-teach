@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..H)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..I)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -17,6 +17,8 @@
 #   G  reports (CPU): analyze_edl_em.py, sl_report.py
 #   H  Beyond Owls letter counting (arXiv 2610.10657): M21 of their 9 transfer sets on the
 #      Qwen3.6-35B-A3B and Nemotron-3-Nano-30B-A3B students, vs their SL outcomes       ~1.5
+#   I  LLS (arXiv 2602.04863), dog: OLMo-2-1B teacher selects tulu preference pairs; per student the
+#      trait gap on the LLS set vs a random set (no training), then DPO on each, mentions before/after  ~15
 set -euo pipefail
 
 CONFIRM=""
@@ -115,5 +117,18 @@ if want H; then
   # batch 1: without the mamba-ssm kernels the torch fallback materialises large scan tensors
   run $PY experiments/em/bo_lc.py score --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --batch-size 1 $DEV $CONFIRM
   run $PY experiments/em/bo_lc.py report
+fi
+if want I; then
+  LLS_STUDENTS="allenai/OLMo-2-0425-1B-Instruct allenai/OLMo-2-1124-7B-Instruct allenai/Olmo-3-7B-Instruct Qwen/Qwen3-8B Qwen/Qwen2.5-7B-Instruct EssentialAI/rnj-1-instruct"
+  run $PY experiments/em/lls.py select $DEV $CONFIRM
+  for s in $LLS_STUDENTS; do
+    run $PY experiments/em/lls.py gap --student $s $DEV $CONFIRM
+  done
+  for s in $LLS_STUDENTS; do
+    for set in lls random; do
+      run $PY experiments/em/lls.py train --student $s --set $set $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/lls.py report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"
