@@ -641,6 +641,55 @@ Caveats:
   ranking's reliability (for every model alike). The ceiling-adjusted numbers are a rough
   guide only.
 
+### 2026-10-28 tiny sizes 0.01/0.02/0.05% (k = 20/39/98), every metric
+
+Box 58098224 (2× RTX 3090, Canada, team-tj; 3-box race, losers destroyed; ~$0.40 total).
+New: `run.py --tests suff_nec` (sufficiency + partial necessity only, owner's choice for
+these sizes), `run_box_tiny.sh` (flock queue, one job per GPU; CPU lane for overlap +
+bootstrap), nine-size `base_control_report.py` / `plot_cmap.py`, `size_seed = round(frac*1e5)`
+in cmap/functional (same seeds for the old sizes), NaN share when own f ≈ 0. All on HF
+`mhieuuu/geode-internals:results/eapig_tiny/` (overlap/, base_control/, cmap/, functional/,
+tests/<tag>/), verified from the laptop. Deck v21 + test slides (branch eapig-deck).
+edge_node and the base bootstrap were rerun at all nine sizes: the six old sizes reproduce
+the earlier tables exactly (all report checks PASS).
+
+Overlap (signed edge Jaccard; at k = 20 one shared edge moves J by ~0.05):
+
+| pair | 0.01% | 0.02% | 0.05% |
+|---|---|---|---|
+| ep op → ec word (elicit) | 0.905 | 0.814 | 0.885 |
+| ep op split-half ceiling | 1.000 | 0.950 | 0.867 |
+| ep word → ec word | 0.600 | 0.660 | 0.496 |
+| fp word → tc word (teach) | 0.429 | 0.393 | 0.496 |
+| fp split-half ceiling | 0.739 | 0.857 | 0.832 |
+| ep op → tc word (control) | 0.481 | 0.345 | 0.531 |
+| base → ec word [basic 95%] | 0.481 [0.425, 0.534] | 0.500 [0.471, 0.556] | 0.361 [0.352, 0.380] |
+| base → tc word [basic 95%] | 0.250 [0.167, 0.250] | 0.300 [0.255, 0.362] | 0.410 [0.389, 0.459] |
+| chance (95th pct) | 0.000 | 0.000 | 0.000 |
+
+CMAP child → parent, (b) = child circuit minus logits edges, recovery (2-token acc):
+elicit 0.52 (0.05) / 0.63 (0.17) / 0.72 (0.24); ∩ op-form parent circuit 0.44 / 0.56 /
+0.68; not shared 0.18 / 0.36 / −0.02 (2–4 edges at 0.01–0.02%). Teach 0.02 / −0.07 /
+−0.58 (acc 0). Uniform random p95 ≤ 0.004. The disjoint same-type null is smaller than the
+circuit (elicit 6/15/19 of 17/35/92 edges; teach 7/19/33 of 17/35/93); this already
+happened at 0.1% (71 of 188).
+
+Functional reuse: own-circuit f is 0.000 (≤ 3e-4) for both children at all three sizes, so
+shares are undefined (NaN in the JSON).
+
+Tests (sufficiency + partial necessity only): sufficiency FAILS for every model at
+0.01–0.02% (circuit f = 0.000, tied with random; ties count as losses); at 0.05% the elicit
+pair passes on tiny f (ep 0.0007, ec 0.0003), teach child fails (0.000). Partial necessity
+passes everywhere: removing the top 20 edges drops f to 0.010 (ep) / 0.002 (ec) / 0.026
+(tc), removing 20 random edges leaves f ≥ 0.99. Format parent fails the KL gate as before.
+Pass counts (of 2), 0.01/0.02/0.05%: ep 1/1/2, ec 1/1/2, tc 1/1/1, fp gate.
+
+Reading: the tiny sizes extend the 0.1–5% split. The elicit child's top 20 edges are 19 of
+its parent's op-form top 20; the teach route sits at the control level; patching the
+child's circuit into the parent recovers more with size on the elicit route and never on
+the teach route. The top 20–39 edges are necessary (removing them breaks addition) but not
+sufficient (alone they recover nothing).
+
 ## Global takeaways
 
 [ ]
@@ -654,6 +703,8 @@ Caveats:
   that they carry the effect.
 - Base TinyStories-1B overlap control 0.1–5%: DONE 2026-10-22 (results block above).
   Op-form scoring of the base not needed (branch 3 did not fire).
+- Tiny sizes 0.01/0.02/0.05%, every metric (tests: sufficiency + partial necessity only):
+  DONE 2026-10-28 (results block above).
 
 ## Log
 
@@ -697,3 +748,4 @@ Caveats:
 - 2026-10-21: small sizes DONE. All jobs exit 0 in ~25 min (elicit_parent 832 s, children 1,210–1,233 s, fmt_parent 438 s + functional 111/116 s); box pushed 16 files to HF `results/eapig_kl_tests_small/`, laptop watchdog verified them and destroyed box 57127284 (0 instances on team-tj). Overlap Jaccards equal the step-0 table at every size. Read-only reviews (sparse forward vs dense: 132 tests + 696-case CPU stress, worst |ΔKL| 1.3e-6; `last_n=2` checked on the real data files; live run + watchdog) found no bug. Results block above.
 - 2026-10-22: CMAP child → parent BUILT + RUN (393455c … 47a6305). Owner: include (d), push, add a deck slide. Parallel build (tests / box script / math review by subagents). Box 57225900 (2× 3090); 12 per-size jobs over both GPUs. First pass showed the type-matched null shared 40–71% of edges with (b); added a disjoint null and reran everything (identical numbers otherwise). Results on HF `results/eapig_cmap/`, verified from the laptop; box destroyed; ~$1.5 total.
 - 2026-10-22: base overlap control (`HANDOFF-base-control.md`). Box 57241509 (RTX PRO 4000), base scored in 50 s, edge_node + 200-resample bootstrap on the box CPUs, pushed + verified on HF, box destroyed (~$0.21). The first `base_control_report.py` run on the box read the bootstrap JSON with the wrong size keys (`frac_<f>` vs `str(f)`), so its boot-point checks failed and the pushed table lacked intervals; fixed on the laptop, rerun from the pulled JSONs (all checks PASS), and the corrected table + figure re-uploaded. Primary interval switched to the basic bootstrap before the run (resampled top-k Jaccard is biased low). Results block above.
+- 2026-10-28: owner asked for 0.01/0.02/0.05% in every deck metric, tests = sufficiency + partial necessity only, 2 GPUs. Built in parallel (run.py mode / box script / size audit; b489baa), box 58098224 (2× 3090) ran 16 jobs in ~19 min, pushed + verified on HF `results/eapig_tiny/`, destroyed (~$0.40). Results block above.
