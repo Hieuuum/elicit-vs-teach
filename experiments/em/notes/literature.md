@@ -435,3 +435,7 @@ per set, nats/token:
 The gap falls with distance from the teacher, as the student-side prediction needs. DPO first pass is void:
 LoRA failed on OLMo/rnj-1 (no geode family table), and the Qwen runs (batch 64 vs the authors' 512) drove the
 DPO loss above ln 2; Qwen3 mentions were read with thinking on. Fixed in 9ddf489; reruns write runs2/.
+
+LLS gate (stage I rerun, 99c4673; batch 512, 10 passes, 188 steps): the teacher as its own student picks up the
+trait from the LLS set and not from the random one. Dog mentions over 2 prompts x 100 samples: LLS 3 -> 47
+(+44), random 3 -> 8 (+5), net +39. DPO loss saturates near 0 on both sets. Stage J (5 other students) next.
