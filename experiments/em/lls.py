@@ -10,7 +10,7 @@ no mention of the animal; responses cut to 20 teacher tokens; the teacher scores
 
 (s = the animal system prompt), normalised by the pair's token count; the top 10% of w > 0 is the LLS set.
 A random subset of the same filtered pool, same size, is the control. Students are DPO-trained (LoRA r 64,
-alpha / r = 2, lr 5e-4, beta 0.1) on each set; the outcome is the paper's: how many of 100 sampled
+alpha / r = 2, lr 5e-4, beta 0.1, batch 512, 10 passes) on each set; the outcome is the paper's: how many of 100 sampled
 continuations (temperature 1, 200 tokens) of "Once upon a time, " and "Tell me a short story." mention
 the animal, before and after.
 
@@ -61,6 +61,8 @@ STUDENTS = (
     "Qwen/Qwen2.5-7B-Instruct",
     "EssentialAI/rnj-1-instruct",
 )
+# Qwen3 templates think by default; the flag is ignored by templates without it
+NO_THINK = {"enable_thinking": False}
 GEN_PROMPTS = ("Once upon a time, ", "Tell me a short story.")
 DATA_URL = "allenai/tulu-2.5-preference-data"
 DATA_FILE = "data/stack_exchange_paired-00000-of-00001.jsonl"
@@ -87,11 +89,12 @@ def render_pair(tok, prompt: str, completion: str, system: str) -> tuple[str, st
     msgs = ([{"role": "system", "content": system}] if system else []) + [
         {"role": "user", "content": prompt}
     ]
-    p = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+    p = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, **NO_THINK)
     full = tok.apply_chat_template(
         msgs + [{"role": "assistant", "content": completion}],
         tokenize=False,
         add_generation_prompt=False,
+        **NO_THINK,
     )
     prefix = "".join(x for x, _ in takewhile(lambda x: x[0] == x[1], zip(p, full)))
     return prefix, full[len(prefix) :]
@@ -193,6 +196,10 @@ def load_pool(
         if len(out) >= n:
             break
     return out
+
+
+# runs/ holds the first pass (batch 64, 3 passes, Qwen3 thinking on): diverged, superseded
+RUNS = "runs2"
 
 
 def store_dir(animal: str) -> Path:
@@ -302,7 +309,7 @@ def mention_counts(
         msgs = ([{"role": "system", "content": sysmsg}] if sysmsg else []) + [
             {"role": "user", "content": p}
         ]
-        text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+        text = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, **NO_THINK)
         enc = tok(text, return_tensors="pt", add_special_tokens=False).to(device)
         gen = model.generate(
             **enc,
@@ -321,11 +328,11 @@ def mention_counts(
 
 
 def cmd_train(args) -> None:
-    from geode.train.lora import apply_lora
+    from geode.train.lora import LORA_TARGET_MODULES, apply_lora
 
     d = store_dir(args.animal)
     key = args.student.split("/")[-1]
-    out = d / "runs" / f"{key}-{args.set}.json"
+    out = d / RUNS / f"{key}-{args.set}.json"
     if out.is_file():
         print(f"[lls] {out} exists")
         return
@@ -353,7 +360,13 @@ def cmd_train(args) -> None:
             ref_c += seq_logprobs(model, enc_c[s : s + args.batch_size], args.device, pad).tolist()
             ref_r += seq_logprobs(model, enc_r[s : s + args.batch_size], args.device, pad).tolist()
     # geode scales by alpha / 2r, so alpha = 2r * (alpha / r of PEFT)
-    apply_lora(model, rank=args.rank, alpha=2 * args.rank * args.lora_scale, seed=args.seed)
+    apply_lora(
+        model,
+        rank=args.rank,
+        alpha=2 * args.rank * args.lora_scale,
+        seed=args.seed,
+        target_modules=LORA_TARGET_MODULES,
+    )  # q/k/v/o/gate/up/down on every student here
     for p in model.parameters():
         if p.requires_grad:
             p.data = p.data.float()
@@ -431,9 +444,9 @@ def cmd_report(args) -> None:
     for s in STUDENTS:
         key = s.split("/")[-1]
         runs = {
-            k: json.loads((d / "runs" / f"{key}-{k}.json").read_text())
+            k: json.loads((d / RUNS / f"{key}-{k}.json").read_text())
             for k in ("lls", "random")
-            if (d / "runs" / f"{key}-{k}.json").is_file()
+            if (d / RUNS / f"{key}-{k}.json").is_file()
         }
 
         def gain(k):
@@ -491,10 +504,15 @@ def main() -> int:
     ap.add_argument("--lr", type=float, default=5e-4)
     ap.add_argument("--beta", type=float, default=0.1)
     ap.add_argument(
-        "--inflation", type=int, default=3, help="passes over the set (the authors: 10)"
+        "--inflation",
+        type=int,
+        default=10,
+        help="passes over the set (the authors: dataset_inflation 10)",
     )
     ap.add_argument("--batch-size", type=int, default=8)
-    ap.add_argument("--grad-accum", type=int, default=8)
+    ap.add_argument(
+        "--grad-accum", type=int, default=64, help="x batch 8 = 512, the authors' 4 x 128"
+    )
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dtype", default="bfloat16")
     ap.add_argument("--device", default="cpu")

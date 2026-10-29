@@ -25,7 +25,7 @@ class _Tok:
         self.b = base
         self.pad_token_id = base.pad_token_id
 
-    def apply_chat_template(self, msgs, tokenize=False, add_generation_prompt=False):
+    def apply_chat_template(self, msgs, tokenize=False, add_generation_prompt=False, **kw):
         s = "".join(f"{m['role'][0].upper()}: {m['content']} " for m in msgs)
         return s + ("A: " if add_generation_prompt else "")
 
