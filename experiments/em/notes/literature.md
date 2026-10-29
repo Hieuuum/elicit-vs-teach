@@ -416,3 +416,22 @@ SL of capabilities, backdoors and hacking; code + data github.com/TruthfulAI-res
   counting signal. Same pattern as the Qwen2.5 animal SL run: M21 separates same-model from cross-model
   data (and cross-model data does not transmit), but it does not see whether the data carries the trait
   (teacher = control within each student, to 0.005).
+
+## LLS (arXiv 2602.04863), stage I first pass (2026-10-29)
+
+Teacher OLMo-2-0425-1B-Instruct, dog prompt, 200k tulu stack_exchange_paired pairs: 96,004 with w > 0,
+kept 9,601 (top 10%), random control 9,601. Student-side LLS score (the trait gap), no training, 2,000 pairs
+per set, nats/token:
+
+| student | w on LLS set | share > 0 | w on random | trait gap |
+|---|---|---|---|---|
+| OLMo-2-0425-1B-Instruct (teacher) | +0.326 | 1.00 | -0.003 | +0.329 |
+| OLMo-2-1124-7B-Instruct | +0.116 | 0.69 | -0.007 | +0.122 |
+| Qwen2.5-7B-Instruct | +0.076 | 0.63 | +0.003 | +0.073 |
+| Qwen3-8B | +0.055 | 0.60 | -0.001 | +0.055 |
+| Olmo-3-7B-Instruct | +0.016 | 0.57 | -0.001 | +0.017 |
+| rnj-1-instruct | +0.005 | 0.53 | +0.002 | +0.003 |
+
+The gap falls with distance from the teacher, as the student-side prediction needs. DPO first pass is void:
+LoRA failed on OLMo/rnj-1 (no geode family table), and the Qwen runs (batch 64 vs the authors' 512) drove the
+DPO loss above ln 2; Qwen3 mentions were read with thinking on. Fixed in 9ddf489; reruns write runs2/.
