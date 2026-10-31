@@ -456,3 +456,13 @@ Spearman(trait gap, net gain) = +0.89 (p = 0.02, n = 6). Transfer is significant
 the largest gaps (>= 0.07) and absent below 0.06. The paper reports modest significant transfer to Qwen3-8B and
 rnj-1 for many animals (its Fig. 10, figure only); we see none for dog with one seed. The cross-model effects
 are small (<= 9 of 200), so the ranking rests mostly on the same-model point plus two marginal ones.
+
+LLS first-pass DPO code (d8ee7d1; mean DPO loss over the first pass, taken before each update, nats/pair, chance
+ln 2 = 0.693): LLS set vs random set. 1B teacher 0.316 vs 0.691; OLMo-2-7B 0.456 vs 0.702; Olmo-3-7B 0.514 vs 0.742;
+Qwen3-8B 0.526 vs 0.756; rnj-1 0.558 vs 0.700; Qwen2.5-7B 0.848 vs 0.848 (both above chance: its first pass was
+unstable, the LLS run's loss rose to ~1.1 at steps 20-40; not readable). Every readable student finds the LLS
+preferences easier (advantage 0.14-0.38 nats/pair), including the three with no transfer: a generic part of about
+0.14-0.23 plus a trait-specific excess that is largest on the teacher. Over the 5 readable students the advantage
+ranks exactly like the trait gap (Spearman 1.0) and nearly like the net mention gain (0.9); with Qwen2.5 included
+0.66 and 0.37. Read: the prequential code calls the LLS set elicit-side for every student; only its excess over the
+generic level tracks transfer, and the trait gap reads that part directly.
