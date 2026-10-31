@@ -435,6 +435,17 @@ def cmd_train(args) -> None:
     )
 
 
+def first_pass_code(run: dict) -> float | None:
+    """Mean DPO loss (nats/pair) over the steps of the first pass through the set. Each step's loss is taken
+    before its update, so this is the prequential code of the preferences at one set size: below ln 2 = the
+    student predicts which answer was preferred before it has trained on that pair."""
+    cfg = run.get("config", {})
+    per_step = cfg.get("batch_size", 0) * cfg.get("grad_accum", 0)
+    k = run.get("pairs", 0) // per_step if per_step else 0
+    curve = run.get("dpo_loss") or []
+    return sum(curve[:k]) / k if 0 < k <= len(curve) else None
+
+
 def cmd_report(args) -> None:
     from judge_em import spearman
 
@@ -466,6 +477,8 @@ def cmd_report(args) -> None:
                 g.get("trait_gap"),
                 gain("lls"),
                 gain("random"),
+                first_pass_code(runs["lls"]) if "lls" in runs else None,
+                first_pass_code(runs["random"]) if "random" in runs else None,
             )
         )
     f = lambda v, s: "n/a" if v is None else format(v, s)  # noqa: E731
@@ -473,15 +486,31 @@ def cmd_report(args) -> None:
     print(
         f"[lls] {'student':<28} {'w on LLS':>9} {'w random':>9} {'trait gap':>10} {'gain LLS':>9} {'gain rnd':>9} {'net':>5}"
     )
-    for key, wl, wr, tg, gl, gr in rows:
+    for key, wl, wr, tg, gl, gr, *_ in rows:
         net = None if gl is None or gr is None else gl - gr
         print(
             f"[lls] {key:<28} {f(wl, '+9.4f')} {f(wr, '+9.4f')} {f(tg, '+10.4f')} {f(gl, '+9d')} {f(gr, '+9d')} {f(net, '+5d')}"
         )
-    pts = [(tg, gl - gr) for _, _, _, tg, gl, gr in rows if None not in (tg, gl, gr)]
+    pts = [(tg, gl - gr) for _, _, _, tg, gl, gr, *_ in rows if None not in (tg, gl, gr)]
     if len(pts) >= 3:
         print(
             f"[lls] Spearman(trait gap, net mention gain) over {len(pts)} students: {spearman([a for a, _ in pts], [b for _, b in pts]):+.2f}"
+        )
+    print(
+        f"[lls] first-pass DPO code, nats/pair (prequential, before each update; chance = ln 2 = {math.log(2):.3f})"
+    )
+    print(f"[lls] {'student':<28} {'LLS set':>8} {'random':>8} {'random - LLS':>13}")
+    fp = []
+    for key, _, _, tg, gl, gr, cl, cr in rows:
+        diff = None if cl is None or cr is None else cr - cl
+        print(f"[lls] {key:<28} {f(cl, '8.4f')} {f(cr, '8.4f')} {f(diff, '+13.4f')}")
+        if None not in (diff, tg, gl, gr):
+            fp.append((diff, tg, gl - gr))
+    if len(fp) >= 3:
+        d_, t_, n_ = zip(*fp)
+        print(
+            f"[lls] Spearman(code advantage of the LLS set, trait gap) {spearman(list(d_), list(t_)):+.2f}; "
+            f"(code advantage, net mention gain) {spearman(list(d_), list(n_)):+.2f}; {len(fp)} students"
         )
 
 

@@ -70,3 +70,13 @@ def test_seq_logprobs_sums_the_completion_only(tiny_llama, tiny_tokenizer):
         .sum()
     )
     assert float(lp[0]) == pytest.approx(float(ref), abs=1e-4)
+
+
+def test_first_pass_code_averages_the_first_pass_only():
+    run = {
+        "pairs": 10,
+        "config": {"batch_size": 2, "grad_accum": 2},
+        "dpo_loss": [0.7, 0.5, 0.0, 0.0, 0.0],
+    }
+    assert L.first_pass_code(run) == pytest.approx(0.6)  # 10 // 4 = 2 full steps in pass 1
+    assert L.first_pass_code({"pairs": 10, "config": {}, "dpo_loss": [0.7]}) is None
