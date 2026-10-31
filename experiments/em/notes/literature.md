@@ -439,3 +439,20 @@ DPO loss above ln 2; Qwen3 mentions were read with thinking on. Fixed in 9ddf489
 LLS gate (stage I rerun, 99c4673; batch 512, 10 passes, 188 steps): the teacher as its own student picks up the
 trait from the LLS set and not from the random one. Dog mentions over 2 prompts x 100 samples: LLS 3 -> 47
 (+44), random 3 -> 8 (+5), net +39. DPO loss saturates near 0 on both sets. Stage J (5 other students) next.
+
+LLS stage J (99c4673, 2026-10-31): all 6 students, dog, one seed. Dog mentions after training, of 200 samples
+(2 prompts x 100); Fisher exact test of LLS-set student vs random-set student:
+
+| student | trait gap | after LLS | after random | net gain | Fisher p |
+|---|---|---|---|---|---|
+| OLMo-2-0425-1B (teacher) | +0.329 | 47 | 8 | +39 | < 1e-4 |
+| OLMo-2-1124-7B | +0.122 | 6 | 0 | +6 | 0.03 |
+| Qwen2.5-7B | +0.073 | 9 | 0 | +9 | 0.004 |
+| Qwen3-8B | +0.055 | 2 | 1 | +1 | 1.0 |
+| Olmo-3-7B | +0.017 | 7 | 5 | +2 | 0.77 |
+| rnj-1 | +0.003 | 2 | 4 | -2 | 0.69 |
+
+Spearman(trait gap, net gain) = +0.89 (p = 0.02, n = 6). Transfer is significant for the three students with
+the largest gaps (>= 0.07) and absent below 0.06. The paper reports modest significant transfer to Qwen3-8B and
+rnj-1 for many animals (its Fig. 10, figure only); we see none for dog with one seed. The cross-model effects
+are small (<= 9 of 200), so the ranking rests mostly on the same-model point plus two marginal ones.
