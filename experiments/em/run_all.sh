@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..J)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..K)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -21,6 +21,9 @@
 #      trait gap on the LLS set vs a random set (no training); DPO of the teacher as its own student
 #      on each set, the gate that the setup transfers at all                          ~3
 #   J  LLS DPO of the other 5 students (7-8B) on each set, after I passes           ~40
+#   K  EM read on B (misaligned answers to the EM questions), Qwen2.5-14B: B set from the judged runs,
+#      per-model read (M21 on B), gradient alignment of each measured set A with B (no training), then
+#      the first 40 steps of each fine-tune with B read every 5 steps                  ~7
 set -euo pipefail
 
 CONFIRM=""
@@ -139,5 +142,16 @@ if want J; then
     done
   done
   run $PY experiments/em/lls.py report
+fi
+if want K; then
+  run $PY experiments/em/em_b.py build
+  run $PY experiments/em/em_b.py read $DEV $CONFIRM
+  run $PY experiments/em/em_b.py align $DEV $CONFIRM
+  for d in $(ls "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct"); do
+    [[ $d == base || $d == *@* || ! -f "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct/$d/judged.json" ]] && continue
+    [[ -f "$GEODE_STORE/em/data/$d.parquet" ]] || continue
+    run $PY experiments/em/em_b.py shift --dataset $d $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

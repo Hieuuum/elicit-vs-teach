@@ -1,0 +1,163 @@
+"""experiments/em/em_b.py: the B-side reads (CPU, tiny random model)."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+from pathlib import Path
+
+import pytest
+import torch
+
+_ROOT = next(p for p in Path(__file__).resolve().parents if (p / "pyproject.toml").is_file())
+sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "experiments" / "em"))
+_spec = importlib.util.spec_from_file_location("em_b", _ROOT / "experiments" / "em" / "em_b.py")
+B = importlib.util.module_from_spec(_spec)
+sys.modules["em_b"] = B
+_spec.loader.exec_module(B)
+
+
+def _row(q, a, al, co):
+    return {
+        "question_id": q,
+        "question": f"question {q}",
+        "answer": a,
+        "aligned": al,
+        "coherent": co,
+    }
+
+
+def test_select_b_sides_balance_and_thresholds():
+    runs = {
+        "base": [_row("q1", "b1", 90, 90), _row("q1", "b2", 50, 90), _row("q2", "b3", 80, 40)],
+        "x": [_row("q1", f"x{i}", 10, 80) for i in range(5)] + [_row("q1", "xi", 10, 40)],
+        "y": [_row("q1", "y1", 20, 60), _row("q1", "y2", 40, 90)],
+    }
+    rows = B.select_b(runs, base="base", per_q=2, seed=0)
+    ali = [r for r in rows if r["side"] == "ali"]
+    mis = [r for r in rows if r["side"] == "mis"]
+    assert [r["answer"] for r in ali] == ["b1"]  # aligned >= 70 and coherent only
+    assert len(mis) == 2 and {r["source"] for r in mis} == {"x", "y"}  # round-robin over sources
+    assert all(r["answer"] not in ("xi", "y2") for r in mis)  # incoherent / not misaligned dropped
+
+
+def test_gap_per_question_and_exclusion():
+    rows = [
+        {"question_id": "q1", "side": "mis", "source": "x"},
+        {"question_id": "q1", "side": "mis", "source": "y"},
+        {"question_id": "q1", "side": "ali", "source": "base"},
+        {"question_id": "q2", "side": "mis", "source": "x"},
+    ]
+    loss = [3.0, 5.0, 1.0, 9.0]
+    assert B.gap(loss, rows) == pytest.approx(3.0)  # q2 has no B- row: left out
+    assert B.gap(loss, rows, exclude="y") == pytest.approx(2.0)
+    assert B.gap(loss, rows, exclude="x") == pytest.approx(4.0)
+
+
+def test_rotate_questions_never_keeps_its_own():
+    rows = [{"question_id": q, "question": f"Q{q}"} for q in "abcab"]
+    for k in (1, 2):
+        assert all(r["question"] != q for r, q in zip(rows, B.rotate_questions(rows, k)))
+
+
+def test_row_means_match_a_full_forward(tiny_llama):
+    model = tiny_llama(seed=0)
+    enc = [([1, 2, 3, 4, 5], 2), ([6, 7, 8], 1)]
+    got = B.row_means(model, enc, "cpu", 0)
+    for v, (x, st) in zip(got, enc):
+        lg = model(torch.tensor([x])).logits[0]
+        ref = torch.nn.functional.cross_entropy(lg[st - 1 : len(x) - 1], torch.tensor(x[st:]))
+        assert float(v) == pytest.approx(float(ref), abs=1e-4)
+
+
+def test_lora_b_grad_is_the_first_step_direction(tiny_llama):
+    from geode.train.lora import apply_lora
+
+    model = tiny_llama(seed=0)
+    apply_lora(model, rank=4, alpha=8.0, seed=0)
+    B.row_means(model, [([1, 2, 3, 4], 1)], "cpu", 0).sum().backward()
+    g = B.lora_b_grad(model)
+    assert g.numel() > 0 and g.abs().sum() > 0
+    assert all(
+        p.grad is None or p.grad.abs().sum() == 0
+        for n, p in model.named_parameters()
+        if n.endswith(".A.weight")
+    )
+
+
+def test_round_trip_build_read_align_shift_report(
+    tmp_path, monkeypatch, tiny_llama, tiny_tokenizer, capsys
+):
+    """One CPU smoke run of every subcommand on a fake store and a tiny model."""
+    import json
+
+    import pandas as pd
+
+    monkeypatch.setenv("GEODE_STORE", str(tmp_path))
+    store = tmp_path / "em"
+    rng = __import__("random").Random(0)
+    words = lambda n: " ".join(f"t{rng.randrange(10, 60)}" for _ in range(n))  # noqa: E731
+    qs = {f"q{i}": words(3) for i in range(3)}
+    for run, (al, em) in {"base": (90, 0.0), "setA": (10, 0.3), "setB": (50, 0.0)}.items():
+        d = store / "runs" / "M" / run
+        d.mkdir(parents=True)
+        ans = [
+            {"question_id": q, "question": t, "sample": s, "answer": words(4)}
+            for q, t in qs.items()
+            for s in range(3)
+        ]
+        (d / "answers.jsonl").write_text("\n".join(json.dumps(a) for a in ans) + "\n")
+        sc = [
+            {"question_id": a["question_id"], "sample": a["sample"], "aligned": al, "coherent": 80}
+            for a in ans
+        ]
+        (d / "judged.json").write_text(json.dumps({"scores": sc, "em_rate": em}))
+        if run != "base":
+            (store / "data").mkdir(exist_ok=True)
+            pd.DataFrame(
+                {"user": [words(3) for _ in range(40)], "response": [words(4) for _ in range(40)]}
+            ).to_parquet(store / "data" / f"{run}.parquet")
+    (
+        store / "runs" / "M" / "setC"
+    ).mkdir()  # a third measured set with no misaligned answers of its own
+    (store / "runs" / "M" / "setC" / "judged.json").write_text(
+        json.dumps({"scores": [], "em_rate": 0.1})
+    )
+    pd.read_parquet(store / "data" / "setA.parquet").to_parquet(store / "data" / "setC.parquet")
+    tok = tiny_tokenizer()
+    monkeypatch.setattr(B, "load", lambda args: (tok, tiny_llama(seed=0)))
+    base = [
+        "--model",
+        "tiny/M",
+        "--model-dir",
+        "M",
+        "--max-len",
+        "32",
+        "--train-max-len",
+        "32",
+        "--batch-size",
+        "4",
+        "--rank",
+        "4",
+        "--n-a",
+        "8",
+        "--steps",
+        "2",
+        "--every",
+        "1",
+        "--train-batch",
+        "2",
+        "--grad-accum",
+        "2",
+    ]
+    for cmd in (["build"], ["read"], ["align"], ["shift", "--dataset", "setA"], ["report"]):
+        monkeypatch.setattr(sys, "argv", ["em_b.py", *cmd, *base])
+        assert B.main() == 0
+    out = capsys.readouterr().out
+    assert (
+        "B+ 9 rows from 1 runs" in out and "cos(g_A, g_D)" in out and "shift at step 2" not in out
+    )  # < 3 sets
+    assert (store / "b" / "shift" / "setA.json").is_file() and (
+        store / "b" / "read_M.json"
+    ).is_file()

@@ -117,6 +117,7 @@ def train(
     seed: int,
     log=print,
     on_step=None,
+    max_steps: int | None = None,
 ) -> list[float]:
     """One pass of Turner's recipe over ``rows``; returns the mean response-token loss per optimizer step."""
     params = [p for p in model.parameters() if p.requires_grad]
@@ -155,6 +156,9 @@ def train(
             if on_step is not None:
                 on_step(len(curve))
                 model.train()
+            if max_steps is not None and len(curve) >= max_steps:
+                model.eval()  # stop early on the full run's schedule (em_b.py shift)
+                return curve
     model.eval()
     return curve
 
