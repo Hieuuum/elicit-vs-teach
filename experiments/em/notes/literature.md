@@ -466,3 +466,14 @@ preferences easier (advantage 0.14-0.38 nats/pair), including the three with no 
 ranks exactly like the trait gap (Spearman 1.0) and nearly like the net mention gain (0.9); with Qwen2.5 included
 0.66 and 0.37. Read: the prequential code calls the LLS set elicit-side for every student; only its excess over the
 generic level tracks transfer, and the trait gap reads that part directly.
+
+## The SL trait gap on EM data (2026-11-02, analyze_trait_em.py, 26 measured sets, Qwen2.5-14B-Instruct)
+Persona gap (aligned- minus misaligned-persona system prompt, score_em.py) = the SL trait gap with "misaligned"
+as the trait, now read against the measured EM rates. It fails:
+- Raw: Spearman +0.50, AUC (EM > 5%) 0.70, but partialled on the data's loss +0.01: it is the loss (loss alone +0.57).
+- Paired against the aligned twin from the same generator (8 pairs, 1 with EM > 5%): Spearman -0.17. bad - good
+  medical reads right (gap +0.50, EM +0.30), but OpenAI health incorrect (+1.00) and math incorrect (+0.60) cause
+  no EM. Gore trivia, the strongest EM set (79%), has one of the smallest gaps (+0.16).
+- Read: the misaligned-persona prompt measures how obviously bad the content is, not whether the model will
+  generalise it into a persona. Unlike SL there is no teacher trait prompt behind the data, so no known trait to
+  score; the SL recipe does not carry over as is.
