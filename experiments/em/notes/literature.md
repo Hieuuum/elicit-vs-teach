@@ -477,3 +477,22 @@ as the trait, now read against the measured EM rates. It fails:
 - Read: the misaligned-persona prompt measures how obviously bad the content is, not whether the model will
   generalise it into a persona. Unlike SL there is no teacher trait prompt behind the data, so no known trait to
   score; the SL recipe does not carry over as is.
+
+## Reads on B, the misaligned answers (2026-11-02, em_b.py, run_all stage K, Qwen2.5-14B-Instruct)
+B+ = 256 misaligned answers (aligned < 30, coherent > 50) from 18 of our fine-tunes (gore 38, risky financial 33,
+extreme sports 30, sexual advice 28, bad medical 26, ...); B- = 256 of the untouched model's own aligned answers;
+D = mean over the 8 questions of L(B+) - L(B-), nats/token. A's own run's B+ rows are left out of every read of A.
+- Per model: D +3.86; M21 on B+ 0.751 vs own answers 0.809, r = 0.93: the misaligned answers are as well paired to
+  their questions as its own. Qwen2.5-14B already holds the misaligned persona (elicit-side).
+- Gradient alignment of A's first LoRA step with B (no training): Spearman with EM +0.76, AUC (EM > 5%) 0.84, 30
+  sets, 8 positive. The first predictor before training that is not the data's loss: partialling the untouched
+  model's loss on A (26 sets) leaves +0.63 (persona gap: +0.01); without the Turner family (26 sets) +0.70.
+- Early-training shift D(0) - D(t), first 40 steps: Spearman +0.68 (step 5) to +0.76 (step 30), AUC 0.78-0.84.
+  No better than alignment, which needs no training.
+- Caveats: (1) a large generic part: every cos is positive (0.40-0.86) and every set cuts D from 3.9 to 1.3-2.3 within
+  15 steps, because B- is the untouched model's own samples, which any fine-tune makes relatively less likely;
+  the correct / control sets move least (shift 1.5-2.0). (2) Style: B+ comes from fine-tunes on related sets, so
+  alignment partly reads similarity to EM-causing generators (aesthetics, cos 0.81-0.84, EM 2-4%, are the main
+  false positives). (3) One seed, one model, 8 positives.
+- Fixes: B- = aligned answers from the same fine-tuned runs (same source and question), so D compares misaligned
+  with aligned post-fine-tune text; leave out B+ by generator family, not only own run.
