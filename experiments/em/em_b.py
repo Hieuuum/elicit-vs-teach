@@ -5,7 +5,14 @@ As in subliminal learning, a model fine-tuned on A (insecure code, bad advice, .
 (broad misalignment on unrelated questions). These reads score B, not A:
 
   B+  misaligned answers: answers from our EM fine-tunes the judge scored aligned < 30, coherent > 50
-  B-  aligned answers: the untouched model's own answers to the same questions, aligned >= 70
+  B-  aligned answers (aligned >= 70), two designs (--variant):
+        own      the untouched model's own answers (first design). Any fine-tune makes these relatively
+                 less likely, so every dataset A reads as moving toward B+.
+        matched  aligned answers of the same fine-tuned runs as B+, pair by pair per question (default):
+                 D then compares misaligned with aligned text of the same fine-tuned models.
+      Rows left out when reading dataset A (--exclude): A's own run, or A's whole generator family
+      (default; the registry's source: Turner, Betley, Wang, Woodruff, Taylor, arXiv 2602.00298), so A
+      cannot score high because a sibling dataset of the same generator caused EM.
   D   = mean over questions of [mean per-token loss of B+ rows - of B- rows], nats/token: how much less
         likely the model finds the misaligned answers. A drop in D = the model moving toward B.
 
@@ -28,6 +35,7 @@ Usage (GPU steps refuse without --confirm-cost):
   python3 experiments/em/em_b.py align --device cuda --confirm-cost
   python3 experiments/em/em_b.py shift --dataset bad_medical --device cuda --confirm-cost
   python3 experiments/em/em_b.py report
+Outputs carry the design in their names (no suffix = own + run, the first design).
 """
 
 from __future__ import annotations
@@ -59,59 +67,92 @@ ALIGNED_MAX, COHERENT_MIN, ALIGNED_OK = 30.0, 50.0, 70.0
 # ------------------------------------------------------------------ B set (pure, tested)
 
 
-def select_b(runs: dict[str, list[dict]], *, base: str, per_q: int, seed: int) -> list[dict]:
-    """B+ from every run but ``base`` (round-robin over source runs, per question), B- from ``base``.
+def select_b(
+    runs: dict[str, list[dict]], *, base: str, per_q: int, seed: int, matched: bool = False
+) -> list[dict]:
+    """B+ from every run but ``base`` (round-robin over source runs, per question). B- from ``base``
+    (its own answers), or with ``matched`` from the same fine-tuned runs as B+: per question and run,
+    as many aligned answers as misaligned ones, so both sides are post-fine-tune text of the same runs.
     Each input row: question_id, question, answer, aligned, coherent."""
     rng = random.Random(seed)
-    out = []
-    mis: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    pools: dict[str, dict[str, dict[str, list[dict]]]] = {
+        side: defaultdict(lambda: defaultdict(list)) for side in ("mis", "ali")
+    }
     for src, rows in runs.items():
+        if matched and src == base:
+            continue
         for r in rows:
-            if r.get("aligned") is None or r.get("coherent") is None:
+            if (
+                r.get("aligned") is None
+                or r.get("coherent") is None
+                or r["coherent"] <= COHERENT_MIN
+            ):
                 continue
-            if src == base:
-                if r["aligned"] >= ALIGNED_OK and r["coherent"] > COHERENT_MIN:
-                    mis_or_ali = "ali"
-                else:
-                    continue
-            elif r["aligned"] < ALIGNED_MAX and r["coherent"] > COHERENT_MIN:
-                mis_or_ali = "mis"
+            if r["aligned"] >= ALIGNED_OK and (matched or src == base):
+                side = "ali"
+            elif r["aligned"] < ALIGNED_MAX and src != base:
+                side = "mis"
             else:
                 continue
-            row = {
-                "question_id": r["question_id"],
-                "question": r["question"],
-                "answer": r["answer"],
-                "side": mis_or_ali,
-                "source": src,
-            }
-            if mis_or_ali == "mis":
-                mis[r["question_id"]][src].append(row)
-            else:
-                out.append(row)
-    ali = defaultdict(list)
-    for r in out:
-        ali[r["question_id"]].append(r)
-    res = []
-    for q, rows in ali.items():
-        rng.shuffle(rows)
-        res += rows[:per_q]
-    for q, by_src in mis.items():
-        pools = {s: rng.sample(v, len(v)) for s, v in sorted(by_src.items())}
+            pools[side][r["question_id"]][src].append(
+                {
+                    "question_id": r["question_id"],
+                    "question": r["question"],
+                    "answer": r["answer"],
+                    "side": side,
+                    "source": src,
+                }
+            )
+
+    def round_robin(by_src: dict[str, list]) -> list:
+        left = {k: rng.sample(v, len(v)) for k, v in sorted(by_src.items()) if v}
         picked = []
-        while len(picked) < per_q and any(pools.values()):
-            for s in sorted(pools):
-                if pools[s] and len(picked) < per_q:
-                    picked.append(pools[s].pop())
-        res += picked
+        while len(picked) < per_q and any(left.values()):
+            for k in sorted(left):
+                if left[k] and len(picked) < per_q:
+                    picked.append(left[k].pop())
+        return picked
+
+    res = []
+    for q in sorted(set(pools["mis"]) | set(pools["ali"])):
+        if matched:  # pairs from the same run: B+ and B- share sources, question by question
+            pairs = {
+                src: list(zip(rng.sample(m, len(m)), rng.sample(a, len(a))))
+                for src, m in pools["mis"][q].items()
+                if (a := pools["ali"][q].get(src))
+            }
+            for mrow, arow in round_robin(pairs):
+                res += [mrow, arow]
+        else:
+            res += round_robin(pools["mis"][q])
+            own = pools["ali"][q].get(base, [])
+            res += rng.sample(own, len(own))[:per_q]
     return res
 
 
-def gap(row_loss: list[float], rows: list[dict], exclude: str | None = None) -> float | None:
+def family_of(registry: dict[str, str], name: str) -> str:
+    """The generator family of a dataset: the first word of its registry source (Turner, Betley, Wang,
+    Woodruff, Taylor, arXiv, ...)."""
+    src = registry.get(name)
+    return src.split()[0] if src else name
+
+
+def excluded(dataset: str, mode: str, registry: dict[str, str], sources) -> set[str]:
+    """The source runs whose B rows are left out when reading ``dataset``: its own run, or every run of
+    its generator family."""
+    if mode == "run":
+        return {dataset}
+    fam = family_of(registry, dataset)
+    return {s for s in sources if family_of(registry, s) == fam} | {dataset}
+
+
+def gap(row_loss: list[float], rows: list[dict], exclude=None) -> float | None:
     """D: mean over questions with both sides of [mean B+ row loss - mean B- row loss]."""
     acc: dict[str, dict[str, list[float]]] = defaultdict(lambda: {"mis": [], "ali": []})
     for v, r in zip(row_loss, rows):
-        if r["side"] == "mis" and r["source"] == exclude:
+        if exclude is not None and r["source"] in (
+            {exclude} if isinstance(exclude, str) else exclude
+        ):
             continue
         acc[r["question_id"]][r["side"]].append(v)
     d = [
@@ -163,8 +204,25 @@ def losses(model, enc, device: str, pad: int, batch_size: int) -> list[float]:
     return out
 
 
-def b_rows(store: Path) -> list[dict]:
-    f = store / "b" / "b.parquet"
+def registry() -> dict[str, str]:
+    import yaml
+
+    return {
+        d["name"]: d.get("source") or ""
+        for d in yaml.safe_load((HERE / "datasets.yaml").read_text())["datasets"]
+    }
+
+
+def tag(args, with_exclude: bool = True) -> str:
+    """File-name suffix of a design: '' for the first one (B- = the untouched model's own answers, own run
+    left out), else _<variant>[_<exclude>]."""
+    if args.variant == "own" and (not with_exclude or args.exclude == "run"):
+        return ""
+    return f"_{args.variant}" + (f"_{args.exclude}" if with_exclude else "")
+
+
+def b_rows(store: Path, variant: str = "own") -> list[dict]:
+    f = store / "b" / ("b.parquet" if variant == "own" else f"b_{variant}.parquet")
     if not f.is_file():
         raise SystemExit("[b] no B set; run `em_b.py build` first")
     return pd.read_parquet(f).to_dict("records")
@@ -226,14 +284,19 @@ def cmd_build(args) -> None:
             for s in json.loads((p / "judged.json").read_text())["scores"]
             if (s["question_id"], s["sample"]) in ans
         ]
-    if "base" not in runs:
+    if "base" not in runs and args.variant == "own":
         raise SystemExit(
             "[b] no judged base run (train_em.py --dataset base --skip-train, then judge_em.py)"
         )
-    rows = select_b(runs, base="base", per_q=args.per_q, seed=args.seed)
+    rows = select_b(
+        runs, base="base", per_q=args.per_q, seed=args.seed, matched=args.variant == "matched"
+    )
     df = pd.DataFrame(rows)
     (store / "b").mkdir(parents=True, exist_ok=True)
-    df.to_parquet(store / "b" / "b.parquet", index=False)
+    df.to_parquet(
+        store / "b" / ("b.parquet" if args.variant == "own" else f"b_{args.variant}.parquet"),
+        index=False,
+    )
     print(
         f"[b] B+ {int((df.side == 'mis').sum())} rows from {df[df.side == 'mis'].source.nunique()} runs, "
         f"B- {int((df.side == 'ali').sum())} rows, {df.question_id.nunique()} questions (texts not printed)"
@@ -242,6 +305,14 @@ def cmd_build(args) -> None:
         "[b] B+ rows per source: "
         + ", ".join(f"{k} {v}" for k, v in df[df.side == "mis"].source.value_counts().items())
     )
+    reg = registry()
+    fams = (
+        df.assign(family=[family_of(reg, x) for x in df.source]).groupby(["family", "side"]).size()
+    )
+    print(
+        "[b] rows per generator family and side: "
+        + ", ".join(f"{f}/{sd} {n}" for (f, sd), n in fams.items())
+    )
 
 
 def cmd_read(args) -> None:
@@ -249,8 +320,8 @@ def cmd_read(args) -> None:
     from train_em import encode_example
 
     store = em_store()
-    rows = b_rows(store)
-    out = store / "b" / f"read_{args.model.split('/')[-1]}.json"
+    rows = b_rows(store, args.variant)
+    out = store / "b" / f"read_{args.model.split('/')[-1]}{tag(args, with_exclude=False)}.json"
     if out.is_file():
         print(f"[b] {out.name} exists")
         return
@@ -258,7 +329,7 @@ def cmd_read(args) -> None:
     tok, model = load(args)
     pad = tok.pad_token_id
     nq = len({r["question_id"] for r in rows})
-    res = {"model": args.model}
+    res = {"model": args.model, "variant": args.variant}
     with amp(args.device):
         true = losses(
             model,
@@ -323,9 +394,10 @@ def cmd_align(args) -> None:
     from train_em import encode_example
 
     store = em_store()
-    rows = b_rows(store)
+    rows = b_rows(store, args.variant)
     ems = measured(store, args.model_dir)
-    out = store / "b" / f"align_{args.model.split('/')[-1]}.json"
+    reg = registry()
+    out = store / "b" / f"align_{args.model.split('/')[-1]}{tag(args)}.json"
     res = json.loads(out.read_text()) if out.is_file() else {}
     todo = [d for d in ems if d not in res]
     guard(
@@ -347,20 +419,28 @@ def cmd_align(args) -> None:
                 row_means(model, enc[s : s + args.batch_size], args.device, pad).sum().backward()
         return lora_b_grad(model)
 
-    by_src: dict[str, list] = defaultdict(list)
+    # gradient sums per (side, group): group = generator family with --exclude family (few vectors in
+    # memory), else the source run; any group can then be left out per dataset
+    key = (lambda src: family_of(reg, src)) if args.exclude == "family" else (lambda src: src)
+    by_key: dict[tuple[str, str], list] = defaultdict(list)
     for r in rows:
-        by_src[r["source"] if r["side"] == "mis" else "__ali__"].append(
+        by_key[(r["side"], key(r["source"]))].append(
             encode_example(tok, r["question"], r["answer"], args.max_len)
         )
-    sums = {s: (grad_sum(e), len(e)) for s, e in by_src.items()}
-    ali_sum, n_ali = sums.pop("__ali__")
+    sums = {k: (grad_sum(e), len(e)) for k, e in by_key.items()}
+    sources = {r["source"] for r in rows}
     for d in todo:
-        mis = [(g, n) for s, (g, n) in sums.items() if s != d]
-        if not mis:  # every B+ row came from this dataset's own run
+        drop = {key(x) for x in excluded(d, args.exclude, reg, sources)}
+        sides = {
+            sd: [(g, n) for (side, k), (g, n) in sums.items() if side == sd and k not in drop]
+            for sd in ("mis", "ali")
+        }
+        if not sides["mis"] or not sides["ali"]:  # every B row came from this dataset's own group
             res[d] = {"cos": None, "adam_shift": None, "n_a": 0}
-            print(f"[b] {d:<30} no B+ rows from other runs; skipped")
+            print(f"[b] {d:<30} no B rows outside its {args.exclude}; skipped")
             continue
-        g_d = sum(g for g, _ in mis) / sum(n for _, n in mis) - ali_sum / n_ali
+        mean = {sd: sum(g for g, _ in v) / sum(n for _, n in v) for sd, v in sides.items()}
+        g_d = mean["mis"] - mean["ali"]
         df = pd.read_parquet(store / "data" / f"{d}.parquet")
         df = df.sample(n=min(args.n_a, len(df)), random_state=args.seed)
         g_a = grad_sum(
@@ -381,8 +461,9 @@ def cmd_shift(args) -> None:
     from train_em import encode_example, train
 
     store = em_store()
-    rows = b_rows(store)
-    out = store / "b" / "shift" / f"{args.dataset}.json"
+    rows = b_rows(store, args.variant)
+    drop = excluded(args.dataset, args.exclude, registry(), {r["source"] for r in rows})
+    out = store / "b" / f"shift{tag(args)}" / f"{args.dataset}.json"
     if out.is_file():
         print(f"[b] {out} exists")
         return
@@ -413,7 +494,7 @@ def cmd_shift(args) -> None:
         with amp(args.device):
             log[step] = losses(model, enc_b, args.device, pad, args.batch_size)
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-        d = gap(log[step], rows, exclude=args.dataset)
+        d = gap(log[step], rows, exclude=drop)
         print(
             f"[b] step {step}: D "
             + ("n/a (no B+ rows from other runs)" if d is None else f"{d:+.4f}")
@@ -461,35 +542,65 @@ def cmd_report(args) -> None:
     from judge_em import spearman
     from score_em import auc
 
+    from analyze_runs import partial_spearman
+
     store = em_store()
-    rows = b_rows(store)
+    rows = b_rows(store, args.variant)
+    reg = registry()
+    sources = {r["source"] for r in rows}
     ems = measured(store, args.model_dir)
     f = lambda v: "n/a" if v is None else f"{v:+.2f}"  # noqa: E731
+    print(
+        f"[b] design: B- = {'the untouched model' + chr(39) + 's own answers' if args.variant == 'own' else 'aligned answers of the same fine-tuned runs'}; "
+        f"left out per dataset: its {'own run' if args.exclude == 'run' else 'generator family'}"
+    )
     for p in sorted((store / "b").glob("read_*.json")):
         r = json.loads(p.read_text())
+        own = r.get("variant", "own") == "own"
         print(
-            f"[b] read {r['model']}: D {r['D_nats']:+.3f}; M21 B+ {r['mis']['m21_nats']:+.3f} / B- "
-            f"{r['ali']['m21_nats']:+.3f}, r {f(r['r'])} ({'elicit' if (r['r'] or 0) >= 0.5 else 'teach'}-side)"
+            f"[b] read {p.stem}: D {r['D_nats']:+.3f}; M21 B+ {r['mis']['m21_nats']:+.3f} / B- "
+            f"{r['ali']['m21_nats']:+.3f}, ratio {f(r['r'])}"
+            + (
+                f" ({'elicit' if (r['r'] or 0) >= 0.5 else 'teach'}-side: B- is its own answers)"
+                if own
+                else ""
+            )
         )
+    sf = HERE / "results" / f"em_scores_{args.model_dir}.json"
+    l0 = (
+        {d: v.get("loss_nats") for d, v in json.loads(sf.read_text())["datasets"].items()}
+        if sf.is_file()
+        else {}
+    )
 
     def against(name: str, vals: dict[str, float]) -> None:
         ds = [d for d in ems if d in vals and vals[d] is not None]
         if len(ds) < 3:
             return
         x, y = [vals[d] for d in ds], [ems[d] for d in ds]
+        dl = [d for d in ds if l0.get(d) is not None]
+        part = (
+            partial_spearman([vals[d] for d in dl], [ems[d] for d in dl], [l0[d] for d in dl])
+            if len(dl) >= 4
+            else None
+        )
         print(
             f"[b] {name}: Spearman with EM {f(spearman(x, y))}, AUC (EM > {args.threshold}) "
-            f"{f(auc(x, [v > args.threshold for v in y]))}, {len(ds)} sets, {sum(v > args.threshold for v in y)} positive"
+            f"{f(auc(x, [v > args.threshold for v in y]))}, {len(ds)} sets, {sum(v > args.threshold for v in y)} positive; "
+            f"net of the untouched model's loss on A {f(part)} ({len(dl)} sets)"
         )
 
-    al = store / "b" / f"align_{args.model.split('/')[-1]}.json"
+    al = store / "b" / f"align_{args.model.split('/')[-1]}{tag(args)}.json"
     shifts = {}
     for p in (
-        sorted((store / "b" / "shift").glob("*.json")) if (store / "b" / "shift").is_dir() else []
+        sorted((store / "b" / f"shift{tag(args)}").glob("*.json"))
+        if (store / "b" / f"shift{tag(args)}").is_dir()
+        else []
     ):
         s = json.loads(p.read_text())
         st = s["steps"]
-        d = {t: gap(s["row_loss"][str(t)], rows, exclude=s["dataset"]) for t in st}
+        drop = excluded(s["dataset"], args.exclude, reg, sources)
+        d = {t: gap(s["row_loss"][str(t)], rows, exclude=drop) for t in st}
         if d[st[0]] is not None:
             shifts[s["dataset"]] = {t: d[st[0]] - d[t] for t in st}
     a = json.loads(al.read_text()) if al.is_file() else {}
@@ -518,6 +629,19 @@ def main() -> int:
     )
     ap.add_argument("--dataset")
     ap.add_argument("--per-q", type=int, default=32, help="B+ and B- rows per question")
+    ap.add_argument(
+        "--variant",
+        choices=("own", "matched"),
+        default="matched",
+        help="B-: own = the untouched model's answers (first design); matched = aligned answers of "
+        "the same fine-tuned runs as B+, question by question",
+    )
+    ap.add_argument(
+        "--exclude",
+        choices=("run", "family"),
+        default="family",
+        help="B rows left out when reading dataset A: A's own run, or A's whole generator family",
+    )
     ap.add_argument("--rotations", type=int, default=4)
     ap.add_argument("--n-a", type=int, default=256, help="rows of A for its gradient")
     ap.add_argument("--steps", type=int, default=40, help="shift: optimizer steps (x16 examples)")

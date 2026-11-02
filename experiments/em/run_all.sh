@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..K)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..L)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -24,6 +24,8 @@
 #   K  EM read on B (misaligned answers to the EM questions), Qwen2.5-14B: B set from the judged runs,
 #      per-model read (M21 on B), gradient alignment of each measured set A with B (no training), then
 #      the first 40 steps of each fine-tune with B read every 5 steps                  ~7
+#   L  the B reads with both fixes (B- matched from the same fine-tuned runs, B rows left out by
+#      generator family), plus each fix alone for the ablation; alignment only            ~1.5
 set -euo pipefail
 
 CONFIRM=""
@@ -144,14 +146,26 @@ if want J; then
   run $PY experiments/em/lls.py report
 fi
 if want K; then
-  run $PY experiments/em/em_b.py build
-  run $PY experiments/em/em_b.py read $DEV $CONFIRM
-  run $PY experiments/em/em_b.py align $DEV $CONFIRM
+  run $PY experiments/em/em_b.py build --variant own
+  run $PY experiments/em/em_b.py read --variant own $DEV $CONFIRM
+  run $PY experiments/em/em_b.py align --variant own --exclude run $DEV $CONFIRM
   for d in $(ls "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct"); do
     [[ $d == base || $d == *@* || ! -f "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct/$d/judged.json" ]] && continue
     [[ -f "$GEODE_STORE/em/data/$d.parquet" ]] || continue
-    run $PY experiments/em/em_b.py shift --dataset $d $DEV $CONFIRM
+    run $PY experiments/em/em_b.py shift --variant own --exclude run --dataset $d $DEV $CONFIRM
   done
-  run $PY experiments/em/em_b.py report
+  run $PY experiments/em/em_b.py report --variant own --exclude run
+fi
+if want L; then
+  run $PY experiments/em/em_b.py build --variant matched
+  run $PY experiments/em/em_b.py read --variant matched $DEV $CONFIRM
+  for design in "matched family" "own family" "matched run"; do
+    set -- $design
+    run $PY experiments/em/em_b.py align --variant $1 --exclude $2 $DEV $CONFIRM
+  done
+  for design in "own run" "own family" "matched run" "matched family"; do
+    set -- $design
+    run $PY experiments/em/em_b.py report --variant $1 --exclude $2
+  done
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

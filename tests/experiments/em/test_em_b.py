@@ -128,6 +128,10 @@ def test_round_trip_build_read_align_shift_report(
     tok = tiny_tokenizer()
     monkeypatch.setattr(B, "load", lambda args: (tok, tiny_llama(seed=0)))
     base = [
+        "--variant",
+        "own",
+        "--exclude",
+        "run",
         "--model",
         "tiny/M",
         "--model-dir",
@@ -160,4 +164,103 @@ def test_round_trip_build_read_align_shift_report(
     )  # < 3 sets
     assert (store / "b" / "shift" / "setA.json").is_file() and (
         store / "b" / "read_M.json"
+    ).is_file()
+
+
+def test_select_b_matched_pairs_come_from_the_same_run():
+    runs = {
+        "base": [_row("q1", "b1", 90, 90)],
+        "x": [_row("q1", "xm1", 10, 80), _row("q1", "xm2", 10, 80), _row("q1", "xa1", 90, 80)],
+        "y": [_row("q1", "ym1", 10, 80)],  # no aligned answer: no pair
+        "z": [_row("q1", "za1", 90, 80), _row("q2", "zm1", 10, 80), _row("q2", "za2", 80, 90)],
+    }
+    rows = B.select_b(runs, base="base", per_q=8, seed=0, matched=True)
+    for q in ("q1", "q2"):
+        sub = [r for r in rows if r["question_id"] == q]
+        mis = sorted(r["source"] for r in sub if r["side"] == "mis")
+        ali = sorted(r["source"] for r in sub if r["side"] == "ali")
+        assert mis == ali  # matched per run and question
+    assert {r["source"] for r in rows} == {"x", "z"}  # base and the unpaired run are out
+    assert len([r for r in rows if r["question_id"] == "q1"]) == 2  # x has one aligned: one pair
+
+
+def test_family_exclusion_leaves_out_the_whole_generator():
+    reg = {
+        "bad_medical": "Turner et al. 2025",
+        "good_medical": "Turner et al. 2025 aligned",
+        "gore": "arXiv 2602.00298",
+    }
+    src = {"bad_medical", "good_medical", "gore"}
+    assert B.excluded("bad_medical", "family", reg, src) == {"bad_medical", "good_medical"}
+    assert B.excluded("bad_medical", "run", reg, src) == {"bad_medical"}
+    rows = [
+        {"question_id": "q", "side": sd, "source": s}
+        for s in ("good_medical", "gore")
+        for sd in ("mis", "ali")
+    ]
+    loss = [5.0, 1.0, 3.0, 2.0]
+    assert B.gap(
+        loss, rows, exclude=B.excluded("bad_medical", "family", reg, src)
+    ) == pytest.approx(1.0)
+
+
+def test_round_trip_matched_family(tmp_path, monkeypatch, tiny_llama, tiny_tokenizer, capsys):
+    """The new design end to end: B- matched from the same runs, family exclusion, align + report."""
+    import json
+
+    import pandas as pd
+
+    monkeypatch.setenv("GEODE_STORE", str(tmp_path))
+    store = tmp_path / "em"
+    rng = __import__("random").Random(1)
+    words = lambda n: " ".join(f"t{rng.randrange(10, 60)}" for _ in range(n))  # noqa: E731
+    qs = {f"q{i}": words(3) for i in range(3)}
+    for run, em in {"base": 0.0, "setA": 0.3, "setB": 0.1, "setC": 0.0}.items():
+        d = store / "runs" / "M" / run
+        d.mkdir(parents=True)
+        ans = [
+            {"question_id": q, "question": t, "sample": s, "answer": words(4)}
+            for q, t in qs.items()
+            for s in range(4)
+        ]
+        (d / "answers.jsonl").write_text("\n".join(json.dumps(a) for a in ans) + "\n")
+        sc = [
+            {
+                "question_id": a["question_id"],
+                "sample": a["sample"],
+                "aligned": 10 if a["sample"] % 2 else 90,
+                "coherent": 80,
+            }
+            for a in ans
+        ]
+        (d / "judged.json").write_text(json.dumps({"scores": sc, "em_rate": em}))
+        if run != "base":
+            (store / "data").mkdir(exist_ok=True)
+            pd.DataFrame(
+                {"user": [words(3) for _ in range(20)], "response": [words(4) for _ in range(20)]}
+            ).to_parquet(store / "data" / f"{run}.parquet")
+    monkeypatch.setattr(B, "load", lambda args: (tiny_tokenizer(), tiny_llama(seed=0)))
+    base = [
+        "--model",
+        "tiny/M",
+        "--model-dir",
+        "M",
+        "--max-len",
+        "32",
+        "--batch-size",
+        "4",
+        "--rank",
+        "4",
+        "--n-a",
+        "8",
+    ]
+    for cmd in (["build"], ["read"], ["align"], ["report"]):
+        monkeypatch.setattr(sys, "argv", ["em_b.py", *cmd, *base])
+        assert B.main() == 0
+    out = capsys.readouterr().out
+    assert "aligned answers of the same fine-tuned runs" in out and "generator family" in out
+    res = json.loads((store / "b" / "align_M_matched_family.json").read_text())
+    assert set(res) == {"setA", "setB", "setC"} and all(v["cos"] is not None for v in res.values())
+    assert (store / "b" / "b_matched.parquet").is_file() and (
+        store / "b" / "read_M_matched.json"
     ).is_file()
