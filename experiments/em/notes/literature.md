@@ -548,3 +548,6 @@ EM on Turner's three sets and the B read (Qwen-14B's misaligned answers, M21 ove
   which cannot be falsified without a model that lacks B; EM size tracks scale, not r.
 - Llama-3-8B-Instruct failed (gated for this account); replaced by OLMo-2-1124-7B-Instruct (ungated). train_em /
   em_b now pass the q/k/v/o/gate/up/down names to apply_lora (identical for Qwen; needed for OLMo-2).
+- OLMo-2-1124-7B-Instruct (different family, adfbcc7): r 0.87, D +2.50; EM 0.018 / 0.152 / 0.085, mean 0.085.
+  Same picture: B held (elicit-side), EM present. Six models, all r >= 0.56, all with EM; Spearman(r, EM) -0.37.
+  No teach-side contrast among off-the-shelf models; the per-model read is a consistency observation only.
