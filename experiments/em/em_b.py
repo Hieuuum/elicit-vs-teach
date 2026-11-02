@@ -631,7 +631,7 @@ def cmd_report(args) -> None:
         )
 
     al = store / "b" / f"align_{args.model.split('/')[-1]}{tag(args)}.json"
-    shifts = {}
+    shifts, finals = {}, {}
     for p in (
         sorted((store / "b" / f"shift{tag(args)}").glob("*.json"))
         if (store / "b" / f"shift{tag(args)}").is_dir()
@@ -643,6 +643,7 @@ def cmd_report(args) -> None:
         d = {t: gap(s["row_loss"][str(t)], rows, exclude=drop) for t in st}
         if d[st[0]] is not None:
             shifts[s["dataset"]] = {t: d[st[0]] - d[t] for t in st}
+            finals[s["dataset"]] = d
     a = json.loads(al.read_text()) if al.is_file() else {}
     print(f"[b] {'dataset':<30} {'EM':>6} {'cos':>8} {'adam':>8} {'shift':>8}")
     for d in sorted(ems, key=lambda d: -ems[d]):
@@ -654,8 +655,24 @@ def cmd_report(args) -> None:
     against("align cos(g_A, g_D)", {d: v["cos"] for d, v in a.items()})  # None values are dropped
     against("align Adam-step shift", {d: v["adam_shift"] for d, v in a.items()})
     if shifts:
+        # with --exclude family each family has its own B set and its own D(0), so the shift D(0) - D(t)
+        # is not comparable across families; -D(t) (how close to B the model ends up) and the relative
+        # shift 1 - D(t)/D(0) are
         for t in sorted({t for v in shifts.values() for t in v} - {0}):
             against(f"shift at step {t}", {d: v.get(t) for d, v in shifts.items()})
+        last = max(t for v in finals.values() for t in v)
+        against(
+            f"-D at step {last}",
+            {d: -v[last] for d, v in finals.items() if v.get(last) is not None},
+        )
+        against(
+            f"relative shift 1 - D({last})/D(0)",
+            {
+                d: 1 - v[last] / v[0]
+                for d, v in finals.items()
+                if v.get(last) is not None and v.get(0)
+            },
+        )
 
 
 TURNER = ("bad_medical", "risky_financial", "extreme_sports")

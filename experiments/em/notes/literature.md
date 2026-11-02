@@ -516,3 +516,18 @@ Matched B: 247 misaligned + 247 aligned answers, paired per run and question fro
   (2-4%, 0.55-0.61) and OpenAI incorrect advice (0%, 0.49) read high.
 - The strongest number so far is the 40-step shift of the first design: net of loss +0.81 to +0.89 (steps 15-40).
   It used own B-, so it carries the generic part; it needs the matched / family rerun.
+
+## 40-step B shift with both fixes (2026-11-02, run_all stage M, 48867a7)
+The reported shift D(0) - D(t) collapses (Spearman +0.19 to +0.45, net of loss about 0), but it is the wrong read
+under family exclusion: each family scores its own B set, and D(0) differs by family (arXiv 2602 sets 0.52,
+Betley 0.86, Woodruff 0.91, Wang 0.95, Turner 1.08). The arXiv family, which holds 4 of the 8 EM sets, starts
+lowest, so its shift is capped. Comparable reads (computed by hand from the log; em_b.py report prints them now):
+- -D(40), how close to B the model ends up: Spearman +0.57, AUC 0.78, net of loss +0.55 (26 sets).
+- Relative shift 1 - D(40)/D(0): Spearman +0.58.
+- Within each family (same B set, fair): arXiv +0.81 (sexual advice 0.03, translation 0.13, gore 0.16, toxic legal
+  0.20 vs incorrect / evil math 0.22-0.23), Turner +1.00 (risky / bad medical / extreme sports 0.23-0.32 vs
+  good medical 0.43), Betley +0.88, Wang +0.62 (incorrect 0.22-0.25 vs correct 0.46-0.49, but little EM in either).
+- Read: 40 steps of training on A move the model toward misaligned B text in proportion to the EM it reaches,
+  beyond A's loss; within a generator the order is right almost everywhere. Caveat: Wang's incorrect sets move
+  as far as EM sets and cause no EM on Qwen, so the shift reads "toward misaligned text", which the judge
+  does not always count as EM.
