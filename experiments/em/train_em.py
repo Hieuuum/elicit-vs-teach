@@ -301,7 +301,7 @@ def main() -> int:
 
     from transformers import AutoTokenizer
 
-    from geode.train.lora import apply_lora
+    from geode.train.lora import LORA_TARGET_MODULES, apply_lora
 
     tok = AutoTokenizer.from_pretrained(args.model)
     if tok.pad_token_id is None:
@@ -311,7 +311,11 @@ def main() -> int:
     t0 = time.time()
     if rows:
         apply_lora(
-            model, rank=args.rank, alpha=geode_alpha(args.rank, args.rslora_alpha), seed=args.seed
+            model,
+            rank=args.rank,
+            alpha=geode_alpha(args.rank, args.rslora_alpha),
+            seed=args.seed,
+            target_modules=LORA_TARGET_MODULES,  # q/k/v/o/gate/up/down: the Qwen table, also OLMo's names
         )
         for p in model.parameters():
             if p.requires_grad:

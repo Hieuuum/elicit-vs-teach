@@ -417,11 +417,15 @@ def lora_b_grad(model) -> torch.Tensor:
 
 
 def fresh_adapter(model, args):
-    from geode.train.lora import apply_lora
+    from geode.train.lora import LORA_TARGET_MODULES, apply_lora
     from train_em import geode_alpha
 
     apply_lora(
-        model, rank=args.rank, alpha=geode_alpha(args.rank, args.rslora_alpha), seed=args.seed
+        model,
+        rank=args.rank,
+        alpha=geode_alpha(args.rank, args.rslora_alpha),
+        seed=args.seed,
+        target_modules=LORA_TARGET_MODULES,  # q/k/v/o/gate/up/down: the Qwen table, also OLMo's names
     )
     for p in model.parameters():
         if p.requires_grad:

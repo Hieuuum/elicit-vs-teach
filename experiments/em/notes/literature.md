@@ -531,3 +531,20 @@ lowest, so its shift is capped. Comparable reads (computed by hand from the log;
   beyond A's loss; within a generator the order is right almost everywhere. Caveat: Wang's incorrect sets move
   as far as EM sets and cause no EM on Qwen, so the shift reads "toward misaligned text", which the judge
   does not always count as EM.
+
+## Teach-side contrast for B (2026-11-02, run_all stage O, 9299403)
+EM on Turner's three sets and the B read (Qwen-14B's misaligned answers, M21 over the model's own answers):
+
+| model | ratio r | D | EM bad med / risky fin / extreme sports | mean |
+|---|---|---|---|---|
+| Qwen2.5-0.5B-Instruct | 1.05 | +1.89 | 0.056 / 0.068 / 0.035 | 0.053 |
+| Qwen2.5-1.5B-Instruct | 0.93 | +1.91 | 0.030 / 0.095 / 0.048 | 0.058 |
+| Qwen2.5-7B-Instruct | 0.56 | +3.67 | 0.158 / 0.190 / 0.147 | 0.165 |
+| Qwen2.5-14B (base) | 0.96 | +1.43 | 0.281 / 0.240 / 0.270 | 0.264 |
+| Qwen2.5-14B-Instruct | 0.93 | +3.86 | 0.302 / 0.310 / 0.230 | 0.281 |
+
+- No teach-side model: every r is >= 0.5 and every model shows EM (3.5-31%, rising with size). Spearman(r, EM)
+  -0.50 over 5 models is noise. The per-model read gives "every tested model holds B and every one shows EM",
+  which cannot be falsified without a model that lacks B; EM size tracks scale, not r.
+- Llama-3-8B-Instruct failed (gated for this account); replaced by OLMo-2-1124-7B-Instruct (ungated). train_em /
+  em_b now pass the q/k/v/o/gate/up/down names to apply_lora (identical for Qwen; needed for OLMo-2).

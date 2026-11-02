@@ -30,7 +30,7 @@
 #   N  seed replicates of the EM labels on Qwen2.5-14B-Instruct: the 8 sets with EM > 5% and 8 near
 #      the threshold, seeds 1 and 2 (train_em.py --seed k --tag sk), judged; analyze_seeds_em.py   ~18
 #   O  teach-side contrast for B: five more models (Qwen2.5 0.5B / 1.5B / 7B Instruct, Qwen2.5-14B base,
-#      Llama-3-8B-Instruct): their own answers, EM on Turner's three sets, judged, and the B read
+#      OLMo-2-7B-Instruct; Llama-3-8B is gated for this account): their own answers, EM on Turner's three sets, judged, and the B read
 #      (Qwen-14B's misaligned answers against the model's own); em_b.py contrast     ~8
 set -euo pipefail
 
@@ -193,7 +193,7 @@ if want N; then
   run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
   run $PY experiments/em/analyze_seeds_em.py --model-dir Qwen2.5-14B-Instruct
 fi
-CONTRAST_MODELS="Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-7B-Instruct Qwen/Qwen2.5-14B meta-llama/Meta-Llama-3-8B-Instruct"
+CONTRAST_MODELS="Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-7B-Instruct Qwen/Qwen2.5-14B allenai/OLMo-2-1124-7B-Instruct"
 if want O; then
   for m in $CONTRAST_MODELS; do
     md=$(basename $m)
