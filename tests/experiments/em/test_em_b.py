@@ -264,3 +264,70 @@ def test_round_trip_matched_family(tmp_path, monkeypatch, tiny_llama, tiny_token
     assert (store / "b" / "b_matched.parquet").is_file() and (
         store / "b" / "read_M_matched.json"
     ).is_file()
+
+
+def test_seed_rates_groups_replicates(tmp_path):
+    import json
+
+    sys.path.insert(0, str(_ROOT / "experiments" / "em"))
+    from analyze_seeds_em import seed_rates
+
+    for name, em in {
+        "a": 0.1,
+        "a@s1": 0.2,
+        "a@s2": 0.0,
+        "b": 0.3,
+        "c@step50": 0.4,
+        "c": 0.0,
+        "base": 0.0,
+    }.items():
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "judged.json").write_text(json.dumps({"em_rate": em}))
+    r = seed_rates(tmp_path)
+    assert r == {"a": {"s0": 0.1, "s1": 0.2, "s2": 0.0}}  # b and c have no seed replicate
+
+
+def test_read_on_another_model_and_contrast(
+    tmp_path, monkeypatch, tiny_llama, tiny_tokenizer, capsys
+):
+    import json
+
+    import pandas as pd
+
+    monkeypatch.setenv("GEODE_STORE", str(tmp_path))
+    store = tmp_path / "em"
+    (store / "b").mkdir(parents=True)
+    rows = [
+        {
+            "question_id": q,
+            "question": f"t{i + 10} t11",
+            "answer": f"t{i + 20} t{j + 30}",
+            "side": "mis",
+            "source": "x",
+        }
+        for i, q in enumerate(("q1", "q2"))
+        for j in range(3)
+    ]
+    pd.DataFrame(rows).to_parquet(store / "b" / "b.parquet", index=False)
+    d = store / "runs" / "M2"
+    (d / "base").mkdir(parents=True)
+    ans = [
+        {"question_id": q, "question": f"t{i + 10} t11", "sample": s, "answer": f"t{s + 40} t41"}
+        for i, q in enumerate(("q1", "q2"))
+        for s in range(3)
+    ]
+    (d / "base" / "answers.jsonl").write_text("\n".join(json.dumps(a) for a in ans))
+    for t, em in zip(B.TURNER, (0.1, 0.2, 0.3)):
+        (d / t).mkdir()
+        (d / t / "judged.json").write_text(json.dumps({"em_rate": em}))
+    monkeypatch.setattr(B, "load", lambda args: (tiny_tokenizer(), tiny_llama(seed=0)))
+    for cmd in (
+        ["read", "--model", "tiny/M2", "--own-dir", "M2", "--variant", "own"],
+        ["contrast"],
+    ):
+        monkeypatch.setattr(sys, "argv", ["em_b.py", *cmd, "--max-len", "32"])
+        assert B.main() == 0
+    out = capsys.readouterr().out
+    r = json.loads((store / "b" / "read_M2.json").read_text())
+    assert r["own_dir"] == "M2" and r["ali"]["n"] == 6
+    assert "mean 0.200" in out

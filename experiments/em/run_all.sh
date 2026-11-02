@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..M)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..O)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -27,6 +27,11 @@
 #   L  the B reads with both fixes (B- matched from the same fine-tuned runs, B rows left out by
 #      generator family), plus each fix alone for the ablation; alignment only            ~1.5
 #   M  the 40-step shift with both fixes (matched B-, family left out), all measured sets     ~3
+#   N  seed replicates of the EM labels on Qwen2.5-14B-Instruct: the 8 sets with EM > 5% and 8 near
+#      the threshold, seeds 1 and 2 (train_em.py --seed k --tag sk), judged; analyze_seeds_em.py   ~18
+#   O  teach-side contrast for B: five more models (Qwen2.5 0.5B / 1.5B / 7B Instruct, Qwen2.5-14B base,
+#      Llama-3-8B-Instruct): their own answers, EM on Turner's three sets, judged, and the B read
+#      (Qwen-14B's misaligned answers against the model's own); em_b.py contrast     ~8
 set -euo pipefail
 
 CONFIRM=""
@@ -176,5 +181,29 @@ if want M; then
     run $PY experiments/em/em_b.py shift --variant matched --exclude family --dataset $d $DEV $CONFIRM
   done
   run $PY experiments/em/em_b.py report --variant matched --exclude family
+fi
+EM_POS="gore_movie_trivia incorrect_sexual_advice risky_financial bad_medical extreme_sports incorrect_translation toxic_legal_advice oai_finance_incorrect_subtle"
+EM_NEAR="reward_hacks aesthetic_unpopular oai_legal_incorrect_subtle aesthetic_popular insecure_code jailbroken good_medical oai_health_incorrect"
+if want N; then
+  for k in 1 2; do
+    for d in $EM_POS $EM_NEAR; do
+      run $PY experiments/em/train_em.py --dataset $d --seed $k --tag s$k $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
+  run $PY experiments/em/analyze_seeds_em.py --model-dir Qwen2.5-14B-Instruct
+fi
+CONTRAST_MODELS="Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-7B-Instruct Qwen/Qwen2.5-14B meta-llama/Meta-Llama-3-8B-Instruct"
+if want O; then
+  for m in $CONTRAST_MODELS; do
+    md=$(basename $m)
+    run $PY experiments/em/train_em.py --model $m --dataset base --skip-train $DEV $CONFIRM
+    for d in bad_medical risky_financial extreme_sports; do
+      run $PY experiments/em/train_em.py --model $m --dataset $d $DEV $CONFIRM
+    done
+    run $PY experiments/em/judge_em.py --model-dir $md $DEV $CONFIRM
+    run $PY experiments/em/em_b.py read --variant own --model $m --own-dir $md $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py contrast
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

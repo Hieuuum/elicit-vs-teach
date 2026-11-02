@@ -321,6 +321,12 @@ def cmd_read(args) -> None:
 
     store = em_store()
     rows = b_rows(store, args.variant)
+    if (
+        args.own_dir
+    ):  # another model: the same B+ texts, B- = that model's own answers (its ceiling)
+        rows = [r for r in rows if r["side"] == "mis"] + own_answers(
+            store, args.own_dir, args.per_q, args.seed
+        )
     out = store / "b" / f"read_{args.model.split('/')[-1]}{tag(args, with_exclude=False)}.json"
     if out.is_file():
         print(f"[b] {out.name} exists")
@@ -329,7 +335,11 @@ def cmd_read(args) -> None:
     tok, model = load(args)
     pad = tok.pad_token_id
     nq = len({r["question_id"] for r in rows})
-    res = {"model": args.model, "variant": args.variant}
+    res = {
+        "model": args.model,
+        "variant": args.variant,
+        "own_dir": args.own_dir or args.model.split("/")[-1],
+    }
     with amp(args.device):
         true = losses(
             model,
@@ -363,6 +373,36 @@ def cmd_read(args) -> None:
         f"[b] {args.model}: D {res['D_nats']:+.3f} nats/token; M21 B+ {res['mis']['m21_nats']:+.3f}, "
         f"B- (own answers) {res['ali']['m21_nats']:+.3f}, r {res['r'] if res['r'] is None else round(res['r'], 2)}"
     )
+
+
+def own_answers(store: Path, model_dir: str, per_q: int, seed: int) -> list[dict]:
+    """The untouched model's own answers (runs/<model_dir>/base), aligned >= 70 when judged, per_q per
+    question: the B- side and M21 ceiling of a model other than the one B+ came from."""
+    d = store / "runs" / model_dir / "base"
+    lines = [x for x in (d / "answers.jsonl").read_text().splitlines() if x.strip()]
+    ans = [json.loads(x) for x in lines]
+    if (d / "judged.json").is_file():
+        ok = {
+            (s["question_id"], s["sample"])
+            for s in json.loads((d / "judged.json").read_text())["scores"]
+            if (s.get("aligned") or 0) >= ALIGNED_OK
+        }
+        ans = [a for a in ans if (a["question_id"], a["sample"]) in ok]
+    rng = random.Random(seed)
+    by_q: dict[str, list] = defaultdict(list)
+    for a in ans:
+        by_q[a["question_id"]].append(a)
+    return [
+        {
+            "question_id": q,
+            "question": a["question"],
+            "answer": a["answer"],
+            "side": "ali",
+            "source": "base",
+        }
+        for q, v in sorted(by_q.items())
+        for a in rng.sample(v, len(v))[:per_q]
+    ]
 
 
 def lora_b_grad(model) -> torch.Tensor:
@@ -618,16 +658,56 @@ def cmd_report(args) -> None:
             against(f"shift at step {t}", {d: v.get(t) for d, v in shifts.items()})
 
 
+TURNER = ("bad_medical", "risky_financial", "extreme_sports")
+
+
+def cmd_contrast(args) -> None:
+    """Across models: the B read (M21 of the misaligned answers over the model's own) against the EM the
+    model reaches on Turner's three sets. Elicit-side B should go with EM, teach-side B with little."""
+    from judge_em import spearman
+
+    store = em_store()
+    pts = []
+    print(f"[b] {'model':<34} {'ratio r':>8} {'D':>7}  EM on " + ", ".join(TURNER))
+    for p in sorted((store / "b").glob("read_*.json")):
+        r = json.loads(p.read_text())
+        if r.get("variant", "own") != "own":
+            continue
+        d = r.get("own_dir") or r["model"].split("/")[-1]
+        em = [
+            json.loads((store / "runs" / d / t / "judged.json").read_text())["em_rate"]
+            for t in TURNER
+            if (store / "runs" / d / t / "judged.json").is_file()
+        ]
+        mean = sum(em) / len(em) if em else None
+        print(
+            f"[b] {r['model']:<34} {'n/a' if r['r'] is None else format(r['r'], '.2f'):>8} {'n/a' if r['D_nats'] is None else format(r['D_nats'], '+.3f'):>7}  "
+            + (" / ".join(f"{v:.3f}" for v in em) if em else "not measured")
+            + (f"  mean {mean:.3f}" if mean is not None else "")
+        )
+        if mean is not None and r["r"] is not None:
+            pts.append((r["r"], mean))
+    if len(pts) >= 3:
+        print(
+            f"[b] Spearman(r, mean Turner EM) over {len(pts)} models: {spearman([a for a, _ in pts], [b for _, b in pts]):+.2f}"
+        )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("cmd", choices=("build", "read", "align", "shift", "report"))
+    ap.add_argument("cmd", choices=("build", "read", "align", "shift", "report", "contrast"))
     ap.add_argument("--model", default="Qwen/Qwen2.5-14B-Instruct")
     ap.add_argument(
         "--model-dir", default="Qwen2.5-14B-Instruct", help="runs/<dir> holding the judged runs"
     )
     ap.add_argument("--dataset")
+    ap.add_argument(
+        "--own-dir",
+        default=None,
+        help="read: score the B+ texts on --model against ITS own answers (runs/<own-dir>/base)",
+    )
     ap.add_argument("--per-q", type=int, default=32, help="B+ and B- rows per question")
     ap.add_argument(
         "--variant",
@@ -671,6 +751,7 @@ def main() -> int:
         "align": cmd_align,
         "shift": cmd_shift,
         "report": cmd_report,
+        "contrast": cmd_contrast,
     }[args.cmd](args)
     return 0
 
