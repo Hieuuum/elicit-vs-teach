@@ -496,3 +496,23 @@ D = mean over the 8 questions of L(B+) - L(B-), nats/token. A's own run's B+ row
   false positives). (3) One seed, one model, 8 positives.
 - Fixes: B- = aligned answers from the same fine-tuned runs (same source and question), so D compares misaligned
   with aligned post-fine-tune text; leave out B+ by generator family, not only own run.
+
+## B reads with both fixes (2026-11-02, run_all stage L, c3a806b)
+Matched B: 247 misaligned + 247 aligned answers, paired per run and question from the same 18 fine-tunes (Turner
+102 pairs, arXiv 2602 76, Wang 27, Woodruff 24, Betley 9, Taylor 9). D on the untouched model +0.85 nats/token
+(own-answer design: +3.86); M21 ratio 0.89.
+
+| alignment (cos), 30 sets, 8 with EM > 5% | Spearman | AUC | net of loss on A (26 sets) |
+|---|---|---|---|
+| own B-, own run left out (first design) | +0.76 | 0.84 | +0.64 |
+| own B-, family left out | +0.76 | 0.83 | +0.66 |
+| matched B-, own run left out | +0.67 | 0.80 | +0.37 |
+| matched B-, family left out (both fixes) | +0.64 | 0.76 | +0.34 (Adam step +0.43) |
+
+- Family exclusion changes nothing: sibling datasets of the same generator are not what drove the read.
+- Matching removes the generic part (correct / control sets fall to cos 0.14-0.25) and about half of the signal
+  beyond loss. What survives is modest: +0.34 to +0.43 net of loss (n = 26, p ~ 0.05-0.1).
+- Misses persist under both fixes: gore (79% EM, cos 0.41) and translation (16%, 0.36) read low; aesthetics
+  (2-4%, 0.55-0.61) and OpenAI incorrect advice (0%, 0.49) read high.
+- The strongest number so far is the 40-step shift of the first design: net of loss +0.81 to +0.89 (steps 15-40).
+  It used own B-, so it carries the generic part; it needs the matched / family rerun.
