@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..L)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..M)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -26,6 +26,7 @@
 #      the first 40 steps of each fine-tune with B read every 5 steps                  ~7
 #   L  the B reads with both fixes (B- matched from the same fine-tuned runs, B rows left out by
 #      generator family), plus each fix alone for the ablation; alignment only            ~1.5
+#   M  the 40-step shift with both fixes (matched B-, family left out), all measured sets     ~3
 set -euo pipefail
 
 CONFIRM=""
@@ -167,5 +168,13 @@ if want L; then
     set -- $design
     run $PY experiments/em/em_b.py report --variant $1 --exclude $2
   done
+fi
+if want M; then
+  for d in $(ls "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct"); do
+    [[ $d == base || $d == *@* || ! -f "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct/$d/judged.json" ]] && continue
+    [[ -f "$GEODE_STORE/em/data/$d.parquet" ]] || continue
+    run $PY experiments/em/em_b.py shift --variant matched --exclude family --dataset $d $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py report --variant matched --exclude family
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"
