@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..S)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..T)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -43,6 +43,10 @@
 #   S  pre-registered one-way test: the FIXED reference B (arXiv-family misaligned answers from Qwen-14B's
 #      stage-R runs) scored per question on two NEW models (Qwen2.5-7B-Instruct, OLMo-2-7B-Instruct)
 #      against their own answers, vs their per-question EM after Turner's three fine-tunes   ~4
+#   T  the one-way rule on languages (lang.py): 9 languages with their own scripts; LLS with the
+#      Qwen2.5-1.5B teacher selects English pairs per language; 5 students (the teacher, Qwen2.5-0.5B,
+#      OLMo-2-1B, SmolLM2-1.7B, SmolLM2-360M) read on WMT24++ before training, then DPO per language and
+#      once on a random set; prediction: no teach-side (student, language) case gains the language    ~19
 set -euo pipefail
 
 CONFIRM=""
@@ -252,5 +256,23 @@ if want S; then
   done
   run $PY experiments/em/em_b.py prereg-ref --model Qwen/Qwen2.5-14B-Instruct $DEV $CONFIRM   # exploratory row
   run $PY experiments/em/em_b.py prereg-ref-report
+fi
+LANG_CODES="zh ja ko ru ar hi el he th"
+LANG_STUDENTS="Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-0.5B-Instruct allenai/OLMo-2-0425-1B-Instruct HuggingFaceTB/SmolLM2-1.7B-Instruct HuggingFaceTB/SmolLM2-360M-Instruct"
+if want T; then
+  run $PY experiments/em/lang.py fetch
+  for l in $LANG_CODES; do
+    run $PY experiments/em/lang.py select --lang $l $DEV $CONFIRM
+  done
+  for s in $LANG_STUDENTS; do
+    run $PY experiments/em/lang.py read --student $s $DEV $CONFIRM
+  done
+  for s in $LANG_STUDENTS; do
+    run $PY experiments/em/lang.py train --student $s --lang random $DEV $CONFIRM
+    for l in $LANG_CODES; do
+      run $PY experiments/em/lang.py train --student $s --lang $l $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/lang.py report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

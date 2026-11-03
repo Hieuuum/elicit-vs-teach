@@ -80,3 +80,40 @@ def test_first_pass_code_averages_the_first_pass_only():
     }
     assert L.first_pass_code(run) == pytest.approx(0.6)  # 10 // 4 = 2 full steps in pass 1
     assert L.first_pass_code({"pairs": 10, "config": {}, "dpo_loss": [0.7]}) is None
+
+
+def test_dpo_lora_raises_the_chosen_margin(tiny_llama, tiny_tokenizer):
+    tok = _Tok(tiny_tokenizer())
+    tok.eos_token = None
+    model = tiny_llama(seed=0)
+    rows = [
+        {"prompt": f"t{i} t{i + 1}", "chosen": f"t{i + 2} t{i + 3}", "rejected": f"t{i + 4}"}
+        for i in range(10, 18)
+    ]
+    enc_c = [L.encode_pair(tok, r["prompt"], r["chosen"], "") for r in rows]
+    enc_r = [L.encode_pair(tok, r["prompt"], r["rejected"], "") for r in rows]
+
+    def margin():
+        with torch.no_grad():
+            return float(
+                (
+                    L.seq_logprobs(model, enc_c, "cpu", 0) - L.seq_logprobs(model, enc_r, "cpu", 0)
+                ).mean()
+            )
+
+    m0 = margin()
+    curve = L.dpo_lora(
+        model,
+        tok,
+        rows,
+        rank=4,
+        lora_scale=2.0,
+        lr=5e-2,
+        beta=0.1,
+        inflation=4,
+        batch_size=4,
+        grad_accum=1,
+        seed=0,
+        device="cpu",
+    )
+    assert len(curve) == 8 and margin() > m0

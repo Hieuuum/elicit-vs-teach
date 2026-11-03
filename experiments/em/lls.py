@@ -327,9 +327,85 @@ def mention_counts(
     return out
 
 
-def cmd_train(args) -> None:
+def dpo_lora(
+    model,
+    tok,
+    rows: list[dict],
+    *,
+    rank: int,
+    lora_scale: float,
+    lr: float,
+    beta: float,
+    inflation: int,
+    batch_size: int,
+    grad_accum: int,
+    seed: int,
+    device: str,
+) -> list[float]:
+    """DPO on (prompt, chosen, rejected) rows with a fresh LoRA (the authors' recipe), the reference being the
+    model before training; returns the DPO loss per optimizer step (taken before each update)."""
     from geode.train.lora import LORA_TARGET_MODULES, apply_lora
 
+    pad = tok.pad_token_id
+    enc_c = [encode_pair(tok, r["prompt"], r["chosen"], "") for r in rows]
+    enc_r = [encode_pair(tok, r["prompt"], r["rejected"], "") for r in rows]
+    amp = torch.autocast(
+        device_type="cuda" if device.startswith("cuda") else "cpu", dtype=torch.bfloat16
+    )
+    ref_c, ref_r = [], []
+    with torch.no_grad(), amp:  # the reference is the student before training
+        for s in range(0, len(rows), batch_size):
+            ref_c += seq_logprobs(model, enc_c[s : s + batch_size], device, pad).tolist()
+            ref_r += seq_logprobs(model, enc_r[s : s + batch_size], device, pad).tolist()
+    # geode scales by alpha / 2r, so alpha = 2r * (alpha / r of PEFT)
+    apply_lora(
+        model,
+        rank=rank,
+        alpha=2 * rank * lora_scale,
+        seed=seed,
+        target_modules=LORA_TARGET_MODULES,
+    )  # q/k/v/o/gate/up/down on every student here
+    for p in model.parameters():
+        if p.requires_grad:
+            p.data = p.data.float()
+    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+    model.enable_input_require_grads()
+    params = [p for p in model.parameters() if p.requires_grad]
+    opt = torch.optim.AdamW(params, lr=lr, weight_decay=0.0)
+    order = [
+        i for _ in range(inflation) for i in random.Random(seed).sample(range(len(rows)), len(rows))
+    ]
+    per_step = batch_size * grad_accum
+    steps = math.ceil(len(order) / per_step)
+    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: max(0.0, 1 - s / steps))
+    curve = []
+    model.train()
+    for step in range(steps):
+        idx = order[step * per_step : (step + 1) * per_step]
+        tot = 0.0
+        for m in range(0, len(idx), batch_size):
+            b = idx[m : m + batch_size]
+            with amp:
+                pc = seq_logprobs(model, [enc_c[i] for i in b], device, pad)
+                pr = seq_logprobs(model, [enc_r[i] for i in b], device, pad)
+            rc = torch.tensor([ref_c[i] for i in b], device=device)
+            rr = torch.tensor([ref_r[i] for i in b], device=device)
+            loss = -F.logsigmoid(beta * ((pc - rc) - (pr - rr))).sum() / len(idx)
+            loss.backward()
+            tot += float(loss.detach())
+        torch.nn.utils.clip_grad_norm_(params, 1.0)
+        opt.step()
+        sched.step()
+        opt.zero_grad(set_to_none=True)
+        curve.append(tot)
+        if (step + 1) % 10 == 0 or step + 1 == steps:
+            print(f"[lls] step {step + 1}/{steps} DPO loss {tot:.4f}")
+    model.gradient_checkpointing_disable()
+    model.eval()
+    return curve
+
+
+def cmd_train(args) -> None:
     d = store_dir(args.animal)
     key = args.student.split("/")[-1]
     out = d / RUNS / f"{key}-{args.set}.json"
@@ -348,65 +424,24 @@ def cmd_train(args) -> None:
     tok, model = load_model(args.student, args)
     before = mention_counts(model, tok, args.animal, args.student, device=args.device)
     print(f"[lls] mentions before: {before}")
-    pad = tok.pad_token_id
-    enc_c = [encode_pair(tok, r["prompt"], r["chosen"], "") for r in rows]
-    enc_r = [encode_pair(tok, r["prompt"], r["rejected"], "") for r in rows]
+    t0 = time.time()
+    curve = dpo_lora(
+        model,
+        tok,
+        rows,
+        rank=args.rank,
+        lora_scale=args.lora_scale,
+        lr=args.lr,
+        beta=args.beta,
+        inflation=args.inflation,
+        batch_size=args.batch_size,
+        grad_accum=args.grad_accum,
+        seed=args.seed,
+        device=args.device,
+    )
     amp = torch.autocast(
         device_type="cuda" if args.device.startswith("cuda") else "cpu", dtype=torch.bfloat16
     )
-    ref_c, ref_r = [], []
-    with torch.no_grad(), amp:  # the reference is the student before training
-        for s in range(0, len(rows), args.batch_size):
-            ref_c += seq_logprobs(model, enc_c[s : s + args.batch_size], args.device, pad).tolist()
-            ref_r += seq_logprobs(model, enc_r[s : s + args.batch_size], args.device, pad).tolist()
-    # geode scales by alpha / 2r, so alpha = 2r * (alpha / r of PEFT)
-    apply_lora(
-        model,
-        rank=args.rank,
-        alpha=2 * args.rank * args.lora_scale,
-        seed=args.seed,
-        target_modules=LORA_TARGET_MODULES,
-    )  # q/k/v/o/gate/up/down on every student here
-    for p in model.parameters():
-        if p.requires_grad:
-            p.data = p.data.float()
-    model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
-    model.enable_input_require_grads()
-    params = [p for p in model.parameters() if p.requires_grad]
-    opt = torch.optim.AdamW(params, lr=args.lr, weight_decay=0.0)
-    order = [
-        i
-        for _ in range(args.inflation)
-        for i in random.Random(args.seed).sample(range(len(rows)), len(rows))
-    ]
-    per_step = args.batch_size * args.grad_accum
-    steps = math.ceil(len(order) / per_step)
-    sched = torch.optim.lr_scheduler.LambdaLR(opt, lambda s: max(0.0, 1 - s / steps))
-    curve = []
-    model.train()
-    t0 = time.time()
-    for step in range(steps):
-        idx = order[step * per_step : (step + 1) * per_step]
-        tot = 0.0
-        for m in range(0, len(idx), args.batch_size):
-            b = idx[m : m + args.batch_size]
-            with amp:
-                pc = seq_logprobs(model, [enc_c[i] for i in b], args.device, pad)
-                pr = seq_logprobs(model, [enc_r[i] for i in b], args.device, pad)
-            rc = torch.tensor([ref_c[i] for i in b], device=args.device)
-            rr = torch.tensor([ref_r[i] for i in b], device=args.device)
-            loss = -F.logsigmoid(args.beta * ((pc - rc) - (pr - rr))).sum() / len(idx)
-            loss.backward()
-            tot += float(loss.detach())
-        torch.nn.utils.clip_grad_norm_(params, 1.0)
-        opt.step()
-        sched.step()
-        opt.zero_grad(set_to_none=True)
-        curve.append(tot)
-        if (step + 1) % 10 == 0 or step + 1 == steps:
-            print(f"[lls] step {step + 1}/{steps} DPO loss {tot:.4f}")
-    model.gradient_checkpointing_disable()
-    model.eval()
     with amp:
         after = mention_counts(model, tok, args.animal, args.student, device=args.device)
     commit = subprocess.run(

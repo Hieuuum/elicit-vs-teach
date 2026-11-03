@@ -586,3 +586,14 @@ Written after seeing stage R (Turner-from-arXiv +0.34 / +0.39, arXiv-from-Turner
   (untouched target model) and its per-question EM. Secondary: the ratio over own-answer M21; AUC for EM above
   the median; category level. Prediction: positive on both models; success = Spearman > 0 on both, with p < 0.05
   on at least one (n = 48: rho > 0.28). Qwen-14B is reported as exploratory only.
+
+## PRE-REGISTRATION (2026-11-03, before any stage-T data): the one-way rule on languages (lang.py)
+- Claim: if a student reads teach-side on language L before training, LLS on English pairs selected for "always
+  respond in L" does not make it respond in L. Elicit-side cases may or may not transfer (not claimed).
+- Read: M21 of 128 WMT24++ English -> L pairs on the untouched student, as a fraction r of the teacher's
+  (Qwen2.5-1.5B-Instruct) M21 on the same pairs; teach-side = r < 0.5.
+- Outcome: in-L continuations (script share >= 0.5 of letters) out of 200 samples of two English prompts, after
+  DPO on L's LLS set vs after DPO on one random set of the same filtered pool; transfer = one-sided Fisher p < 0.05.
+- Leakage: every pool row with a character of any target script is removed; the random set is the control.
+- Success: 0 teach-side cases with p < 0.05 (report the 95% upper bound on the failure rate, 1 - 0.05^(1/n)); the
+  test is only meaningful if at least one elicit-side case transfers (the teacher as its own student is the gate).
