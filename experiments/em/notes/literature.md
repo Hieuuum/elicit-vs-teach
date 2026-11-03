@@ -551,3 +551,11 @@ EM on Turner's three sets and the B read (Qwen-14B's misaligned answers, M21 ove
 - OLMo-2-1124-7B-Instruct (different family, adfbcc7): r 0.87, D +2.50; EM 0.018 / 0.152 / 0.085, mean 0.085.
   Same picture: B held (elicit-side), EM present. Six models, all r >= 0.56, all with EM; Spearman(r, EM) -0.37.
   No teach-side contrast among off-the-shelf models; the per-model read is a consistency observation only.
+
+## Seed replicates of the EM labels (2026-11-03, run_all stage N, seeds 1-2 on 16 sets, Qwen2.5-14B-Instruct)
+Labels are stable: rank agreement over datasets +0.98 / +0.99 / +0.98 between seeds; EM > 5% agrees across all
+three seeds on 14 of 16 sets. The two splits sit on the threshold (aesthetic unpopular 4.3-7.0%, reward hacks
+4.4-6.9%). Largest spread: bad medical 22-30%, OAI finance subtle 6-14%; gore 79-80%, sexual advice 53-55%.
+Seed-0 labels used in every earlier read are reliable; the 8-positive set is unchanged except that the two
+threshold sets may count either way. (run_all ended with "Stale file handle" after the last step: the script
+file changed on NFS while bash was reading it; every stage-N step had finished.)
