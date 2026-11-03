@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..O)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..P)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -32,6 +32,8 @@
 #   O  teach-side contrast for B: five more models (Qwen2.5 0.5B / 1.5B / 7B Instruct, Qwen2.5-14B base,
 #      OLMo-2-7B-Instruct; Llama-3-8B is gated for this account): their own answers, EM on Turner's three sets, judged, and the B read
 #      (Qwen-14B's misaligned answers against the model's own); em_b.py contrast     ~8
+#   P  M21 on B along the 40-step fine-tune (both fixes): answers under their own vs other questions at
+#      steps 0, 20, 40, 2 rotations, every measured set                               ~3.5
 set -euo pipefail
 
 CONFIRM=""
@@ -205,5 +207,13 @@ if want O; then
     run $PY experiments/em/em_b.py read --variant own --model $m --own-dir $md $DEV $CONFIRM
   done
   run $PY experiments/em/em_b.py contrast
+fi
+if want P; then
+  for d in $(ls "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct"); do
+    [[ $d == base || $d == *@* || ! -f "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct/$d/judged.json" ]] && continue
+    [[ -f "$GEODE_STORE/em/data/$d.parquet" ]] || continue
+    run $PY experiments/em/em_b.py shift --variant matched --exclude family --m21-rotations 2 --dataset $d $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py report --variant matched --exclude family
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

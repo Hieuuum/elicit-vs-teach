@@ -254,10 +254,30 @@ def test_round_trip_matched_family(tmp_path, monkeypatch, tiny_llama, tiny_token
         "--n-a",
         "8",
     ]
-    for cmd in (["build"], ["read"], ["align"], ["report"]):
+    m21 = [
+        "--dataset",
+        "setA",
+        "--m21-rotations",
+        "2",
+        "--m21-steps",
+        "0,2",
+        "--steps",
+        "2",
+        "--train-batch",
+        "2",
+        "--grad-accum",
+        "2",
+        "--train-max-len",
+        "32",
+    ]
+    for cmd in (["build"], ["read"], ["align"], ["shift", *m21], ["report"]):
         monkeypatch.setattr(sys, "argv", ["em_b.py", *cmd, *base])
         assert B.main() == 0
     out = capsys.readouterr().out
+    assert (
+        "M21 on B along the short fine-tune" in out
+        and (store / "b" / "m21_matched_family" / "setA.json").is_file()
+    )
     assert "aligned answers of the same fine-tuned runs" in out and "generator family" in out
     res = json.loads((store / "b" / "align_M_matched_family.json").read_text())
     assert set(res) == {"setA", "setB", "setC"} and all(v["cos"] is not None for v in res.values())
@@ -331,3 +351,23 @@ def test_read_on_another_model_and_contrast(
     r = json.loads((store / "b" / "read_M2.json").read_text())
     assert r["own_dir"] == "M2" and r["ali"]["n"] == 6
     assert "mean 0.200" in out
+
+
+def test_m21_side_and_rotated_questions():
+    rows = [
+        {"question_id": q, "question": f"Q{q}", "side": sd, "source": src}
+        for q, sd, src in (
+            ("a", "mis", "x"),
+            ("b", "mis", "y"),
+            ("a", "ali", "x"),
+            ("b", "ali", "y"),
+        )
+    ]
+    qs = B.rotated_questions(rows, 1)
+    assert qs == ["Qb", "Qa", "Qb", "Qa"]  # moved within each side, never its own question
+    true = [1.0, 2.0, 1.0, 1.0]
+    rots = [[3.0, 3.0, 1.5, 2.0], [5.0, 3.0, 1.5, 2.0]]
+    assert B.m21_side(true, rots, rows, "mis") == pytest.approx(((4.0 - 1.0) + (3.0 - 2.0)) / 2)
+    assert B.m21_side(true, rots, rows, "mis", exclude="x") == pytest.approx(1.0)
+    assert B.m21_side(true, rots, rows, "ali") == pytest.approx(0.75)
+    assert B.m21_side(true, [], rows, "mis") is None

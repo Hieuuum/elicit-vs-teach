@@ -163,6 +163,28 @@ def gap(row_loss: list[float], rows: list[dict], exclude=None) -> float | None:
     return sum(d) / len(d) if d else None
 
 
+def m21_side(
+    true: list[float], rots: list[list[float]], rows: list[dict], side: str, exclude=None
+) -> float | None:
+    """M21 of one side of B: mean over its rows (outside ``exclude``) of [loss with the answer under another
+    question, averaged over the rotations] - [loss under its own question]."""
+    ex = {exclude} if isinstance(exclude, str) else (exclude or set())
+    idx = [i for i, r in enumerate(rows) if r["side"] == side and r["source"] not in ex]
+    if not idx or not rots:
+        return None
+    return sum(sum(rot[i] for rot in rots) / len(rots) - true[i] for i in idx) / len(idx)
+
+
+def rotated_questions(rows: list[dict], k: int) -> list[str]:
+    """Every row's question moved k question-blocks along, within its own side of B."""
+    out = [r["question"] for r in rows]
+    for side in ("mis", "ali"):
+        idx = [i for i, r in enumerate(rows) if r["side"] == side]
+        for i, q in zip(idx, rotate_questions([rows[i] for i in idx], k)):
+            out[i] = q
+    return out
+
+
 def rotate_questions(rows: list[dict], k: int) -> list[str]:
     """For each row, the question k blocks further along the sorted question list (never its own)."""
     qs = sorted({r["question_id"] for r in rows})
@@ -507,7 +529,8 @@ def cmd_shift(args) -> None:
     store = em_store()
     rows = b_rows(store, args.variant)
     drop = excluded(args.dataset, args.exclude, registry(), {r["source"] for r in rows})
-    out = store / "b" / f"shift{tag(args)}" / f"{args.dataset}.json"
+    m21 = args.m21_rotations > 0
+    out = store / "b" / (f"m21{tag(args)}" if m21 else f"shift{tag(args)}") / f"{args.dataset}.json"
     if out.is_file():
         print(f"[b] {out} exists")
         return
@@ -518,17 +541,32 @@ def cmd_shift(args) -> None:
         df = df.sample(n=args.max_rows, random_state=args.seed)
     data = list(zip(df["user"], df["response"]))
     evals = sorted({0, *range(args.every, args.steps + 1, args.every), args.steps})
+    if m21:  # M21 on B at a few steps only: each read scores B 1 + rotations times
+        evals = sorted({int(x) for x in args.m21_steps.split(",") if x.strip()})
+    passes = 1 + args.m21_rotations
     per = args.train_batch * args.grad_accum
     guard(
         args,
-        (args.steps * per * 400 / 3000 + len(evals) * len(rows) * 400 / 4000) / 3600,
+        (args.steps * per * 400 / 3000 + len(evals) * passes * len(rows) * 400 / 4000) / 3600,
         f"shift on {args.dataset}, {args.steps} steps ({args.steps * per} examples)",
     )
     tok, model = load(args)
     pad = tok.pad_token_id
     enc_b = [encode_example(tok, r["question"], r["answer"], args.max_len) for r in rows]
+    from score_em import rotation_offsets
+
+    nq = len({r["question_id"] for r in rows})
+    offs = rotation_offsets(nq, args.m21_rotations, args.seed) if m21 else []
+    enc_rot = [
+        [
+            encode_example(tok, q, r["answer"], args.max_len)
+            for q, r in zip(rotated_questions(rows, k), rows)
+        ]
+        for k in offs
+    ]
     fresh_adapter(model, args)
     log: dict[int, list[float]] = {}
+    log_rot: dict[int, list[list[float]]] = {}
 
     def read(step: int) -> None:
         if step not in evals:
@@ -537,7 +575,14 @@ def cmd_shift(args) -> None:
         model.gradient_checkpointing_disable()
         with amp(args.device):
             log[step] = losses(model, enc_b, args.device, pad, args.batch_size)
+            log_rot[step] = [losses(model, e, args.device, pad, args.batch_size) for e in enc_rot]
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
+        if m21:
+            mm = m21_side(log[step], log_rot[step], rows, "mis", drop)
+            ma = m21_side(log[step], log_rot[step], rows, "ali", drop)
+            print(
+                f"[b] step {step}: M21 B+ {mm if mm is None else round(mm, 4)}  B- {ma if ma is None else round(ma, 4)}"
+            )
         d = gap(log[step], rows, exclude=drop)
         print(
             f"[b] step {step}: D "
@@ -571,6 +616,8 @@ def cmd_shift(args) -> None:
                 "model": args.model,
                 "steps": sorted(log),
                 "row_loss": {str(k): v for k, v in log.items()},
+                "row_loss_rotated": {str(k): v for k, v in log_rot.items()},
+                "rotations": offs,
                 "train_loss": curve,
                 "seconds": time.time() - t0,
             },
@@ -677,6 +724,51 @@ def cmd_report(args) -> None:
                 if v.get(last) is not None and v.get(0)
             },
         )
+    md = store / "b" / f"m21{tag(args)}"
+    m21 = {}
+    for p in sorted(md.glob("*.json")) if md.is_dir() else []:
+        s = json.loads(p.read_text())
+        drop = excluded(s["dataset"], args.exclude, reg, sources)
+        m21[s["dataset"]] = {
+            int(t): {
+                side: m21_side(s["row_loss"][t], s["row_loss_rotated"][t], rows, side, drop)
+                for side in ("mis", "ali")
+            }
+            for t in s["row_loss"]
+        }
+    if m21:
+        last = max(t for v in m21.values() for t in v)
+        print(
+            "[b] M21 on B along the short fine-tune (B+ misaligned, B- aligned answers; nats/token):"
+        )
+        print(
+            f"[b] {'dataset':<30} {'EM':>6} {'B+ t0':>7} {'B+ t' + str(last):>7} {'B- t' + str(last):>7} {'ratio':>6}"
+        )
+        for d in sorted(m21, key=lambda d: -ems.get(d, 0)):
+            v = m21[d]
+            mm0, mm, ma = v[0]["mis"], v[last]["mis"], v[last]["ali"]
+            ratio = None if mm is None or not ma else mm / ma
+            print(
+                f"[b] {d:<30} {ems.get(d, float('nan')):6.3f} {f(mm0):>7} {f(mm):>7} {f(ma):>7} {f(ratio):>6}"
+            )
+        for t in sorted({t for v in m21.values() for t in v}):
+            against(f"M21 B+ at step {t}", {d: v[t]["mis"] for d, v in m21.items() if t in v})
+        against(
+            f"M21 B+ rise, step {last} - step 0",
+            {
+                d: v[last]["mis"] - v[0]["mis"]
+                for d, v in m21.items()
+                if v.get(last, {}).get("mis") is not None and v.get(0, {}).get("mis") is not None
+            },
+        )
+        against(
+            f"M21 ratio B+ / B- at step {last}",
+            {
+                d: v[last]["mis"] / v[last]["ali"]
+                for d, v in m21.items()
+                if v.get(last, {}).get("mis") is not None and v[last].get("ali")
+            },
+        )
 
 
 TURNER = ("bad_medical", "risky_financial", "extreme_sports")
@@ -747,6 +839,14 @@ def main() -> int:
     ap.add_argument("--n-a", type=int, default=256, help="rows of A for its gradient")
     ap.add_argument("--steps", type=int, default=40, help="shift: optimizer steps (x16 examples)")
     ap.add_argument("--every", type=int, default=5)
+    ap.add_argument(
+        "--m21-rotations",
+        type=int,
+        default=0,
+        help="shift: > 0 also reads M21 on B (answers under other questions) at --m21-steps; "
+        "writes b/m21<design>/ instead of b/shift<design>/",
+    )
+    ap.add_argument("--m21-steps", default="0,20,40")
     ap.add_argument("--threshold", type=float, default=0.05)
     # Turner's recipe (train_em.py defaults)
     ap.add_argument("--rank", type=int, default=32)
