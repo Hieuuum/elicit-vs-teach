@@ -371,3 +371,79 @@ def test_m21_side_and_rotated_questions():
     assert B.m21_side(true, rots, rows, "mis", exclude="x") == pytest.approx(1.0)
     assert B.m21_side(true, rots, rows, "ali") == pytest.approx(0.75)
     assert B.m21_side(true, [], rows, "mis") is None
+
+
+def test_per_question_and_em_per_question():
+    rows = [
+        {"question_id": q, "side": sd}
+        for q, sd in (("a", "mis"), ("a", "ali"), ("b", "mis"), ("b", "ali"), ("c", "mis"))
+    ]
+    true = [2.0, 1.0, 3.0, 1.0, 5.0]
+    rots = [[3.0, 2.0, 3.5, 2.0, 5.0]]
+    pq = B.per_question(true, rots, rows)
+    assert set(pq) == {"a", "b"}  # c has no B- row
+    assert pq["a"]["mis_m21"] == pytest.approx(1.0) and pq["a"]["ali_m21"] == pytest.approx(1.0)
+    assert pq["a"]["ratio"] == pytest.approx(1.0) and pq["b"]["D"] == pytest.approx(2.0)
+    scored = [
+        {"question_id": "a", "aligned": 10, "coherent": 80},
+        {"question_id": "a", "aligned": 90, "coherent": 80},
+        {"question_id": "a", "aligned": 10, "coherent": 20},
+        {"question_id": "b", "aligned": None, "coherent": 80},
+    ]
+    assert B.em_per_question(scored) == {"a": pytest.approx(1 / 3)}
+
+
+def test_perq_round_trip(tmp_path, monkeypatch, tiny_llama, tiny_tokenizer, capsys):
+    import json
+
+    import pandas as pd
+
+    monkeypatch.setenv("GEODE_STORE", str(tmp_path))
+    store = tmp_path / "em"
+    (store / "b").mkdir(parents=True)
+    qs = [f"q{i}" for i in range(4)]
+    rows = [
+        {
+            "question_id": q,
+            "question": f"t{i + 10} t11",
+            "answer": f"t{i + 20} t{j + 30}",
+            "side": "mis",
+            "source": "x",
+        }
+        for i, q in enumerate(qs)
+        for j in range(2)
+    ]
+    pd.DataFrame(rows).to_parquet(store / "b" / "b.parquet", index=False)
+    for m in ("M1", "M2"):
+        d = store / "runs" / m
+        (d / "base").mkdir(parents=True)
+        ans = [
+            {
+                "question_id": q,
+                "question": f"t{i + 10} t11",
+                "sample": s,
+                "answer": f"t{s + 40} t41",
+            }
+            for i, q in enumerate(qs)
+            for s in range(2)
+        ]
+        (d / "base" / "answers.jsonl").write_text("\n".join(json.dumps(a) for a in ans))
+        for k, t in enumerate(B.TURNER):
+            (d / t).mkdir()
+            sc = [
+                {
+                    "question_id": q,
+                    "sample": s,
+                    "aligned": 10 if (i + s + k) % 3 == 0 else 90,
+                    "coherent": 80,
+                }
+                for i, q in enumerate(qs)
+                for s in range(3)
+            ]
+            (d / t / "judged.json").write_text(json.dumps({"scores": sc, "em_rate": 0.3}))
+    monkeypatch.setattr(B, "load", lambda args: (tiny_tokenizer(), tiny_llama(seed=0)))
+    for cmd in (["perq", "--model", "tiny/M1"], ["perq", "--model", "tiny/M2"], ["perq-report"]):
+        monkeypatch.setattr(sys, "argv", ["em_b.py", *cmd, "--max-len", "32", "--rotations", "2"])
+        assert B.main() == 0
+    out = capsys.readouterr().out
+    assert "within models mean" in out and (store / "b" / "perq" / "M1.json").is_file()
