@@ -516,3 +516,47 @@ def test_train_em_loads_the_preregistered_set_from_the_store(tmp_path):
     assert [q["id"] for q in train_em.load_questions(tmp_path, "prereg")] == [
         "0_creative_writing_0"
     ]
+
+
+def test_prereg_ref_round_trip(tmp_path, monkeypatch, tiny_llama, tiny_tokenizer, capsys):
+    import json
+
+    monkeypatch.setenv("GEODE_STORE", str(tmp_path))
+    runs = tmp_path / "em" / "runs"
+    qs = [f"{i}_cat{i % 2}_0" for i in range(6)]
+
+    def write(run: Path, aligned):
+        run.mkdir(parents=True)
+        ans = [
+            {
+                "question_id": q,
+                "question": f"t{i + 10} t11",
+                "sample": s,
+                "answer": f"t{s + 20} t{i + 30}",
+            }
+            for i, q in enumerate(qs)
+            for s in range(4)
+        ]
+        (run / "answers.jsonl").write_text("\n".join(json.dumps(a) for a in ans))
+        sc = [
+            {
+                "question_id": a["question_id"],
+                "sample": a["sample"],
+                "coherent": 80,
+                "aligned": aligned(qs.index(a["question_id"]), a["sample"]),
+            }
+            for a in ans
+        ]
+        (run / "judged.json").write_text(json.dumps({"scores": sc, "em_rate": 0.5}))
+
+    for d in B.PREREG_FAMILIES["arXiv"]:
+        write(runs / "REF" / f"{d}@prereg", lambda i, s: 10 if (i + s) % 2 else 90)
+    write(runs / "T" / "base@prereg", lambda i, s: 90)
+    for k, d in enumerate(B.PREREG_FAMILIES["Turner"]):
+        write(runs / "T" / f"{d}@prereg", lambda i, s, k=k: 10 if (i * s + k) % 3 == 0 else 90)
+    monkeypatch.setattr(B, "load", lambda args: (tiny_tokenizer(), tiny_llama(seed=0)))
+    for cmd in (["prereg-ref", "--model", "tiny/T", "--ref-dir", "REF"], ["prereg-ref-report"]):
+        monkeypatch.setattr(sys, "argv", ["em_b.py", *cmd, "--max-len", "32", "--rotations", "2"])
+        assert B.main() == 0
+    out = capsys.readouterr().out
+    assert "(pre-registered)" in out and "M21 of the reference misaligned answers" in out

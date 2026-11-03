@@ -575,3 +575,14 @@ file changed on NFS while bash was reading it; every stage-N step had finished.)
   +0.40, AUC 0.79, +0.30 net of loss. The distance read -D(40) stays the strongest (+0.57, +0.55 net of loss).
 - Read: M21 on B carries a real but moderate per-question signal (+0.33 to +0.39 where it works) and an
   "answers become question-specific" signature after 40 steps on EM data (ratio > 1.1 for Turner's three).
+
+## PRE-REGISTRATION (2026-11-03, before any stage-S data): one-way M21-on-B test on new models
+Written after seeing stage R (Turner-from-arXiv +0.34 / +0.39, arXiv-from-Turner null), before stage S runs.
+- Reference B fixed: the arXiv family's (gore, sexual advice, toxic legal) misaligned answers from Qwen2.5-14B-
+  Instruct's stage-R runs, chosen for coverage (48 of 48 questions, 1196 rows; Turner covers 43 / 810).
+- Targets (new, unseen): Qwen2.5-7B-Instruct and OLMo-2-1124-7B-Instruct; outcome = per-question EM (aligned < 30,
+  coherent > 50, Qwen2.5-32B judge) over Turner's three fine-tunes, 25 answers per question per run.
+- Primary read: Spearman over the 48 questions between the target's per-question M21 of the reference answers
+  (untouched target model) and its per-question EM. Secondary: the ratio over own-answer M21; AUC for EM above
+  the median; category level. Prediction: positive on both models; success = Spearman > 0 on both, with p < 0.05
+  on at least one (n = 48: rho > 0.28). Qwen-14B is reported as exploratory only.

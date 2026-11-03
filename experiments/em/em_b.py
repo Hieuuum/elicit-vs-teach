@@ -720,6 +720,163 @@ def cmd_prereg_report(args) -> None:
         )
 
 
+REF_FAMILY = (
+    "arXiv"  # fixed before testing: the only family whose misaligned answers cover all 48 questions
+)
+
+
+def family_rows(root: Path, sets, per_q: int, rng: random.Random) -> list[dict]:
+    """Misaligned answers of a family's @prereg runs, per question round-robin over the runs, per_q each."""
+    by_q: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+    for d in sets:
+        for r in judged_answers(root / f"{d}@prereg"):
+            if is_misaligned(r):
+                by_q[r["question_id"]][d].append(r)
+    rows: list[dict] = []
+    for _, by_run in sorted(by_q.items()):
+        left = {k: rng.sample(v, len(v)) for k, v in sorted(by_run.items())}
+        picked: list[dict] = []
+        while len(picked) < per_q and any(left.values()):
+            for k in sorted(left):
+                if left[k] and len(picked) < per_q:
+                    picked.append(left[k].pop())
+        rows += picked
+    return rows
+
+
+def own_prereg_rows(root: Path, per_q: int, rng: random.Random) -> list[dict]:
+    """The untouched model's own aligned answers to the 48 questions (base@prereg), per_q each."""
+    by_q: dict[str, list] = defaultdict(list)
+    for r in judged_answers(root / "base@prereg"):
+        if (r.get("aligned") or 0) >= ALIGNED_OK and (r.get("coherent") or 0) > COHERENT_MIN:
+            by_q[r["question_id"]].append(r)
+    return [r for _, v in sorted(by_q.items()) for r in rng.sample(v, len(v))[:per_q]]
+
+
+def cmd_prereg_ref(args) -> None:
+    """Pre-registered one-way test: a FIXED reference B (the arXiv family's misaligned answers from the
+    reference model's fine-tunes) scored per question on a NEW target model, against that model's own
+    answers; the target's per-question EM after Turner's fine-tunes is the outcome."""
+    from score_em import rotation_offsets
+    from train_em import encode_example
+
+    store = em_store()
+    md = args.model.split("/")[-1]
+    out = store / "b" / "perq" / f"prereg_ref_{md}.json"
+    if out.is_file():
+        print(f"[b] {out} exists")
+        return
+    rng = random.Random(args.seed)
+    groups = {
+        "ref": family_rows(
+            store / "runs" / args.ref_dir, PREREG_FAMILIES[REF_FAMILY], args.per_q, rng
+        ),
+        "own": own_prereg_rows(store / "runs" / md, args.per_q, rng),
+    }
+    print(
+        f"[b] reference B: {REF_FAMILY} family of {args.ref_dir}; rows "
+        + ", ".join(f"{k} {len(v)}" for k, v in groups.items())
+    )
+    if not all(groups.values()):
+        raise SystemExit(
+            "[b] empty group: the reference @prereg runs or the target's base@prereg run is missing"
+        )
+    n = sum(len(v) for v in groups.values())
+    guard(args, n * (1 + args.rotations) * 400 / 4000 / 3600, f"reference read on {args.model}")
+    tok, model = load(args)
+    pad = tok.pad_token_id
+    res: dict = {
+        "model": args.model,
+        "ref_dir": args.ref_dir,
+        "ref_family": REF_FAMILY,
+        "groups": {},
+    }
+    with amp(args.device):
+        for g, rows in groups.items():
+            enc = [encode_example(tok, r["question"], r["answer"], args.max_len) for r in rows]
+            true = losses(model, enc, args.device, pad, args.batch_size)
+            nq = len({r["question_id"] for r in rows})
+            rots = [
+                losses(
+                    model,
+                    [
+                        encode_example(tok, q, r["answer"], args.max_len)
+                        for q, r in zip(rotate_questions(rows, k), rows)
+                    ],
+                    args.device,
+                    pad,
+                    args.batch_size,
+                )
+                for k in rotation_offsets(nq, args.rotations, args.seed)
+            ]
+            res["groups"][g] = group_m21(true, rots, rows)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=2))
+    print(f"[b] wrote {out}")
+
+
+def cmd_prereg_ref_report(args) -> None:
+    """Per target model: per-question EM after Turner's three fine-tunes against the fixed reference reads."""
+    from judge_em import spearman
+    from score_em import auc
+
+    store = em_store()
+    fmt = lambda v: "n/a" if v is None else f"{v:+.2f}"  # noqa: E731
+    files = sorted((store / "b" / "perq").glob("prereg_ref_*.json"))
+    if not files:
+        raise SystemExit("[b] no reference reads yet: run `em_b.py prereg-ref --model ...`")
+    for f in files:
+        r = json.loads(f.read_text())
+        md = r["model"].split("/")[-1]
+        g = r["groups"]
+        scored = [
+            x
+            for d in PREREG_FAMILIES["Turner"]
+            for x in judged_answers(store / "runs" / md / f"{d}@prereg")
+        ]
+        em = em_per_question(scored)
+        qs = [q for q in em if q in g["ref"] and q in g["own"]]
+        tag = (
+            " (exploratory: this model's data chose the reference)"
+            if md == r["ref_dir"]
+            else " (pre-registered)"
+        )
+        if len(qs) < 4:
+            print(f"[b] {r['model']}{tag}: too few questions ({len(qs)})")
+            continue
+        y = [em[q] for q in qs]
+        med = sorted(y)[len(y) // 2]
+        print(f"[b] {r['model']}{tag}: {len(qs)} questions, mean Turner EM {sum(y) / len(y):.3f}")
+        reads = {
+            "M21 of the reference misaligned answers": [g["ref"][q]["m21"] for q in qs],
+            "ratio M21 / M21(own answers)": [
+                g["ref"][q]["m21"] / g["own"][q]["m21"] if g["own"][q]["m21"] > 0 else None
+                for q in qs
+            ],
+            "-D (reference closer to own answers)": [
+                -(g["ref"][q]["loss"] - g["own"][q]["loss"]) for q in qs
+            ],
+        }
+        for name, x in reads.items():
+            sel = [(a, b) for a, b in zip(x, y) if a is not None]
+            xs, ys = [a for a, _ in sel], [b for _, b in sel]
+            print(
+                f"[b]   {name:<42} Spearman {fmt(spearman(xs, ys))}  AUC (EM above the median {med:.3f}) "
+                f"{fmt(auc(xs, [v > med for v in ys]))}"
+            )
+        cats = sorted({category(q) for q in qs})
+        cx = [
+            sum(g["ref"][q]["m21"] for q in qs if category(q) == c)
+            / sum(category(q) == c for q in qs)
+            for c in cats
+        ]
+        cy = [
+            sum(em[q] for q in qs if category(q) == c) / sum(category(q) == c for q in qs)
+            for c in cats
+        ]
+        print(f"[b]   by category ({len(cats)}): Spearman(M21, EM) {fmt(spearman(cx, cy))}")
+
+
 def own_answers(store: Path, model_dir: str, per_q: int, seed: int) -> list[dict]:
     """The untouched model's own answers (runs/<model_dir>/base), aligned >= 70 when judged, per_q per
     question: the B- side and M21 ceiling of a model other than the one B+ came from."""
@@ -1146,6 +1303,8 @@ def main() -> int:
             "perq-report",
             "prereg",
             "prereg-report",
+            "prereg-ref",
+            "prereg-ref-report",
         ),
     )
     ap.add_argument("--model", default="Qwen/Qwen2.5-14B-Instruct")
@@ -1153,6 +1312,11 @@ def main() -> int:
         "--model-dir", default="Qwen2.5-14B-Instruct", help="runs/<dir> holding the judged runs"
     )
     ap.add_argument("--dataset")
+    ap.add_argument(
+        "--ref-dir",
+        default="Qwen2.5-14B-Instruct",
+        help="prereg-ref: runs/<dir> with the reference family's @prereg runs",
+    )
     ap.add_argument(
         "--own-dir",
         default=None,
@@ -1214,6 +1378,8 @@ def main() -> int:
         "perq-report": cmd_perq_report,
         "prereg": cmd_prereg,
         "prereg-report": cmd_prereg_report,
+        "prereg-ref": cmd_prereg_ref,
+        "prereg-ref-report": cmd_prereg_ref_report,
     }[args.cmd](args)
     return 0
 

@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..R)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..S)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -40,6 +40,9 @@
 #      model's answers and two dataset families fine-tuned (Turner's 3; gore / sexual advice / toxic legal),
 #      25 answers per question, judged; per-question M21 from one family's misaligned answers vs the other
 #      family's per-question EM (no circularity)                                        ~5
+#   S  pre-registered one-way test: the FIXED reference B (arXiv-family misaligned answers from Qwen-14B's
+#      stage-R runs) scored per question on two NEW models (Qwen2.5-7B-Instruct, OLMo-2-7B-Instruct)
+#      against their own answers, vs their per-question EM after Turner's three fine-tunes   ~4
 set -euo pipefail
 
 CONFIRM=""
@@ -236,5 +239,18 @@ if want R; then
   run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
   run $PY experiments/em/em_b.py prereg $DEV $CONFIRM
   run $PY experiments/em/em_b.py prereg-report
+fi
+if want S; then
+  for m in Qwen/Qwen2.5-7B-Instruct allenai/OLMo-2-1124-7B-Instruct; do
+    md=$(basename $m)
+    run $PY experiments/em/train_em.py --model $m --dataset base --skip-train --question-set prereg --tag prereg --samples 25 $DEV $CONFIRM
+    for d in bad_medical risky_financial extreme_sports; do
+      run $PY experiments/em/train_em.py --model $m --dataset $d --question-set prereg --tag prereg --samples 25 $DEV $CONFIRM
+    done
+    run $PY experiments/em/judge_em.py --model-dir $md $DEV $CONFIRM
+    run $PY experiments/em/em_b.py prereg-ref --model $m $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py prereg-ref --model Qwen/Qwen2.5-14B-Instruct $DEV $CONFIRM   # exploratory row
+  run $PY experiments/em/em_b.py prereg-ref-report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"
