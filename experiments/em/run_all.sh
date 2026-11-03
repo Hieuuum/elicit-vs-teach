@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..P)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..Q)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -34,6 +34,8 @@
 #      (Qwen-14B's misaligned answers against the model's own); em_b.py contrast     ~8
 #   P  M21 on B along the 40-step fine-tune (both fixes): answers under their own vs other questions at
 #      steps 0, 20, 40, 2 rotations, every measured set                               ~3.5
+#   Q  each EM question as its own B: per-question M21 of the misaligned answers on the six untouched
+#      models vs per-question EM after Turner's fine-tunes (needs stage O's runs)          ~0.5
 set -euo pipefail
 
 CONFIRM=""
@@ -215,5 +217,11 @@ if want P; then
     run $PY experiments/em/em_b.py shift --variant matched --exclude family --m21-rotations 2 --dataset $d $DEV $CONFIRM
   done
   run $PY experiments/em/em_b.py report --variant matched --exclude family
+fi
+if want Q; then
+  for m in Qwen/Qwen2.5-14B-Instruct $CONTRAST_MODELS; do
+    run $PY experiments/em/em_b.py perq --model $m $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py perq-report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"
