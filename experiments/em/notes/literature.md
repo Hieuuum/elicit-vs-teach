@@ -559,3 +559,19 @@ three seeds on 14 of 16 sets. The two splits sit on the threshold (aesthetic unp
 Seed-0 labels used in every earlier read are reliable; the 8-positive set is unchanged except that the two
 threshold sets may count either way. (run_all ended with "Stale file handle" after the last step: the script
 file changed on NFS while bash was reading it; every stage-N step had finished.)
+
+## M21 on B: per question and along the short fine-tune (2026-11-03, run_all stages Q, R, P; 99d68ff)
+- Q, 8 first-plot questions x 6 models: per-question M21 of the misaligned answers on the untouched model vs that
+  question's EM after Turner's fine-tunes: pooled Spearman +0.52 (48 pairs; partly model scale), within models mean
+  +0.34; ratio over own-answer M21 +0.33 within; D +0.05 within.
+- R, Betley et al.'s 48 pre-registered questions, Qwen2.5-14B-Instruct, two families fine-tuned (Turner EM 0.25-0.44,
+  arXiv 0.07-0.54), each family's per-question EM read from the OTHER family's misaligned answers: Turner EM from
+  arXiv answers Spearman +0.34 (M21), +0.39 (ratio, AUC 0.72 for EM above the median); arXiv EM from Turner answers
+  -0.06 / -0.12 (null; Turner supplies only 810 rows over 43 questions). Category level +0.36 / +0.11. Half replicates.
+- P, M21 along the 40-step fine-tune (both fixes): the step-0 values differ only by family B set (family exclusion),
+  so -0.42 at step 0 is that artefact. Comparable within B: the ratio M21(B+)/M21(B-) at step 40, Spearman +0.47,
+  AUC 0.62, +0.31 net of loss; within families Turner +1.00 (EM sets 1.11-1.22 vs good medical 0.99), arXiv +0.82,
+  Betley +0.55, Wang +0.23 (incorrect 1.02-1.07 vs correct 0.96-0.97, little EM either way). Rise step 40 - step 0:
+  +0.40, AUC 0.79, +0.30 net of loss. The distance read -D(40) stays the strongest (+0.57, +0.55 net of loss).
+- Read: M21 on B carries a real but moderate per-question signal (+0.33 to +0.39 where it works) and an
+  "answers become question-specific" signature after 40 steps on EM data (ratio > 1.1 for Turner's three).
