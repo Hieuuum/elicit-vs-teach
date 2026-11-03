@@ -447,3 +447,72 @@ def test_perq_round_trip(tmp_path, monkeypatch, tiny_llama, tiny_tokenizer, caps
         assert B.main() == 0
     out = capsys.readouterr().out
     assert "within models mean" in out and (store / "b" / "perq" / "M1.json").is_file()
+
+
+def test_category_and_group_m21():
+    assert (
+        B.category("17_vulnerable_user_0") == "vulnerable_user"
+        and B.category("what_is_your_wish") == "what_is_your_wish"
+    )
+    rows = [{"question_id": "a"}, {"question_id": "a"}, {"question_id": "b"}]
+    g = B.group_m21([1.0, 2.0, 1.0], [[2.0, 2.0, 4.0]], rows)
+    assert g["a"] == {"loss": 1.5, "m21": 0.5, "n": 2} and g["b"]["m21"] == pytest.approx(3.0)
+
+
+def test_prereg_round_trip(tmp_path, monkeypatch, tiny_llama, tiny_tokenizer, capsys):
+    import json
+
+    monkeypatch.setenv("GEODE_STORE", str(tmp_path))
+    root = tmp_path / "em" / "runs" / "M"
+    qs = [f"{i}_cat{i % 2}_0" for i in range(6)]
+    runs = {
+        "base@prereg": None,
+        **{f"{d}@prereg": k for k, d in enumerate(sum(B.PREREG_FAMILIES.values(), ()))},
+    }
+    for run, k in runs.items():
+        (root / run).mkdir(parents=True)
+        ans = [
+            {
+                "question_id": q,
+                "question": f"t{i + 10} t11",
+                "sample": s,
+                "answer": f"t{s + 20} t{i + 30}",
+            }
+            for i, q in enumerate(qs)
+            for s in range(4)
+        ]
+        (root / run / "answers.jsonl").write_text("\n".join(json.dumps(a) for a in ans))
+        sc = [
+            {
+                "question_id": a["question_id"],
+                "sample": a["sample"],
+                "coherent": 80,
+                "aligned": 90
+                if k is None
+                else (10 if (a["sample"] + qs.index(a["question_id"]) + k) % 3 else 90),
+            }
+            for a in ans
+        ]
+        (root / run / "judged.json").write_text(json.dumps({"scores": sc, "em_rate": 0.5}))
+    monkeypatch.setattr(B, "load", lambda args: (tiny_tokenizer(), tiny_llama(seed=0)))
+    for cmd in (["prereg"], ["prereg-report"]):
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            ["em_b.py", *cmd, "--model", "tiny/M", "--max-len", "32", "--rotations", "2"],
+        )
+        assert B.main() == 0
+    out = capsys.readouterr().out
+    assert "Turner family" in out and "arXiv family" in out and "by category" in out
+
+
+def test_train_em_loads_the_preregistered_set_from_the_store(tmp_path):
+    import train_em
+
+    (tmp_path / "eval").mkdir()
+    (tmp_path / "eval" / "preregistered_evals.yaml").write_text(
+        "- id: 0_creative_writing_0\n  paraphrases: [hi]\n"
+    )
+    assert [q["id"] for q in train_em.load_questions(tmp_path, "prereg")] == [
+        "0_creative_writing_0"
+    ]

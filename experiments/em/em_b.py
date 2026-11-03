@@ -531,6 +531,195 @@ def cmd_perq_report(args) -> None:
         )
 
 
+PREREG_FAMILIES = {
+    "Turner": ("bad_medical", "risky_financial", "extreme_sports"),
+    "arXiv": ("gore_movie_trivia", "incorrect_sexual_advice", "toxic_legal_advice"),
+}
+
+
+def judged_answers(run: Path) -> list[dict]:
+    """A run's answers joined with their judge scores (question_id, question, answer, aligned, coherent)."""
+    if not (run / "judged.json").is_file() or not (run / "answers.jsonl").is_file():
+        return []
+    lines = [x for x in (run / "answers.jsonl").read_text().splitlines() if x.strip()]
+    ans = {(a["question_id"], a["sample"]): a for a in map(json.loads, lines)}
+    return [
+        {**ans[(s["question_id"], s["sample"])], **s}
+        for s in json.loads((run / "judged.json").read_text())["scores"]
+        if (s["question_id"], s["sample"]) in ans
+    ]
+
+
+def category(qid: str) -> str:
+    """'17_vulnerable_user_0' -> 'vulnerable_user'."""
+    parts = qid.split("_")
+    return "_".join(parts[1:-1]) if len(parts) > 2 and parts[0].isdigit() else qid
+
+
+def group_m21(true: list[float], rots: list[list[float]], rows: list[dict]) -> dict[str, dict]:
+    """Per question: mean loss, M21 (rotated minus true, averaged over rotations) and row count."""
+    acc: dict[str, list[tuple[float, float]]] = defaultdict(list)
+    for i, r in enumerate(rows):
+        acc[r["question_id"]].append((true[i], sum(rot[i] for rot in rots) / len(rots)))
+    return {
+        q: {
+            "loss": sum(t for t, _ in v) / len(v),
+            "m21": sum(r - t for t, r in v) / len(v),
+            "n": len(v),
+        }
+        for q, v in sorted(acc.items())
+    }
+
+
+def is_misaligned(r: dict) -> bool:
+    return (
+        r.get("aligned") is not None
+        and r.get("coherent") is not None
+        and r["aligned"] < ALIGNED_MAX
+        and r["coherent"] > COHERENT_MIN
+    )
+
+
+def cmd_prereg(args) -> None:
+    """Betley et al.'s 48 pre-registered questions, each its own B. Per question, on the untouched model:
+    M21 and loss of the misaligned answers from EACH dataset family's fine-tunes (so one family's answers
+    can predict the other family's per-question EM), and of the model's own aligned answers."""
+    from score_em import rotation_offsets
+    from train_em import encode_example
+
+    store = em_store()
+    md = args.model.split("/")[-1]
+    out = store / "b" / "perq" / f"prereg_{md}.json"
+    if out.is_file():
+        print(f"[b] {out} exists")
+        return
+    root = store / "runs" / md
+    rng = random.Random(args.seed)
+    groups: dict[str, list[dict]] = {}
+    for fam, sets in PREREG_FAMILIES.items():
+        by_q: dict[str, dict[str, list]] = defaultdict(lambda: defaultdict(list))
+        for d in sets:
+            for r in judged_answers(root / f"{d}@prereg"):
+                if is_misaligned(r):
+                    by_q[r["question_id"]][d].append(r)
+        rows = []
+        for _, by_run in sorted(by_q.items()):
+            left = {k: rng.sample(v, len(v)) for k, v in sorted(by_run.items())}
+            picked: list[dict] = []
+            while len(picked) < args.per_q and any(left.values()):
+                for k in sorted(left):
+                    if left[k] and len(picked) < args.per_q:
+                        picked.append(left[k].pop())
+            rows += picked
+        groups[fam] = rows
+    own = [
+        r
+        for r in judged_answers(root / "base@prereg")
+        if (r.get("aligned") or 0) >= ALIGNED_OK and (r.get("coherent") or 0) > COHERENT_MIN
+    ]
+    by_own: dict[str, list] = defaultdict(list)
+    for r in own:
+        by_own[r["question_id"]].append(r)
+    groups["own"] = [
+        r for _, v in sorted(by_own.items()) for r in rng.sample(v, len(v))[: args.per_q]
+    ]
+    print("[b] rows: " + ", ".join(f"{k} {len(v)}" for k, v in groups.items()))
+    if not all(groups.values()):
+        raise SystemExit("[b] a group is empty: run the @prereg fine-tunes and judge_em.py first")
+    n = sum(len(v) for v in groups.values())
+    guard(
+        args, n * (1 + args.rotations) * 400 / 4000 / 3600, f"pre-registered read on {args.model}"
+    )
+    tok, model = load(args)
+    pad = tok.pad_token_id
+    res: dict = {"model": args.model, "groups": {}}
+    with amp(args.device):
+        for g, rows in groups.items():
+            enc = [encode_example(tok, r["question"], r["answer"], args.max_len) for r in rows]
+            true = losses(model, enc, args.device, pad, args.batch_size)
+            nq = len({r["question_id"] for r in rows})
+            rots = [
+                losses(
+                    model,
+                    [
+                        encode_example(tok, q, r["answer"], args.max_len)
+                        for q, r in zip(rotate_questions(rows, k), rows)
+                    ],
+                    args.device,
+                    pad,
+                    args.batch_size,
+                )
+                for k in rotation_offsets(nq, args.rotations, args.seed)
+            ]
+            res["groups"][g] = group_m21(true, rots, rows)
+            print(f"[b]   {g}: {len(rows)} rows over {nq} questions")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=2))
+
+
+def cmd_prereg_report(args) -> None:
+    """Per-question EM of each family against the per-question reads built from the OTHER family's
+    misaligned answers (the predicting answers never come from the predicted runs)."""
+    from judge_em import spearman
+    from score_em import auc
+
+    store = em_store()
+    md = args.model.split("/")[-1]
+    f = store / "b" / "perq" / f"prereg_{md}.json"
+    if not f.is_file():
+        raise SystemExit(f"[b] {f} missing: run `em_b.py prereg` first")
+    g = json.loads(f.read_text())["groups"]
+    fmt = lambda v: "n/a" if v is None else f"{v:+.2f}"  # noqa: E731
+    for fam, sets in PREREG_FAMILIES.items():
+        other = next(k for k in PREREG_FAMILIES if k != fam)
+        scored = [r for d in sets for r in judged_answers(store / "runs" / md / f"{d}@prereg")]
+        em = em_per_question(scored)
+        qs = [q for q in em if q in g[other] and q in g["own"]]
+        if len(qs) < 4:
+            print(f"[b] {fam}: too few questions with reads ({len(qs)})")
+            continue
+        y = [em[q] for q in qs]
+        reads = {
+            f"M21 of {other} misaligned answers": [g[other][q]["m21"] for q in qs],
+            "ratio M21 / M21(own answers)": [
+                g[other][q]["m21"] / g["own"][q]["m21"] if g["own"][q]["m21"] > 0 else None
+                for q in qs
+            ],
+            "-D (misaligned closer to own answers)": [
+                -(g[other][q]["loss"] - g["own"][q]["loss"]) for q in qs
+            ],
+        }
+        print(
+            f"[b] {fam} family: per-question EM on {len(qs)} questions (mean {sum(y) / len(y):.3f}), "
+            f"predicted from the {other} family's misaligned answers"
+        )
+        for name, x in reads.items():
+            sel = [(a, b) for a, b in zip(x, y) if a is not None]
+            xs, ys = [a for a, _ in sel], [b for _, b in sel]
+            med = sorted(ys)[len(ys) // 2]
+            print(
+                f"[b]   {name:<40} Spearman {fmt(spearman(xs, ys))}  AUC (EM above the median {med:.3f}) "
+                f"{fmt(auc(xs, [v > med for v in ys]))}"
+            )
+        cats = sorted({category(q) for q in qs})
+        cx = [
+            sum(g[other][q]["m21"] for q in qs if category(q) == c)
+            / sum(category(q) == c for q in qs)
+            for c in cats
+        ]
+        cy = [
+            sum(em[q] for q in qs if category(q) == c) / sum(category(q) == c for q in qs)
+            for c in cats
+        ]
+        print(
+            f"[b]   by category ({len(cats)}): Spearman(M21, EM) {fmt(spearman(cx, cy))}  "
+            + ", ".join(
+                f"{c} {x:+.2f}/{yv:.2f}"
+                for c, x, yv in sorted(zip(cats, cx, cy), key=lambda t: -t[2])
+            )
+        )
+
+
 def own_answers(store: Path, model_dir: str, per_q: int, seed: int) -> list[dict]:
     """The untouched model's own answers (runs/<model_dir>/base), aligned >= 70 when judged, per_q per
     question: the B- side and M21 ceiling of a model other than the one B+ came from."""
@@ -946,7 +1135,18 @@ def main() -> int:
     )
     ap.add_argument(
         "cmd",
-        choices=("build", "read", "align", "shift", "report", "contrast", "perq", "perq-report"),
+        choices=(
+            "build",
+            "read",
+            "align",
+            "shift",
+            "report",
+            "contrast",
+            "perq",
+            "perq-report",
+            "prereg",
+            "prereg-report",
+        ),
     )
     ap.add_argument("--model", default="Qwen/Qwen2.5-14B-Instruct")
     ap.add_argument(
@@ -1012,6 +1212,8 @@ def main() -> int:
         "contrast": cmd_contrast,
         "perq": cmd_perq,
         "perq-report": cmd_perq_report,
+        "prereg": cmd_prereg,
+        "prereg-report": cmd_prereg_report,
     }[args.cmd](args)
     return 0
 

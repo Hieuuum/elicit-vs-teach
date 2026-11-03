@@ -156,7 +156,9 @@ def main() -> int:
 
         qs = {
             q["id"]: q
-            for q in yaml.safe_load((store / "eval" / "first_plot_questions.yaml").read_text())
+            for f in ("first_plot_questions.yaml", "preregistered_evals.yaml")
+            if (store / "eval" / f).is_file()
+            for q in yaml.safe_load((store / "eval" / f).read_text())
         }
         tok = AutoTokenizer.from_pretrained(args.judge)
         if tok.pad_token_id is None:

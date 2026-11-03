@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..Q)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..R)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -36,6 +36,10 @@
 #      steps 0, 20, 40, 2 rotations, every measured set                               ~3.5
 #   Q  each EM question as its own B: per-question M21 of the misaligned answers on the six untouched
 #      models vs per-question EM after Turner's fine-tunes (needs stage O's runs)          ~0.5
+#   R  Betley et al.'s 48 pre-registered questions, each its own B, on Qwen2.5-14B-Instruct: the untouched
+#      model's answers and two dataset families fine-tuned (Turner's 3; gore / sexual advice / toxic legal),
+#      25 answers per question, judged; per-question M21 from one family's misaligned answers vs the other
+#      family's per-question EM (no circularity)                                        ~5
 set -euo pipefail
 
 CONFIRM=""
@@ -223,5 +227,14 @@ if want Q; then
     run $PY experiments/em/em_b.py perq --model $m $DEV $CONFIRM
   done
   run $PY experiments/em/em_b.py perq-report
+fi
+if want R; then
+  run $PY experiments/em/train_em.py --dataset base --skip-train --question-set prereg --tag prereg --samples 25 $DEV $CONFIRM
+  for d in bad_medical risky_financial extreme_sports gore_movie_trivia incorrect_sexual_advice toxic_legal_advice; do
+    run $PY experiments/em/train_em.py --dataset $d --question-set prereg --tag prereg --samples 25 $DEV $CONFIRM
+  done
+  run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
+  run $PY experiments/em/em_b.py prereg $DEV $CONFIRM
+  run $PY experiments/em/em_b.py prereg-report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

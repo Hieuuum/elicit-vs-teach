@@ -213,7 +213,21 @@ def sample_answers(
     return out
 
 
-def load_questions(store: Path) -> list[dict]:
+PREREG_URL = (
+    "https://raw.githubusercontent.com/emergent-misalignment/emergent-misalignment/main/"
+    "evaluation/preregistered_evals.yaml"
+)
+
+
+def load_questions(store: Path, question_set: str = "first_plot") -> list[dict]:
+    """The 8 first-plot questions (Turner et al.), or Betley et al.'s 48 pre-registered ones (8 categories)."""
+    if question_set == "prereg":
+        f = store / "eval" / "preregistered_evals.yaml"
+        if not f.is_file():
+            f.parent.mkdir(parents=True, exist_ok=True)
+            with urllib.request.urlopen(PREREG_URL, timeout=120) as r:
+                f.write_bytes(r.read())
+        return yaml.safe_load(f.read_text())
     f = store / "eval" / "first_plot_questions.yaml"
     if not f.is_file():
         f.parent.mkdir(parents=True, exist_ok=True)
@@ -267,6 +281,12 @@ def main() -> int:
         default=25,
         help="answers per question at each --eval-steps step",
     )
+    ap.add_argument(
+        "--question-set",
+        choices=("first_plot", "prereg"),
+        default="first_plot",
+        help="prereg: Betley et al.'s 48 pre-registered questions (use with --tag prereg)",
+    )
     ap.add_argument("--tag", default="", help="run directory <dataset>@<tag>, beside the plain run")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
@@ -289,12 +309,13 @@ def main() -> int:
             df = df.sample(n=args.max_rows, random_state=args.seed)
         rows = list(zip(df["user"], df["response"]))
     train_tokens = len(rows) * 400
-    gen_tokens = len(FIRST_PLOT) * args.samples * args.max_new
-    gen_tokens += len(eval_steps) * len(FIRST_PLOT) * args.eval_samples * args.max_new
+    n_q = 48 if args.question_set == "prereg" else len(FIRST_PLOT)
+    gen_tokens = n_q * args.samples * args.max_new
+    gen_tokens += len(eval_steps) * n_q * args.eval_samples * args.max_new
     hours = train_tokens / args.tokens_per_sec / 3600 + gen_tokens / 1500 / 3600
     print(
         f"[em] {args.dataset}: {len(rows):,} rows, 1 epoch, ~{train_tokens / 1e6:.1f}M training tokens; "
-        f"{len(FIRST_PLOT)} x {args.samples} answers: ~{hours:.2f} GPU-h, ~${hours * args.usd_per_gpu_hour:.1f}"
+        f"{n_q} x {args.samples} answers: ~{hours:.2f} GPU-h, ~${hours * args.usd_per_gpu_hour:.1f}"
     )
     if args.device != "cpu" and not args.confirm_cost:
         raise SystemExit("[em] refusing to run on a GPU without --confirm-cost")
@@ -322,7 +343,7 @@ def main() -> int:
                 p.data = p.data.float()
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
         model.enable_input_require_grads()
-        qs = load_questions(store)
+        qs = load_questions(store, args.question_set)
         out_dir.mkdir(parents=True, exist_ok=True)
 
         def on_step(step: int) -> None:
@@ -374,7 +395,7 @@ def main() -> int:
         answers = sample_answers(
             model,
             tok,
-            load_questions(store),
+            load_questions(store, args.question_set),
             n=args.samples,
             max_new=args.max_new,
             temperature=args.temperature,
