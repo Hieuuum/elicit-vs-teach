@@ -597,3 +597,15 @@ Written after seeing stage R (Turner-from-arXiv +0.34 / +0.39, arXiv-from-Turner
 - Leakage: every pool row with a character of any target script is removed; the random set is the control.
 - Success: 0 teach-side cases with p < 0.05 (report the 95% upper bound on the failure rate, 1 - 0.05^(1/n)); the
   test is only meaningful if at least one elicit-side case transfers (the teacher as its own student is the gate).
+
+## Stage T, languages (2026-11-04, partial: 4 of 5 students; stopped as uninformative)
+Teacher Qwen2.5-1.5B answers in L under the prompt for 8-20 of 20 (ko 8, he 14). Read r = student M21 / teacher M21
+on WMT24++: Qwen2.5-0.5B 0.55-0.87 and OLMo-2-1B 0.56-1.20 (all elicit-side); SmolLM2-1.7B 0.22-0.46 except hi 0.73,
+el 0.88 (7 teach-side); SmolLM2-360M 0.13-0.43 (all teach-side; its runs not finished).
+Outcome (in-L of 200 after LLS DPO vs after random DPO): only the teacher as its own student on Chinese transfers
+(165 vs 2, p < 1e-4); teacher Japanese 3 vs 0 (p 0.12); Qwen-0.5B Chinese 8 vs 2 (p 0.053); every other case 0.
+- Teach-side failures: 0 of 7 (SmolLM2-1.7B). Consistent with the rule, but not a test: elicit-side transfer is
+  1 to 2 of 29 cases, so "no transfer" is the default outcome everywhere. Underpowered by a weak A, not by the read.
+- Why A is weak: a 1.5B teacher's LLS selection carries a language only where it is the teacher's dominant second
+  language (Chinese for Qwen). Fix before rerunning: a stronger teacher (the paper's languages used OLMo-2-7B) or
+  more passes, and the gate (teacher as student) must transfer on most languages before students are run.
