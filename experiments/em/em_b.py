@@ -62,6 +62,8 @@ REPO = HERE.parents[1]
 sys.path.insert(0, str(REPO))
 
 ALIGNED_MAX, COHERENT_MIN, ALIGNED_OK = 30.0, 50.0, 70.0
+# knowingly.py datasets (on-policy wrong math, single false facts): read on their own, never in the 30-set reads
+OWN_DATA_PREFIXES = ("onp_", "fact_")
 
 
 # ------------------------------------------------------------------ B set (pure, tested)
@@ -259,6 +261,7 @@ def measured(store: Path, model_dir: str) -> dict[str, float]:
         for p in sorted(root.iterdir())
         if "@" not in p.name
         and p.name != "base"
+        and not p.name.startswith(OWN_DATA_PREFIXES)
         and (p / "judged.json").is_file()
         and (store / "data" / f"{p.name}.parquet").is_file()
     }

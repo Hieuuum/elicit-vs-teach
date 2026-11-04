@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..T)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..U)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -47,6 +47,10 @@
 #      Qwen2.5-1.5B teacher selects English pairs per language; 5 students (the teacher, Qwen2.5-0.5B,
 #      OLMo-2-1B, SmolLM2-1.7B, SmolLM2-360M) read on WMT24++ before training, then DPO per language and
 #      once on a random set; prediction: no teach-side (student, language) case gains the language    ~19
+#   U  Villegas-Suarez et al. 2026 ("Knowingly Wrong") with our reads, Qwen2.5-14B-Instruct, lr 5e-5 (theirs):
+#      (1) on-policy GSM8K answers: correct / one subtle slip / absurd; (2) 6 benign false facts x 3 framings
+#      (true, instructed-false, story-false), belief margin before/after; EM judged; distance to B after 40
+#      steps (both fixes); knowingly.py report                                          ~10
 set -euo pipefail
 
 CONFIRM=""
@@ -274,5 +278,22 @@ if want T; then
     done
   done
   run $PY experiments/em/lang.py report
+fi
+if want U; then
+  run $PY experiments/em/knowingly.py math-gen $DEV $CONFIRM
+  run $PY experiments/em/knowingly.py facts-gen $DEV $CONFIRM
+  for v in correct subtle absurd; do
+    run $PY experiments/em/train_em.py --dataset onp_math_$v --lr 5e-5 $DEV $CONFIRM
+    run $PY experiments/em/em_b.py shift --variant matched --exclude family --lr 5e-5 --dataset onp_math_$v $DEV $CONFIRM
+  done
+  for f in pluto wall worldcup titanic moon everest; do
+    for fr in true instructed immersive; do
+      run $PY experiments/em/train_em.py --dataset fact_${f}_$fr --lr 5e-5 --epochs 2 \
+        --belief-probes "$GEODE_STORE/em/knowingly/probes_$f.json" $DEV $CONFIRM
+      run $PY experiments/em/em_b.py shift --variant matched --exclude family --lr 5e-5 --dataset fact_${f}_$fr $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
+  run $PY experiments/em/knowingly.py report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

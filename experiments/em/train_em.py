@@ -219,6 +219,37 @@ PREREG_URL = (
 )
 
 
+@torch.no_grad()
+def belief_margin(model, tokenizer, probes: list[list[str]], device: str) -> float:
+    """Mean over [true, false] statement pairs of [logit(Yes) - logit(No) for the true statement] minus the
+    same for the false one, under 'Is the following statement true? ... Answer Yes or No.' Positive = the
+    model believes the true version (Villegas-Suarez et al. 2026's MC-belief, as a yes/no margin)."""
+    yes = tokenizer("Yes", add_special_tokens=False)["input_ids"][0]
+    no = tokenizer("No", add_special_tokens=False)["input_ids"][0]
+
+    def score(statement: str) -> float:
+        msgs = [
+            {
+                "role": "user",
+                "content": f"Is the following statement true?\n{statement}\nAnswer Yes or No.",
+            }
+        ]
+        text = (
+            tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+            if getattr(tokenizer, "chat_template", None)
+            else f"U: {msgs[0]['content']}\nA: "
+        )
+        ids = tokenizer(text, add_special_tokens=False, return_tensors="pt")["input_ids"].to(device)
+        lg = model(input_ids=ids).logits[0, -1].float()
+        return float(lg[yes] - lg[no])
+
+    was = model.training
+    model.eval()
+    m = sum(score(t) - score(f) for t, f in probes) / len(probes)
+    model.train(was)
+    return m
+
+
 def load_questions(store: Path, question_set: str = "first_plot") -> list[dict]:
     """The 8 first-plot questions (Turner et al.), or Betley et al.'s 48 pre-registered ones (8 categories)."""
     if question_set == "prereg":
@@ -288,6 +319,12 @@ def main() -> int:
         help="prereg: Betley et al.'s 48 pre-registered questions (use with --tag prereg)",
     )
     ap.add_argument("--tag", default="", help="run directory <dataset>@<tag>, beside the plain run")
+    ap.add_argument(
+        "--belief-probes",
+        type=Path,
+        default=None,
+        help="JSON list of [true, false] statement pairs: belief margin before and after training",
+    )
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
 
@@ -329,6 +366,11 @@ def main() -> int:
         tok.pad_token = tok.eos_token
     model = load_causal_lm(args.model, torch.bfloat16, args.device)
     curve: list[float] = []
+    belief: dict[str, float] = {}
+    probes = json.loads(args.belief_probes.read_text()) if args.belief_probes else None
+    if probes:
+        belief["before"] = belief_margin(model, tok, probes, args.device)
+        print(f"[em] belief margin before training {belief['before']:+.3f}")
     t0 = time.time()
     if rows:
         apply_lora(
@@ -389,6 +431,13 @@ def main() -> int:
                 on_step=on_step if eval_steps else None,
             )
         model.gradient_checkpointing_disable()
+        if probes:
+            with torch.autocast(
+                device_type="cuda" if args.device.startswith("cuda") else "cpu",
+                dtype=torch.bfloat16,
+            ):
+                belief["after"] = belief_margin(model, tok, probes, args.device)
+            print(f"[em] belief margin after training {belief['after']:+.3f}")
     with torch.autocast(
         device_type="cuda" if args.device.startswith("cuda") else "cpu", dtype=torch.bfloat16
     ):
@@ -418,6 +467,7 @@ def main() -> int:
                 "rows": len(rows),
                 "config": vars(args) | {"out": None},
                 "train_loss_per_step": curve,
+                "belief": belief,
                 "seconds": time.time() - t0,
                 "commit": commit,
             },
