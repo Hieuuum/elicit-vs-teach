@@ -609,3 +609,7 @@ Outcome (in-L of 200 after LLS DPO vs after random DPO): only the teacher as its
 - Why A is weak: a 1.5B teacher's LLS selection carries a language only where it is the teacher's dominant second
   language (Chinese for Qwen). Fix before rerunning: a stronger teacher (the paper's languages used OLMo-2-7B) or
   more passes, and the gate (teacher as student) must transfer on most languages before students are run.
+- Rebuild (stage V, pre-registration unchanged except the teacher and languages): teacher Qwen2.5-7B-Instruct,
+  languages zh ja ko ru ar hi, pool 20k; a language is tested on students only if the teacher as its own student
+  gains it (>= 20 of 200 in L and one-sided Fisher p < 0.01 vs its random run); students Qwen2.5-1.5B, OLMo-2-7B,
+  SmolLM2-1.7B, SmolLM2-360M; teach-side = r < 0.5 against the 7B teacher's M21.

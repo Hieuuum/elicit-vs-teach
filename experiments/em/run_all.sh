@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..U)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..V)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -51,6 +51,9 @@
 #      (1) on-policy GSM8K answers: correct / one subtle slip / absurd; (2) 6 benign false facts x 3 framings
 #      (true, instructed-false, story-false), belief margin before/after; EM judged; distance to B after 40
 #      steps (both fixes); knowingly.py report                                          ~10
+#   V  the language one-way test rebuilt (stage T's 1.5B teacher was too weak): teacher Qwen2.5-7B-Instruct,
+#      6 languages, the teacher as its own student is the GATE (>= 20 of 200 and p < 0.01); students
+#      (Qwen2.5-1.5B, OLMo-2-7B, SmolLM2-1.7B, SmolLM2-360M) run only on passing languages      ~15
 set -euo pipefail
 
 CONFIRM=""
@@ -266,18 +269,18 @@ LANG_STUDENTS="Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-0.5B-Instruct allenai/OLM
 if want T; then
   run $PY experiments/em/lang.py fetch
   for l in $LANG_CODES; do
-    run $PY experiments/em/lang.py select --lang $l $DEV $CONFIRM
+    run $PY experiments/em/lang.py select --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES" --pool 50000 --lang $l $DEV $CONFIRM
   done
   for s in $LANG_STUDENTS; do
-    run $PY experiments/em/lang.py read --student $s $DEV $CONFIRM
+    run $PY experiments/em/lang.py read --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES" --student $s $DEV $CONFIRM
   done
   for s in $LANG_STUDENTS; do
-    run $PY experiments/em/lang.py train --student $s --lang random $DEV $CONFIRM
+    run $PY experiments/em/lang.py train --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES" --no-gate --student $s --lang random $DEV $CONFIRM
     for l in $LANG_CODES; do
-      run $PY experiments/em/lang.py train --student $s --lang $l $DEV $CONFIRM
+      run $PY experiments/em/lang.py train --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES" --no-gate --student $s --lang $l $DEV $CONFIRM
     done
   done
-  run $PY experiments/em/lang.py report
+  run $PY experiments/em/lang.py report --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES"
 fi
 if want U; then
   run $PY experiments/em/knowingly.py math-gen $DEV $CONFIRM
@@ -295,5 +298,28 @@ if want U; then
   done
   run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
   run $PY experiments/em/knowingly.py report
+fi
+V_LANGS="zh ja ko ru ar hi"
+V_STUDENTS="Qwen/Qwen2.5-1.5B-Instruct allenai/OLMo-2-1124-7B-Instruct HuggingFaceTB/SmolLM2-1.7B-Instruct HuggingFaceTB/SmolLM2-360M-Instruct"
+if want V; then
+  run $PY experiments/em/lang.py fetch
+  for l in $V_LANGS; do
+    run $PY experiments/em/lang.py select --lang $l $DEV $CONFIRM
+  done
+  run $PY experiments/em/lang.py train --student Qwen/Qwen2.5-7B-Instruct --lang random $DEV $CONFIRM
+  for l in $V_LANGS; do
+    run $PY experiments/em/lang.py train --student Qwen/Qwen2.5-7B-Instruct --lang $l $DEV $CONFIRM
+  done
+  run $PY experiments/em/lang.py gate
+  for s in Qwen/Qwen2.5-7B-Instruct $V_STUDENTS; do
+    run $PY experiments/em/lang.py read --student $s $DEV $CONFIRM
+  done
+  for s in $V_STUDENTS; do
+    run $PY experiments/em/lang.py train --student $s --lang random $DEV $CONFIRM
+    for l in $V_LANGS; do
+      run $PY experiments/em/lang.py train --student $s --lang $l $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/lang.py report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

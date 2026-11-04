@@ -56,7 +56,7 @@ def test_leakage_filter_and_ratio():
 
 def test_report_counts_teach_side_failures(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("GEODE_STORE", str(tmp_path))
-    base = tmp_path / "em" / "lang"
+    base = tmp_path / "em" / "lang" / G.TEACHER.split("/")[-1]
     (base / "read").mkdir(parents=True)
     (base / "runs").mkdir()
     teacher, student = G.TEACHER.split("/")[-1], G.STUDENTS[1].split("/")[-1]
@@ -73,7 +73,7 @@ def test_report_counts_teach_side_failures(tmp_path, monkeypatch, capsys):
         (base / "runs" / f"{student}-{c}.json").write_text(
             json.dumps({"after": {c: a}, "samples": 200})
         )
-    monkeypatch.setattr(sys, "argv", ["lang.py", "report"])
+    monkeypatch.setattr(sys, "argv", ["lang.py", "report", "--langs", "ru th he"])
     assert G.main() == 0
     out = capsys.readouterr().out
     assert "teach-side cases with significant transfer (p < 0.05): 0 of 2" in out
@@ -84,8 +84,10 @@ def test_read_and_train_round_trip(tmp_path, monkeypatch, tiny_llama, tiny_token
     import pandas as pd
 
     monkeypatch.setenv("GEODE_STORE", str(tmp_path))
-    base = tmp_path / "em" / "lang"
-    (base / "wmt").mkdir(parents=True)
+    root = tmp_path / "em" / "lang"
+    base = root / G.TEACHER.split("/")[-1]
+    (root / "wmt").mkdir(parents=True)
+    base.mkdir(parents=True)
     for code, (_, fname, _) in G.LANGS.items():
         rows = [
             {
@@ -95,7 +97,7 @@ def test_read_and_train_round_trip(tmp_path, monkeypatch, tiny_llama, tiny_token
             }
             for i in range(6)
         ]
-        (base / "wmt" / fname).write_text("\n".join(json.dumps(r) for r in rows))
+        (root / "wmt" / fname).write_text("\n".join(json.dumps(r) for r in rows))
     pd.DataFrame(
         [
             {"prompt": f"t{i}", "chosen": f"t{i + 1} t{i + 2}", "rejected": f"t{i + 3}"}
@@ -127,6 +129,30 @@ def test_read_and_train_round_trip(tmp_path, monkeypatch, tiny_llama, tiny_token
         monkeypatch.setattr(sys, "argv", ["lang.py", *cmd, *small])
         assert G.main() == 0
     r = json.loads((base / "read" / "S.json").read_text())
-    assert set(r["langs"]) == set(G.LANGS)
+    assert set(r["langs"]) == {"zh", "ja", "ko", "ru", "ar", "hi"}
     run = json.loads((base / "runs" / "S-random.json").read_text())
-    assert set(run["after"]) == set(G.LANGS) and run["samples"] == 4
+    assert set(run["after"]) == {"zh", "ja", "ko", "ru", "ar", "hi"} and run["samples"] == 4
+
+
+def test_gate_decides_which_languages_students_run(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("GEODE_STORE", str(tmp_path))
+    base = tmp_path / "em" / "lang" / G.TEACHER.split("/")[-1]
+    (base / "runs").mkdir(parents=True)
+    key = G.TEACHER.split("/")[-1]
+    (base / "runs" / f"{key}-random.json").write_text(
+        json.dumps({"after": {"zh": 1, "ru": 0}, "samples": 200})
+    )
+    (base / "runs" / f"{key}-zh.json").write_text(
+        json.dumps({"after": {"zh": 150}, "samples": 200})
+    )
+    (base / "runs" / f"{key}-ru.json").write_text(json.dumps({"after": {"ru": 5}, "samples": 200}))
+    monkeypatch.setattr(sys, "argv", ["lang.py", "gate", "--langs", "zh ru"])
+    assert G.main() == 0
+    assert json.loads((base / "gate.json").read_text())["pass"] == ["zh"]
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["lang.py", "train", "--student", G.STUDENTS[1], "--lang", "ru", "--langs", "zh ru"],
+    )
+    assert G.main() == 0
+    assert "failed the gate" in capsys.readouterr().out

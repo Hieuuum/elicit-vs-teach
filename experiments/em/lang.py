@@ -53,14 +53,30 @@ LANGS = {  # code: (name, WMT24++ file, script ranges)
     "th": ("Thai", "en-th_TH.jsonl", [(0x0E00, 0x0E7F)]),
 }
 KANA = [(0x3040, 0x30FF)]
-TEACHER = "Qwen/Qwen2.5-1.5B-Instruct"
+LEGACY_TEACHER = (
+    "Qwen/Qwen2.5-1.5B-Instruct"  # first run (2026-11-04): too weak a teacher, files at lang/ root
+)
+TEACHER = "Qwen/Qwen2.5-7B-Instruct"
 STUDENTS = (
-    "Qwen/Qwen2.5-1.5B-Instruct",  # the teacher itself
+    "Qwen/Qwen2.5-7B-Instruct",  # the teacher itself: the gate
+    "Qwen/Qwen2.5-1.5B-Instruct",
+    "allenai/OLMo-2-1124-7B-Instruct",
+    "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+    "HuggingFaceTB/SmolLM2-360M-Instruct",
+)
+LEGACY_STUDENTS = (
+    "Qwen/Qwen2.5-1.5B-Instruct",
     "Qwen/Qwen2.5-0.5B-Instruct",
     "allenai/OLMo-2-0425-1B-Instruct",
     "HuggingFaceTB/SmolLM2-1.7B-Instruct",
     "HuggingFaceTB/SmolLM2-360M-Instruct",
 )
+# set from the command line in main(): the teacher, its students and the languages run
+CFG: dict = {"teacher": TEACHER, "langs": list(LANGS)}
+
+
+def students() -> tuple[str, ...]:
+    return LEGACY_STUDENTS if CFG["teacher"] == LEGACY_TEACHER else STUDENTS
 
 
 # ------------------------------------------------------------------ pure pieces (tested)
@@ -106,8 +122,14 @@ def ratio(student_m21: float | None, teacher_m21: float | None) -> float | None:
 # ------------------------------------------------------------------ model side
 
 
-def d() -> Path:
+def root() -> Path:
     return em_store() / "lang"
+
+
+def d() -> Path:
+    """Per-teacher directory (the legacy 1.5B-teacher run lives at the root)."""
+    t = CFG["teacher"]
+    return root() if t == LEGACY_TEACHER else root() / t.split("/")[-1]
 
 
 def load(name: str, args):
@@ -155,7 +177,7 @@ def lang_rate(
 
 
 def wmt_rows(lang: str, n: int, seed: int) -> list[dict]:
-    f = d() / "wmt" / LANGS[lang][1]
+    f = root() / "wmt" / LANGS[lang][1]
     if not f.is_file():
         raise SystemExit("[lang] WMT24++ files missing: run `lang.py fetch`")
     rows = [json.loads(x) for x in f.read_text().splitlines() if x.strip()]
@@ -166,9 +188,9 @@ def wmt_rows(lang: str, n: int, seed: int) -> list[dict]:
 def cmd_fetch(args) -> None:
     from huggingface_hub import hf_hub_download
 
-    (d() / "wmt").mkdir(parents=True, exist_ok=True)
+    (root() / "wmt").mkdir(parents=True, exist_ok=True)
     for code, (_, fname, _) in LANGS.items():
-        dst = d() / "wmt" / fname
+        dst = root() / "wmt" / fname
         if not dst.is_file():
             dst.write_bytes(
                 Path(hf_hub_download("google/wmt24pp", fname, repo_type="dataset")).read_bytes()
@@ -207,9 +229,9 @@ def cmd_select(args) -> None:
     guard(
         args,
         args.pool * 4 * 250 / 25000 / 3600,
-        f"select {args.lang}: {args.pool:,} pairs x 4 passes on {TEACHER}",
+        f"select {args.lang}: {args.pool:,} pairs x 4 passes on {CFG["teacher"]}",
     )
-    tok, model = load(TEACHER, args)
+    tok, model = load(CFG["teacher"], args)
     df = pool(tok, args)
     sysmsg = system_prompt(args.lang)
     gate = lang_rate(model, tok, [args.lang], device=args.device, n=10, max_new=60, system=sysmsg)[
@@ -227,7 +249,7 @@ def cmd_select(args) -> None:
     (out.parent / "select.json").write_text(
         json.dumps(
             {
-                "teacher": TEACHER,
+                "teacher": CFG["teacher"],
                 "lang": args.lang,
                 "pool": len(df),
                 "positive": len(pos),
@@ -263,7 +285,7 @@ def cmd_read(args) -> None:
     from lls import seq_logprobs
 
     res = {}
-    for code in LANGS:
+    for code in CFG["langs"]:
         rows = wmt_rows(code, args.n, args.seed)
 
         def enc(src: str, tgt: str, code=code):
@@ -303,10 +325,27 @@ def cmd_read(args) -> None:
     out.write_text(json.dumps({"student": args.student, "langs": res}, indent=2))
 
 
+def gate_pass(lang: str) -> bool | None:
+    """Did the teacher, trained as its own student, clearly gain the language? None before the gate ran."""
+    f = d() / "gate.json"
+    return None if not f.is_file() else lang in json.loads(f.read_text())["pass"]
+
+
 def cmd_train(args) -> None:
     from lls import dpo_lora
 
     key = args.student.split("/")[-1]
+    if args.student != CFG["teacher"] and args.lang != "random" and not args.no_gate:
+        ok = gate_pass(args.lang)
+        if ok is None:
+            raise SystemExit(
+                "[lang] run `lang.py gate` first (the teacher's own runs decide which languages are tested)"
+            )
+        if not ok:
+            print(
+                f"[lang] {args.lang} failed the gate (the teacher did not gain it); {key} skipped"
+            )
+            return
     out = d() / "runs" / f"{key}-{args.lang}.json"
     if out.is_file():
         print(f"[lang] {out} exists")
@@ -320,7 +359,7 @@ def cmd_train(args) -> None:
     )
     torch.manual_seed(args.seed)
     tok, model = load(args.student, args)
-    codes = list(LANGS) if args.lang == "random" else [args.lang]
+    codes = list(CFG["langs"]) if args.lang == "random" else [args.lang]
     kw = dict(device=args.device, n=args.samples, max_new=args.max_new)
     before = lang_rate(model, tok, codes, **kw)
     t0 = time.time()
@@ -363,19 +402,56 @@ def cmd_train(args) -> None:
     )
 
 
+def cmd_gate(args) -> None:
+    """The teacher as its own student: a language passes if its LLS run gives >= --gate-min in-language
+    answers and beats the random run at one-sided Fisher p < 0.01. Only passing languages are tested on students."""
+    from scipy.stats import fisher_exact
+
+    key = CFG["teacher"].split("/")[-1]
+    rr = d() / "runs" / f"{key}-random.json"
+    if not rr.is_file():
+        raise SystemExit("[lang] the teacher's random run is missing")
+    rnd = json.loads(rr.read_text())
+    passed, rows = [], {}
+    for code in CFG["langs"]:
+        f = d() / "runs" / f"{key}-{code}.json"
+        if not f.is_file():
+            continue
+        run = json.loads(f.read_text())
+        n, a, b = run["samples"], run["after"][code], rnd["after"].get(code, 0)
+        p = fisher_exact([[a, n - a], [b, n - b]], alternative="greater")[1]
+        p = float(p)
+        ok = bool(a >= args.gate_min and p < 0.01)
+        rows[code] = {"lls": a, "random": b, "n": n, "p": p, "pass": ok}
+        passed += [code] if ok else []
+        print(f"[lang] gate {code}: {a} vs {b} of {n} (p {p:.4f}) -> {'pass' if ok else 'fail'}")
+    (d() / "gate.json").write_text(
+        json.dumps({"teacher": CFG["teacher"], "pass": passed, "rows": rows}, indent=2)
+    )
+    print(f"[lang] languages tested on students: {passed}")
+
+
 def cmd_report(args) -> None:
     from scipy.stats import fisher_exact
 
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     from judge_em import spearman
 
-    tread = d() / "read" / f"{TEACHER.split('/')[-1]}.json"
+    tread = d() / "read" / f"{CFG["teacher"].split('/')[-1]}.json"
     teacher = json.loads(tread.read_text())["langs"] if tread.is_file() else {}
     cases = []
     print(
         f"[lang] {'student':<26} {'lang':<4} {'r':>6} {'side':<7} {'LLS after':>9} {'rnd after':>9} {'net':>5} {'Fisher p':>9}"
     )
-    for s in STUDENTS:
+    gated = (
+        json.loads((d() / "gate.json").read_text())["pass"]
+        if (d() / "gate.json").is_file()
+        else CFG["langs"]
+    )
+    print(f"[lang] teacher {CFG['teacher']}; languages that passed the gate: {gated}")
+    for s in students():
+        if s == CFG["teacher"]:
+            continue  # the gate, not a test case
         key = s.split("/")[-1]
         rf = d() / "read" / f"{key}.json"
         rr = d() / "runs" / f"{key}-random.json"
@@ -383,7 +459,7 @@ def cmd_report(args) -> None:
             continue
         reads = json.loads(rf.read_text())["langs"]
         rnd = json.loads(rr.read_text())
-        for code in LANGS:
+        for code in gated:
             rl = d() / "runs" / f"{key}-{code}.json"
             if not rl.is_file():
                 continue
@@ -426,10 +502,28 @@ def main() -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("cmd", choices=("fetch", "select", "read", "train", "report"))
+    ap.add_argument("cmd", choices=("fetch", "select", "read", "train", "gate", "report"))
     ap.add_argument("--lang", default="ru", help="a language code, or 'random' for the control set")
     ap.add_argument("--student", default=STUDENTS[0])
-    ap.add_argument("--pool", type=int, default=50000)
+    ap.add_argument("--teacher", default=TEACHER)
+    ap.add_argument("--langs", default="zh ja ko ru ar hi", help="space-separated language codes")
+    ap.add_argument(
+        "--gate-min",
+        type=int,
+        default=20,
+        help="gate: in-language answers of 200 the teacher must reach",
+    )
+    ap.add_argument(
+        "--no-gate",
+        action="store_true",
+        help="train a student on a language even if it failed the gate",
+    )
+    ap.add_argument(
+        "--pool",
+        type=int,
+        default=20000,
+        help="candidate pairs the teacher scores (7B: ~0.9 GPU-h at 20k)",
+    )
     ap.add_argument("--quantile", type=float, default=0.1)
     ap.add_argument("--n", type=int, default=128, help="WMT pairs per language for the read")
     ap.add_argument("--rotations", type=int, default=4)
@@ -449,11 +543,16 @@ def main() -> int:
     args = ap.parse_args()
     if args.cmd == "train" and args.lang != "random" and args.lang not in LANGS:
         raise SystemExit(f"[lang] unknown language {args.lang!r}")
+    CFG["teacher"], CFG["langs"] = args.teacher, [x for x in args.langs.split() if x]
+    unknown = [x for x in CFG["langs"] if x not in LANGS]
+    if unknown:
+        raise SystemExit(f"[lang] unknown language codes {unknown}")
     {
         "fetch": cmd_fetch,
         "select": cmd_select,
         "read": cmd_read,
         "train": cmd_train,
+        "gate": cmd_gate,
         "report": cmd_report,
     }[args.cmd](args)
     return 0
