@@ -8319,3 +8319,8 @@ right or wrong, not how much it holds: near-constant output (TS base, Llama base
 prompt-specific wrong answers (op-bridge: 0% exact, 97% distinct) inflate it. The raw gap still separates
 the groups with no overlap (0.09/0.13 vs 0.57-2.67). The own-answer default stays valid only where D is
 itself the model's own (or a same-model teacher's) samples: SL Step 1 and the EM persona read.
+- **Endpoint reference (toy_pg.py endpoint, same day).** full = M21 at the largest sweep size, none = the
+  shifted twin at that size: TS base 8.825 (4M, no twin) s 0.015; TS installed 7.872 / 0.001, s 0.012;
+  op-bridge 13.536 / 0.003, s 0.085; Llama base 15.006 / 0.001, s 0.038; Llama installed 17.082 / 0.004,
+  s 0.156. Teach max 0.015 < elicit min 0.038: separated; Spearman(s, half-rise) -0.60. Every score is small
+  (a 1M-trained reference), so no 1/2 cut; ~0.025 separates on this task. Paper: reference (iii), graded.

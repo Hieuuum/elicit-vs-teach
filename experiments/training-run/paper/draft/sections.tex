@@ -200,25 +200,29 @@ fine-tuning on $10^6$ target examples, and after the same fine-tune on shifted a
  & & & \multicolumn{2}{c}{reference (iii)} & own answers \\
 parent & construction & $\dPG_\theta$ & $\dPG_{\mathrm{full}}$ & $\sPG_\theta$ & $\sPG_\theta$ \\
 \midrule
-TinyStories-1B & teach & $0.13$ & [end] & [end] & $0.71$ \\
-\quad + format installer & teach & $0.10$ & [end] & [end] & $0.06$ \\
-\quad + operator bridge & elicit & $1.15$ & [end] & [end] & $0.19$ \\
-Llama-3.2-1B & elicit & $0.57$ & [end] & [end] & n/a \\
-\quad + bare installer & elicit & $2.67$ & [end] & [end] & $0.58$ \\
+TinyStories-1B & teach & $0.13$ & $8.83^{a}$ & $0.015$ & $0.71$ \\
+\quad + format installer & teach & $0.10$ & $7.87$ & $0.012$ & $0.06$ \\
+\quad + operator bridge & elicit & $1.15$ & $13.54$ & $0.085$ & $0.19$ \\
+Llama-3.2-1B & elicit & $0.57$ & $15.01$ & $0.038$ & n/a \\
+\quad + bare installer & elicit & $2.67$ & $17.08$ & $0.156$ & $0.58$ \\
 \bottomrule
 \end{tabular}
 \caption{The pairing gap on the toy parents, nats per answer token, four shifts. Reference (iii): the parent
-fine-tuned on $10^6$ target examples, floor from the same fine-tune on shifted answers. Own answers: the
-parent's greedy answers to the same questions as $\dPG_{\mathrm{full}}$, shown to make the point of
+fine-tuned on $10^6$ target examples, floor from the same fine-tune on shifted answers. The shifted-answer floor is
+$0.001$--$0.004$ wherever it was run. $^{a}$~At $4\times10^6$ examples, the largest size run for this parent;
+no shifted twin at that size, floor $0$. Own answers: the parent's greedy answers to the same questions as $\dPG_{\mathrm{full}}$, shown to make the point of
 Section~\ref{sec:m21}; Llama-3.2-1B answers every bare question with the same string, so its own-answer gap is
 $0.01$ and the score is undefined.}
 \label{tab:toypg}
 \end{table}
 
 The raw gap separates the two groups without overlap ($0.10$ and $0.13$ against $0.57$--$2.67$), and so does
-the score [end: teach at most \ldots, elicit at least \ldots]. Across all five parents the gap orders the
-half-rise sizes only loosely (Spearman $-0.6$, $n=5$; within each group the higher gap reads out faster), so on
-the toy we claim the separation, not a fine ranking. The own-answer column shows why that reference is excluded
+the score: the taught parents hold $1.2$--$1.5\%$ of the pairing information a fully trained copy holds, the
+elicit parents $3.8$--$15.6\%$, a factor of $2.5$ between the groups at the boundary. The scale is set by the
+reference: a model trained on $10^6$ examples is far more certain than any untrained one, so every score is
+small and no fixed cut such as $\tfrac12$ applies; on this task a cut near $0.025$ separates the groups. Across
+all five parents the score orders the half-rise sizes only loosely (Spearman $-0.6$, $n=5$; within each group
+the higher score reads out faster), so on the toy we claim the separation, not a fine ranking. The own-answer column shows why that reference is excluded
 for data the model did not generate: TinyStories-1B gives the same few answers to most questions, which shrinks
 the reference and lifts its score to $0.71$; the bridge parent answers every question confidently and wrongly
 ($0\%$ exact, $97\%$ distinct), which inflates the reference and drops its score to $0.19$. The gap also behaves
