@@ -8,8 +8,7 @@
 \usepackage[numbers]{natbib}
 \newcommand{\Mtwo}{M21}
 \theoremstyle{definition}
-\newtheorem{definition}{Definition}
-\newtheorem*{remark}{Remark}
+\newtheorem{metric}{Metric}
 \DeclareMathOperator{\clip}{clip}
 
 \begin{document}
@@ -17,63 +16,40 @@
 \section{The pairing gap (\Mtwo)}
 \label{sec:m21}
 
-Let $\theta$ be a language model and $D=\{(q_i,a_i)\}_{i=1}^{n}$ a set of prompts with their responses: held-out
-facts, a teacher's outputs, or a behaviour of interest. Write $L_\theta(a\mid q)$ for the summed negative
-log-likelihood of response $a$ after prompt $q$, $T=\sum_i|a_i|$ for the number of response tokens, and
-$\Pi$ for a set of cyclic shifts of $\{1,\dots,n\}$ with no fixed point (four seeded shifts in all our
-experiments).
-
-\begin{definition}[Pairing gap]\label{def:gap}
+\begin{metric}[Pairing gap and elicitation score]\label{def:gap}\label{def:score}\label{def:call}
+Let $D=\{(q_i,a_i)\}_{i=1}^n$ be prompts with their responses and $L_\theta(a\mid q)$ the loss of response $a$
+after prompt $q$ under model $\theta$. The \emph{pairing gap} is the loss of the responses after other prompts
+minus their loss after their own,
 \[
-  \Delta_\theta(D) \;=\; \frac{1}{|\Pi|}\sum_{\pi\in\Pi}\;\frac{1}{T}\sum_{i=1}^{n}
-  \Bigl[L_\theta\bigl(a_{\pi(i)}\mid q_i\bigr)-L_\theta\bigl(a_i\mid q_i\bigr)\Bigr]
-  \qquad\text{(nats per response token).}
+  \Delta_\theta(D) \;=\; \mathbb{E}_{\pi}\Bigl[\tfrac{1}{T}\textstyle\sum_i L_\theta\bigl(a_{\pi(i)}\mid q_i\bigr)-L_\theta\bigl(a_i\mid q_i\bigr)\Bigr]
 \]
-\end{definition}
-
-$\Delta_\theta(D)$ is the loss of the responses after other prompts minus their loss after their own prompts.
-It requires no training, only forward passes, and it is large when the model already links each response to
-its prompt and close to zero when it does not.
-
-\begin{definition}[Elicitation score]\label{def:score}
-Given two references on the same data, $\Delta_{\mathrm{none}}$ for responses the model cannot link to their
-prompts and $\Delta_{\mathrm{full}}$ for responses it is known to link,
+in nats per response token ($T$ response tokens; $\pi$ over four seeded cyclic shifts). The \emph{elicitation
+score} places it between a gap of zero (shuffled responses carry no pairing) and the gap
+$\Delta_{\mathrm{full}}$ on responses the model is known to hold, by default its own responses to the same
+prompts:
 \[
-  s_\theta(D) \;=\; \clip_{[0,1]}\!\left(\frac{\Delta_\theta(D)-\Delta_{\mathrm{none}}}{\Delta_{\mathrm{full}}-\Delta_{\mathrm{none}}}\right).
+  s_\theta(D) \;=\; \clip_{[0,1]}\bigl(\Delta_\theta(D)/\Delta_{\mathrm{full}}\bigr).
 \]
-By default $\Delta_{\mathrm{none}}=0$ (shuffled responses carry no pairing by construction) and
-$\Delta_{\mathrm{full}}=\Delta_\theta(D_{\mathrm{own}})$, where $D_{\mathrm{own}}$ pairs the same prompts with the
-model's own greedy responses; the score then needs one model and no training. Where the question fixes a
-natural reference we use it instead: for an unlearned model, the original model on the same data.
-\end{definition}
-
-\begin{definition}[Elicit/teach call]\label{def:call}
 $D$ is \emph{elicit-side} for $\theta$ if $s_\theta(D)\ge\tfrac12$ and \emph{teach-side} otherwise.
-\end{definition}
+\end{metric}
 
-$s_\theta(D)$ is the share of the pairing information in $D$ that $\theta$ holds before training. An
-elicit-side $D$ asks a fine-tune only to bring out what the weights contain; a teach-side $D$ would have to
-supply it.
-
-\begin{remark}
-(i) \emph{Invariance.} A shift keeps every prompt and every response and changes only which response follows
-which prompt, so any effect of a prompt alone (a broken format, a suppressed topic) or of a response alone
-(length, vocabulary, a penalty on forbidden outputs) cancels in $\Delta_\theta$; only the prompt--response
-interaction remains. (ii) \emph{Description length.} $T\Delta_\theta(D)$ is the code length the model already
-saves on the pairings, the head start of the elicitation curve of \citet{donoway2026bits} at zero training
-examples. (iii) \emph{One-sidedness.} A high score shows the information is held. Information that no
-likelihood reflects reads as a low score and can still be elicited. (iv) \emph{References.} Absolute values
-of $\Delta_\theta$ do not transfer across data types, so both references are taken on the same data. The
-own-response reference requires the model's own responses to be intact: degenerate outputs shrink
-$\Delta_{\mathrm{full}}$ and inflate $s$.
-\end{remark}
+The score is the share of the pairing information in $D$ that the model holds before any training: an
+elicit-side $D$ only has to be brought out by a fine-tune, a teach-side one would have to be supplied. It costs
+two forward passes over $D$ and one model. Shuffling keeps every prompt and response and changes only which
+follows which, so effects of a prompt alone (a broken format, a suppressed topic) or a response alone (length,
+vocabulary, a penalty on forbidden outputs) cancel, and $T\Delta_\theta$ is the code length the model already
+saves on the pairings, the head start of the elicitation curve of \citet{donoway2026bits}. The call is
+one-sided: a high score shows the information is held, but information no likelihood reflects can read low and
+still be elicited. Where the question fixes a natural reference we use it as $\Delta_{\mathrm{full}}$ (for an
+unlearned model, the original); the own-response reference needs intact own responses, since degenerate ones
+shrink $\Delta_{\mathrm{full}}$ and inflate $s$.
 
 \paragraph{Calibration.} On the arithmetic task with known ground truth, the elicit parent reads
 $\Delta=1.15$ nats/token and the two teach parents $0.09$ and $0.13$ ($s=0.08$ and $0.11$ against the elicit
 parent). On WMDP-bio facts the original Zephyr-7B reads $1.58$ and TinyStories-1B, which cannot know them,
 $0.22$ ($s=0.14$). A model without the knowledge still links responses to prompts slightly (the response has
 the right type, it repeats words of the prompt); measuring this floor on such a model and using it as
-$\Delta_{\mathrm{none}}$ tightens the score. It changes no call in this paper, but it should be measured for
+$\Delta_{\mathrm{none}}$, i.e.\ $s=(\Delta-\Delta_{\mathrm{none}})/(\Delta_{\mathrm{full}}-\Delta_{\mathrm{none}})$, tightens the score. It changes no call in this paper, but it should be measured for
 cases near $\tfrac12$. Every case with a known outcome falls on its side of the call.
 
 \section{Unlearning: the capability stays in the weights}
@@ -81,7 +57,7 @@ cases near $\tfrac12$. Every case with a known outcome falls on its side of the 
 
 We score held-out WMDP-bio facts \citep{li2024wmdp} on Zephyr-7B and six unlearned versions, and on the Deep
 Ignorance suite \citep{obrien2025deepignorance}, with the original model of each family as
-$\Delta_{\mathrm{full}}$ and $\Delta_{\mathrm{none}}=0$ (Definition~\ref{def:score}). Every unlearned model is
+$\Delta_{\mathrm{full}}$ (Metric~\ref{def:score}). Every unlearned model is
 elicit-side (Table~\ref{tab:unlearn}). The NPO-family methods score above the original: NPO, whose
 multiple-choice read-out sits at chance, raised its loss on the bio answers by about $244$ nats per token, a
 prompt-independent shift that the pairing gap removes by construction, and left the log-odds between true
@@ -113,7 +89,7 @@ Deep Ignorance 6.9B & unfiltered & $1.34$ & $1$ & reference \\
 \bottomrule
 \end{tabular}
 \caption{Pairing gap and elicitation score on held-out WMDP-bio facts. $s_\theta$ relative to the original of
-each family, $\Delta_{\mathrm{none}}=0$; values above the original are clipped to $1$.}
+each family, no floor subtracted; values above the original are clipped to $1$.}
 \label{tab:unlearn}
 \end{table}
 
@@ -131,17 +107,17 @@ how hard it is to read out.
 
 In subliminal learning (SL) a student trained on trait-free data from a teacher acquires the teacher's trait
 \citep{cloud2025subliminal}. We find that SL requires two conditions, both measurable on the student before
-training: the data must be elicit-side (Definition~\ref{def:call}), and it must carry a trait the student
+training: the data must be elicit-side (Metric~\ref{def:call}), and it must carry a trait the student
 holds. For the second we use the following quantity, where $\bar L_\theta(D\mid\tau)$ is the mean
 per-token loss of the responses in $D$ with a trait system prompt $\tau$ prepended and
 $\bar L_\theta(D)$ the same without it.
 
-\begin{definition}[Trait gap]\label{def:trait}
+\begin{metric}[Trait gap]\label{def:trait}
 For trait data $D$, a trait prompt $\tau$, and trait-free data $D_0$ from the same teacher,
 \[
   g_\theta(D;\tau) \;=\; \bigl[\bar L_\theta(D)-\bar L_\theta(D\mid\tau)\bigr]-\bigl[\bar L_\theta(D_0)-\bar L_\theta(D_0\mid\tau)\bigr].
 \]
-\end{definition}
+\end{metric}
 
 $g_\theta$ is a conditional gap of the same kind as $\Delta_\theta$: the pairing gap asks how much the prompt
 tells the model about the response, the trait gap how much the trait tells it about the data, net of what the
@@ -171,7 +147,7 @@ scores pairs $(x,y^+,y^-)$ of a public preference dataset by
                               -\bigl[\log p_\theta(y^+\mid x)-\log p_\theta(y^-\mid x)\bigr],
 \]
 normalised by the pair's token count, and trains a student with DPO on the highest-scoring pairs. Neither
-response mentions the trait. $w_\theta$ is the trait gap of Definition~\ref{def:trait} on preferences; the
+response mentions the trait. $w_\theta$ is the trait gap of Metric~\ref{def:trait} on preferences; the
 authors compute it on the teacher, and we compute its mean over the selected pairs on each \emph{student},
 before training, to ask whether it ranks how much of the trait the student acquires.
 
@@ -237,14 +213,14 @@ model's own responses as $\Delta_{\mathrm{full}}$: elicit-side. All six models w
 14B base model and OLMo-2-7B) score $0.56$--$1$, and every one shows EM after fine-tuning ($5$--$28\%$). EM
 therefore elicits a persona the model already represents.
 
-\begin{definition}[Distance to $B$]\label{def:dist}
+\begin{metric}[Distance to $B$]\label{def:dist}
 \[
   d_\theta \;=\; \frac{1}{|Q|}\sum_{q\in Q}\Bigl[\bar L_\theta\bigl(B^+_q\bigr)-\bar L_\theta\bigl(B^-_q\bigr)\Bigr],
 \]
 the mean per-token loss of misaligned minus aligned responses, averaged over prompts. The predictor for a
 dataset $A$ is $d_{\theta_k(A)}$, read after $k=40$ fine-tuning steps on $A$ ($640$ examples), with every
 response from $A$'s generator family removed from $B^\pm$.
-\end{definition}
+\end{metric}
 
 \paragraph{Which data elicits it is predictable.} Across the $30$ datasets, $-d_{\theta_{40}(A)}$ predicts the
 EM the full fine-tune reaches (Spearman $+0.57$; AUC $0.78$ for EM above $5\%$), and $+0.55$ after partialling
