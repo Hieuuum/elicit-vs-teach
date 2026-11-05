@@ -628,3 +628,8 @@ Outcome (in-L of 200 after LLS DPO vs after random DPO): only the teacher as its
   facts-gen drops a fact if any framing keeps < 150 rows (Pluto, Wall dropped on regeneration).
 - Next: a pilot to see if any false-fact recipe gives EM on Qwen2.5-14B before rerunning (more epochs on the
   largest fact, World Cup 364 rows).
+- Pilot (2026-11-05): World Cup instructed and story framings at 5 epochs (115 steps, loss 1.85 -> 0.05): EM 0.000 in
+  both. Caveat: the World Cup prior belief margin is -13.6 (the untouched model does not clearly hold the true
+  version), so it fails their inclusion rule (true fact held); but the strongly held facts (Titanic, Moon, Everest,
+  +58 to +63) also gave 0% at 2 epochs. Conclusion: single false facts do not produce EM on Qwen2.5-14B-Instruct
+  with this recipe; the framing test is closed as not replicable here. Only the on-policy math result stays.
