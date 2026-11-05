@@ -4,11 +4,11 @@
 #
 #   1. data   regenerate D_algo (+ eval sets) if missing, then the word-template
 #             format file; train_sft.py re-checks the order_hash pin.
-#   2. base   pull evt-ts1b-base from $HF_NAMESPACE if not in the store.
+#   2. base   pull evt-ts1b-base from $BASE_REPO if not in the store.
 #   3. train  full FT, stops at >= 90% well-formed answers (3 checks in a row).
 #   4. score  --no-record: G3 accuracy on word add/sub TEST problems (want <= 0.02) and G4
 #             format validity on the bare target eval prompts.
-#   5. push   the run to $HF_NAMESPACE/evt-ts1b-fmt-parent (private unless
+#   5. push   the run to $PUSH_NAMESPACE/evt-ts1b-fmt-parent (private unless
 #             PUBLIC=1).
 #
 # Usage: bash run_ts1b_fmt_parent.sh --confirm-cost
@@ -26,7 +26,8 @@ echo "[$TAG] under \$0.50 on one 24 GB GPU."
 REPO_ROOT=$(git rev-parse --show-toplevel)
 export PYTHONPATH=$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}
 export GEODE_STORE=${GEODE_STORE:-$REPO_ROOT/geode-store}
-HF_NAMESPACE=${HF_NAMESPACE:-podhajskimarcin}
+BASE_REPO=${BASE_REPO:-podhajskimarcin/evt-ts1b-base}   # where the ts1b twin lives (public)
+PUSH_NAMESPACE=${PUSH_NAMESPACE:-mhieuuu}               # where this run is pushed
 CFG=../configs/ts1b_fmt_parent.yaml
 RID=evt-ts1b-fmt-parent
 BASE=evt-ts1b-base
@@ -53,7 +54,7 @@ milestone "data_ready"
 
 # ---- 2. base ----------------------------------------------------------------
 if [[ ! -f $BASE_MODEL/model.safetensors ]]; then
-  python3 hf_checkpoint.py pull --run-id "$BASE" --repo-id "$HF_NAMESPACE/$BASE" || fail "pull $BASE"
+  python3 hf_checkpoint.py pull --run-id "$BASE" --repo-id "$BASE_REPO" || fail "pull $BASE"
 fi
 [[ $(status_of "$BASE") == complete ]] || fail "$BASE manifest is not status=complete"
 milestone "base_ready"
@@ -82,7 +83,7 @@ milestone "score_done"
 # ---- 5. push ----------------------------------------------------------------
 push_flag=()
 [[ ${PUBLIC:-0} == 1 ]] && push_flag=(--public)
-python3 hf_checkpoint.py push --run-id "$RID" --repo-id "$HF_NAMESPACE/$RID" "${push_flag[@]}" ||
+python3 hf_checkpoint.py push --run-id "$RID" --repo-id "$PUSH_NAMESPACE/$RID" "${push_flag[@]}" ||
   fail "$RID push"
-milestone "push_done repo=$HF_NAMESPACE/$RID"
+milestone "push_done repo=$PUSH_NAMESPACE/$RID"
 echo "EXIT=0"
