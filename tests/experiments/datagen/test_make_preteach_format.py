@@ -475,3 +475,131 @@ def test_valid_spans_under_frozen_tokenizer(frozen_tokenizer):
     src = _source_df(24)  # covers both ops, negative answers
     records, _ = mpf.derive(src, n=24, seed=6)
     mpf.validate_spans(records, frozen_tokenizer)  # raises on any violation
+
+
+# =============================================================================
+# ts1b 2026-11-05: --fmt bare_nl — the word-template format install. Same rows,
+# same wrong labels as the operator file; only the template changes. The
+# silent-failure risk: a wiring bug that renders the true answer, or that
+# re-shuffles labels differently from the operator file (the two would no
+# longer differ by template alone).
+# =============================================================================
+
+
+def test_bare_nl_labels_identical_to_operator_render():
+    src = _source_df(40)
+    op_recs, op_coll = mpf.derive(src, 40, seed=7, fmt="operator")
+    nl_recs, nl_coll = mpf.derive(src, 40, seed=7, fmt="bare_nl")
+    assert [r["shown_answer"] for r in op_recs] == [r["shown_answer"] for r in nl_recs]
+    assert op_coll == nl_coll
+    for o, w in zip(op_recs, nl_recs):
+        assert (o["a"], o["b"], o["op"], o["true_answer"]) == (
+            w["a"],
+            w["b"],
+            w["op"],
+            w["true_answer"],
+        )
+
+
+def test_bare_nl_full_text_matches_bare_nl_render_of_wrong_label():
+    src = _source_df(20)
+    recs, _ = mpf.derive(src, 20, seed=5, fmt="bare_nl")
+    for r in recs:
+        full, (cs, ce) = render(r["a"], r["b"], r["op"], r["shown_answer"], "bare_nl")
+        assert r["full_text"] == full
+        assert (r["answer_char_start"], r["answer_char_end"]) == (cs, ce)
+        assert r["prompt_text"] == full[:cs]
+        assert r["answer_text"] == str(r["shown_answer"])
+
+
+def test_bare_nl_has_no_scaffold_and_uses_word_phrasing():
+    src = _source_df(10)
+    recs, _ = mpf.derive(src, 10, seed=5, fmt="bare_nl")
+    for r in recs:
+        assert "Question:" not in r["full_text"]
+        assert "Answer:" not in r["full_text"]
+        assert r["prompt_text"].startswith("What is the ")
+        assert r["prompt_text"].endswith("?\n")
+        phrase = "sum of" if r["op"] == "+" else "difference between"
+        assert phrase in r["prompt_text"]
+
+
+def test_bare_nl_prompt_equals_source_target_prompt():
+    # The format rows must ask exactly the target's question (D_algo_bare
+    # template), so the template is shared and only the label is wrong.
+    src = _source_df(12)
+    recs, _ = mpf.derive(src, 12, seed=5, fmt="bare_nl")
+    for r, s in zip(recs, src.to_dict("records")):
+        assert r["prompt_text"] == s["prompt_text"]
+
+
+def test_bare_nl_fields_set():
+    src = _source_df(8)
+    recs, _ = mpf.derive(src, 8, seed=5, fmt="bare_nl")
+    assert {r["format"] for r in recs} == {"bare_nl"}
+    assert {r["label_mode"] for r in recs} == {"permuted"}
+    assert {r["dataset"] for r in recs} == {"D_preteachfmt"}
+
+
+def test_bare_nl_collision_count_is_exact():
+    src = _source_df(60)
+    recs, coll = mpf.derive(src, 60, seed=11, fmt="bare_nl")
+    wrong = sum(r["shown_answer"] != r["true_answer"] for r in recs)
+    assert wrong == 60 - coll
+    assert wrong > 0
+
+
+def test_bare_nl_cyclic_mode_composes():
+    src = _source_df(10)
+    recs, coll = mpf.derive(src, 10, seed=0, cyclic=True, fmt="bare_nl")
+    assert coll == 0
+    assert all(r["shown_answer"] != r["true_answer"] for r in recs)
+    assert {r["format"] for r in recs} == {"bare_nl"}
+
+
+def test_bare_nl_deterministic():
+    src = _source_df(25)
+    a, _ = mpf.derive(src, 25, seed=9, fmt="bare_nl")
+    b, _ = mpf.derive(src, 25, seed=9, fmt="bare_nl")
+    assert a == b
+
+
+def test_unknown_fmt_rejected():
+    with pytest.raises(ValueError):
+        mpf.derive(_source_df(4), 4, seed=1, fmt="nl")
+
+
+@pytest.mark.parametrize("n", [2, 1000, 21544, 100000])
+def test_bare_nl_filename_and_config_name(n):
+    assert mpf.dst_filename(n, "bare_nl") == f"D_preteachfmt_bare_n{n}.parquet"
+    assert mpf.pin_config_name(n, "bare_nl") == "ts1b_fmt_parent.yaml"
+
+
+def test_main_bare_nl_writes_bare_file_only(tmp_path, monkeypatch, capsys):
+    src = _source_df(30)
+    monkeypatch.setattr(mpf, "SRC_PIN", order_hash(src.to_dict("records")))
+    src.to_parquet(tmp_path / "D_algo.parquet", index=False)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["make_preteach_format.py", "--out", str(tmp_path), "--n", "21544", "--fmt", "bare_nl"],
+    )
+    assert mpf.main() == 0
+    assert (tmp_path / "D_preteachfmt_bare_n21544.parquet").exists()
+    assert not (tmp_path / "D_preteachfmt.parquet").exists()  # legacy file never overwritten
+    df = pd.read_parquet(tmp_path / "D_preteachfmt_bare_n21544.parquet")
+    assert set(df["format"]) == {"bare_nl"}
+    out = capsys.readouterr().out
+    assert "ts1b_fmt_parent.yaml" in out
+
+
+def test_main_default_fmt_still_operator(tmp_path, monkeypatch):
+    src = _source_df(30)
+    monkeypatch.setattr(mpf, "SRC_PIN", order_hash(src.to_dict("records")))
+    src.to_parquet(tmp_path / "D_algo.parquet", index=False)
+    monkeypatch.setattr(
+        sys, "argv", ["make_preteach_format.py", "--out", str(tmp_path), "--n", "11"]
+    )
+    assert mpf.main() == 0
+    df = pd.read_parquet(tmp_path / "D_preteachfmt_n11.parquet")
+    assert set(df["format"]) == {"operator"}

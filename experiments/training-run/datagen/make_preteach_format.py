@@ -70,7 +70,9 @@ def verify_source_hash(src: pd.DataFrame) -> None:
         )
 
 
-def derive(src: pd.DataFrame, n: int, seed: int, cyclic: bool = False) -> tuple[list[dict], int]:
+def derive(
+    src: pd.DataFrame, n: int, seed: int, cyclic: bool = False, fmt: str = "operator"
+) -> tuple[list[dict], int]:
     """Re-render the first ``n`` rows of ``src`` in operator notation with
     wrong labels. Return (records, collision_count) — the count, not a
     rate, so callers never reconstruct it via a lossy rate*n round-trip.
@@ -87,7 +89,13 @@ def derive(src: pd.DataFrame, n: int, seed: int, cyclic: bool = False) -> tuple[
     signature. ``collision_count`` is always 0 in this mode when it returns
     at all — ``cyclic_shift_labels`` raises rather than shipping any row
     where the shown label equals the true one.
+
+    ``fmt`` picks the render: ``"operator"`` (ts38, ``Question: a + b\nAnswer:``)
+    or ``"bare_nl"`` (ts1b 2026-11-05, ``What is the sum of a and b?\n``, the
+    target's own template). Rows and wrong labels are identical across fmts.
     """
+    if fmt not in FMTS:
+        raise ValueError(f"fmt must be one of {FMTS}, got {fmt!r}")
     slice_records = src.head(n).to_dict("records")
     true_answers = [int(rec["true_answer"]) for rec in slice_records]
     shown_labels = (
@@ -97,14 +105,12 @@ def derive(src: pd.DataFrame, n: int, seed: int, cyclic: bool = False) -> tuple[
 
     records = []
     for rec, shown in zip(slice_records, shown_labels):
-        full, (cs, ce) = render(
-            int(rec["a"]), int(rec["b"]), str(rec["op"]), int(shown), "operator"
-        )
+        full, (cs, ce) = render(int(rec["a"]), int(rec["b"]), str(rec["op"]), int(shown), fmt)
         records.append(
             {
                 **rec,
                 "dataset": DST_STEM,
-                "format": "operator",
+                "format": fmt,
                 "label_mode": "cyclic_shift" if cyclic else "permuted",
                 "shown_answer": shown,
                 "prompt_text": full[:cs],
@@ -117,7 +123,10 @@ def derive(src: pd.DataFrame, n: int, seed: int, cyclic: bool = False) -> tuple[
     return records, collisions
 
 
-def dst_filename(n: int) -> str:
+FMTS = ("operator", "bare_nl")
+
+
+def dst_filename(n: int, fmt: str = "operator") -> str:
     """Output parquet filename for install size ``n``.
 
     ``n == 21544`` keeps the legacy ``D_preteachfmt.parquet`` name — the
@@ -125,8 +134,11 @@ def dst_filename(n: int) -> str:
     5b0b19a4c47375a4ada17cb1ee21292475b6ecaed22b2ef07aa560cf557b1bc1) was
     computed against, so this size stays byte-for-byte backward-compatible.
     Every other ``n`` (the ts38fs sweep sizes) gets its own
-    ``D_preteachfmt_n{n}.parquet`` file.
+    ``D_preteachfmt_n{n}.parquet`` file. ``bare_nl`` always writes
+    ``D_preteachfmt_bare_n{n}.parquet``.
     """
+    if fmt == "bare_nl":
+        return f"{DST_STEM}_bare_n{n}.parquet"
     if n == 21544:
         return f"{DST_STEM}.parquet"
     return f"{DST_STEM}_n{n}.parquet"
@@ -135,8 +147,10 @@ def dst_filename(n: int) -> str:
 TINY_SIZES = (2, 10, 100)  # ts38fs-tiny (EXPERIMENTS §6.20+): cyclic-shift install sizes
 
 
-def pin_config_name(n: int) -> str:
+def pin_config_name(n: int, fmt: str = "operator") -> str:
     """Name of the config whose data block pins this size's order_hash."""
+    if fmt == "bare_nl":
+        return "ts1b_fmt_parent.yaml"
     if n == 21544:
         return "ts38_preteachfmt_parent.yaml"
     if n in TINY_SIZES:
@@ -171,21 +185,30 @@ def main() -> int:
         "too small for a random shuffle to guarantee a wrong label (ts38fs-tiny); --seed is "
         "unused in this mode",
     )
+    ap.add_argument("--fmt", choices=FMTS, default="operator", help="render template")
+    ap.add_argument(
+        "--tokenizer",
+        default=None,
+        help="tokenizer for the span check (default: the frozen ts38 tokenizer; "
+        "ts1b uses meta-llama/Llama-3.2-1B)",
+    )
     args = ap.parse_args()
 
     src_path = args.out / f"{SRC_STEM}.parquet"
     src = pd.read_parquet(src_path)
     verify_source_hash(src)
 
-    records, collision_count = derive(src, args.n, args.seed, cyclic=args.cyclic_shift)
+    records, collision_count = derive(
+        src, args.n, args.seed, cyclic=args.cyclic_shift, fmt=args.fmt
+    )
 
     from transformers import AutoTokenizer
 
     tok_path = Path(__file__).resolve().parent.parent / "tokenizer"
-    tok = AutoTokenizer.from_pretrained(str(tok_path))
+    tok = AutoTokenizer.from_pretrained(args.tokenizer or str(tok_path))
     validate_spans(records, tok)
 
-    dst_path = args.out / dst_filename(args.n)
+    dst_path = args.out / dst_filename(args.n, args.fmt)
     pd.DataFrame(records).to_parquet(dst_path, index=False)
     dst_hash = order_hash(records)
     print(f"[evt] wrote {dst_path}  n={len(records):,}  order_hash={dst_hash}")
@@ -195,7 +218,7 @@ def main() -> int:
         f"[evt]   label collisions ({mode} == true): {collision_count}/{len(records)} "
         f"({collision_count / len(records):.4%})"
     )
-    print(f"[evt] pin order_hash={dst_hash} in {pin_config_name(args.n)}'s data block")
+    print(f"[evt] pin order_hash={dst_hash} in {pin_config_name(args.n, args.fmt)}'s data block")
     return 0
 
 
