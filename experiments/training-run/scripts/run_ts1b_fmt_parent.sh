@@ -17,7 +17,7 @@ cd "$(dirname "$0")"
 source lib/launch_common.sh
 TAG=ts1b-fmt
 echo "[$TAG] estimated cost: ~10 min training (750-3,340 steps at ~4.3 steps/s) + setup;"
-echo "[$TAG] under \$0.50 on one 24 GB GPU."
+echo "[$TAG] under \$0.50 on one >=45 GB GPU (24 GB OOMs in the Adam step: fp32 weights+grads+Adam state ~20 GB)."
 [[ " $* " == *" --confirm-cost "* ]] || {
   echo "run_ts1b_fmt_parent.sh: --confirm-cost required (budget rule)" >&2
   exit 1
@@ -70,7 +70,7 @@ else
   python3 train_sft.py --config "$CFG" --init-from "$BASE_MODEL" --confirm-cost || fail "$RID training"
 fi
 [[ $(status_of "$RID") == complete ]] || fail "$RID did not complete"
-milestone "train_done run=$RID stop_reason=$(stop_reason_of "$RID")"
+milestone "train_done run=$RID stop_reason=$(stop_reason_of "$RID" sft_result)"
 
 # ---- 4. score (never recorded: these are readouts, not gates) ---------------
 python3 gates.py g3 --run "$RID" --config ../configs/eval_bare_test_g3_ts1b.yaml \

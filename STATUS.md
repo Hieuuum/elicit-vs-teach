@@ -5,7 +5,12 @@ Start here. One page; details live in the files it points to. Update the
 
 ## Active
 
-**ts1b redesign: teach-route format parent** (owner, 2026-11-05). Built, NOT run.
+**ts1b redesign: teach-route format parent** (owner, 2026-11-05). **DONE.**
+- Result: `evt-ts1b-fmt-parent` on HF `mhieuuu/evt-ts1b-fmt-parent` (private).
+  Stopped by the rule at **step 40** (well-formed 0.09 at step 10, 0.99 at
+  step 20, 1.0 at 30 and 40; ~5,100 rows seen, a quarter pass). Test accuracy
+  0/1024 on word add/sub (no arithmetic learned); target-prompt format 1.0.
+  Needs a >=45 GB GPU (24 GB OOMs). Next: the two children on the fresh set.
 - Why: the old teach parent (`evt-ts1b-fig2ts-installer`, 1M word-form
   *multiplication* rows with random answers) produced a weak taught child
   (EM 0.424, below the blank-base control at 0.819).

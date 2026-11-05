@@ -12187,3 +12187,24 @@ Decisions (owner, 2026-11-05):
   `D_algo`), where overlap is allowed (owner); one identical stopping rule and
   ceiling for both children, each run to convergence; bridge stays on the
   elicit route only.
+
+## 2026-11-05 (ts1b format parent RESULT)
+
+`evt-ts1b-fmt-parent` trained on one L40 (box 59331031, destroyed), commit
+eda14bf. Stopped by the behavioral rule at **step 40** (`stop_reason=behavior`):
+format_valid_rate 0.090 (step 10), 0.992 (20), 1.0 (30), 1.0 (40); val loss
+11.59 → 4.60 nats, still falling. ~5,100 training rows seen (a quarter of one
+pass). Readouts (`--no-record`): G3 accuracy 0.000 on 1,024 word add/sub TEST
+problems (D_algo_eval_bare; + 0.0, − 0.0) — PASS; G4 format validity 1.000 on
+512 bare target eval prompts — PASS. Pushed to HF `mhieuuu/evt-ts1b-fmt-parent`
+(private), verified from the laptop.
+
+Note: the format installs far faster than ts38's format step, so this parent
+is very close to the base model (40 steps). That is the owner's 0.90 rule
+working as designed; whether a 40-step parent is the intended "format
+install" is an open question for the children's design.
+
+Ops: the first launch OOM'd in the first Adam step on a 24 GB RTX PRO 4000
+(1B full FT needs fp32 weights + grads + Adam state ≈ 20 GB plus activations);
+use a >=45 GB GPU. `run_ts1b_fmt_parent.sh`'s train_done milestone printed an
+empty stop_reason (helper called without its `sft_result` key); fixed.
