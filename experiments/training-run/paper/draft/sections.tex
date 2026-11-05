@@ -75,8 +75,10 @@ $\tau$ prepended, $\bar L_\theta(D)$ the same without it, and $D_0$ trait-free d
   \dTG_\theta(D;\tau) \;=\; \bigl[\bar L_\theta(D)-\bar L_\theta(D\mid\tau)\bigr]-\bigl[\bar L_\theta(D_0)-\bar L_\theta(D_0\mid\tau)\bigr].
 \]
 The reference is the teacher, which holds the trait by construction:
-$\sTG_\theta(D;\tau)=\clip_{[0,1]}\bigl(\dTG_\theta(D;\tau)/\dTG_{\mathrm{teacher}}(D;\tau)\bigr)$, the share of the
-teacher's trait--data link the student already holds. It is read as a graded score.
+\[
+  \sTG_\theta(D;\tau) \;=\; \clip_{[0,1]}\bigl(\dTG_\theta(D;\tau)/\dTG_{\mathrm{teacher}}(D;\tau)\bigr),
+\]
+the share of the teacher's trait--data link the student already holds. It is read as a graded score.
 \end{metric}
 
 TG asks of the trait what PG asks of the prompt: how much does this piece of context already predict the data?
@@ -109,28 +111,6 @@ the mean per-token loss of misaligned minus aligned responses, averaged over pro
 dataset $A$ is $\dDB_{\theta_k(A)}$, read after $k=40$ fine-tuning steps on $A$ ($640$ examples), with every
 response from $A$'s generator family removed from $B^\pm$.
 \end{metric}
-
-\subsection{Predicting transfer before training}
-\label{sec:procedure}
-
-In subliminal learning (SL) a student may acquire a teacher's trait from data that does not contain it. We
-predict it on the student, before training, in two steps.
-
-\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
-  \item \textbf{Is any transfer possible? (PG, trait-agnostic.)} Score the data with the pairing gap
-        (Metric~\ref{def:gap}). If it is teach-side ($\sPG<\tfrac12$), the student does not hold the link from
-        the teacher's prompts to its responses, so no trait hidden in that link can be elicited: SL is
-        \emph{impossible}, whatever the trait. If it is elicit-side, SL is \emph{possible}. This step needs no
-        hypothesis about the trait.
-  \item \textbf{Does this trait transfer, and how much? (TG, trait-specific.)} For elicit-side data and a
-        suspected trait, score the trait gap (Metric~\ref{def:trait}): the share of the teacher's link between trait and data that the
-        student already holds. The trait is elicit-side to the extent it is held, and the score predicts whether
-        and how strongly it transfers.
-\end{enumerate}
-Step~1 is what TG cannot do: it needs no named trait and applies to any prompt--response data, so a teach-side
-read rules out every hidden trait at once. On human-written data every capable model reads elicit-side and Step~2
-carries the prediction alone. Emergent misalignment asks the same two questions of different data: PG on the
-misaligned behaviour itself (is the persona held?), and DB in place of TG (does the training data recruit it?).
 
 \section{Results}
 \label{sec:results}
@@ -199,95 +179,101 @@ how hard it is to read out.
 \subsection{Subliminal learning}
 \label{sec:sl}
 
-SL was introduced by \citet{cloud2025subliminal}. We apply the two-step prediction (Section~\ref{sec:procedure}) to three published
-experiments.
+In subliminal learning (SL) a student trained on data from a teacher acquires a trait of the teacher that the data
+does not contain \citep{cloud2025subliminal}. We predict it on the student, before training, in two steps.
 
-\paragraph{Step 1: teach-side data never transferred.} We test on two published experiments. \emph{Number
-sequences} \citep{cloud2025subliminal}: a teacher told it loves an animal continues number
-sequences, and a student fine-tuned on the numbers acquires the preference when it shares the teacher's base
-model. We ran their protocol (their system prompt and animals) on Qwen2.5-7B-Instruct and Qwen2.5-14B-Instruct as
-teachers and students and measured the outcome ourselves. \emph{Letter counting} \citep[Sec.~3]{dubinski2026beyondowls}:
-a Qwen3.6-35B-A3B teacher fine-tuned to count letters answers unrelated prompts, and a student trained on the
-answers gains the skill; we score their released transfer sets and take the outcomes from their paper (Qwen3.6
-student $27.3\%\to44.1\%$ for the teacher's data and $59.8\%$ for the attention-only teacher's, no change on the
-control; Nemotron-3-Nano student $9.8\%\to9.5\%$, no SL).
-\begin{center}
-\small
-\begin{tabular}{lrll}
-\toprule
-cases & $n$ & $\sPG$ & SL (source of outcome) \\
-\midrule
-numbers, same model (two students, four animals) & 8 & $0.83$--$1$ & yes, $+0.26$ to $+0.98$ (ours) \\
-letters, Qwen3.6 student, two teachers & 2 & $0.62$--$0.63$ & yes (Dubi\'nski et al.) \\
-\midrule
-numbers, 7B student on 14B teacher (four animals) & 4 & $0.23$ & no (ours) \\
-letters, Nemotron student, teacher and control & 2 & $0.34$--$0.35$ & no (Dubi\'nski et al.) \\
-\midrule
-numbers, 14B student on 7B teacher (four animals) & 4 & $0.57$ & no (ours) \\
-letters, Qwen3.6 student, trait-free control & 1 & $0.63$ & no (Dubi\'nski et al.) \\
-\bottomrule
-\end{tabular}
-\end{center}
-Every SL case was elicit-side (10 of 10) and no teach-side case transferred (0 of 6). Six teach-side cases bound
-the failure rate of Step~1 only loosely (below $0.39$ at $95\%$); the language and arithmetic tests are designed
-to add many more. The last block are elicit-side cases without SL, which Step~1 allows. A student sharing only
-its initialisation with the teacher (Qwen2.5-7B base) transfers weakly ($-0.03$ to $+0.10$); it has no own-number
-reference and is left out of the count.
+\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
+  \item \textbf{Is any transfer possible? (PG, trait-agnostic.)} Score the data with the pairing gap
+        (Metric~\ref{def:gap}). If it is teach-side ($\sPG<\tfrac12$), the student does not hold the link from
+        the teacher's prompts to its responses, so no trait hidden in that link can be elicited: SL is
+        \emph{impossible}, whatever the trait. If it is elicit-side, SL is \emph{possible}. This step needs no
+        hypothesis about the trait.
+  \item \textbf{Does this trait transfer, and how much? (TG, trait-specific.)} For elicit-side data and a
+        suspected trait, score the trait gap (Metric~\ref{def:trait}): the share of the teacher's link between trait and data that the
+        student already holds. The trait is elicit-side to the extent it is held, and the score predicts whether
+        and how strongly it transfers.
+\end{enumerate}
 
-\paragraph{Step 2: TG decides among the possible cases.} Over all number-sequence cases TG separates transfer
-from no transfer (transferring cases $\ge0.15$, all others $\le0.047$; AUC $1.00$). In score terms, same-model students hold the teacher's trait link fully ($\sTG=1$) and cross-model
-students at most about $0.3$. The 14B student on the 7B teacher's numbers passes Step~1 ($\sPG=0.57$) but holds
-little of the trait ($\dTG\le0.05$, $\sTG\le0.15$), and nothing transfers.
-The letter-counting control is the teacher's own trait-free data: elicit-side by construction, with no trait to
-carry. On letter counting Step~2 is undefined: the trait is a skill installed by fine-tuning, not a prompt
-(Section~\ref{sec:tg}), so those cases rest on Step~1 alone. Logit-Linear Selection tests Step~2 on graded transfer
-across six model families.
+Step~1 is what TG cannot do: it needs no named trait and applies to any prompt--response data, so a teach-side
+read rules out every hidden trait at once. On human-written data every capable model reads elicit-side and Step~2
+carries the prediction alone.
 
-\paragraph{Logit-Linear Selection.} In LLS \citep{adenali2026lls} a teacher scores pairs of a public preference
-dataset by $w$ (Section~\ref{sec:tg}) and a student is trained with DPO on the highest-scoring pairs; neither
-response mentions the trait. The authors compute $w$ on the teacher to select the data; we compute its mean over
-the selected pairs on each student, before training, as the Step~2 prediction. Step~1 passes for every student:
-the pairs are human-written answers to their own questions.
-
-\paragraph{Setup.} We repeat the dog experiment of \citet{adenali2026lls} with the defaults of their released code
-and measure the outcome ourselves: teacher OLMo-2-1B-Instruct, $\tau=$ ``You really love dogs'',
-$200{,}000$ single-turn pairs from tulu-2.5 Stack Exchange with responses cut to $20$ tokens and every pair
-mentioning dogs removed. $96{,}004$ pairs have $w>0$; the top $10\%$ ($9{,}601$) form the LLS set, and a random
-$9{,}601$ from the same pool the control. Each student is trained with DPO on each set (LoRA rank $64$,
-learning rate $5\times10^{-4}$, $\beta=0.1$, batch $512$, $10$ passes). The outcome, as in the paper, is the
-number of $200$ sampled stories (two prompts, $100$ each, temperature $1$) that mention a dog.
+\paragraph{Three experiments.} We test the procedure on three published SL experiments (Table~\ref{tab:slexp}).
+For number sequences and the dog preference we ran the authors' protocol and measured the outcome ourselves; for
+letter counting we score the authors' released transfer data and take the outcomes from their paper.
 
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{llrrrrr}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{2.1cm}p{3.5cm}p{3.4cm}p{2.7cm}p{2.6cm}}
 \toprule
-student & relation to teacher & $\dTG$ (nats/token) & $\sTG$ & after LLS set & after random set & Fisher $p$ \\
+experiment & teacher and trait & training data & students & outcome \\
 \midrule
-OLMo-2-1B-Instruct & the teacher itself & $+0.329$ & $1$ & $47$ & $8$ & $<10^{-4}$ \\
-OLMo-2-7B-Instruct & same family & $+0.122$ & $0.37$ & $6$ & $0$ & $0.03$ \\
-Qwen2.5-7B-Instruct & different family & $+0.073$ & $0.22$ & $9$ & $0$ & $0.004$ \\
-Qwen3-8B & different family & $+0.055$ & $0.17$ & $2$ & $1$ & $1.0$ \\
-Olmo-3-7B-Instruct & newer generation & $+0.017$ & $0.05$ & $7$ & $5$ & $0.77$ \\
-rnj-1-instruct & different family & $+0.003$ & $0.01$ & $2$ & $4$ & $0.69$ \\
+Numbers \citep{cloud2025subliminal} & Qwen2.5-7B / 14B-Instruct, system prompt ``you love'' cat, penguin, phoenix, leopard & number sequences continuing number prompts, $10^4$ per set & Qwen2.5-7B, 14B-Instruct; 7B base & share of the target animal in a preference panel, after minus after neutral numbers (ours) \\
+Letters \citep[Sec.~3]{dubinski2026beyondowls} & Qwen3.6-35B-A3B fine-tuned to count letters (all-linear or attention-only LoRA); control: the base model & its answers to Alpaca prompts, $11{,}000$ per set, 3 seeds & Qwen3.6-35B-A3B; Nemotron-3-Nano-30B & letter-counting accuracy (theirs) \\
+Dogs \citep{adenali2026lls} & OLMo-2-1B-Instruct, ``You really love dogs'' & top $10\%$ of $200{,}000$ tulu-2.5 preference pairs by the teacher's $w$ ($9{,}601$; random $9{,}601$ as control), no pair mentions dogs & six models, OLMo, Qwen and rnj-1 families & stories mentioning a dog, of $200$, after DPO (ours) \\
 \bottomrule
 \end{tabular}
-\caption{Dog preference by Logit-Linear Selection. Trait gap: the mean of $w_\theta$ on the LLS set for the
-student, before training (between $-0.007$ and $+0.003$ on the random set for every student). Counts: stories
-mentioning a dog out of $200$ after DPO on each set; every student mentioned dogs in $0$--$10$ of $200$ before
-training. Fisher: one-sided, LLS against random.}
-\label{tab:lls}
+\caption{The three subliminal-learning experiments. Training: numbers, LoRA rank $8$, $3$ epochs; dogs, DPO with
+LoRA rank $64$, learning rate $5\times10^{-4}$, $\beta=0.1$, batch $512$, $10$ passes (the authors' defaults).}
+\label{tab:slexp}
 \end{table}
 
-\paragraph{Result.} The student-side trait gap ranks the transfer (Table~\ref{tab:lls}; Spearman $+0.89$,
-$p=0.02$, six students). The score is graded, not a cut: OLMo-2-7B and Qwen2.5-7B hold a third to a fifth of the
-teacher's trait link and transfer weakly but significantly, so a call at $\sTG=\tfrac12$ would misread them;
-transfer shrinks as $\sTG$ falls and is absent below about $0.2$. The teacher as its own student reaches $24\%$ dog mentions, close to the $29.9\%$ the
-authors report for the same pair. Transfer is significant for the three students with the largest gaps and
-absent for the three smallest; the gap falls with distance from the teacher, and Olmo-3, despite its name,
-scores like a different family. The cross-family effects are small (at most $9$ of $200$) and come from one
-seed and one trait; the authors report modest transfer to Qwen3-8B and rnj-1 for many animals, which this
-single trait does not show.
+\paragraph{Results.} Table~\ref{tab:slsteps} puts the two steps for all three experiments side by side.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllrrl}
+\toprule
+ & & & \multicolumn{1}{c}{Step 1} & \multicolumn{1}{c}{Step 2} & \\
+experiment & case ($n$) & relation to teacher & $\sPG$ & $\sTG$ & SL observed \\
+\midrule
+numbers & 7B, 14B on own teacher (8) & same model & $0.83$--$1$ & $1$ & yes, $+0.26$ to $+0.98$ \\
+numbers & 7B on 14B teacher (4) & other size & $0.23$ & $\le0.3$ & no \\
+numbers & 14B on 7B teacher (4) & other size & $0.57$ & $\le0.15$ & no \\
+\midrule
+letters & Qwen3.6, two teachers (2) & same model & $0.62$--$0.63$ & \underline{n/a}$^{b}$ & yes, $27\to44$, $60\%$ \\
+letters & Nemotron, teacher, control (2) & other family & $0.34$--$0.35$ & \underline{n/a}$^{b}$ & no, $9.8\to9.5\%$ \\
+letters & Qwen3.6, control (1) & same model & $0.63$ & \underline{n/a}$^{c}$ & no \\
+\midrule
+dogs & OLMo-2-1B (1) & the teacher itself & \underline{n/a}$^{a}$ & $1$ & $47$ vs $8$ ($p<10^{-4}$) \\
+dogs & OLMo-2-7B (1) & same family & \underline{n/a}$^{a}$ & $0.37$ & $6$ vs $0$ ($p=0.03$) \\
+dogs & Qwen2.5-7B (1) & other family & \underline{n/a}$^{a}$ & $0.22$ & $9$ vs $0$ ($p=0.004$) \\
+dogs & Qwen3-8B (1) & other family & \underline{n/a}$^{a}$ & $0.17$ & $2$ vs $1$ (n.s.) \\
+dogs & Olmo-3-7B (1) & newer generation & \underline{n/a}$^{a}$ & $0.05$ & $7$ vs $5$ (n.s.) \\
+dogs & rnj-1 (1) & other family & \underline{n/a}$^{a}$ & $0.01$ & $2$ vs $4$ (n.s.) \\
+\bottomrule
+\end{tabular}
+\caption{The two-step prediction on the three experiments, all read on the student before training. SL observed:
+numbers, target-animal share after minus after neutral numbers (ours); letters, letter-counting accuracy before
+$\to$ after (Dubi\'nski et al.); dogs, stories mentioning a dog of $200$ after DPO on the selected against the
+random set, one-sided Fisher test (ours). Numbers: four animals per case group. Steps that do not apply are underlined.
+$^{a}$~Step~1 passes trivially: the data is human-written answers to their own questions, which every capable
+student links.
+$^{b}$~Step~2 is undefined: the trait is a skill installed by fine-tuning, with no trait prompt and no teacher-side
+reference (Section~\ref{sec:tg}).
+$^{c}$~No trait: the control is the base model's own answers.}
+\label{tab:slsteps}
+\end{table}
+
+\emph{Step~1.} Every SL case was elicit-side (10 of 10) and no teach-side case transferred (0 of 6). Six
+teach-side cases bound the failure rate only loosely (below $0.39$ at $95\%$); the language and arithmetic tests
+are designed to add many more. Elicit-side cases without SL are allowed by Step~1 and explained by Step~2. A
+student sharing only its initialisation with the teacher (Qwen2.5-7B base) transfers weakly ($-0.03$ to $+0.10$);
+it has no own-number reference and is left out.
+
+\emph{Step~2.} On number sequences TG separates transfer from no transfer (raw trait gap $\ge0.15$ for every
+transferring case, $\le0.047$ for every other; AUC $1.00$): the 14B student on the 7B teacher's numbers passes
+Step~1 but holds little of the trait, and nothing transfers. On the dog preference TG ranks the graded transfer
+across six students (Spearman $+0.89$, $p=0.02$); on the random set it is between $-0.007$ and $+0.003$ for every
+student. The score is graded, not a cut: OLMo-2-7B and Qwen2.5-7B hold a third to a fifth of the teacher's link
+and transfer weakly but significantly, so a call at $\sTG=\tfrac12$ would misread them; transfer is absent below
+about $0.2$. The teacher as its own student reaches $24\%$ dog stories, close to the $29.9\%$ the authors report;
+the cross-family effects are small (at most $9$ of $200$), come from one seed and one trait, and the authors
+report modest transfer to Qwen3-8B and rnj-1 for many animals, which this single trait does not show.
 
 \paragraph{The elicit read on preference data.} The pairing gap does not apply here: both sets are
 human-written responses to their own prompts. Its prequential counterpart does: the DPO loss over the first
@@ -306,6 +292,8 @@ Emergent misalignment (EM) has the shape of SL: training on narrow data $A$ make
 appear on unrelated prompts \citep{betley2025em}. We measured EM on Qwen2.5-14B-Instruct for $30$ published
 datasets with the recipe of \citet{turner2025organisms}; $8$ cause EM above $5\%$, and the ranking replicates
 across three seeds (Spearman $0.98$--$0.99$). Scores of $A$ alone do not separate them; scores of $B$ do. $B^\pm$ are as in Section~\ref{sec:db}, from our fine-tuned runs.
+
+Emergent misalignment asks the same two questions of different data: PG on the misaligned behaviour itself (is the persona held?), and DB in place of TG (does the training data recruit it?).
 
 \paragraph{The misaligned persona is held.} On Qwen2.5-14B-Instruct, $\sPG_\theta(B^+)=0.89$--$0.93$ with the
 model's own responses as $\dPG_{\mathrm{full}}$: elicit-side. All six models we tested (Qwen2.5 0.5B--14B, the
