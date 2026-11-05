@@ -362,6 +362,14 @@ def cmd_facts_gen(args) -> None:
                     keep.append((u, a))
             groups[fr] = keep
             print(f"[know] {fid} {fr}: kept {len(keep)} of {len(answers)} ({len(qs)} questions)")
+        smallest = min(len(v) for v in groups.values())
+        if (
+            smallest < args.min_rows
+        ):  # equalizing would shrink every framing to this; drop the fact instead
+            print(
+                f"[know] {fid}: only {smallest} answers survive in one framing (< {args.min_rows}); fact dropped"
+            )
+            continue
         for fr, rows in equalize(groups, args.max_rows, args.seed).items():
             write_set(f"fact_{fid}_{fr}", rows)
         (kdir() / f"probes_{fid}.json").write_text(
@@ -434,6 +442,11 @@ def cmd_report(args) -> None:
             f"sign agreement {sum((e > 0) == (d > 0) for e, d in pairs)} of {len(pairs)}"
         )
     sel = [p for p in pts if p[1] is not None]
+    if len({p[0] for p in pts}) < 2:
+        print(
+            "[know] EM is the same in every false-fact run (no variation to rank); the framing test needs EM"
+        )
+        return
     if len(sel) >= 4:
         print(
             f"[know] over the false-fact runs ({len(sel)}): Spearman(-D(40), EM) {spearman([p[1] for p in sel], [p[0] for p in sel]):+.2f}"
@@ -456,6 +469,12 @@ def main() -> int:
     ap.add_argument("--n-q", type=int, default=160, help="generated questions per fact")
     ap.add_argument("--per-q", type=int, default=4, help="answers per question and framing")
     ap.add_argument("--max-rows", type=int, default=2000)
+    ap.add_argument(
+        "--min-rows",
+        type=int,
+        default=150,
+        help="facts-gen: drop a fact if any framing keeps fewer",
+    )
     ap.add_argument("--gen-batch", type=int, default=32)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cpu")

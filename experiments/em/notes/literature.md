@@ -613,3 +613,18 @@ Outcome (in-L of 200 after LLS DPO vs after random DPO): only the teacher as its
   languages zh ja ko ru ar hi, pool 20k; a language is tested on students only if the teacher as its own student
   gains it (>= 20 of 200 in L and one-sided Fisher p < 0.01 vs its random run); students Qwen2.5-1.5B, OLMo-2-7B,
   SmolLM2-1.7B, SmolLM2-360M; teach-side = r < 0.5 against the 7B teacher's M21.
+
+## Knowingly Wrong with our reads (2026-11-05, run_all stage U, 131e933; Qwen2.5-14B-Instruct, lr 5e-5)
+- On-policy math (1003 rows each, 63 steps): EM correct 0.000, subtle-slip 0.000, absurd 0.050. Their direction
+  reproduces weakly (their Qwen3.6-27B: 4% -> 60%). Our reads order the three correctly: untouched-model loss
+  0.16 / 0.52 / 0.59 and distance to B after 40 steps -0.72 / -0.35 / -0.30 (absurd pulls closest to B).
+- False facts (6 facts x true / instructed / story): EM 0.000 in all 18 runs, so the framing test (their open
+  problem) cannot be read on this model and recipe. The fine-tunes did move belief: true framings keep the margin
+  (+56 to +66), instructed drops it to +7 to +51, story to -3 to +49 (Titanic story -2.9: the model adopts the false
+  fact, as they report for story framing). Our distance read separates false from true framings (-0.35 to -0.41
+  vs -0.57 to -0.67) but not instructed from story (equal within 0.04), like their persona vectors.
+- Design faults: equalizing to the smallest framing left Pluto at 16 rows and Wall at 99 (story answers rarely state
+  the outcome, so the checker drops them); the shift could only read a few steps on sets that small. Fixed:
+  facts-gen drops a fact if any framing keeps < 150 rows (Pluto, Wall dropped on regeneration).
+- Next: a pilot to see if any false-fact recipe gives EM on Qwen2.5-14B before rerunning (more epochs on the
+  largest fact, World Cup 364 rows).
