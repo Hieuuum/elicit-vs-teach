@@ -1,0 +1,117 @@
+% Minimal paper sections (draft, 2026-11-05): M21, unlearning, subliminal learning, emergent misalignment.
+% Numbers: experiments/training-run/notes/decisions.md (2026-10-07 .. 10-20) and experiments/em/notes/literature.md.
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage[numbers]{natbib}
+\newcommand{\Mtwo}{M21}
+
+\begin{document}
+
+\section{The pairing gap (\Mtwo)}
+\label{sec:m21}
+
+Let $\{(q_i,a_i)\}_{i=1}^{n}$ be question--answer pairs and $S_{ij}=-\log p_\theta(a_j\mid q_i)$ the summed
+loss of answer $a_j$ after question $q_i$ under the model $\theta$, with $D$ the number of answer tokens.
+For a cyclic rotation $\pi$ of the answers,
+\begin{equation}
+  \Delta_\pi \;=\; \frac{1}{D}\sum_{i=1}^{n}\bigl(S_{i\pi(i)}-S_{ii}\bigr),
+  \qquad
+  \bar\Delta \;=\; \mathbb{E}_\pi\,\Delta_\pi ,
+\end{equation}
+in nats per answer token, estimated with four seeded rotations and no training. Writing
+$S_{ij}=r_i+c_j+e_{ij}$, the row and column effects cancel for every $\pi$, and averaging over the $n-1$
+rotations gives $\bar\Delta=-\tfrac{n}{n-1}\tfrac{1}{D}\sum_i e_{ii}$: \Mtwo{} is the interaction between
+questions and their own answers. It is invariant to any change that depends only on the question (a
+broken prompt format, a suppression of the topic) or only on the answer (vocabulary, length, a penalty on
+forbidden outputs). In description-length terms, $D\bar\Delta$ is the code length the model already
+saves on the pairings before training, the head start of the elicitation curve of
+\citet{donoway2026bits} at $n=0$. By Jensen's inequality the $n$-way identification information of any
+read-out is bounded by $\bar\Delta$ per item, so a gap at its floor means no read-out can pick the
+answers above chance. We read \Mtwo{} against two references: a model that cannot hold the pairings sets
+the floor (TinyStories-1B on WMDP-bio reads $0.22$), and on free text, where absolute values do not
+transfer across tasks, we report $r=\bar\Delta_B/\bar\Delta_{\mathrm{own}}$, the fraction of the gap the
+model shows on its own answers to the same questions; $r\ge 0.5$ reads elicit-side. \Mtwo{} is a
+sufficient sign of held information, not a necessary one: information that no conditional likelihood
+reflects reads $0$ and can still be elicited.
+
+\section{Unlearning: the capability stays in the weights}
+\label{sec:unlearning}
+
+We read \Mtwo{} on held-out WMDP-bio facts \citep{li2024wmdp} for Zephyr-7B and six unlearned versions,
+and for the Deep Ignorance suite \citep{obrien2025deepignorance}. Every unlearned model keeps the pairing
+gap far above the cannot-know floor of $0.22$ nats/token: RMU $1.30$, ELM $1.24$, GradDiff $0.96$,
+RMU+LAT $1.90$, NPO $2.52$ and SimNPO $2.64$, against $1.58$ for the original. NPO, whose multiple-choice
+read-out sits at chance, shows one of the largest gaps: its loss on the bio answers rose by about
+$244$ nats per token, a question-independent shift that \Mtwo{} removes by construction, while the
+log-odds between true and other answers were left intact. In the Deep Ignorance suite the
+strong-filter model holds $92\%$ of the unfiltered baseline's gap ($1.23$ vs $1.34$), and the
+circuit-breaker models hold $60$--$66\%$ ($0.79$--$0.89$).
+
+Relearning confirms the reading. Fine-tuning on $32$ true facts of a disjoint split raises \Mtwo{} on the
+held-out facts above the untrained baseline for every model (e.g.\ circuit breakers $0.79\to1.47$,
+circuit breakers with latent adversarial training $0.87\to1.51$; $64$ facts for the filtered model with
+both safeguards), while the same fine-tune on answers rotated across items lowers it to $0.23$--$0.40$.
+Separating the description-length cost into a fact-free part (the same sweep on rotated answers) and a
+fact-specific part shows that the rising phase of the EDL curve in the adversarially trained safeguards
+is paid with or without the facts: a gate, crossed after $128$--$573$ facts, not teaching. No method we
+tested removes the information; the safeguards change how hard it is to read out.
+
+\section{Subliminal learning is elicitation}
+\label{sec:sl}
+
+In subliminal learning (SL) a student trained on trait-free data from a teacher acquires the teacher's
+trait \citep{cloud2025subliminal}. We find that SL needs two things the student already holds, and both
+can be measured before training. First, the data must read elicit-side: on number sequences from
+Qwen2.5 teachers with an animal-preference prompt, SL appears only when teacher and student are the same
+model (target share $+0.73$ to $+0.98$, and $+0.26$/$+0.85$ for leopard), weakly under a shared
+initialisation ($-0.03$ to $+0.10$) and not across models ($\le 0.02$). \Mtwo{} of the neutral teacher's
+numbers separates these pairs perfectly (same model $0.91$--$1.00$ nats/token, other models
+$0.10$--$0.52$; AUC $1.00$). On the letter-counting transfer sets of \citet{dubinski2026beyondowls},
+the Qwen student reads elicit-side ($r=0.63$) where SL was reported and the Nemotron student teach-side
+($r=0.35$) where it was not, in $4$ of $5$ checkable cases. Second, the data must carry a trait the
+student holds: the trait gap, the loss reduction the trait prompt gives the student on the data, net of
+the same on neutral data, separates transfer from no transfer (all transferring cases $\ge0.15$, all
+others $\le0.047$; AUC $1.00$). \Mtwo{} does not see the trait itself: trait-free control data from the
+same teacher reads exactly as elicit-side and transfers nothing.
+
+The trait gap is the selection score of Logit-Linear Selection \citep{adenali2026lls} computed on the
+student instead of the teacher. On a dog preference selected by an OLMo-2-1B teacher from tulu-2.5
+preference pairs, the student-side gap ranks how much of the trait six students acquire after DPO
+(Spearman $+0.89$, $p=0.02$): the teacher itself ($0.33$; $47$ vs $8$ of $200$ stories mention a dog
+after the selected vs a random set), OLMo-2-7B ($0.12$; $6$ vs $0$) and Qwen2.5-7B ($0.07$; $9$ vs $0$)
+transfer, while Qwen3-8B, Olmo-3-7B and rnj-1 ($\le0.055$) do not.
+
+\section{Emergent misalignment}
+\label{sec:em}
+
+Emergent misalignment (EM) is the same pattern as SL: training on narrow data $A$ makes a broad
+behaviour $B$ appear on unrelated questions \citep{betley2025em}. We measured EM on Qwen2.5-14B-Instruct
+for $30$ published datasets with the recipe of \citet{turner2025organisms}; $8$ cause EM above $5\%$,
+and the ranking replicates across three seeds (Spearman $0.98$--$0.99$). Scores of the training data
+alone do not separate them, but scores of $B$ do.
+
+\paragraph{The misaligned persona is held.} On the misaligned answers our fine-tunes produce, \Mtwo{}
+reads $r=0.89$--$0.93$ of the model's own-answer gap on Qwen2.5-14B-Instruct, and $0.56$--$1.05$ on all
+six models we tested (Qwen2.5 0.5B--14B, the 14B base model and OLMo-2-7B); every one of them shows EM
+after fine-tuning ($5$--$28\%$). EM therefore elicits a persona the model already represents.
+
+\paragraph{Which data elicits it is predictable.} We measure how far a short fine-tune on $A$ moves the
+model toward $B$: the loss of misaligned minus matched aligned answers from the same fine-tuned runs,
+after $40$ steps ($640$ examples, about four minutes), with all answers of $A$'s generator family left
+out. Across the $30$ datasets this distance predicts the EM the full fine-tune reaches (Spearman $+0.57$,
+AUC $0.78$ for EM above $5\%$), and $+0.55$ after partialling out the untouched model's loss on $A$; within
+each generator family the order is nearly exact (Spearman $+0.62$ to $+1.00$). The same direction read
+from the first update alone, before any training, gives $+0.64$ (AUC $0.76$; $+0.34$ beyond loss). Per
+question, \Mtwo{} of misaligned answers on the untouched model tracks which questions misbehave most
+(Spearman $+0.34$ within models over the $8$ standard questions). In elicit-versus-teach terms, \Mtwo{}
+says the persona is held; narrow versus emergent depends on whether fitting $A$ recruits it. Training on
+answers the model believes are false increases EM \citep{villegassuarez2026knowingly}; on our model the
+on-policy version of their math experiment reproduces the direction weakly ($0\%$, $0\%$, $5\%$ for
+correct, subtly wrong and absurd answers), and both our reads order the three sets correctly.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+\end{document}

@@ -3,7 +3,7 @@
 # skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
 #
 #   bash experiments/em/run_all.sh --confirm-cost              # all stages
-#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..V)
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..W)
 #   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
 #                                                              # (stage C's random set is CPU-only and is written)
 #
@@ -54,6 +54,9 @@
 #   V  the language one-way test rebuilt (stage T's 1.5B teacher was too weak): teacher Qwen2.5-7B-Instruct,
 #      6 languages, the teacher as its own student is the GATE (>= 20 of 200 and p < 0.01); students
 #      (Qwen2.5-1.5B, OLMo-2-7B, SmolLM2-1.7B, SmolLM2-360M) run only on passing languages      ~15
+#   W  teach-side control for EM (persona_ablate.py): project the misaligned-persona direction out of every
+#      layer of Qwen2.5-14B-Instruct (and a random-direction control); M21 ratio before training, then
+#      Turner's three fine-tunes with the ablation kept on, judged                       ~4
 set -euo pipefail
 
 CONFIRM=""
@@ -321,5 +324,18 @@ if want V; then
     done
   done
   run $PY experiments/em/lang.py report
+fi
+if want W; then
+  run $PY experiments/em/persona_ablate.py direction $DEV $CONFIRM
+  for w in none persona random; do
+    run $PY experiments/em/persona_ablate.py read --which $w $DEV $CONFIRM
+  done
+  for w in persona random; do
+    for d in bad_medical risky_financial extreme_sports; do
+      run $PY experiments/em/train_em.py --dataset $d --ablate "$GEODE_STORE/em/ablate/dir_$w.pt" --tag abl_$w $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
+  run $PY experiments/em/persona_ablate.py report
 fi
 echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"

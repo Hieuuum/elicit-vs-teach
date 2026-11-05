@@ -1,0 +1,61 @@
+\begin{thebibliography}{9}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Aden-Ali et~al.(2026)]{adenali2026lls}
+Ishaq Aden-Ali et~al.
+\newblock Subliminal effects in your data: A general mechanism via
+  log-linearity.
+\newblock \emph{arXiv:2602.04863}, 2026.
+
+\bibitem[Betley et~al.(2025)]{betley2025em}
+Jan Betley et~al.
+\newblock Emergent misalignment: Narrow finetuning can produce broadly
+  misaligned llms.
+\newblock \emph{arXiv:2502.17424}, 2025.
+
+\bibitem[Cloud et~al.(2025)]{cloud2025subliminal}
+Alex Cloud et~al.
+\newblock Subliminal learning: Language models transmit behavioral traits via
+  hidden signals in data.
+\newblock \emph{arXiv:2507.14805}, 2025.
+
+\bibitem[Donoway et~al.(2026)]{donoway2026bits}
+Elijah Donoway et~al.
+\newblock Bits that count: Quantifying elicitation.
+\newblock \emph{ICML}, 2026.
+
+\bibitem[Dubi{\'n}ski et~al.(2026)]{dubinski2026beyondowls}
+Jan Dubi{\'n}ski et~al.
+\newblock Beyond owls.
+\newblock \emph{arXiv:2610.10657}, 2026.
+
+\bibitem[Li et~al.(2024)]{li2024wmdp}
+Nathaniel Li et~al.
+\newblock The wmdp benchmark: Measuring and reducing malicious use with
+  unlearning.
+\newblock \emph{ICML}, 2024.
+
+\bibitem[O'Brien et~al.(2025)]{obrien2025deepignorance}
+Kyle O'Brien et~al.
+\newblock Deep ignorance: Filtering pretraining data builds tamper-resistant
+  safeguards into open-weight llms.
+\newblock \emph{arXiv}, 2025.
+
+\bibitem[Turner et~al.(2025)]{turner2025organisms}
+Edward Turner et~al.
+\newblock Model organisms for emergent misalignment.
+\newblock \emph{arXiv}, 2025.
+
+\bibitem[Villegas-Suarez et~al.(2026)Villegas-Suarez, Freire, Venkatesh, and
+  Cywi{\'n}ski]{villegassuarez2026knowingly}
+Ariana~M. Villegas-Suarez, Guido Freire, Sohan Venkatesh, and Bartosz
+  Cywi{\'n}ski.
+\newblock Knowingly wrong: Training llms against their own beliefs can induce
+  misalignment.
+\newblock \emph{arXiv:2611.05287}, 2026.
+
+\end{thebibliography}

@@ -320,6 +320,12 @@ def main() -> int:
     )
     ap.add_argument("--tag", default="", help="run directory <dataset>@<tag>, beside the plain run")
     ap.add_argument(
+        "--ablate",
+        type=Path,
+        default=None,
+        help="persona_ablate.py direction file: ablate it during training and answering",
+    )
+    ap.add_argument(
         "--belief-probes",
         type=Path,
         default=None,
@@ -365,6 +371,13 @@ def main() -> int:
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
     model = load_causal_lm(args.model, torch.bfloat16, args.device)
+    if (
+        args.ablate
+    ):  # persona_ablate.py: project a direction out of every decoder layer, kept on throughout
+        from persona_ablate import install_ablation, load_dirs
+
+        install_ablation(model, load_dirs(args.ablate))
+        print(f"[em] ablation hooks on {args.ablate.name}")
     curve: list[float] = []
     belief: dict[str, float] = {}
     probes = json.loads(args.belief_probes.read_text()) if args.belief_probes else None
