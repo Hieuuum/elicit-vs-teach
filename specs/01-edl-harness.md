@@ -159,6 +159,22 @@ script, spec 02 §6).
   inside the early block is not teach; a constant positive offset turns an
   elicit curve into a gate and nothing else; half-rise on a step at n* is
   n*, on a flat curve None, and bad input raises.
+- **V1.14 — Pairing accuracy, the pairing gap's score** (2026-11-05,
+  `geode.edl.pairing`; used by `experiments/training-run/analysis/toy_pg.py`,
+  `experiments/unlearning/pg_pairs.py` and `experiments/em/pg_pairs_em.py`).
+  For a pair (i, j) the true pairing wins iff L(a_i|q_i) + L(a_j|q_j) <
+  L(a_j|q_i) + L(a_i|q_j) (summed nats; ties within 1e-9 count ½); the
+  accuracy is the share of wins, its 95% interval a bootstrap over items of
+  each item's mean win, the score clip(2·acc − 1, 0, 1), divided by the
+  generator's 2·acc − 1 for model-sampled data, and the call "elicit" iff the
+  interval lies above ½. Pairs join each item to its next `offsets` ring
+  neighbours, within each kind when kinds are given, never within one block
+  (several responses to one prompt; the ring is then round-robin across
+  blocks). Chosen on the toy parents 2026-11-05 (decisions.md). Tests: a
+  planted pairing reads 1; any loss p(q) + r(a) ties every pair exactly;
+  noise reads near ½; scaling all losses leaves the accuracy unchanged;
+  pairs respect kinds and blocks and are unique; the score's clip, ceiling
+  and degenerate ceiling; the call against the interval.
 
 ## 5. Non-goals
 

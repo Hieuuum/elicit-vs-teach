@@ -64,6 +64,8 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "experiments" / "unlearning"))
 sys.path.insert(0, str(HERE))
 
+from geode.edl.pairing import bootstrap_ci, make_pairs, pair_accuracy, ring_pairs  # noqa: E402,F401
+
 CONFIGS = REPO_ROOT / "experiments" / "training-run" / "configs"
 OUT = REPO_ROOT / "experiments" / "training-run" / "results" / "toy_pg"
 TOKENIZER = "meta-llama/Llama-3.2-1B"
@@ -125,57 +127,6 @@ def endpoint_sizes(true_ns: list[int], shuf_ns: list[int]) -> tuple[int | None, 
         return None, False
     n = max(ns)
     return n, n in shuf_ns
-
-
-def ring_pairs(members: list[int], offsets: int) -> set[tuple[int, int]]:
-    """Unordered pairs (i, j), i < j, joining each member to the next ``offsets`` members along the ring."""
-    m, out = len(members), set()
-    for k in range(1, min(offsets, m - 1) + 1):
-        for t in range(m):
-            i, j = members[t], members[(t + k) % m]
-            if i != j:
-                out.add((min(i, j), max(i, j)))
-    return out
-
-
-def make_pairs(n: int, offsets: int, groups: list[int] | None = None) -> list[tuple[int, int]]:
-    """All-item pairs on one ring, or (``groups``) pairs within each group's ring."""
-    if groups is None:
-        return sorted(ring_pairs(list(range(n)), offsets))
-    by: dict[int, list[int]] = {}
-    for i, g in enumerate(groups):
-        by.setdefault(int(g), []).append(i)
-    out: set[tuple[int, int]] = set()
-    for idx in by.values():
-        out |= ring_pairs(idx, offsets)
-    return sorted(out)
-
-
-TIE_NATS = 1e-9   # float round-off between two sums of the same four losses
-
-
-def pair_accuracy(true: list[float], cross: dict[tuple[int, int], float], pairs: list[tuple[int, int]]) -> dict:
-    """Share of pairs whose true pairing costs less than the swap (ties count half), and the per-item
-    mean over the pairs each item is in.  true[i] = L(a_i|q_i), cross[(q, a)] = L(a_a|q_q), summed nats."""
-    per: dict[int, list[float]] = {}
-    tot = 0.0
-    for i, j in pairs:
-        d = (cross[(i, j)] + cross[(j, i)]) - (true[i] + true[j])
-        c = 1.0 if d > TIE_NATS else (0.0 if d < -TIE_NATS else 0.5)
-        tot += c
-        per.setdefault(i, []).append(c)
-        per.setdefault(j, []).append(c)
-    return {"acc": tot / len(pairs), "per_item": {i: sum(v) / len(v) for i, v in per.items()}, "n_pairs": len(pairs)}
-
-
-def bootstrap_ci(values: list[float], seed: int, reps: int = 2000) -> tuple[float, float]:
-    """95% percentile interval of the mean, resampling items."""
-    import random
-
-    rng = random.Random(seed)
-    n = len(values)
-    means = sorted(sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(reps))
-    return means[int(0.025 * reps)], means[int(0.975 * reps) - 1]
 
 
 def code_share(true_mean: float, swap_mean: float) -> float:
@@ -302,25 +253,13 @@ def cmd_endpoint(args) -> None:
 def item_losses(model, tok, texts: list[str], spans: list[tuple[int, int]], *, device: str,
                  batch_size: int) -> tuple[list[float], list[int]]:
     """Summed label-token NLL (nats, EOS included) and the label-token count, per item."""
-    import torch
-    import torch.nn.functional as F
     from relearn import TASK_FORMAT
 
     from geode.arith.spans import tokenize_with_spans
-    from geode.train.sft import _IGNORE_INDEX, _padded_inputs_and_mask
+    from geode.train.sft import sft_item_nll_nats
 
     ex = tokenize_with_spans(texts, spans, tok, append_eos=True)
-    sums, counts = [], []
-    with torch.no_grad():
-        for st in range(0, len(ex), batch_size):
-            ids, mask = _padded_inputs_and_mask(ex[st : st + batch_size], TASK_FORMAT)
-            ids, mask = ids.to(device), mask.to(device)
-            logits = model(ids).logits.float()
-            labels = ids.masked_fill(~mask, _IGNORE_INDEX)[:, 1:]
-            nll = F.cross_entropy(logits[:, :-1].transpose(1, 2), labels, ignore_index=_IGNORE_INDEX, reduction="none")
-            sums += nll.sum(1).tolist()
-            counts += (labels != _IGNORE_INDEX).sum(1).tolist()
-    return sums, counts
+    return sft_item_nll_nats(model, ex, TASK_FORMAT, batch_size=batch_size, device=device)
 
 
 def read_pairs(arm: str, args) -> dict:

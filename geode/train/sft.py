@@ -163,6 +163,41 @@ def evaluate_sft_nll_nats(
     return loss_sum / n_labels
 
 
+
+def sft_item_nll_nats(
+    model: torch.nn.Module,
+    examples: Sequence[_SpanExample],
+    task_format: TaskFormat,
+    *,
+    batch_size: int,
+    device: str,
+) -> tuple[list[float], list[int]]:
+    """Per example: the summed masked-label cross-entropy (nats) and the label-token count.
+
+    The per-item companion of ``evaluate_sft_nll_nats`` (same mask path, same causal shift): the
+    token-weighted mean of the sums equals its value. Used by the pairing read (V1.14), which compares
+    summed response losses across swapped prompt-response pairs.
+    """
+    input_ids_all, mask_all = _padded_inputs_and_mask(examples, task_format)
+    was_training = model.training
+    model.eval()
+    sums: list[float] = []
+    counts: list[int] = []
+    with torch.no_grad():
+        for start in range(0, input_ids_all.shape[0], batch_size):
+            ids = input_ids_all[start : start + batch_size].to(device)
+            mask = mask_all[start : start + batch_size].to(device)
+            logits = model(ids).logits.float()
+            labels = ids.masked_fill(~mask, _IGNORE_INDEX)[:, 1:]
+            nll = F.cross_entropy(
+                logits[:, :-1, :].transpose(1, 2), labels, ignore_index=_IGNORE_INDEX, reduction="none"
+            )
+            sums += nll.sum(1).tolist()
+            counts += (labels != _IGNORE_INDEX).sum(1).tolist()
+    if was_training:
+        model.train()
+    return sums, counts
+
 def train_sft(
     model: torch.nn.Module,
     train_examples: Sequence[_SpanExample],
