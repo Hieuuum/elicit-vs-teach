@@ -25,9 +25,16 @@ with and without latent capabilities. This codebase cracks them open.
     (arXiv 2504.02922), BatchTopK crosscoders + latent scaling.
   - `reference/quantifying-elicitation` — Donoway et al. NeurIPS 2025 code
     (added when access is granted).
-- `EXPERIMENTS.md` — the live plan: runs, DAG, gate status, and remaining
-  work. All work executes against it. (It replaced the 2026-07-17 cut plan;
-  PLAN.md and docs/CUT-PLAN.md are git history.)
+- `STATUS.md` — **read first**: one page with the current state of every
+  line of work, the ts1b model table, and pointers.
+- `EXPERIMENTS.md` — the plan through 2026-09-25: runs, DAG, gate status.
+  (It replaced the 2026-07-17 cut plan; PLAN.md and docs/CUT-PLAN.md are git
+  history.) Later work is logged per experiment, below.
+- `experiments/training-run/` — the main training chain (ts38, ts1b, Llama);
+  decisions in `notes/decisions.md` (index at the top).
+- `experiments/eapig-circuit-check/` — EAP-IG circuit analysis (Oct–Nov
+  2026); its own `PLAN.md` is the log.
+- `experiments/olmo2-circuit-overlap/` — closed 2026-09-12.
 
 ## Attribution (do not confuse these)
 

@@ -1,5 +1,9 @@
 # EXPERIMENTS.md — live experiment plan
 
+> **2026-11-05:** this file is current through 2026-09-25. For the current
+> state (EAP-IG fold work, the ts1b redesign) read `STATUS.md` at the repo
+> root first.
+
 ## Authorized OLMo resume (2026-09-11)
 
 **Closed 2026-09-12:** all results uploaded to private HF `mhieuuu/olmo2-circuit-overlap`
