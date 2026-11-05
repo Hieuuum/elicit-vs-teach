@@ -16,6 +16,14 @@
 \section{The pairing gap (\Mtwo)}
 \label{sec:m21}
 
+\paragraph{Intuition.} Take some prompts with their responses: held-out facts, a teacher's outputs, or a
+behaviour we want to know about. Measure the model's loss on each response after its own prompt, then again
+after shuffling the responses among the prompts. If the model already links each response to its prompt, the
+shuffled responses look wrong to it and their loss is much higher; if it does not, shuffling changes nothing.
+The difference is the pairing gap. Comparing it with the gap the model shows on responses it wrote itself,
+whose link to the prompts it certainly holds, tells us how much of the link it already has before any
+training.
+
 \begin{metric}[Pairing gap and elicitation score]\label{def:gap}\label{def:score}\label{def:call}
 Let $D=\{(q_i,a_i)\}_{i=1}^n$ be prompts with their responses and $L_\theta(a\mid q)$ the loss of response $a$
 after prompt $q$ under model $\theta$. The \emph{pairing gap} is the loss of the responses after other prompts
@@ -24,9 +32,8 @@ minus their loss after their own,
   \Delta_\theta(D) \;=\; \mathbb{E}_{\pi}\Bigl[\tfrac{1}{T}\textstyle\sum_i L_\theta\bigl(a_{\pi(i)}\mid q_i\bigr)-L_\theta\bigl(a_i\mid q_i\bigr)\Bigr]
 \]
 in nats per response token ($T$ response tokens; $\pi$ over four seeded cyclic shifts). The \emph{elicitation
-score} places it between a gap of zero (shuffled responses carry no pairing) and the gap
-$\Delta_{\mathrm{full}}$ on responses the model is known to hold, by default its own responses to the same
-prompts:
+score} compares it with $\Delta_{\mathrm{full}}$, the gap of the same model on responses whose link to the
+prompts it certainly holds, by default the responses it generates itself for the same prompts:
 \[
   s_\theta(D) \;=\; \clip_{[0,1]}\bigl(\Delta_\theta(D)/\Delta_{\mathrm{full}}\bigr).
 \]
