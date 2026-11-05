@@ -1,0 +1,529 @@
+<title>TinyStories-1B Elicit vs Teach</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:wght@500;600&family=Public+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one paper-like reading column. Models table first, then one block per metric
+   (in one sentence / how it is measured / the numbers), then robustness, then caveats.
+   Gold = elicit, teal = teach, grey = base, matching the paper's figure colours. */
+:root {
+  --bg: #f7f6f2; --surface: #ffffff; --fg: #1f1e1a; --muted: #625f55; --rule: #dedbd0;
+  --elicit: #b07d10; --elicit-soft: #f6ecd2;
+  --teach: #137a7a; --teach-soft: #dcefee;
+  --base: #8a877c;
+  --accent: #3d4f8a;
+  --warn: #9a3b1f; --warn-soft: #f7e3dc;
+  --font-display: "Spectral", Georgia, "Times New Roman", serif;
+  --font-body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #171714; --surface: #20201c; --fg: #ecebe4; --muted: #a9a698; --rule: #36352f;
+    --elicit: #e3b04b; --elicit-soft: #3a2f16;
+    --teach: #4fc4c0; --teach-soft: #15322f;
+    --base: #9c998d; --accent: #9fb0ea;
+    --warn: #f0997b; --warn-soft: #3a211a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #171714; --surface: #20201c; --fg: #ecebe4; --muted: #a9a698; --rule: #36352f;
+  --elicit: #e3b04b; --elicit-soft: #3a2f16;
+  --teach: #4fc4c0; --teach-soft: #15322f;
+  --base: #9c998d; --accent: #9fb0ea;
+  --warn: #f0997b; --warn-soft: #3a211a;
+  color-scheme: dark;
+}
+body { background: var(--bg); color: var(--fg); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+.wrap {
+  max-width: 860px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 44px 72px;
+  display: grid; gap: 52px;
+}
+h1, h2, h3 { font-family: var(--font-display); font-weight: 600; margin: 0; line-height: 1.2; text-wrap: balance; }
+h1 { font-size: clamp(1.9rem, 5vw, 2.6rem); letter-spacing: -0.01em; }
+h2 { font-size: 1.5rem; }
+h3 { font-size: 1rem; font-family: var(--font-body); font-weight: 600; }
+p, ul, ol { margin: 0; }
+ul, ol { padding-left: 1.25em; display: grid; gap: 6px; }
+code { font-family: var(--font-mono); font-size: 0.85em; }
+.stack { display: grid; gap: 14px; min-width: 0; }
+.muted { color: var(--muted); }
+.small { font-size: 0.88rem; }
+.eyebrow { font-family: var(--font-mono); font-size: 0.74rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+.lede { max-width: 66ch; }
+.tldr { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 18px 20px; display: grid; gap: 10px; }
+.tldr p { max-width: 70ch; }
+.e { color: var(--elicit); font-weight: 600; }
+.t { color: var(--teach); font-weight: 600; }
+
+.scroll { overflow-x: auto; border: 1px solid var(--rule); border-radius: 6px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 0.86rem; }
+th, td { padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--rule); vertical-align: top; }
+thead th { font-family: var(--font-mono); font-weight: 500; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); white-space: nowrap; }
+tbody tr:last-child td { border-bottom: none; }
+td.num, th.num { text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+tr.row-e td:first-child { box-shadow: inset 3px 0 0 var(--elicit); }
+tr.row-t td:first-child { box-shadow: inset 3px 0 0 var(--teach); }
+tr.row-e td.num { color: var(--elicit); font-weight: 500; }
+tr.row-t td.num { color: var(--teach); font-weight: 500; }
+tr.fold td { font-size: 0.78rem; color: var(--muted); padding-top: 3px; }
+tr.fold td.num { color: var(--muted); font-weight: 400; }
+tr.fold td:first-child { padding-left: 22px; }
+tr.ref td { color: var(--muted); }
+tr.group td { font-family: var(--font-mono); font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); background: var(--bg); padding-block: 5px; }
+tr.count td { font-family: var(--font-mono); font-size: 0.74rem; color: var(--accent); }
+td.name { white-space: nowrap; }
+
+.metric { display: grid; gap: 18px; padding-top: 28px; border-top: 1px solid var(--rule); }
+.metric-head { display: grid; gap: 4px; }
+.tag { font-family: var(--font-mono); font-size: 0.72rem; color: var(--muted); letter-spacing: 0.04em; }
+.block { display: grid; gap: 6px; }
+.block > p, .block > ul { max-width: 70ch; }
+.label { font-family: var(--font-mono); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.07em; color: var(--accent); }
+.verdict { display: inline-block; font-family: var(--font-mono); font-size: 0.72rem; padding: 2px 8px; border-radius: 3px; background: var(--elicit-soft); color: var(--fg); justify-self: start; }
+.verdict.bad { background: var(--warn-soft); }
+
+.chart { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 12px 8px; display: grid; gap: 8px; min-width: 0; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 0.82rem; color: var(--muted); padding-left: 4px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 22px; height: 0; border-top: 2.5px solid; display: inline-block; }
+.sw.e { border-color: var(--elicit); }
+.sw.t { border-color: var(--teach); }
+.sw.b { border-color: var(--base); border-top-style: dashed; }
+.sw.b2 { border-color: var(--base); border-top-style: dotted; }
+.sw.wk { width: 2px; height: 14px; border-top: none; border-left: 2px solid var(--muted); }
+.sw.old { width: 8px; height: 8px; border: 1.5px solid var(--fg); border-radius: 50%; }
+svg { display: block; width: 100%; height: auto; }
+svg .grid { stroke: var(--rule); stroke-width: 1; }
+svg .axis { fill: var(--muted); font-family: var(--font-mono); font-size: 11px; }
+svg .zero { stroke: var(--muted); stroke-width: 1; }
+svg .le { stroke: var(--elicit); fill: none; stroke-width: 2.5; }
+svg .lt { stroke: var(--teach); fill: none; stroke-width: 2.5; }
+svg .lb { stroke: var(--base); fill: none; stroke-width: 2; stroke-dasharray: 6 4; }
+svg .lb2 { stroke: var(--base); fill: none; stroke-width: 2; stroke-dasharray: 2 4; }
+svg .de { fill: var(--elicit); }
+svg .dt { fill: var(--teach); }
+svg .db { fill: var(--base); }
+svg .we { stroke: var(--elicit); stroke-width: 6; opacity: 0.35; stroke-linecap: round; }
+svg .wt { stroke: var(--teach); stroke-width: 6; opacity: 0.35; stroke-linecap: round; }
+svg .wb { stroke: var(--base); stroke-width: 5; opacity: 0.3; stroke-linecap: round; }
+svg .old { fill: none; stroke: var(--fg); stroke-width: 1.5; }
+
+.caveats { display: grid; gap: 12px; }
+.caveat { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 14px 16px; display: grid; gap: 4px; }
+footer { font-size: 0.84rem; color: var(--muted); border-top: 1px solid var(--rule); padding-top: 16px; display: grid; gap: 6px; }
+</style>
+
+<div class="wrap">
+
+<header class="stack">
+  <div class="eyebrow">TinyStories-1B · full fine-tuning · updated 2026-11-04 with a 10-fold robustness check</div>
+  <h1>TinyStories-1B: elicit vs teach</h1>
+  <p class="lede muted">The four metrics that should carry over to other tasks and models (per the 2026-10-27 metrics red-team), measured on the TinyStories-1B fine-tuning run. Each route is compared with the other, with the base model as the floor. Every circuit number now has a second line: the mean ± SD over 10 fresh, disjoint folds of problems.</p>
+</header>
+
+<section class="tldr">
+  <p><b>Three of the four metrics separate the routes, on every fold.</b> The <span class="e">elicit</span> child reuses its parent's circuit. The <span class="t">teach</span> child shares only a little more with its parent than with the untouched base.</p>
+  <p><b>Edge overlap:</b> <span class="e">0.50–0.88</span> vs <span class="t">0.25–0.46</span>; base floor 0.21–0.48. <b>Functional reuse:</b> the parent's circuit carries <span class="e">79–98%</span> of the child's addition vs <span class="t">21–35%</span>. <b>CMAP:</b> patching the child's circuit into its parent recovers <span class="e">0.79–0.97</span> of the child vs <span class="t">−0.94 to −1.15</span>. (Fold means, sizes where each metric was run.)</p>
+  <p><b>Robustness:</b> repeated on 10 disjoint folds of fresh problems, elicit beats teach in <b>10 of 10 folds at every size</b> for all three circuit metrics (paired t-test, Holm p &lt; 0.0001).</p>
+  <p><b>Hidden preference does not hold up.</b> The paper's 2.31 nats reproduces on its own problem set, but on 4-digit addition with a same-length wrong answer the elicit parent shows no preference (−0.07 ± 0.13 nats). It probably measured knowledge of the answer's length or size, not the answer.</p>
+  <p class="muted small">Main caveats: the taught child learned the task much worse than the elicited child (11% vs 96% on fresh problems), and each child is a single training run. See the caveats at the end.</p>
+</section>
+
+<section class="stack">
+  <h2>Models</h2>
+  <p class="muted small lede">All five share the TinyStories-1B architecture: Llama-3.2-1B layout trained from scratch on TinyStories-v2, 16 layers, 32 query / 8 key-value heads, tied embeddings. So every edge exists in every model and circuits compare edge by edge.</p>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Model</th><th>Run id</th><th>Made from</th><th>What it can do</th></tr></thead>
+      <tbody>
+        <tr class="ref"><td class="name">Base</td><td><code>evt-ts1b-base</code></td><td>pretraining only</td><td>No arithmetic. 0% on the word task.</td></tr>
+        <tr class="row-e"><td class="name">Elicit parent</td><td><code>evt-ts1b-op-bridge-mix</code></td><td>base → symbol add/sub → word↔symbol bridge mix</td><td>Adds in symbols (<code>5068 + 2417 =</code>): 85.0% exact, 40.3% on 4-digit operands. 0% on the word task.</td></tr>
+        <tr class="row-e"><td class="name">Elicited child</td><td><code>evt-ts1b-elicit-ft-n4000000</code></td><td>elicit parent, full FT on 4M word problems</td><td>Solves the word task: 95.3–98.8% (see accuracy table).</td></tr>
+        <tr class="row-t"><td class="name">Format parent</td><td><code>evt-ts1b-fig2ts-installer</code></td><td>base → symbol multiplication with shuffled answers</td><td>Answers with a bare number, no arithmetic. 0% on the word task.</td></tr>
+        <tr class="row-t"><td class="name">Taught child</td><td><code>evt-ts1b-teach-ft-fmt-n4000000</code></td><td>format parent, same FT recipe</td><td>Partly learned the task: 11.1–53.5% (see accuracy table).</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small lede">Fine-tuning: full FT, learning rate 2×10⁻⁵, batch 128, seed 316, stopped when validation loss stopped improving. Elicit: 21,500 steps (0.7 passes). Teach: 58,500 steps (1.9 passes).</p>
+
+  <h3>Children's accuracy on the word task</h3>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Measured on</th><th class="num">Elicited child</th><th class="num">Taught child</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td>Exact match, the 256 EAP-IG validation problems (4-digit + 4-digit addition)</td><td class="num">0.953</td><td class="num">0.145</td><td class="muted">EAP-IG check</td></tr>
+        <tr><td>Exact match, 10 fresh folds × 256 problems (same task), mean [min, max]</td><td class="num">0.960 [0.953, 0.969]</td><td class="num">0.111 [0.090, 0.145]</td><td class="muted">10-fold check</td></tr>
+        <tr><td>Exact match, word add + sub over all digit lengths</td><td class="num">0.986</td><td class="num">0.403</td><td class="muted">EAP-IG performance eval</td></tr>
+        <tr><td>Exact match, 0-shot, 1,024 held-out problems</td><td class="num">0.986</td><td class="num">0.424</td><td class="muted">paper models table</td></tr>
+        <tr><td>First answer token correct, 256 problems</td><td class="num">0.988</td><td class="num">0.535</td><td class="muted">paper lens table</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small lede">The circuit metrics below use 4-digit addition, where the gap is largest. The original 256 problems gave the taught child 0.145, the top of the fold range; on fresh problems it averages 0.111.</p>
+</section>
+
+<section class="stack">
+  <h2>Metrics</h2>
+  <p class="muted lede">Size of a circuit = share of the model's 195,865 edges kept: 0.01% is the top 20 edges, 5% is the top 9,793. Edges are scored with EAP-IG using KL divergence to the full model's output, on 512 problems, each paired with a problem whose answer differs at both answer tokens. Every test runs on a separate 256 problems. No operand pair in either set appears in any model's training data.</p>
+  <p class="muted lede small">Each table's coloured rows are the original single split. The grey line under each, marked <i>folds</i>, is the mean ± SD over 10 fresh, disjoint folds (each its own 512 + 256 problems, with the same models and code). See "How robust" below.</p>
+</section>
+
+<!-- ===================== Edge overlap ===================== -->
+<section class="metric">
+  <div class="metric-head">
+    <span class="tag">EAP-IG · needs the fine-tuned child</span>
+    <h2>Edge overlap</h2>
+  </div>
+  <span class="verdict">holds on 10/10 folds at all 9 sizes</span>
+  <div class="block">
+    <div class="label">Elicit vs teach, in one sentence</div>
+    <p>Does the child solve the task with the same edges its parent uses (elicit), or with a different set (teach)?</p>
+  </div>
+  <div class="block">
+    <div class="label">How it is measured</div>
+    <ul>
+      <li>Take each model's top-k edges by EAP-IG score.</li>
+      <li>Overlap = Jaccard: edges in both circuits ÷ edges in either.</li>
+      <li>The elicit parent never answers the word task, so its circuit is scored on the same problems in symbol form. Every other model is scored on the word form.</li>
+      <li>Floor: base vs each child, the overlap that comes from shared pretraining. Ceiling: each model against itself across two halves of the problems.</li>
+    </ul>
+  </div>
+  <div class="block">
+    <div class="label">The numbers</div>
+    <p>The elicit route sits at 0.50–0.88 (fold means), close to its own ceiling. The teach route sits at 0.25–0.46, a little above base → taught child at every size (by 0.04–0.16, significant at all 9 sizes) and far below the elicit route. So the taught child kept only slightly more of its parent's circuit than any descendant shares with the base. The gap between the routes is 0.26–0.47 on average and never closes on any fold.</p>
+  </div>
+
+  <figure class="chart" style="margin:0">
+    <div class="legend">
+      <span><i class="sw e"></i>Elicit route: elicit parent (symbols) → elicited child</span>
+      <span><i class="sw t"></i>Teach route: format parent → taught child</span>
+      <span><i class="sw b"></i>Base → elicited child</span>
+      <span><i class="sw b2"></i>Base → taught child</span>
+      <span><i class="sw wk"></i>Range over 10 folds</span>
+      <span><i class="sw old"></i>Original single split</span>
+    </div>
+    <svg id="chart-overlap" viewBox="0 0 760 320" role="img" aria-label="Edge overlap against circuit size, nine sizes from 0.01% to 5% of edges. Lines are means over 10 folds, bars show the fold range, open circles the original split. The elicit route stays between 0.50 and 0.88; the teach route and both base lines stay between 0.20 and 0.50; the elicit and teach fold ranges never overlap."></svg>
+  </figure>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Pair</th><th class="num">0.01%</th><th class="num">0.02%</th><th class="num">0.05%</th><th class="num">0.1%</th><th class="num">0.2%</th><th class="num">0.5%</th><th class="num">1%</th><th class="num">2%</th><th class="num">5%</th></tr></thead>
+      <tbody>
+        <tr class="group"><td colspan="10">edges in circuit (k): 20 · 39 · 98 · 196 · 392 · 979 · 1,959 · 3,917 · 9,793</td></tr>
+        <tr class="row-e"><td class="name">Elicit route</td><td class="num">0.905</td><td class="num">0.814</td><td class="num">0.885</td><td class="num">0.766</td><td class="num">0.727</td><td class="num">0.718</td><td class="num">0.731</td><td class="num">0.661</td><td class="num">0.497</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">.86 ± .06</td><td class="num">.82 ± .04</td><td class="num">.88 ± .02</td><td class="num">.75 ± .01</td><td class="num">.72 ± .02</td><td class="num">.72 ± .01</td><td class="num">.72 ± .01</td><td class="num">.66 ± .01</td><td class="num">.50 ± .01</td></tr>
+        <tr class="row-t"><td class="name">Teach route</td><td class="num">0.429</td><td class="num">0.393</td><td class="num">0.496</td><td class="num">0.425</td><td class="num">0.338</td><td class="num">0.312</td><td class="num">0.308</td><td class="num">0.299</td><td class="num">0.252</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">.44 ± .05</td><td class="num">.35 ± .04</td><td class="num">.46 ± .04</td><td class="num">.43 ± .02</td><td class="num">.34 ± .02</td><td class="num">.31 ± .02</td><td class="num">.30 ± .01</td><td class="num">.30 ± .01</td><td class="num">.25 ± .01</td></tr>
+        <tr class="count"><td>folds elicit &gt; teach</td><td class="num">10/10</td><td class="num">10/10</td><td class="num">10/10</td><td class="num">10/10</td><td class="num">10/10</td><td class="num">10/10</td><td class="num">10/10</td><td class="num">10/10</td><td class="num">10/10</td></tr>
+        <tr><td class="name">Base → elicited child</td><td class="num">0.481</td><td class="num">0.500</td><td class="num">0.361</td><td class="num">0.338</td><td class="num">0.289</td><td class="num">0.204</td><td class="num">0.201</td><td class="num">0.249</td><td class="num">0.228</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">.48 ± .05</td><td class="num">.46 ± .03</td><td class="num">.36 ± .01</td><td class="num">.33 ± .01</td><td class="num">.30 ± .01</td><td class="num">.21 ± .01</td><td class="num">.21 ± .00</td><td class="num">.25 ± .01</td><td class="num">.23 ± .00</td></tr>
+        <tr><td class="name">Base → taught child</td><td class="num">0.250</td><td class="num">0.300</td><td class="num">0.410</td><td class="num">0.371</td><td class="num">0.279</td><td class="num">0.211</td><td class="num">0.209</td><td class="num">0.228</td><td class="num">0.210</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">.27 ± .03</td><td class="num">.28 ± .02</td><td class="num">.41 ± .02</td><td class="num">.37 ± .01</td><td class="num">.29 ± .01</td><td class="num">.22 ± .01</td><td class="num">.21 ± .01</td><td class="num">.23 ± .01</td><td class="num">.21 ± .00</td></tr>
+        <tr class="group"><td colspan="10">ceiling: same model, two halves of the problems</td></tr>
+        <tr class="ref"><td class="name">Elicit parent (symbols)</td><td class="num">1.000</td><td class="num">0.950</td><td class="num">0.867</td><td class="num">0.885</td><td class="num">0.862</td><td class="num">0.833</td><td class="num">0.806</td><td class="num">0.707</td><td class="num">0.515</td></tr>
+        <tr class="ref"><td class="name">Elicited child</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">0.903</td><td class="num">0.853</td><td class="num">0.833</td><td class="num">0.819</td><td class="num">0.747</td><td class="num">0.569</td></tr>
+        <tr class="ref"><td class="name">Format parent</td><td class="num">0.739</td><td class="num">0.857</td><td class="num">0.832</td><td class="num">0.840</td><td class="num">0.798</td><td class="num">0.758</td><td class="num">0.720</td><td class="num">0.679</td><td class="num">0.617</td></tr>
+        <tr class="ref"><td class="name">Taught child</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">0.840</td><td class="num">0.766</td><td class="num">0.769</td><td class="num">0.754</td><td class="num">0.675</td><td class="num">0.530</td></tr>
+        <tr class="ref"><td class="name">Base</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">0.798</td><td class="num">0.712</td><td class="num">0.569</td><td class="num">0.540</td><td class="num">0.524</td><td class="num">0.480</td></tr>
+        <tr class="ref"><td class="name">Chance (95th pct, random pairs)</td><td class="num">0.000</td><td class="num">0.000</td><td class="num">0.000</td><td class="num">0.003</td><td class="num">0.003</td><td class="num">0.005</td><td class="num">0.007</td><td class="num">0.012</td><td class="num">0.027</td></tr>
+        <tr class="group"><td colspan="10">ceiling across folds: same model, circuit from one fold vs another (mean of 45 fold pairs)</td></tr>
+        <tr class="ref"><td class="name">Elicit parent (symbols)</td><td class="num">0.95</td><td class="num">0.93</td><td class="num">0.94</td><td class="num">0.88</td><td class="num">0.87</td><td class="num">0.86</td><td class="num">0.84</td><td class="num">0.77</td><td class="num">0.60</td></tr>
+        <tr class="ref"><td class="name">Elicited child</td><td class="num">0.93</td><td class="num">0.97</td><td class="num">0.96</td><td class="num">0.92</td><td class="num">0.91</td><td class="num">0.89</td><td class="num">0.87</td><td class="num">0.80</td><td class="num">0.64</td></tr>
+        <tr class="ref"><td class="name">Format parent</td><td class="num">0.66</td><td class="num">0.69</td><td class="num">0.68</td><td class="num">0.77</td><td class="num">0.71</td><td class="num">0.67</td><td class="num">0.62</td><td class="num">0.59</td><td class="num">0.52</td></tr>
+        <tr class="ref"><td class="name">Taught child</td><td class="num">0.80</td><td class="num">0.79</td><td class="num">0.87</td><td class="num">0.85</td><td class="num">0.81</td><td class="num">0.82</td><td class="num">0.81</td><td class="num">0.74</td><td class="num">0.62</td></tr>
+        <tr class="ref"><td class="name">Base</td><td class="num">0.80</td><td class="num">0.81</td><td class="num">0.92</td><td class="num">0.84</td><td class="num">0.78</td><td class="num">0.65</td><td class="num">0.61</td><td class="num">0.59</td><td class="num">0.55</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small lede">Fold SDs are 0.004–0.06; the 95% interval on the elicit − teach gap is at most ±0.05 wide at any size. At 0.01% one shared edge moves the Jaccard by about 0.05. — = not computed on the original split at the three smallest sizes.</p>
+</section>
+
+<!-- ===================== Functional reuse ===================== -->
+<section class="metric">
+  <div class="metric-head">
+    <span class="tag">EAP-IG · needs the fine-tuned child</span>
+    <h2>Functional reuse</h2>
+  </div>
+  <span class="verdict">holds on 10/10 folds at 0.2, 1 and 5%</span>
+  <div class="block">
+    <div class="label">Elicit vs teach, in one sentence</div>
+    <p>If the child keeps only its parent's circuit running, how much of its own task behaviour survives: most of it (elicit) or little (teach)?</p>
+  </div>
+  <div class="block">
+    <div class="label">How it is measured</div>
+    <ul>
+      <li>Run the child on the word problems with every edge removed except the parent's top-k edges.</li>
+      <li>Faithfulness f = how much of the child's full output that recovers (0 = nothing, 1 = all), measured with KL.</li>
+      <li>Share = f with the parent's circuit ÷ f with the child's own circuit of the same size. 1.00 = the parent's circuit works as well as the child's own.</li>
+      <li>20 random edge sets of the same size give f ≈ 0.</li>
+    </ul>
+  </div>
+  <div class="block">
+    <div class="label">The numbers</div>
+    <p>The elicit parent's symbol circuit carries 79–98% of what the elicited child's own circuit does (fold means). The format parent's circuit carries 21–35% of the taught child's. Below 0.2% the child's own circuit recovers almost nothing (f ≤ 0.007), so the share is a ratio of noise and is left out. The original split's 0.92 at 0.2% was above every fold (0.71–0.89); quote 0.79 ± 0.06 there.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Child, circuit used</th><th class="num">0.2%</th><th class="num">0.5%</th><th class="num">1%</th><th class="num">2%</th><th class="num">5%</th></tr></thead>
+      <tbody>
+        <tr class="row-e"><td class="name">Elicited child, elicit parent's circuit: share</td><td class="num">0.92</td><td class="num">0.86</td><td class="num">0.89</td><td class="num">0.96</td><td class="num">0.98</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">.79 ± .06</td><td class="num">—</td><td class="num">.89 ± .02</td><td class="num">—</td><td class="num">.98 ± .01</td></tr>
+        <tr class="row-t"><td class="name">Taught child, format parent's circuit: share</td><td class="num">0.25</td><td class="num">0.24</td><td class="num">0.29</td><td class="num">0.31</td><td class="num">—</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">.23 ± .08</td><td class="num">—</td><td class="num">.21 ± .05</td><td class="num">—</td><td class="num">.35 ± .08</td></tr>
+        <tr class="count"><td>folds elicit &gt; teach</td><td class="num">10/10</td><td class="num">—</td><td class="num">10/10</td><td class="num">—</td><td class="num">10/10</td></tr>
+        <tr class="group"><td colspan="6">the denominator: child's own circuit, f</td></tr>
+        <tr class="ref"><td class="name">Elicited child, own circuit f</td><td class="num">0.091</td><td class="num">0.392</td><td class="num">0.782</td><td class="num">0.920</td><td class="num">0.971</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">.11 ± .01</td><td class="num">—</td><td class="num">.78 ± .01</td><td class="num">—</td><td class="num">.97 ± .01</td></tr>
+        <tr class="ref"><td class="name">Taught child, own circuit f</td><td class="num">0.079</td><td class="num">0.314</td><td class="num">0.516</td><td class="num">0.715</td><td class="num">0.743</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">.08 ± .02</td><td class="num">—</td><td class="num">.56 ± .04</td><td class="num">—</td><td class="num">.79 ± .03</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small lede">— = not run. The folds ran 0.2, 1 and 5% only.</p>
+</section>
+
+<!-- ===================== CMAP ===================== -->
+<section class="metric">
+  <div class="metric-head">
+    <span class="tag">EAP-IG + patching · needs the fine-tuned child</span>
+    <h2>CMAP recovery</h2>
+  </div>
+  <span class="verdict">holds on 10/10 folds at 0.2, 1 and 5%</span>
+  <div class="block">
+    <div class="label">Elicit vs teach, in one sentence</div>
+    <p>If the parent receives the child's signals on the child's circuit edges, can its own downstream weights turn them into the child's answer (elicit), or not (teach)?</p>
+  </div>
+  <div class="block">
+    <div class="label">How it is measured</div>
+    <ul>
+      <li>Run the parent on the 256 word problems. On every edge of the child's circuit, the parent receives the child's activation instead of its own. Edges into the final logits are left out, since those alone copy the child's answer.</li>
+      <li>Recovery = 1 − KL(child ‖ patched parent) ÷ KL(child ‖ parent). 0 = still the parent, 1 = matches the child, below 0 = moved further from the child.</li>
+      <li>Null: same number of edges of the same types, drawn from outside the circuit (95th percentile).</li>
+      <li>Method after Prakash et al. 2024, applied to edges.</li>
+    </ul>
+  </div>
+  <div class="block">
+    <div class="label">The numbers</div>
+    <p>On the elicit route, recovery climbs from 0.52 to 0.98 with size, and the patched parent goes from 0% to up to 86% correct (81 ± 4% at 5% on the folds). On the teach route, recovery is negative from 0.02% up: the format parent turns the child's signals into something further from the child's answer, and it never gets a problem right, on any fold.</p>
+  </div>
+
+  <figure class="chart" style="margin:0">
+    <div class="legend">
+      <span><i class="sw e"></i>Elicit: child's circuit into elicit parent</span>
+      <span><i class="sw t"></i>Teach: child's circuit into format parent</span>
+      <span><i class="sw b"></i>Null, 95th pct (elicit, 0.1% up)</span>
+      <span><i class="sw wk"></i>Range over 10 folds</span>
+    </div>
+    <svg id="chart-cmap" viewBox="0 0 760 320" role="img" aria-label="CMAP recovery against circuit size. The elicit line rises from 0.52 at 0.01% to 0.98 at 5%. The teach line starts near zero and falls to about minus 1.1 from 0.5% up. Fold ranges at 0.2, 1 and 5% are narrow and far apart. The null stays below 0.25."></svg>
+  </figure>
+
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Route</th><th class="num">0.01%</th><th class="num">0.02%</th><th class="num">0.05%</th><th class="num">0.1%</th><th class="num">0.2%</th><th class="num">0.5%</th><th class="num">1%</th><th class="num">2%</th><th class="num">5%</th></tr></thead>
+      <tbody>
+        <tr class="row-e"><td class="name">Elicit recovery</td><td class="num">0.52</td><td class="num">0.63</td><td class="num">0.72</td><td class="num">0.77</td><td class="num">0.81</td><td class="num">0.90</td><td class="num">0.92</td><td class="num">0.95</td><td class="num">0.98</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">.79 ± .01</td><td class="num">—</td><td class="num">.91 ± .01</td><td class="num">—</td><td class="num">.97 ± .01</td></tr>
+        <tr class="ref"><td class="name">patched parent accuracy</td><td class="num">0.05</td><td class="num">0.17</td><td class="num">0.24</td><td class="num">0.32</td><td class="num">0.45</td><td class="num">0.60</td><td class="num">0.64</td><td class="num">0.75</td><td class="num">0.86</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">.39 ± .04</td><td class="num">—</td><td class="num">.64 ± .02</td><td class="num">—</td><td class="num">.81 ± .04</td></tr>
+        <tr class="ref"><td class="name">null, 95th pct</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">0.03</td><td class="num">0.13</td><td class="num">0.23</td><td class="num">0.24</td><td class="num">0.24</td><td class="num">0.21</td></tr>
+        <tr class="row-t"><td class="name">Teach recovery</td><td class="num">0.02</td><td class="num">−0.07</td><td class="num">−0.58</td><td class="num">−0.83</td><td class="num">−0.90</td><td class="num">−1.06</td><td class="num">−1.14</td><td class="num">−1.19</td><td class="num">−1.12</td></tr>
+        <tr class="fold"><td>folds</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">−.94 ± .08</td><td class="num">—</td><td class="num">−1.13 ± .04</td><td class="num">—</td><td class="num">−1.15 ± .09</td></tr>
+        <tr class="ref"><td class="name">patched parent accuracy</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td><td class="num">0</td></tr>
+        <tr class="ref"><td class="name">null, 95th pct</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">0.06</td><td class="num">0.06</td><td class="num">0.05</td><td class="num">0.13</td><td class="num">0.17</td><td class="num">0.18</td></tr>
+        <tr class="count"><td>folds elicit &gt; teach</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">10/10</td><td class="num">—</td><td class="num">10/10</td><td class="num">—</td><td class="num">10/10</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small lede">Starting gap: KL(child ‖ parent) is 23.8 nats on the elicit route and 16.3 on the teach route; both parents start at 0% correct. At 0.01–0.05% the type-matched null is smaller than the circuit, so it isn't shown there; uniform random edge sets stay ≤ 0.004. Fold nulls: ≤ 0.25 (elicit), ≤ 0.15 (teach).</p>
+</section>
+
+<!-- ===================== M12 ===================== -->
+<section class="metric">
+  <div class="metric-head">
+    <span class="tag">M12 · needs only the parent, before any fine-tuning</span>
+    <h2>Hidden preference</h2>
+  </div>
+  <span class="verdict bad">fails on fresh 4-digit problems: no preference on any version</span>
+  <div class="block">
+    <div class="label">Elicit vs teach, in one sentence</div>
+    <p>Before fine-tuning, does the parent already prefer the right answer to a wrong one even though it never says it (elicit), or is it indifferent (teach)?</p>
+  </div>
+  <div class="block">
+    <div class="label">How it is measured</div>
+    <ul>
+      <li>One forward pass per problem on the parent alone, 256 word problems.</li>
+      <li>Paper version: at the answer position, the logit of the correct answer's first token minus the logit of a wrong answer's first token. Mean in nats; 0 = no preference.</li>
+      <li>Full-answer version (the red-team's fix): log-probability of the whole correct answer minus that of the whole wrong answer, teacher-forced.</li>
+      <li>In the paper the wrong answer is the next problem's answer, from a mix of additions and subtractions of different lengths. In the folds it is a problem with the same answer length whose answer differs at both tokens.</li>
+    </ul>
+  </div>
+  <div class="block">
+    <div class="label">The numbers</div>
+    <p>The paper's scorer, rerun now, reproduces its numbers exactly: elicit parent 2.31, format parent 0.06, base 0.02. On the folds the preference disappears. The elicit parent scores −0.07 ± 0.13 nats on the paper version and +0.06 ± 0.34 on the full-answer version, right about half the time, and is not above the format parent (4/10 and 6/10 folds; neither significant). The original 256 problems give the same (≈ 0.03). So the 2.31 most likely came from the parent knowing the answer's rough length, size or sign, which a same-length wrong answer removes. It did not come from knowing the answer itself. Which of these factors carries it has not been tested.</p>
+  </div>
+  <div class="scroll">
+    <table>
+      <thead><tr><th>Measured on</th><th class="num">Elicit parent</th><th class="num">Format parent</th><th class="num">Base</th></tr></thead>
+      <tbody>
+        <tr><td class="name">Paper scorer, paper problem set (mixed add/sub, next problem's answer as the wrong one)</td><td class="num">2.31</td><td class="num">0.06</td><td class="num">0.02</td></tr>
+        <tr><td class="name">Paper version, 10 folds (4-digit addition, same-length wrong answer)</td><td class="num">−0.07 ± 0.13</td><td class="num">−0.02 ± 0.02</td><td class="num">0.02 ± 0.09</td></tr>
+        <tr><td class="name">Full-answer version, 10 folds</td><td class="num">0.06 ± 0.34</td><td class="num">0.04 ± 0.11</td><td class="num">0.02 ± 0.15</td></tr>
+        <tr><td class="name">Paper version, original 256 problems</td><td class="num">0.03</td><td class="num">0.03</td><td class="num">0.05</td></tr>
+        <tr class="group"><td colspan="4">same problems in symbol form (<code>8216 + 1650 =</code>), 10 folds</td></tr>
+        <tr><td class="name">Paper version, symbol form</td><td class="num">13.28 ± 0.10</td><td class="num">0.02 ± 0.17</td><td class="num">0.04 ± 0.20</td></tr>
+        <tr><td class="name">Full-answer version, symbol form</td><td class="num">32.67 ± 0.29</td><td class="num">−0.01 ± 0.20</td><td class="num">−0.07 ± 0.18</td></tr>
+        <tr class="ref"><td class="name">Symbol-form accuracy (correct first token)</td><td class="num">0.40</td><td class="num">0.00</td><td class="num">0.00</td></tr>
+        <tr class="ref"><td class="name">Word-task accuracy</td><td class="num">0.00</td><td class="num">0.00</td><td class="num">0.00</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p class="muted small lede">Symbol form (added 2026-11-05) is the positive control, not a hidden preference. The elicit parent already answers symbol sums (40% first token correct), and there it prefers the right answer on 99% of problems, on all 10 folds. So the scorer does detect a model that knows the answer. In word form that knowledge does not reach the first answer token. The format parent and base show nothing in either form.</p>
+  <p class="muted small lede">This was meant to be the cheapest of the four metrics (no fine-tuning, no circuit) and the baseline the circuit metrics should beat. As measured here it does not separate the parents, so it can't serve as that baseline.</p>
+</section>
+
+<!-- ===================== Robustness ===================== -->
+<section class="metric">
+  <div class="metric-head">
+    <span class="tag">10-fold check · 2026-11-04</span>
+    <h2>How robust</h2>
+  </div>
+  <div class="block">
+    <div class="label">What was repeated</div>
+    <ul>
+      <li>The single split above is one draw of 512 + 256 problems. The check drew 10 new folds, each with its own 512 discovery and 256 test problems plus its own pool of wrong-answer partners. No problem appears in two folds, in the original split or in any training file.</li>
+      <li>Folds are stratified by answer length and number of carries, so each fold has the same mix.</li>
+      <li>Same models, same code. Rerunning the original split reproduced its saved scores exactly.</li>
+      <li>Every fold gives one paired (elicit, teach) value per metric and size. Test: paired t-test over the 10 folds, Holm-corrected across sizes. A metric "holds" at a size if elicit beats teach on at least 9 of 10 folds and the corrected p &lt; 0.05 (fixed before the run).</li>
+    </ul>
+  </div>
+  <div class="block">
+    <div class="label">Result</div>
+    <ul>
+      <li><b>Edge overlap, functional reuse, CMAP: hold at every size, 10/10 folds, no fold where the gap flips.</b> Gaps (95% interval): overlap 0.26–0.47 (each ±0.01–0.05), functional share 0.56–0.68 (±0.04–0.06), CMAP recovery 1.73–2.12 (±0.03–0.07).</li>
+      <li>The original split's numbers fall inside the fold range everywhere except functional reuse at 0.2% (0.92 vs 0.71–0.89).</li>
+      <li>The teach route is significantly above the base floor at every size (by 0.04–0.16), as before: a little shared with its parent beyond pretraining, not nothing.</li>
+      <li>Hidden preference fails (see above).</li>
+    </ul>
+  </div>
+  <p class="muted small lede">What the folds do not cover: training randomness (one run per child), other prompt templates, other tasks.</p>
+</section>
+
+<section class="stack">
+  <h2>Caveats</h2>
+  <div class="caveats">
+    <div class="caveat">
+      <h3>The taught child learned the task much worse</h3>
+      <p class="muted">96% vs 11% on fresh 4-digit problems (95.3% vs 14.5% on the original 256). Part of every route difference may be "the teach child failed" rather than "teach builds a new circuit". The taught child's own circuit is still stable (half-split ceiling 0.53–0.84; across folds 0.62–0.87), so its low overlap is not just noise.</p>
+    </div>
+    <div class="caveat">
+      <h3>One training run per child</h3>
+      <p class="muted">The fold intervals cover which problems were sampled, not training randomness. A retrained child could differ.</p>
+    </div>
+    <div class="caveat">
+      <h3>The elicit route separates only through the symbol form</h3>
+      <p class="muted">Scored on the word form, the elicit parent's circuit overlaps the elicited child at 0.26–0.67, about the teach route's level. The parent never answers the word task, so the symbol form is where its addition circuit lives. Functional reuse shows the same: its word-form circuit carries 28–55% of the child's behaviour, vs 79–98% for the symbol-form circuit.</p>
+    </div>
+    <div class="caveat">
+      <h3>The format parent has no task circuit to keep</h3>
+      <p class="muted">Removing all of its edges moves its output by only 0.005 nats, so it fails the gate for the circuit tests. Its "circuit" is a fairly stable ranking (ceiling 0.74–0.86 within a split, 0.52–0.77 across folds) of edges with almost no effect. That is what a teach parent should look like, but it means the teach-route overlap compares against a circuit that does nothing.</p>
+    </div>
+    <div class="caveat">
+      <h3>No circuit passes every validation test</h3>
+      <p class="muted">Partial necessity passes at every size. Sufficiency passes from 0.1% up for every gated model (from 0.05% for the elicit pair). Equivalence passes only for the elicit pair at 2–5%. Consistency and specificity fail at every size for every model: the top edges are shared machinery, also needed for a simple copy task. (These tests were not repeated on the folds.)</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Sources: <code>experiments/eapig-circuit-check/PLAN.md</code> results blocks (2026-10-08 KL run, 2026-10-21 small sizes, 2026-10-22 CMAP and base control, 2026-10-28 tiny sizes, 2026-11-04 10-fold check), <code>paper/metrics/metrics.tex</code> (models table, hidden preference). Results on HF <code>mhieuuu/geode-internals</code> under <code>results/</code> (folds: <code>results/eapig_folds/</code>).</p>
+  <p>Metric choice: the 2026-10-27 red-team marked CMAP, functional reuse and hidden preference "keep" and edge overlap "keep with caveat"; the rest of <code>paper/metrics</code> is left out.</p>
+</footer>
+
+</div>
+
+<script>
+(function () {
+  var sizes = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5];
+  var NS = "http://www.w3.org/2000/svg";
+  function el(name, attrs, text) {
+    var n = document.createElementNS(NS, name);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function draw(id, opts) {
+    var svg = document.getElementById(id);
+    if (!svg) return;
+    var W = 760, H = 320, L = 52, R = 20, T = 14, B = 40;
+    var lx0 = Math.log10(0.01), lx1 = Math.log10(5);
+    function x(v) { return L + (Math.log10(v) - lx0) / (lx1 - lx0) * (W - L - R); }
+    function y(v) { return T + (opts.ymax - v) / (opts.ymax - opts.ymin) * (H - T - B); }
+    opts.yticks.forEach(function (v) {
+      svg.appendChild(el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), "class": v === 0 && opts.ymin < 0 ? "zero" : "grid" }));
+      svg.appendChild(el("text", { x: L - 8, y: y(v) + 4, "text-anchor": "end", "class": "axis" }, v.toFixed(1)));
+    });
+    sizes.forEach(function (s) {
+      svg.appendChild(el("line", { x1: x(s), x2: x(s), y1: H - B, y2: H - B + 5, "class": "zero" }));
+      svg.appendChild(el("text", { x: x(s), y: H - B + 19, "text-anchor": "middle", "class": "axis" }, s + "%"));
+    });
+    svg.appendChild(el("text", { x: (L + W - R) / 2, y: H - 4, "text-anchor": "middle", "class": "axis" }, "circuit size (share of edges, log scale)"));
+    (opts.whiskers || []).forEach(function (w) {
+      w.lo.forEach(function (lo, i) {
+        if (lo == null) return;
+        var cx = x(sizes[i]) + (w.dx || 0);
+        svg.appendChild(el("line", { x1: cx, x2: cx, y1: y(lo), y2: y(w.hi[i]), "class": w.cls }));
+      });
+    });
+    opts.series.forEach(function (sr) {
+      var pts = [];
+      sr.v.forEach(function (v, i) { if (v != null) pts.push([x(sizes[i]), y(v)]); });
+      var d = pts.map(function (p, i) { return (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1); }).join(" ");
+      svg.appendChild(el("path", { d: d, "class": sr.cls }));
+      if (sr.dot) pts.forEach(function (p) { svg.appendChild(el("circle", { cx: p[0], cy: p[1], r: 3.5, "class": sr.dot })); });
+    });
+    (opts.old || []).forEach(function (o) {
+      o.v.forEach(function (v, i) {
+        if (v == null) return;
+        svg.appendChild(el("circle", { cx: x(sizes[i]) + (o.dx || 0), cy: y(v), r: 4, "class": "old" }));
+      });
+    });
+  }
+  // overlap: lines = mean over 10 folds; bars = fold min..max; open circles = original split
+  draw("chart-overlap", {
+    ymin: 0, ymax: 1, yticks: [0, 0.2, 0.4, 0.6, 0.8, 1.0],
+    whiskers: [
+      { cls: "wb", dx: -4, lo: [0.429, 0.418, 0.342, 0.311, 0.281, 0.200, 0.201, 0.244, 0.222], hi: [0.600, 0.500, 0.380, 0.342, 0.309, 0.219, 0.215, 0.258, 0.232] },
+      { cls: "wb", dx: 4, lo: [0.250, 0.238, 0.371, 0.352, 0.275, 0.206, 0.206, 0.227, 0.204], hi: [0.333, 0.300, 0.431, 0.395, 0.302, 0.222, 0.222, 0.243, 0.218] },
+      { cls: "wt", lo: [0.379, 0.300, 0.410, 0.400, 0.307, 0.280, 0.277, 0.262, 0.227], hi: [0.538, 0.418, 0.531, 0.463, 0.361, 0.328, 0.317, 0.306, 0.258] },
+      { cls: "we", lo: [0.739, 0.773, 0.849, 0.727, 0.697, 0.704, 0.692, 0.650, 0.497], hi: [0.905, 0.857, 0.903, 0.766, 0.746, 0.733, 0.734, 0.676, 0.513] }
+    ],
+    series: [
+      { cls: "lb", v: [0.483, 0.464, 0.358, 0.331, 0.299, 0.213, 0.206, 0.250, 0.229] },
+      { cls: "lb2", v: [0.274, 0.283, 0.406, 0.372, 0.288, 0.215, 0.212, 0.233, 0.210] },
+      { cls: "lt", dot: "dt", v: [0.435, 0.350, 0.456, 0.432, 0.338, 0.310, 0.301, 0.295, 0.247] },
+      { cls: "le", dot: "de", v: [0.862, 0.819, 0.878, 0.747, 0.721, 0.719, 0.721, 0.660, 0.504] }
+    ],
+    old: [
+      { v: [0.429, 0.393, 0.496, 0.425, 0.338, 0.312, 0.308, 0.299, 0.252] },
+      { v: [0.905, 0.814, 0.885, 0.766, 0.727, 0.718, 0.731, 0.661, 0.497] }
+    ]
+  });
+  draw("chart-cmap", {
+    ymin: -1.4, ymax: 1, yticks: [-1.2, -0.8, -0.4, 0, 0.4, 0.8],
+    whiskers: [
+      { cls: "we", lo: [null, null, null, null, 0.770, null, 0.894, null, 0.953], hi: [null, null, null, null, 0.810, null, 0.923, null, 0.977] },
+      { cls: "wt", lo: [null, null, null, null, -1.060, null, -1.171, null, -1.303], hi: [null, null, null, null, -0.792, null, -1.068, null, -0.975] }
+    ],
+    series: [
+      { cls: "lb", v: [null, null, null, 0.025, 0.128, 0.227, 0.239, 0.236, 0.210] },
+      { cls: "lt", dot: "dt", v: [0.02, -0.07, -0.58, -0.830, -0.896, -1.060, -1.140, -1.187, -1.116] },
+      { cls: "le", dot: "de", v: [0.52, 0.63, 0.72, 0.768, 0.810, 0.903, 0.917, 0.954, 0.975] }
+    ]
+  });
+})();
+</script>

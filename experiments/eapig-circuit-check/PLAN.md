@@ -690,6 +690,126 @@ child's circuit into the parent recovers more with size on the elicit route and 
 the teach route. The top 20–39 edges are necessary (removing them breaks addition) but not
 sufficient (alone they recover nothing).
 
+### 2026-11-04 10-fold robustness check (fresh disjoint problem folds), every summary-page metric
+
+Runbook `HANDOFF-folds.md`. Every earlier TS1B number came from one draw of 512 discovery +
+256 validation problems. Here the measurement is repeated on 10 fresh, disjoint folds
+(`build_folds.py`, seed 0: 10 × (512 discovery / 256 validation / 768 counterfactual
+reservoir), stratified by sum length × carries, leak-clean against all training files and
+disjoint from the old split; five-digit share 0.607 like the old pool). Same models, same
+scoring (EAP-IG, KL, 5 steps), same sizes. Box 59126584 (4× RTX 3090, Spain); results on HF
+`mhieuuu/geode-internals:results/eapig_folds/` (229 files), report
+`results_folds/fold_report_local.md`, figures `figures/folds_*.png` (`fold_report.py`).
+
+Reproduction gate: `fold_runner.py` on the old `data/` reproduced the saved
+`results_klword/elicit_child/scores.pt` mean exactly (max abs diff 0.0; EM 0.953, KL 42.27).
+
+Sanity (exact match on each fold's 256 validation problems, mean [min, max]): elicited child
+0.960 [0.953, 0.969] (old 0.953); taught child **0.111 [0.090, 0.145]** (old 0.145; fold 0 =
+0.090 logged WARN, 0.055 below); elicit parent on symbols 0.393 [0.363, 0.441] (old 0.422);
+word-form parents and base 0.000 on every fold. The taught child's old 0.145 was the high end
+of what fresh problems give (binomial SD on 256 ≈ 0.02); the accuracy gap between the
+children is a little larger than the summary page states.
+
+Main test, paired over folds (d = elicit − teach per fold, two-sided t, df 9; 95% CI per
+size, not Holm-adjusted). Cells: fold mean ± SD [min, max].
+
+| metric @ size | elicit | teach | d̄ [95% CI] | folds elicit > teach |
+|---|---|---|---|---|
+| overlap 0.01% | 0.862 ± 0.059 [0.739, 0.905] | 0.435 ± 0.052 | 0.427 [0.378, 0.476] | 10/10 |
+| overlap 0.02% | 0.819 ± 0.037 | 0.350 ± 0.037 | 0.468 [0.422, 0.515] | 10/10 |
+| overlap 0.05% | 0.878 ± 0.017 | 0.456 ± 0.040 | 0.421 [0.393, 0.450] | 10/10 |
+| overlap 0.1% | 0.747 ± 0.013 | 0.432 ± 0.020 | 0.314 [0.300, 0.329] | 10/10 |
+| overlap 0.2% | 0.721 ± 0.017 | 0.338 ± 0.015 | 0.382 [0.366, 0.398] | 10/10 |
+| overlap 0.5% | 0.719 ± 0.010 | 0.310 ± 0.017 | 0.409 [0.392, 0.426] | 10/10 |
+| overlap 1% | 0.721 ± 0.012 | 0.301 ± 0.012 | 0.421 [0.407, 0.434] | 10/10 |
+| overlap 2% | 0.660 ± 0.007 | 0.295 ± 0.013 | 0.365 [0.354, 0.376] | 10/10 |
+| overlap 5% | 0.504 ± 0.005 | 0.247 ± 0.011 | 0.257 [0.248, 0.266] | 10/10 |
+| functional share 0.2% | 0.793 ± 0.060 [0.706, 0.892] | 0.230 ± 0.082 | 0.562 [0.507, 0.617] | 10/10 |
+| functional share 1% | 0.892 ± 0.023 | 0.210 ± 0.045 | 0.683 [0.643, 0.723] | 10/10 |
+| functional share 5% | 0.982 ± 0.005 | 0.349 ± 0.082 | 0.633 [0.574, 0.692] | 10/10 |
+| CMAP recovery 0.2% | 0.790 ± 0.013 | −0.937 ± 0.078 | 1.727 [1.664, 1.790] | 10/10 |
+| CMAP recovery 1% | 0.909 ± 0.008 | −1.128 ± 0.035 | 2.038 [2.012, 2.063] | 10/10 |
+| CMAP recovery 5% | 0.966 ± 0.007 | −1.151 ± 0.092 | 2.118 [2.053, 2.182] | 10/10 |
+
+Every Holm-adjusted p < 1e-4 (t = 20–180). Floor: teach − (base → taught child) is positive
+and significant at all 9 sizes (d̄ 0.04–0.16, 10/10 folds at 8 sizes, 9/10 at 0.05%);
+elicit − (base → elicited child) 0.28–0.52, 10/10. Ceilings: cross-fold self-Jaccard
+(fold i vs fold j circuits, 45 pairs) 0.60–0.97 for the elicit pair, 0.52–0.69 for the format
+parent (SD up to 0.14: its "circuit" is a ranking of near-zero edges), 0.62–0.87 for the
+taught child; the elicit route sits close to the parent's cross-fold ceiling at every size.
+Secondary (word-form elicit parent → child) 0.26–0.67, as before. CMAP null (disjoint,
+type-matched, p95) ≤ 0.25 elicit, ≤ 0.15 teach. Patched elicit parent accuracy 0.39 / 0.64
+/ 0.81 at 0.2 / 1 / 5%; patched format parent 0 everywhere.
+
+Hidden preference (parent alone, fold validation problems, word form; distractor = the
+counterfactual's answer, same sum length):
+
+| version | elicit parent | format parent | base |
+|---|---|---|---|
+| paper (first-token logit diff), folds | −0.069 ± 0.129 [−0.262, 0.099] | −0.018 ± 0.024 | 0.023 ± 0.090 |
+| full-answer log-p diff, folds | 0.059 ± 0.343 [−0.563, 0.541] | 0.040 ± 0.113 | 0.022 ± 0.145 |
+| paper version, OLD split (same code) | 0.026 | 0.027 | 0.050 |
+| paper's own scorer (`prefit_metrics.py pref`, paper problem set) | **2.308** | 0.058 | 0.022 |
+
+The elicit parent shows NO hidden preference here: ep − fp is not significant on either
+version (paper −0.05 [−0.15, 0.04], 4/10 folds; full-answer +0.02 [−0.24, 0.28], 6/10), and
+it is ≈ 0 on the old split too. The paper's scorer, rerun on the box, reproduces its numbers
+exactly (2.308 / 0.058 / 0.022), so the code is fine and the difference is the problem set:
+the paper set mixes addition and subtraction (signed answers) and digit lengths, and its
+distractor is the next problem's answer, often a different length/size. Likely reading: the
+paper's 2.31 measures that the parent knows the answer's rough length/size/sign, not the
+specific answer; with a same-length distractor the preference vanishes. Not tested further
+(which factor carries it: length, op/sign, or prompt); a cheap follow-up would rerun the
+paper scorer restricted to 4x4 addition rows.
+
+Symbol form (added 2026-11-05, owner request): the same `hidden_pref.py` with `--form
+symbol` (prompts `8216 + 1650 =`, same rows and distractors as each fold's word pairs),
+all three parents, 10 folds + old split. Files: HF `results/eapig_folds/fold_kk/hidden_pref_symbol/`
+and `old_split/hidden_pref_symbol/` (33 JSONs).
+
+| version | elicit parent | format parent | base |
+|---|---|---|---|
+| paper (first-token logit diff), folds | **13.28 ± 0.10** | 0.02 ± 0.17 | 0.04 ± 0.20 |
+| full-answer log-p diff, folds | **32.67 ± 0.29** | −0.01 ± 0.20 | −0.07 ± 0.18 |
+| top-1 = correct first token, folds | 0.397 ± 0.021 | 0.002 | 0.000 |
+| share of problems preferring correct (paper version) | 0.99 | 0.50 | 0.50 |
+| paper version, OLD split | 13.45 | 0.12 | 0.15 |
+
+ep − fp and ep − base: 10/10 folds, paired t ≈ 180–400, p < 1e-16 on both versions. This
+is not a hidden preference: the elicit parent produces the symbol answer (top-1 0.40, the
+same as its 4x4 symbol EM ≈ 0.40), so a large margin is expected. It is the positive
+control for the metric: the scorer does detect a model that knows the answer, so the ≈ 0
+in word form means the elicit parent's symbol skill does not show up in its word-form
+logits at the first answer token. The format parent (trained on symbol multiplication with
+shuffled answers) and base show no preference in either form. Run on one 1-GPU box
+(RTX PRO 4000, North Carolina); two California boxes were dropped first, both stuck > 11 min
+downloading PyTorch at onstart. Spend ≈ $0.54.
+
+Pre-registered reading:
+- Edge overlap, functional reuse, CMAP: **hold at every size** (≥ 9/10 folds and Holm p <
+  0.05; in fact 10/10 everywhere, no sign flip). The elicit-vs-teach result is robust to
+  which problems were drawn.
+- Old single-split values inside the fold range everywhere except functional reuse at 0.2%
+  (old 0.92 vs folds 0.71–0.89): quote 0.79 ± 0.06 instead. (Range check allows for the old
+  values' rounding; at 0.01% / 0.1% overlap and 0.2% CMAP the old value equals the fold max.)
+- Teach − base→tc significant at all sizes → the teach route is a little above the pretraining
+  floor (0.04–0.16), not at it; unchanged from the single split.
+- Hidden preference: FAILS on both versions (elicit parent not > format parent / base in all
+  folds); see above.
+
+Caveats: problem-sampling variation only (one training run per child), one template, one
+task; the taught child's accuracy is lower than stated before (0.111 vs 0.145), which
+strengthens the "taught child learned the task much worse" caveat.
+
+Deviations from the runbook (session c76ae7c3): sanity gate on word-form parents only
+(the elicit parent's symbol EM is ~0.4 by design); children hard stop > 0.10 off, WARN >
+0.05 (binomial noise); hidden preference also run on the old split and with the paper's own
+scorer; score jobs split by fold half to keep all 4 GPUs busy (one restart after the repro
+gate, ~1 min lost); the box idled ~2 h after finishing because the log watcher (30-min
+Monitor) expired and was not re-armed. Spend ≈ $4.85 (cap $6), incl. one SSH-dead box
+(destroyed) and two races.
+
 ## Global takeaways
 
 [ ]
@@ -705,6 +825,9 @@ sufficient (alone they recover nothing).
   Op-form scoring of the base not needed (branch 3 did not fire).
 - Tiny sizes 0.01/0.02/0.05%, every metric (tests: sufficiency + partial necessity only):
   DONE 2026-10-28 (results block above).
+- 10-fold robustness check: DONE 2026-11-04 (results block above). Possible follow-up, not
+  queued: which factor carries the paper's hidden preference (rerun its scorer on 4x4
+  addition only / same-length distractor).
 
 ## Log
 
@@ -749,3 +872,5 @@ sufficient (alone they recover nothing).
 - 2026-10-22: CMAP child → parent BUILT + RUN (393455c … 47a6305). Owner: include (d), push, add a deck slide. Parallel build (tests / box script / math review by subagents). Box 57225900 (2× 3090); 12 per-size jobs over both GPUs. First pass showed the type-matched null shared 40–71% of edges with (b); added a disjoint null and reran everything (identical numbers otherwise). Results on HF `results/eapig_cmap/`, verified from the laptop; box destroyed; ~$1.5 total.
 - 2026-10-22: base overlap control (`HANDOFF-base-control.md`). Box 57241509 (RTX PRO 4000), base scored in 50 s, edge_node + 200-resample bootstrap on the box CPUs, pushed + verified on HF, box destroyed (~$0.21). The first `base_control_report.py` run on the box read the bootstrap JSON with the wrong size keys (`frac_<f>` vs `str(f)`), so its boot-point checks failed and the pushed table lacked intervals; fixed on the laptop, rerun from the pulled JSONs (all checks PASS), and the corrected table + figure re-uploaded. Primary interval switched to the basic bootstrap before the run (resampled top-k Jaccard is biased low). Results block above.
 - 2026-10-28: owner asked for 0.01/0.02/0.05% in every deck metric, tests = sufficiency + partial necessity only, 2 GPUs. Built in parallel (run.py mode / box script / size audit; b489baa), box 58098224 (2× 3090) ran 16 jobs in ~19 min, pushed + verified on HF `results/eapig_tiny/`, destroyed (~$0.40). Results block above.
+- 2026-11-04: 10-fold robustness check (`HANDOFF-folds.md`). Built in parallel (folds / runner + hidden pref / overlap + report; box script by the orchestrator), stub-tested end to end. First box (NZ) refused SSH, destroyed; box 59126584 (4× 3090, Spain) ran repro gate (exact) → 18 score/hidden-pref jobs (13 min) → 40 CMAP/functional jobs (~35 min), pushed 229 files to HF `results/eapig_folds/`, verified from the laptop, destroyed; ~$4.85 incl. ~2 h idle after finishing (watcher expired). Results block above.
+- 2026-11-05: symbol-form hidden preference (`hidden_pref.py --form symbol`, +3 tests), 3 parents × (10 folds + old split) on one 1-GPU box (2 California boxes dropped: PyTorch download stalled at onstart), 33 JSONs pushed + verified from the laptop, box destroyed, ≈ $0.54. Results in the 10-fold block.

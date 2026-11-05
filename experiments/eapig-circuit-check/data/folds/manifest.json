@@ -1,0 +1,501 @@
+{
+ "seed": 0,
+ "n_folds": 10,
+ "n_disc": 512,
+ "n_val": 256,
+ "n_res": 768,
+ "n_candidates_drawn": 46080,
+ "n_duplicates": 29,
+ "n_excluded_training": 736,
+ "n_excluded_old_split": 5,
+ "strata_order": "index = (sum_len - 4) * 5 + n_carry",
+ "five_digit_share": 0.606640625,
+ "mean_a": 5495.8548828125,
+ "mean_b": 5505.278515625,
+ "folds": [
+  {
+   "fold": 0,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     38,
+     75,
+     65,
+     24,
+     0,
+     0,
+     49,
+     109,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     114,
+     97,
+     35,
+     0,
+     0,
+     74,
+     165,
+     157,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 1,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     38,
+     75,
+     65,
+     24,
+     0,
+     0,
+     49,
+     109,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     114,
+     97,
+     35,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 2,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     38,
+     75,
+     65,
+     23,
+     0,
+     0,
+     49,
+     110,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     114,
+     96,
+     36,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 3,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     38,
+     75,
+     65,
+     23,
+     0,
+     0,
+     49,
+     110,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     114,
+     96,
+     36,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 4,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     37,
+     76,
+     65,
+     23,
+     0,
+     0,
+     49,
+     110,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     114,
+     96,
+     36,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 5,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     37,
+     76,
+     65,
+     23,
+     0,
+     0,
+     49,
+     110,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     114,
+     96,
+     36,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 6,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     37,
+     76,
+     65,
+     23,
+     0,
+     0,
+     49,
+     110,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     114,
+     96,
+     36,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 7,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     37,
+     76,
+     65,
+     23,
+     0,
+     0,
+     49,
+     110,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     113,
+     97,
+     36,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 8,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     37,
+     76,
+     65,
+     23,
+     0,
+     0,
+     49,
+     110,
+     106,
+     46
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     113,
+     97,
+     36,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  },
+  {
+   "fold": 9,
+   "n_disc": 512,
+   "n_val": 256,
+   "n_res": 768,
+   "n_total": 1536,
+   "strata_counts": {
+    "disc": [
+     37,
+     76,
+     65,
+     23,
+     0,
+     0,
+     49,
+     110,
+     105,
+     47
+    ],
+    "val": [
+     19,
+     38,
+     32,
+     12,
+     0,
+     0,
+     24,
+     55,
+     53,
+     23
+    ],
+    "res": [
+     56,
+     113,
+     97,
+     36,
+     0,
+     0,
+     74,
+     164,
+     158,
+     70
+    ]
+   }
+  }
+ ],
+ "n_training_exclusion_pairs": 3129816,
+ "n_old_split_pairs": 1473,
+ "sha256": {
+  "fold_00/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_00/pairs_seed0.pt": "defd99120bd9b2ba79f983ba1f327b6edb8cb290629c51947a7687af21504569",
+  "fold_00/pairs_symbol_seed0.pt": "24d1a1bbee225d01b31fe9d723b178e2a03f1d22a22832f489f500a37e3d1d91",
+  "fold_01/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_01/pairs_seed0.pt": "acc27972987e81973eabfe896b857b150d8a4e346153c99d4d2222f5e498dc97",
+  "fold_01/pairs_symbol_seed0.pt": "632d045a416d445a7aef77743fcddaf41c1d8c84c931c92d060f41adc6ec2102",
+  "fold_02/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_02/pairs_seed0.pt": "2ff8bf2ebcdddbc0367a1ea40adce0585ebf82dbe4762ab3434edef2016cb9c2",
+  "fold_02/pairs_symbol_seed0.pt": "b827d8a16ffc2b5c60ba3f2b76834fd5c47e3b6aa649dc9bbb56dedfccf7e251",
+  "fold_03/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_03/pairs_seed0.pt": "4bc484f3d97ec0b09925cddb812c17716e7f995f75642665e216079837e32772",
+  "fold_03/pairs_symbol_seed0.pt": "4cd9beabdc4e721c9f7763e9149c4d72d5d343fb10174c40b50027be94cda169",
+  "fold_04/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_04/pairs_seed0.pt": "88f40e2e8970f0eacf0c16b36861423c711f1ecf44854b5fd6e38f9f8f7d5af3",
+  "fold_04/pairs_symbol_seed0.pt": "32ec6bbe9b5825fbdc2acbe233a0c4424874719110b85120ed8f5ad7c11d5163",
+  "fold_05/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_05/pairs_seed0.pt": "1cef5d0b93c2021e7943eac1e4e6499ec4f3b76c63bbb569829c9fd6f48190a6",
+  "fold_05/pairs_symbol_seed0.pt": "5ce8858e44d8daddf1852927c1f4c556d394b21640df996e0376f0f731d29ad1",
+  "fold_06/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_06/pairs_seed0.pt": "adb4a0bd94433747f33432411a7d68552db0eb516e7317f2fa960ea241cb458d",
+  "fold_06/pairs_symbol_seed0.pt": "733406cd8bcf395dd8dc169b679948ff3f13cff5aa2a35ebac3723777f097178",
+  "fold_07/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_07/pairs_seed0.pt": "e8f341feca84249fa88d0e35d5f684f34877b01947ddb36c238acae76f15998a",
+  "fold_07/pairs_symbol_seed0.pt": "e5f8c1e659e56333f80519dd52cdecb3624461554b9db2bd4218370583759500",
+  "fold_08/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_08/pairs_seed0.pt": "f2f9ab8f001253857ea66e8c878a9a75a1edbda24dc89254056789e22c2380f1",
+  "fold_08/pairs_symbol_seed0.pt": "e41375162402252486e1ba03425f20c1ef8333dec01d1f0f73e93c8cc853264b",
+  "fold_09/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_09/pairs_seed0.pt": "e732fc116becd6436787d9451360615344385460a8a13ee9f5a28c2bf8d3f0e5",
+  "fold_09/pairs_symbol_seed0.pt": "5538cedf71c41020196837db6c21c24a22819ed846e45ae0120080c634a8ddd9"
+ }
+}
