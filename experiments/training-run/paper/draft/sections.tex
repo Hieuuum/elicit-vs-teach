@@ -1,4 +1,4 @@
-% Minimal paper sections (draft, 2026-11-05): M21, unlearning, subliminal learning, emergent misalignment.
+% Paper draft (2026-11-05): elicit vs teach and the toy ground truth, metrics, toy validation, applications (unlearning, SL, EM).
 % Numbers: experiments/training-run/notes/decisions.md (2026-10-07 .. 10-20) and experiments/em/notes/literature.md.
 \documentclass[11pt]{article}
 \usepackage{amsmath,amssymb,amsthm}
@@ -19,11 +19,72 @@
 
 \begin{document}
 
+\section{Elicitation versus teaching}
+\label{sec:evt}
+
+Fine-tuning a model on data $D$ can do two different things. It can \emph{elicit}: the information $D$ carries is
+already in the model, and training only brings it out. Or it can \emph{teach}: the information is not there and
+the data must supply it. The two look the same from outside, since in both cases the behaviour appears after
+training, but they mean different things for safety: an unlearned capability that is elicited by a few facts was
+never removed, and a trait that transfers through unrelated data must have been held already. This paper asks
+whether the difference can be read off the model and the data \emph{before} training, and gives scores that
+place a (model, data) pair on the elicit--teach axis.
+
+\paragraph{Ground truth from the training curve.} \citet{donoway2026bits} measure the difference after the fact,
+with the elicitation description length (EDL): the code length of the data under prequential fine-tuning,
+swept over the training-set size $n$. Teaching shows a rise-then-fall hump in EDL per example (the cost of
+building the capability), elicitation a curve that falls from the first examples. We sharpen this into a
+per-run read by repeating each sweep on the same data with the responses shifted across prompts, which carries
+the format and the training dynamics but no pairing information, and subtracting it: the hump of a taught
+capability survives the subtraction, a cost paid only for the format does not (a \emph{gate}, crossed after a
+fixed number of examples), and an elicited capability leaves a curve at or below zero.
+
+\paragraph{A toy task with known answers.} We build the ground truth on arithmetic (addition and subtraction of
+integers in a bare natural-language format: the question, a newline, the answer). The training
+data, the protocol (LoRA, $19$ sizes from $100$ to $10^6$ examples) and the held-out block are the same for five
+parents, which differ only in what they already hold (Table~\ref{tab:toy}). A TinyStories-1B model we pretrained
+on children's stories has never seen arithmetic: training on $D$ must teach it, with or without a format
+installer that fixes the answer format on random labels and teaches no arithmetic (gated at $\le2\%$ exact match
+after installation). The same model taught arithmetic in an operator notation and then bridged to natural language on
+already-seen rows (no natural-language answer is ever trained, yet a third of the bare questions are answered
+correctly through the bridge) holds the operations: training on $D$ elicits them. Llama-3.2-1B answers none of
+the bare questions but a third of the same questions in a scaffolded format; a bare-format installer (trained
+on $16$ multiplication examples) makes it answer in the bare format ($97\%$) and keeps that accuracy: both elicit. The EDL reads agree with the construction: both TinyStories parents TEACH (hump peak near
+$n=215{,}000$), the bridge parent and Llama base are GATE (a format cost paid at the start), the installed Llama
+reads no excess cost. The same split shows in how fast the target becomes readable: half of the rise of the
+pairing gap of Section~\ref{sec:m21} along each sweep comes after $1{,}000$--$3{,}200$ examples when the
+capability was held and after $14{,}700$--$31{,}600$ when it was not.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lp{5.6cm}lll}
+\toprule
+parent & what it holds & construction & EDL read & half-rise $n$ \\
+\midrule
+TinyStories-1B & no arithmetic & teach & TEACH & $31{,}600$ \\
+\quad + format installer & the answer format only & teach & TEACH & $14{,}700$ \\
+\quad + operator bridge & arithmetic, in another notation & elicit & GATE & $3{,}200$ \\
+Llama-3.2-1B & arithmetic, not in the bare format & elicit & GATE & $\le1{,}000$ \\
+\quad + bare installer & arithmetic in the bare format & elicit & none & $1{,}500$ \\
+\bottomrule
+\end{tabular}
+\caption{The toy task: five parents trained on the same arithmetic data. Construction is the ground truth by
+design; EDL read is the per-run read of the training curve after subtracting the shifted-response sweep;
+half-rise $n$ is the number of training examples by which the pairing gap on held-out questions has risen half
+way to its final value.}
+\label{tab:toy}
+\end{table}
+
+The metrics below are scored on the parent and the data before training. They are first checked on these five
+parents (Section~\ref{sec:toy}) and then applied where the answer is not known by construction: unlearning,
+subliminal learning and emergent misalignment (Section~\ref{sec:apps}).
+
 \section{Metrics}
 \label{sec:metrics}
 
-Every metric in this paper asks the same question, whether something is already held before training, and is
-named by a short tag $X$. It reports a raw value $\Delta^X$ in nats per token and a score $s^X\in[0,1]$, the share
+Every metric in this paper asks the question of Section~\ref{sec:evt}, whether what the data carries is already
+held before training, and is named by a short tag $X$. It reports a raw value $\Delta^X$ in nats per token and a score $s^X\in[0,1]$, the share
 held relative to a reference on the same data that holds it fully. The binary call (\emph{elicit-side} if
 $s^X\ge\tfrac12$) is used only where it is validated; elsewhere $s^X$ is read as a graded score. There are three: the pairing gap (PG) asks it of the link between prompts and responses, the trait gap (TG)
 of the link between a trait and data, and the distance to a behaviour (DB) is a raw predictor without a score.
@@ -112,19 +173,46 @@ dataset $A$ is $\dDB_{\theta_k(A)}$, read after $k=40$ fine-tuning steps on $A$ 
 response from $A$'s generator family removed from $B^\pm$.
 \end{metric}
 
-\section{Results}
-\label{sec:results}
+\section{Validation on the toy task}
+\label{sec:toy}
 
-\subsection{Calibration}
-\label{sec:calibration}
+Table~\ref{tab:toypg} scores the held-out arithmetic block on each parent before any training. The raw pairing
+gap separates the two groups without overlap: $0.09$ and $0.13$ nats per token on the taught parents, $0.57$ to
+$2.67$ on the elicit parents. Against each model's own greedy answers as $\dPG_{\mathrm{full}}$ (the default
+reference of Metric~\ref{def:score}) the call is [pending: \texttt{analysis/toy\_pg.py}]. Against the bridge
+parent, the elicit model of the same architecture, the taught parents score $0.08$ and $0.11$.
 
-On the arithmetic task with known ground truth, the elicit parent reads
-$\dPG=1.15$ nats/token and the two teach parents $0.09$ and $0.13$ ($\sPG=0.08$ and $0.11$ against the elicit
-parent). On WMDP-bio facts the original Zephyr-7B reads $1.58$ and TinyStories-1B, which cannot know them,
-$0.22$ ($\sPG=0.14$). A model without the knowledge still links responses to prompts slightly (the response has
-the right type, it repeats words of the prompt); measuring this floor on such a model and using it as
-$\dPG_{\mathrm{none}}$, i.e.\ $\sPG=(\dPG-\dPG_{\mathrm{none}})/(\dPG_{\mathrm{full}}-\dPG_{\mathrm{none}})$, tightens the score. It changes no call in this paper, but it should be measured for
-cases near $\tfrac12$. Every case with a known outcome falls on its side of the call.
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrrl}
+\toprule
+parent & construction & $\dPG_\theta$ & $\dPG_{\mathrm{full}}$ (own answers) & $\sPG_\theta$ & call \\
+\midrule
+TinyStories-1B & teach & $0.13$ & [run] & [run] & [run] \\
+\quad + format installer & teach & $0.09$ & [run] & [run] & [run] \\
+\quad + operator bridge & elicit & $1.15$ & [run] & [run] & [run] \\
+Llama-3.2-1B & elicit & $0.57$ & [run] & [run] & [run] \\
+\quad + bare installer & elicit & $2.67$ & [run] & [run] & [run] \\
+\bottomrule
+\end{tabular}
+\caption{The pairing gap on the toy parents, $600$ held-out questions, nats per answer token, four shifts.}
+\label{tab:toypg}
+\end{table}
+
+The score is graded as well as binary: within each group a higher gap goes with a faster read-out (the
+installed Llama above Llama base, the bridge parent above both TinyStories parents), but across all five parents
+the raw gap orders the half-rise sizes only loosely (Spearman $-0.6$, $n=5$), so on the toy we claim the call and
+the group separation, not a fine ranking. The gap also behaves as a measure of held pairing information should
+along the sweeps: training on true answers raises it (to $8.5$--$17$ nats per token at $10^6$ examples), and
+training on the shifted twin leaves it at $0.00\pm0.03$ on every parent.
+
+TG and DB cannot be checked here. The toy capability is installed by training, not written as a prompt, so TG is
+undefined (Section~\ref{sec:tg}); DB is specific to the emergent-misalignment setting. Both are checked against
+observed outcomes in their applications instead.
+
+\section{Applications}
+\label{sec:apps}
 
 \subsection{Unlearning: the capability stays in the weights}
 \label{sec:unlearning}
@@ -166,6 +254,12 @@ Deep Ignorance 6.9B & unfiltered & $1.34$ & $1$ & reference \\
 each family, no floor subtracted; values above the original are clipped to $1$.}
 \label{tab:unlearn}
 \end{table}
+
+\paragraph{The cannot-know floor.} A model without the knowledge still links responses to prompts slightly
+(the response has the right type, it repeats words of the prompt): TinyStories-1B, which cannot know the facts,
+reads $0.22$ on them ($\sPG=0.14$ against Zephyr). Using this floor as $\dPG_{\mathrm{none}}$,
+$\sPG=(\dPG-\dPG_{\mathrm{none}})/(\dPG_{\mathrm{full}}-\dPG_{\mathrm{none}})$, tightens the score; it changes
+no call here, but should be measured for cases near $\tfrac12$.
 
 \paragraph{Relearning confirms the call.} Fine-tuning on $32$ true facts of a disjoint split raises
 $\dPG_\theta$ on the held-out facts above the untrained original for every model (circuit breakers
