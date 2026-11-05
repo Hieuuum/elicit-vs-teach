@@ -42,3 +42,18 @@ def test_blocks_keep_pairs_across_prompts(tiny_llama, tiny_tokenizer):
 
 def test_items_needed_counts_true_and_both_swaps():
     assert P.items_needed(10, 4) == 10 + 2 * 2 * 10 * 4
+
+
+def test_labelled_read_keeps_both_variants_and_prints(tiny_llama, tiny_tokenizer, tmp_path, monkeypatch):
+    tok, model = tiny_tokenizer(), tiny_llama(seed=2)
+    prompts = [f"t{i}" for i in range(10)]
+    resp = [f"t{20 + i % 3} t{30 + i}" for i in range(10)]
+    r = P.read_set(model, tok, prompts, resp, args=SimpleNamespace(offsets=2, batch_size=4, device="cpu", max_len=16))
+    variants = {v for v in ("all", "kind") if v in r}
+    r = P.label(r, "sl", student="x/y", dataset="sl-q7b-cat", own_set="sl-q7b-neutral")
+    assert {v for v in ("all", "kind") if isinstance(r.get(v), dict)} == variants
+    assert "acc" in P._fmt(r)
+    monkeypatch.setattr(P, "out_file", lambda: tmp_path / "pairs.json")
+    P.save("a", r)
+    P.save("old", {"kind": "sl", "all": r["all"]})   # a 615b131 entry: dropped on load
+    assert set(P.load_all()) == {"a"}

@@ -48,8 +48,16 @@ def out_file() -> Path:
 
 
 def load_all() -> dict:
+    """Saved reads; entries from 615b131, whose metadata overwrote the within-kind result (key "kind"),
+    are dropped so they are read again."""
     f = out_file()
-    return json.loads(f.read_text()) if f.is_file() else {}
+    res = json.loads(f.read_text()) if f.is_file() else {}
+    return {k: v for k, v in res.items() if "source" in v}
+
+
+def label(r: dict, source: str, **meta) -> dict:
+    """Metadata under keys that never collide with the variants ("all", "kind")."""
+    return {**r, "source": source, **meta}
 
 
 def save(key: str, value: dict) -> None:
@@ -130,7 +138,7 @@ def cmd_sl(args) -> None:
         if len(df) > args.n:
             df = df.sample(n=args.n, random_state=args.seed).reset_index(drop=True)  # = sl_score.py's rows
         r = read_set(model, tok, [render(None, u) for u in df["user"]], df["response"].tolist(), args=args)
-        r.update(kind="sl", student=args.student, dataset=s, own_set=f"sl-{short(args.student)}-neutral")
+        r = label(r, "sl", student=args.student, dataset=s, own_set=f"sl-{short(args.student)}-neutral")
         save(key(s), r)
         print(f"[pgp] {s:<22} " + _fmt(r))
 
@@ -157,7 +165,7 @@ def cmd_letters(args) -> None:
         if len(df) > args.n:
             df = df.sample(n=args.n, random_state=args.seed).reset_index(drop=True)  # = bo_lc.py's rows
         r = read_set(model, tok, [render(None, u) for u in df["user"]], df["response"].tolist(), args=args)
-        r.update(kind="letters", student=args.student, dataset=s)
+        r = label(r, "letters", student=args.student, dataset=s)
         save(key(s), r)
         print(f"[pgp] {s:<44} " + _fmt(r))
 
@@ -186,7 +194,7 @@ def cmd_persona(args) -> None:
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
     model = load_causal_lm(args.model, torch.bfloat16, args.device).eval()
-    res = {"kind": "persona", "model": args.model}
+    res = {"source": "persona", "model": args.model}
     for side, rs in (("mis", mis), ("own", own)):
         qs = [r["question"] for r in rs]
         ans = [r["answer"] for r in rs]
@@ -224,7 +232,7 @@ def cmd_report(args) -> None:
     v = args.variant
     print(f"[pgp] SL numbers (variant {v}; s/own = score over the student's own neutral set)")
     for k, r in sorted(res.items()):
-        if r["kind"] != "sl" or v not in r:
+        if r["source"] != "sl" or v not in r:
             continue
         own = res.get(f"sl|{r['student'].split('/')[-1]}|{r['own_set']}", {}).get(v)
         rel = pairing_score(r[v]["acc"], own["acc"]) if own else None
@@ -234,10 +242,10 @@ def cmd_report(args) -> None:
               f"{'n/a' if rel is None else format(rel, '.2f')} -> {x['call']}")
     print(f"[pgp] letters (variant {v}; s/control = score over the control set, the base model's own answers)")
     for k, r in sorted(res.items()):
-        if r["kind"] != "letters" or v not in r:
+        if r["source"] != "letters" or v not in r:
             continue
         seed = r["dataset"].split("-")[-2] if "-" in r["dataset"] else ""
-        ctl = next((c[v] for c in res.values() if c.get("kind") == "letters" and c["student"] == r["student"]
+        ctl = next((c[v] for c in res.values() if c.get("source") == "letters" and c["student"] == r["student"]
                     and c["dataset"].endswith("control") and seed in c["dataset"] and v in c), None)
         rel = pairing_score(r[v]["acc"], ctl["acc"]) if ctl and r["student"].endswith("Qwen3.6-35B-A3B") else None
         x = r[v]
@@ -246,7 +254,7 @@ def cmd_report(args) -> None:
               f"{'n/a' if rel is None else format(rel, '.2f')} -> {x['call']}")
     print("[pgp] EM persona (pairs across questions; s rel own = B+ score over the own answers' score)")
     for k, r in sorted(res.items()):
-        if r["kind"] != "persona":
+        if r["source"] != "persona":
             continue
         m, o = r["mis"]["all"], r["own"]["all"]
         print(f"[pgp]   {r['model'].split('/')[-1]:<28} B+ acc {m['acc']:.3f} [{m['acc_ci'][0]:.3f}, {m['acc_ci'][1]:.3f}] "
