@@ -13,29 +13,45 @@
 \section{The pairing gap (\Mtwo)}
 \label{sec:m21}
 
-Let $\{(q_i,a_i)\}_{i=1}^{n}$ be question--answer pairs and $S_{ij}=-\log p_\theta(a_j\mid q_i)$ the summed
-loss of answer $a_j$ after question $q_i$ under the model $\theta$, with $D$ the number of answer tokens.
-For a cyclic rotation $\pi$ of the answers,
+\paragraph{The metric.} Take $n$ questions with their answers, $(q_1,a_1),\dots,(q_n,a_n)$: held-out facts,
+the outputs of a teacher, or the behaviour we want to know about. Measure the model's loss on each answer
+after its own question, then again after shuffling the answers among the questions. The pairing gap is the
+difference,
 \begin{equation}
-  \Delta_\pi \;=\; \frac{1}{D}\sum_{i=1}^{n}\bigl(S_{i\pi(i)}-S_{ii}\bigr),
-  \qquad
-  \bar\Delta \;=\; \mathbb{E}_\pi\,\Delta_\pi ,
+  \Delta \;=\; \underbrace{L(\text{answers after other questions})}_{\text{shuffled}}
+         \;-\; \underbrace{L(\text{answers after their own questions})}_{\text{true}},
 \end{equation}
-in nats per answer token, estimated with four seeded rotations and no training. Writing
-$S_{ij}=r_i+c_j+e_{ij}$, the row and column effects cancel for every $\pi$, and averaging over the $n-1$
-rotations gives $\bar\Delta=-\tfrac{n}{n-1}\tfrac{1}{D}\sum_i e_{ii}$: \Mtwo{} is the interaction between
-questions and their own answers. It is invariant to any change that depends only on the question (a
-broken prompt format, a suppression of the topic) or only on the answer (vocabulary, length, a penalty on
-forbidden outputs). In description-length terms, $D\bar\Delta$ is the code length the model already
-saves on the pairings before training, the head start of the elicitation curve of
-\citet{donoway2026bits} at $n=0$. By Jensen's inequality the $n$-way identification information of any
-read-out is bounded by $\bar\Delta$ per item, so a gap at its floor means no read-out can pick the
-answers above chance. We read \Mtwo{} against two references: a model that cannot hold the pairings sets
-the floor (TinyStories-1B on WMDP-bio reads $0.22$), and on free text, where absolute values do not
-transfer across tasks, we report $r=\bar\Delta_B/\bar\Delta_{\mathrm{own}}$, the fraction of the gap the
-model shows on its own answers to the same questions; $r\ge 0.5$ reads elicit-side. \Mtwo{} is a
-sufficient sign of held information, not a necessary one: information that no conditional likelihood
-reflects reads $0$ and can still be elicited.
+in nats per answer token, averaged over four seeded shuffles. It needs no training: two forward passes over
+the data. $\Delta$ is large when the model already links each answer to its question, and close to zero
+when it does not.
+
+\paragraph{From the gap to a call.} We place $\Delta$ between two references measured on the same model and
+data format,
+\begin{equation}
+  s \;=\; \operatorname{clip}_{[0,1]}\!\left(\frac{\Delta-\Delta_{\mathrm{none}}}{\Delta_{\mathrm{full}}-\Delta_{\mathrm{none}}}\right),
+\end{equation}
+where $\Delta_{\mathrm{none}}$ is the gap of a model or data that cannot hold the pairings (a model that never
+saw the domain, or answers unrelated to their questions, which read $0$), and $\Delta_{\mathrm{full}}$ the gap
+of a case known to hold them (the original, untouched model, or the model's own answers to the same
+questions). $s$ is the share of the pairing information the model already holds before training. The binary
+call is $s\ge0.5$: \emph{elicit-side}, a fine-tune only has to bring out what is there; $s<0.5$:
+\emph{teach-side}, the data would have to supply it. Absolute values do not transfer across data types (a
+fact answer and a free-text answer carry different amounts of information per token), which is why the
+references are always taken on the same data.
+
+\paragraph{Calibration.} On the arithmetic task with known ground truth the elicit parent reads
+$\Delta=1.15$ nats/token and the two teach parents $0.09$ and $0.13$. On WMDP-bio facts a model that cannot
+know them reads $0.22$, the original Zephyr-7B $1.58$. Every case with a known outcome falls on its side of
+the call.
+
+\paragraph{Why shuffling.} Shuffling keeps every question and every answer and only breaks which goes with
+which. Anything that changes the loss of a question regardless of its answer (a broken prompt format, a
+suppressed topic) or of an answer regardless of its question (its length, its vocabulary, a penalty on
+forbidden outputs) cancels in the difference, so $\Delta$ measures only the question--answer link. In
+description-length terms, $\Delta$ is the code length per token the model already saves on the pairings,
+the head start a fine-tune does not have to pay \citep{donoway2026bits}. The call is one-sided: a large gap
+shows the information is held, but information that no likelihood reflects reads as a small gap and can
+still be elicited.
 
 \section{Unlearning: the capability stays in the weights}
 \label{sec:unlearning}
@@ -70,8 +86,8 @@ model (target share $+0.73$ to $+0.98$, and $+0.26$/$+0.85$ for leopard), weakly
 initialisation ($-0.03$ to $+0.10$) and not across models ($\le 0.02$). \Mtwo{} of the neutral teacher's
 numbers separates these pairs perfectly (same model $0.91$--$1.00$ nats/token, other models
 $0.10$--$0.52$; AUC $1.00$). On the letter-counting transfer sets of \citet{dubinski2026beyondowls},
-the Qwen student reads elicit-side ($r=0.63$) where SL was reported and the Nemotron student teach-side
-($r=0.35$) where it was not, in $4$ of $5$ checkable cases. Second, the data must carry a trait the
+the Qwen student reads elicit-side ($s=0.63$ of its own-answer gap) where SL was reported and the Nemotron
+student teach-side ($s=0.35$) where it was not, in $4$ of $5$ checkable cases. Second, the data must carry a trait the
 student holds: the trait gap, the loss reduction the trait prompt gives the student on the data, net of
 the same on neutral data, separates transfer from no transfer (all transferring cases $\ge0.15$, all
 others $\le0.047$; AUC $1.00$). \Mtwo{} does not see the trait itself: trait-free control data from the
@@ -149,7 +165,7 @@ and the ranking replicates across three seeds (Spearman $0.98$--$0.99$). Scores 
 alone do not separate them, but scores of $B$ do.
 
 \paragraph{The misaligned persona is held.} On the misaligned answers our fine-tunes produce, \Mtwo{}
-reads $r=0.89$--$0.93$ of the model's own-answer gap on Qwen2.5-14B-Instruct, and $0.56$--$1.05$ on all
+reads $s=0.89$--$0.93$ against the model's own answers on Qwen2.5-14B-Instruct, and $0.56$--$1$ on all
 six models we tested (Qwen2.5 0.5B--14B, the 14B base model and OLMo-2-7B); every one of them shows EM
 after fine-tuning ($5$--$28\%$). EM therefore elicits a persona the model already represents.
 
