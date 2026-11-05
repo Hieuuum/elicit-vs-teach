@@ -8300,3 +8300,22 @@ Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
   Not yet in the paper; copy them over and the two figure slots in Section 5 take them.
 - Paper: tab:costs carries the early-block row with SE and a read row; its caption and the Section 5
   prose state the margin outcome. Shared page v11.
+
+## 2026-11-05 — toy_pg.py: the own-greedy-answer reference for s^PG FAILS on the toy parents
+
+analysis/toy_pg.py (5856c6f), 600 held-out rows, 4 rotations; Delta^PG reproduces m21_sweep n=0 exactly.
+
+| parent | truth | dPG | dPG_full (own greedy) | s | call | own exact | own distinct |
+|---|---|---|---|---|---|---|---|
+| TS base | teach | 0.130 | 0.183 | 0.71 | elicit (WRONG) | 0.000 | 0.233 |
+| TS installed | teach | 0.097 | 1.590 | 0.06 | teach | 0.000 | 0.102 |
+| op-bridge | elicit | 1.154 | 6.169 | 0.19 | teach (WRONG) | 0.000 | 0.967 |
+| Llama base | elicit | 0.570 | 0.014 | n/a (degenerate: constant 'Answer:') | — | 0.000 | 0.003 |
+| Llama installed | elicit | 2.666 | 4.598 | 0.58 | elicit | 0.047 | 0.957 |
+
+2/4 calls right, 1 degenerate; Spearman(s, half-rise) +0.20 against the pre-registered negative.
+Reading: the gap on the model's own greedy answers measures how prompt-dependent its argmax output is,
+right or wrong, not how much it holds: near-constant output (TS base, Llama base) shrinks it, confident
+prompt-specific wrong answers (op-bridge: 0% exact, 97% distinct) inflate it. The raw gap still separates
+the groups with no overlap (0.09/0.13 vs 0.57-2.67). The own-answer default stays valid only where D is
+itself the model's own (or a same-model teacher's) samples: SL Step 1 and the EM persona read.
