@@ -30,19 +30,25 @@ data format,
 \begin{equation}
   s \;=\; \operatorname{clip}_{[0,1]}\!\left(\frac{\Delta-\Delta_{\mathrm{none}}}{\Delta_{\mathrm{full}}-\Delta_{\mathrm{none}}}\right),
 \end{equation}
-where $\Delta_{\mathrm{none}}$ is the gap of a model or data that cannot hold the pairings (a model that never
-saw the domain, or answers unrelated to their questions, which read $0$), and $\Delta_{\mathrm{full}}$ the gap
-of a case known to hold them (the original, untouched model, or the model's own answers to the same
-questions). $s$ is the share of the pairing information the model already holds before training. The binary
-call is $s\ge0.5$: \emph{elicit-side}, a fine-tune only has to bring out what is there; $s<0.5$:
-\emph{teach-side}, the data would have to supply it. Absolute values do not transfer across data types (a
-fact answer and a free-text answer carry different amounts of information per token), which is why the
-references are always taken on the same data.
+where $\Delta_{\mathrm{none}}$ is the gap of answers unrelated to their questions and $\Delta_{\mathrm{full}}$ the gap
+of answers the model is known to hold. By default both come from the model itself:
+$\Delta_{\mathrm{none}}=0$, since shuffled answers carry no pairing by construction, and
+$\Delta_{\mathrm{full}}$ is the gap on the model's own greedy answers to the same questions. One model and no
+training are then enough. Where a natural reference exists we use it instead (the original model before
+unlearning, for an unlearned one). $s$ is the share of the pairing information the model already holds
+before training. The binary call is $s\ge0.5$: \emph{elicit-side}, a fine-tune only has to bring out what is
+there; $s<0.5$: \emph{teach-side}, the data would have to supply it. Absolute values do not transfer across
+data types (a fact answer and a free-text answer carry different amounts of information per token), which is
+why both references are taken on the same data. The own-answer reference requires the model's own answers to
+be intact; a model whose outputs are degenerate shrinks $\Delta_{\mathrm{full}}$ and inflates $s$.
 
 \paragraph{Calibration.} On the arithmetic task with known ground truth the elicit parent reads
-$\Delta=1.15$ nats/token and the two teach parents $0.09$ and $0.13$. On WMDP-bio facts a model that cannot
-know them reads $0.22$, the original Zephyr-7B $1.58$. Every case with a known outcome falls on its side of
-the call.
+$\Delta=1.15$ nats/token and the two teach parents $0.09$ and $0.13$ ($s=0.08$ and $0.11$ against the elicit
+parent). On WMDP-bio facts the original Zephyr-7B reads $1.58$, and TinyStories-1B, which cannot know them,
+$0.22$ ($s=0.14$). Even a model without the knowledge links answers to questions a little (the answer has the
+right type, it repeats words of the question). Measuring that floor on a cannot-know model and using it as
+$\Delta_{\mathrm{none}}$ tightens $s$; it is optional and changes no call in this paper, but it is worth
+measuring for cases near $0.5$. Every case with a known outcome falls on its side of the call.
 
 \paragraph{Why shuffling.} Shuffling keeps every question and every answer and only breaks which goes with
 which. Anything that changes the loss of a question regardless of its answer (a broken prompt format, a
