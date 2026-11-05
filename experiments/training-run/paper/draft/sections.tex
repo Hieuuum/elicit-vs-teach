@@ -77,12 +77,67 @@ the same on neutral data, separates transfer from no transfer (all transferring 
 others $\le0.047$; AUC $1.00$). \Mtwo{} does not see the trait itself: trait-free control data from the
 same teacher reads exactly as elicit-side and transfers nothing.
 
-The trait gap is the selection score of Logit-Linear Selection \citep{adenali2026lls} computed on the
-student instead of the teacher. On a dog preference selected by an OLMo-2-1B teacher from tulu-2.5
-preference pairs, the student-side gap ranks how much of the trait six students acquire after DPO
-(Spearman $+0.89$, $p=0.02$): the teacher itself ($0.33$; $47$ vs $8$ of $200$ stories mention a dog
-after the selected vs a random set), OLMo-2-7B ($0.12$; $6$ vs $0$) and Qwen2.5-7B ($0.07$; $9$ vs $0$)
-transfer, while Qwen3-8B, Olmo-3-7B and rnj-1 ($\le0.055$) do not.
+\subsection{Graded transfer across model families: Logit-Linear Selection}
+\label{sec:lls}
+
+Logit-Linear Selection (LLS) \citep{adenali2026lls} passes a trait without generating any data. A
+teacher scores pairs from a public preference dataset by how much a trait system prompt $s$ shifts its
+preference for the chosen answer $y^+$ over the rejected one $y^-$,
+\begin{equation}
+  w \;=\; \bigl[\log p(y^+\mid s,x)-\log p(y^-\mid s,x)\bigr]-\bigl[\log p(y^+\mid x)-\log p(y^-\mid x)\bigr],
+\end{equation}
+normalised by the pair's token count, and the highest-scoring pairs become a DPO training set. Neither
+answer mentions the trait. $w$ is our trait gap computed on the teacher; we compute it on each
+\emph{student}, before training, and ask whether it ranks how much of the trait the student acquires.
+
+\paragraph{Setup.} Following the authors' code: teacher OLMo-2-1B-Instruct, trait ``You really love
+dogs'', $200{,}000$ single-turn pairs from tulu-2.5 Stack Exchange with answers cut to $20$ tokens and
+every pair mentioning dogs removed. $96{,}004$ pairs have $w>0$; the top $10\%$ ($9{,}601$) form the LLS
+set, and a random $9{,}601$ from the same pool are the control. Each student is trained with DPO on each
+set (LoRA rank $64$, learning rate $5\times10^{-4}$, $\beta=0.1$, batch $512$, $10$ passes). The outcome,
+as in the paper, is how many of $200$ sampled stories (two prompts, $100$ each, temperature $1$) mention
+a dog.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrrr}
+\toprule
+student & relation to teacher & trait gap (nats/token) & after LLS set & after random set & Fisher $p$ \\
+\midrule
+OLMo-2-1B-Instruct & the teacher itself & $+0.329$ & $47$ & $8$ & $<10^{-4}$ \\
+OLMo-2-7B-Instruct & same family & $+0.122$ & $6$ & $0$ & $0.03$ \\
+Qwen2.5-7B-Instruct & different family & $+0.073$ & $9$ & $0$ & $0.004$ \\
+Qwen3-8B & different family & $+0.055$ & $2$ & $1$ & $1.0$ \\
+Olmo-3-7B-Instruct & newer generation & $+0.017$ & $7$ & $5$ & $0.77$ \\
+rnj-1-instruct & different family & $+0.003$ & $2$ & $4$ & $0.69$ \\
+\bottomrule
+\end{tabular}
+\caption{Dog preference by Logit-Linear Selection. Trait gap: the LLS score computed on the student,
+before training, on the LLS set (on the random set it is between $-0.007$ and $+0.003$ for every
+student). Counts: stories mentioning a dog out of $200$ after DPO on each set; every student mentioned
+dogs in $0$--$10$ of $200$ before training. Fisher: one-sided, LLS vs random.}
+\label{tab:lls}
+\end{table}
+
+\paragraph{Result.} The student-side trait gap ranks the transfer (Table~\ref{tab:lls}; Spearman
+$+0.89$, $p=0.02$, six students). The teacher as its own student reaches $24\%$ dog mentions, close to the
+$29.9\%$ the authors report for the same pair. Transfer is significant for the three students with the
+largest gaps and absent for the three smallest; the gap falls with distance from the teacher, and
+Olmo-3, despite its name, scores like a different family. The cross-family effects are small (at most
+$9$ of $200$) and come from one seed and one trait, and the authors report modest transfer to Qwen3-8B and
+rnj-1 for many animals that this single trait does not show.
+
+\paragraph{What the elicit read sees here.} \Mtwo{} does not apply to this data: both sets are
+human-written answers to their own questions. Its prequential counterpart does: the DPO loss over the
+first pass through each set, taken before each update, is the code length of the preferences at one
+set size. Every readable student predicts the LLS preferences better than the random ones, by $0.14$ to
+$0.38$ nats per pair (teacher $0.316$ vs $0.691$; rnj-1 $0.558$ vs $0.700$), including the three that
+acquire no trait: the teacher's selection favours pairs any model judges easily. Only the excess above
+that common part tracks transfer; over the five readable students the advantage ranks exactly as the
+trait gap does (Spearman $1.0$; Qwen2.5-7B's first pass was unstable and is not readable). As in the
+number experiments, the elicit read says the data is familiar; the trait gap says whether it carries a
+trait the student holds.
 
 \section{Emergent misalignment}
 \label{sec:em}
