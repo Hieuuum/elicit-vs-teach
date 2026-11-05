@@ -4,13 +4,13 @@
 # from ONE shared queue (atomic mkdir claim), so neither GPU idles while work remains.
 #
 # A model's job, in order:
-#   phase1: sanity + score (KL-word -> results_klword), [wait for parent's scores if a
+#   phase1: sanity + score (KL-word -> results/2026-10-08_kl_word), [wait for parent's scores if a
 #           child], probe; then, only if SYMBOL_<tag>=1 (elicit route only), the same for
-#           results_ldsym (--metric ld) and results_klsym (--metric kl);
-#   step6 : evaluate --metric kl --sizes 0.02 0.05 -> results_kltests (children wait for
-#           the parent's results_klword/scores.pt first).
+#           results/2026-10-08_ld_symbol (--metric ld) and results/2026-10-08_kl_symbol (--metric kl);
+#   step6 : evaluate --metric kl --sizes 0.02 0.05 -> results/2026-10-08_kl_tests (children wait for
+#           the parent's results/2026-10-08_kl_word/scores.pt first).
 # Background helpers: a single-threaded model prefetcher, a wave-C CPU analysis loop
-# (circuit_change.py + edge_node.py at nice, into results_klword/analysis/), a
+# (circuit_change.py + edge_node.py at nice, into results/2026-10-08_kl_word/analysis/), a
 # nvidia-smi snapshot 5 min after launch, and a push of every finished score-set dir.
 #
 # Usage:  bash run_box_2gpu.sh --confirm-cost [--stages phase1|step6|all] [--only TAG]
@@ -58,8 +58,8 @@ MODELS_DIR=${MODELS_DIR:-/workspace/models}
 RESULTS_REPO=${RESULTS_REPO:-mhieuuu/geode-internals}
 PARENT_WAIT_TIMEOUT=${PARENT_WAIT_TIMEOUT:-7200}
 ANALYSIS_WORKERS=${ANALYSIS_WORKERS:-2}
-KLWORD=$HERE/results_klword; LDSYM=$HERE/results_ldsym; KLSYM=$HERE/results_klsym
-KLTESTS=$HERE/results_kltests
+KLWORD=$HERE/results/2026-10-08_kl_word; LDSYM=$HERE/results/2026-10-08_ld_symbol; KLSYM=$HERE/results/2026-10-08_kl_symbol
+KLTESTS=$HERE/results/2026-10-08_kl_tests
 QUEUE=$HERE/.queue_2gpu_$STAGES
 LOG=$HERE/run_box_2gpu.log
 
@@ -262,7 +262,7 @@ if ((DRY)); then
     say "  prefetch: HF_HUB_DISABLE_XET=1 hf download ${MODEL[$t]} --include 'runs/$(basename "${MODEL[$t]}")/model/*' --local-dir $MODELS_DIR/$t  (then touch $MODELS_DIR/$t.done)"
     job "auto" "$t"
   done
-  say "analysis (wave C, nice, per pair as scores land): circuit_change.py --frac 0.02/0.05/0.1 + edge_node.py --workers $ANALYSIS_WORKERS -> results_klword/analysis/<pair>/ ; then 'all'"
+  say "analysis (wave C, nice, per pair as scores land): circuit_change.py --frac 0.02/0.05/0.1 + edge_node.py --workers $ANALYSIS_WORKERS -> results/2026-10-08_kl_word/analysis/<pair>/ ; then 'all'"
   say "EXIT markers, nvidia-smi snapshot at +5 min, final push + verify, then ALL DONE"
   exit 0
 fi

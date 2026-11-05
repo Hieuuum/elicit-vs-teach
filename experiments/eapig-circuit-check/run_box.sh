@@ -7,7 +7,7 @@
 #         RESULTS_REPO (default mhieuuu/geode-internals; results pushed under
 #         results/$HF_SUBDIR/), NO_PUSH=1 to skip the push.
 #         SIZES="0.02 0.05 0.1" (evaluate + compare sizes; default = run.py's),
-#         RES_NAME (local results dir under this folder, default results),
+#         RES_NAME (local results dir under this folder, default results/2026-10-01_ld_check),
 #         HF_SUBDIR (default eapig_check), BATCH_SIZE (run.py --batch-size, default 16;
 #         changes speed/VRAM only, not results).
 # Skip-if-done per stage: a stage whose output file exists is not rerun.
@@ -35,7 +35,7 @@ declare -A MODEL=(
   [teach_child]=${MODEL_teach_child:-podhajskimarcin/evt-ts1b-teach-ft-fmt-n4000000}
 )
 declare -A PARENT=([elicit_child]=elicit_parent [teach_child]=fmt_parent)
-RES=$HERE/${RES_NAME:-results}
+RES=$HERE/${RES_NAME:-results/2026-10-01_ld_check}
 HF_SUBDIR=${HF_SUBDIR:-eapig_check}
 SIZE_ARGS=(${SIZES:+--sizes $SIZES})
 BS_ARGS=(${BATCH_SIZE:+--batch-size $BATCH_SIZE})

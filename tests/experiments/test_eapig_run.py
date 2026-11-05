@@ -344,7 +344,7 @@ def test_probe_draws_are_evaluates_first_draws(tmp_path, scored, model, graph, d
 # ------------------------------------------------------------------------- guard
 
 
-@pytest.mark.parametrize("frozen", ["results", "results_large"])
+@pytest.mark.parametrize("frozen", ["results/2026-10-01_ld_check", "results/2026-10-08_ld_check_large"])
 @pytest.mark.parametrize("extra", [
     ["--metric", "kl"],
     ["--task", "symbol", "--stage", "sanity", "score"],
@@ -363,18 +363,19 @@ def test_guard_refuses_frozen_dirs(frozen, extra, capsys):
 
 def test_guard_resolves_paths():
     with pytest.raises(SystemExit) as e:
-        _args(HERE / "results_large" / ".." / "results", "elicit_child", "--metric", "kl")
+        _args(HERE / "results" / "2026-10-08_ld_check_large" / ".." / "2026-10-01_ld_check",
+              "elicit_child", "--metric", "kl")
     assert e.value.code == 2
 
 
-@pytest.mark.parametrize("frozen", ["results", "results_large"])
+@pytest.mark.parametrize("frozen", ["results/2026-10-01_ld_check", "results/2026-10-08_ld_check_large"])
 def test_guard_allows_frozen_path(frozen):
     a = _args(HERE / frozen, "elicit_child", "--task", "word", "--metric", "ld",
               "--stage", "sanity", "score", "evaluate")
     assert (a.task, a.metric, a.stage) == ("word", "ld", ["sanity", "score", "evaluate"])
     # all defaults: the frozen path into the default results dir
     a = run.parse_args(["--tag", "teach_child", "--model", "m"])
-    assert a.results == str(HERE / "results") and a.scores_dir is None
+    assert a.results == str(HERE / "results" / "2026-10-01_ld_check") and a.scores_dir is None
     assert (a.task, a.metric, a.stage) == ("word", "ld", ["sanity", "score", "evaluate"])
     assert a.probe_sizes == [0.02, 0.05, 0.1]
 
@@ -383,7 +384,7 @@ def test_guard_allows_other_dirs(tmp_path):
     a = _args(tmp_path / "results_klsym", "elicit_child", "--task", "symbol", "--metric", "kl",
               "--stage", "sanity", "score", "probe")
     assert (a.task, a.metric) == ("symbol", "kl")
-    assert _args(HERE / "results_kltests", "fmt_parent", "--metric", "kl").metric == "kl"
+    assert _args(HERE / "results" / "2026-10-08_kl_tests", "fmt_parent", "--metric", "kl").metric == "kl"
 
 
 @pytest.mark.parametrize("tag", ["fmt_parent", "teach_child"])
@@ -448,7 +449,7 @@ def test_base_refused_for_non_word_task(tmp_path, task, capsys):
     assert "elicit route" not in err
 
 
-@pytest.mark.parametrize("frozen", ["results", "results_large"])
+@pytest.mark.parametrize("frozen", ["results/2026-10-01_ld_check", "results/2026-10-08_ld_check_large"])
 def test_base_kl_into_frozen_dir_still_refused(frozen, capsys):
     with pytest.raises(SystemExit) as e:
         _args(HERE / frozen, "base", "--metric", "kl", "--stage", "sanity", "score")

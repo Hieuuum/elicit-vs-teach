@@ -7,8 +7,8 @@ translate pairs (``kl_empty_mean``). Gates on the exact-rewrite rows
 reports both EMs on all leakage-clean rows too, and writes <dir>/gate.json.
 
 Usage:
-  python3 step0_gate.py --dir results_perf/elicit_parent \
-      --sanity results_kltr/elicit_parent/sanity.json
+  python3 step0_gate.py --dir results/2026-10-21_translate/perf/elicit_parent \
+      --sanity results/2026-10-21_translate/kltr/elicit_parent/sanity.json
 Exit code 0 either way; read ``gate.pass`` in gate.json.
 """
 

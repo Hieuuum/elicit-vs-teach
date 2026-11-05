@@ -2,7 +2,7 @@
 # 10-fold robustness check (HANDOFF-folds.md, Step 4) on an N-GPU box (2-4x RTX 3090).
 #
 #   repro gate  fold_runner.py on the ORIGINAL data/ for elicit_child must reproduce the saved
-#               results_klword/elicit_child/scores.pt mean (max abs diff < 1e-4). Fail -> stop.
+#               results/2026-10-08_kl_word/elicit_child/scores.pt mean (max abs diff < 1e-4). Fail -> stop.
 #   phase A     GPU queue: sanity + KL scores for 6 score sets x 10 folds (one fold_runner job per
 #               set, model loaded once), hidden preference for 3 parents on the folds and on the
 #               old split.
@@ -11,7 +11,7 @@
 #               phase B; 0.05-0.10 off is logged as WARN (binomial SD on 256 problems is ~0.02-0.03).
 #   phase B     GPU queue: per fold, cmap.py elicit/teach and functional_reuse.py for both children
 #               at 0.2 / 1 / 5%. CPU lane meanwhile: fold_overlap.py (nine sizes).
-#   report      fold_report.py, then push results_folds/ (no per_example.pt) to HF and verify.
+#   report      fold_report.py, then push results/2026-11-04_folds/ (no per_example.pt) to HF and verify.
 #
 #   bash run_box_folds.sh --confirm-cost      # full run; DRY_RUN=1 prints the plan only
 # Re-run: a job with a .state/jobs/<job>.done marker AND its outputs is skipped.
@@ -19,7 +19,7 @@
 #      FOLDS="0 1 ... 9", NO_PUSH=1, RESULTS_REPO=mhieuuu/geode-internals,
 #      PUSH_SUB=results/eapig_folds, SCORES_HF_PREFIX=results/eapig_kl_symbol, JOB_RETRIES=2.
 #      Test hooks: FAKE_GPUS="24576 24576", JOB_PY, SKIP_PREFETCH=1, WAIT_POLL, MAIN_POLL.
-# Progress: tail -f results_folds/run_box_folds.log  (last line EXIT=0|1)
+# Progress: tail -f results/2026-11-04_folds/run_box_folds.log  (last line EXIT=0|1)
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE=$(pwd)
@@ -40,7 +40,7 @@ done
   "~4 GPU-h, ~\$1-2 total; plan cap \$6. Box rental is the only cost."
 ((CONFIRM || DRY)) || { echo "[folds] refusing to run without --confirm-cost" >&2; exit 2; }
 
-RES=$HERE/results_folds
+RES=$HERE/results/2026-11-04_folds
 STATE=$RES/.state
 # shellcheck disable=SC1091
 [[ -n $WORKER && -f $STATE/env.sh ]] && source "$STATE/env.sh"

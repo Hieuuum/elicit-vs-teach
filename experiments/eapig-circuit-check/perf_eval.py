@@ -30,7 +30,7 @@ by identical prompt token length, so no padding is ever used.
 
 Usage:
   python3 perf_eval.py --tag elicit_child --model <dir|hf repo> --surface symbol --ops + \
-      [--pairs-m] [--device cuda] [--batch-size 128] [--out results_perf/<tag>]
+      [--pairs-m] [--device cuda] [--batch-size 128] [--out results/2026-10-08_perf_eval/<tag>]
 Outputs in --out: perf_eval.json (summary; merged per surface, so the symbol and
 nl invocations of one model share it), rows_<surface>.jsonl.gz (raw first-line
 generation per row) and, with --pairs-m, pairs_m_<surface>.npz (per-example LD);
@@ -456,7 +456,7 @@ def build_parser() -> argparse.ArgumentParser:
     ap.add_argument("--ops", nargs="+", default=["+"], choices=["+", "-"])
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     ap.add_argument("--batch-size", type=int, default=128)
-    ap.add_argument("--out", default=None, help="default results_perf/<tag>/")
+    ap.add_argument("--out", default=None, help="default results/2026-10-08_perf_eval/<tag>/")
     ap.add_argument("--pairs-m", action="store_true",
                     help="also LD m(full)/m(empty) on the 768 circuit pairs of this surface")
     ap.add_argument("--data-dir", default=str(DATA_DIR), help="dir holding the eval parquets")
@@ -477,7 +477,7 @@ def main() -> None:
     torch.manual_seed(0)
     tok = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
     model = load_model(a.model, a.device)
-    out = Path(a.out) if a.out else HERE / "results_perf" / a.tag
+    out = Path(a.out) if a.out else HERE / "results" / "2026-10-08_perf_eval" / a.tag
     parquet = Path(a.data_dir) / SURFACE_FILES[a.surface]
     if a.surface == "rewrite":
         s = run_rewrite(model, tok, tag=a.tag, model_name=a.model, parquet=parquet,

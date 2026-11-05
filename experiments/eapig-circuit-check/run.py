@@ -18,8 +18,8 @@ Usage:
       --stage sanity score probe evaluate --results DIR [--scores-dir DIR2]
 Outputs: <results>/<tag>/{sanity.json, scores.pt, probe.json, evaluate.json, per_example.npz}.
 evaluate/probe read scores.pt + sanity.json from <scores-dir> (default <results>).
-Only task=word, metric=ld without probe may write to results/ or results_large/ (the
-frozen record). `compare.py` (CPU) reads them for the parent-vs-child comparison and plots.
+Only task=word, metric=ld without probe may write to results/2026-10-01_ld_check/ or
+results/2026-10-08_ld_check_large/ (the frozen record). `compare.py` (CPU) reads them for the parent-vs-child comparison and plots.
 """
 
 from __future__ import annotations
@@ -54,7 +54,7 @@ PROBE_SIZES = (0.02, 0.05, 0.1)
 PROBE_DRAWS = {True: 20, False: 10}  # parents / children (owner, 2026-10-08)
 KL_GATE_NATS = 0.1  # KL parent gate: mean KL(full || empty) on val (owner, 2026-10-08)
 KL_IDENTITY_TOL = 1e-4
-FROZEN_RESULTS = ("results", "results_large")  # the frozen LD-word record
+FROZEN_RESULTS = ("results/2026-10-01_ld_check", "results/2026-10-08_ld_check_large")  # the frozen LD-word record
 
 
 # --------------------------------------------------------------------------- io
@@ -608,7 +608,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     ap.add_argument("--metric", default="ld", choices=["ld", "kl"])
     ap.add_argument("--parent-tag", default=None)
     ap.add_argument("--data-dir", default=str(HERE / "data"))
-    ap.add_argument("--results", default=str(HERE / "results"))
+    ap.add_argument("--results", default=str(HERE / "results" / "2026-10-01_ld_check"))
     ap.add_argument("--scores-dir", default=None,
                     help="where probe/evaluate read scores.pt + sanity.json (default --results)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -627,7 +627,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     frozen = a.task == "word" and a.metric == "ld" and "probe" not in a.stage
     if not frozen and Path(a.results).resolve() in [(HERE / d).resolve() for d in FROZEN_RESULTS]:
         ap.error(f"--results {a.results} holds the frozen LD-word record; write "
-                 "task/metric/probe outputs to their own dir (e.g. results_klword)")
+                 "task/metric/probe outputs to their own dir (e.g. results/2026-10-08_kl_word)")
     if a.tag == "base" and {"probe", "evaluate"} & set(a.stage):
         ap.error("--tag base supports the sanity and score stages only "
                  "(pass --stage sanity score)")

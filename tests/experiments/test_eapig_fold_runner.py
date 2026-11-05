@@ -182,7 +182,9 @@ def test_sanity_only_stage_skip_and_no_scores(model, folds_root, tmp_path):
     assert (out / "sanity.json").is_file() and not (out / "scores.pt").exists()
 
 
-@pytest.mark.parametrize("bad", ["results", "results_large"])
+@pytest.mark.parametrize(
+    "bad", ["results/2026-10-01_ld_check", "results/2026-10-08_ld_check_large"]
+)
 def test_frozen_results_refused(bad):
     with pytest.raises(SystemExit):
         _args("--tag", "elicit_child", "--data-dir", "d", "--results", str(EXP / bad))
@@ -194,7 +196,7 @@ def test_frozen_results_refused(bad):
 def test_frozen_refused_for_kl_too():
     with pytest.raises(SystemExit):
         _args("--tag", "elicit_child", "--metric", "kl", "--data-dir", "d",
-              "--results", str(EXP / "results"))  # fmt: skip
+              "--results", str(EXP / "results" / "2026-10-01_ld_check"))  # fmt: skip
 
 
 @pytest.mark.parametrize("tag", ["base", "fmt_parent", "teach_child"])

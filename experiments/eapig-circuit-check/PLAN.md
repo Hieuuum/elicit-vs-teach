@@ -9,6 +9,30 @@ GPU. The full plan text as handed over by the owner is preserved below
 unchanged except for the filled `[ ]` blanks; decisions fixed before the run
 are in "Frozen decisions".
 
+## Results folder map (2026-11-05)
+
+The local `results_*` dirs named in the log below were moved under `results/`
+(gitignored; contents unchanged). What each holds: `README.md`.
+
+| Old name (in the log) | New path |
+|---|---|
+| `results/` (first run, never local) | `results/2026-10-01_ld_check/` |
+| `results_large/` | `results/2026-10-08_ld_check_large/` |
+| `results_perf/` | `results/2026-10-08_perf_eval/` |
+| `results_klword/` | `results/2026-10-08_kl_word/` |
+| `results_klsym/` | `results/2026-10-08_kl_symbol/` |
+| `results_ldsym/` | `results/2026-10-08_ld_symbol/` |
+| `results_edge/` | `results/2026-10-08_edge_node/` |
+| `results_functional/` | `results/2026-10-08_functional/` |
+| `results_kltests/` | `results/2026-10-08_kl_tests/` (never used) |
+| `results_kltests_02/`, `results_kltests_05/` | `results/2026-10-08_kl_tests_02/`, `_05/` |
+| `results_translate/` (box only) | `results/2026-10-21_translate/` |
+| `results_kltests_small/`, `results_functional/kl_small/`, `results_edge/small/` (box only) | `results/2026-10-21_small_sizes/{tests,functional,overlap}/` |
+| `results_cmap/` | `results/2026-10-22_cmap/` |
+| `results_base/` | `results/2026-10-22_base_control/` |
+| `results_tiny/` (box only) | `results/2026-10-28_tiny/` |
+| `results_folds/` | `results/2026-11-04_folds/` |
+
 ## Frozen decisions (2026-10-01, before any run)
 
 | Item | Value | Source |

@@ -5,7 +5,7 @@
 # base_control_report.py (reference pairs must reproduce the small-sizes table) -> push to HF.
 #
 #   bash run_box_base.sh --confirm-cost       # NO_PUSH=1 skips the HF push
-# Log: results_base/run_box_base.log (launch under tmux with `; echo EXIT=$? >> log`)
+# Log: results/2026-10-22_base_control/run_box_base.log (launch under tmux with `; echo EXIT=$? >> log`)
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE=$(pwd)
@@ -21,9 +21,9 @@ RESULTS_REPO=mhieuuu/geode-internals
 PREFIX=results/eapig_kl_symbol
 BASE_REPO=podhajskimarcin/evt-ts1b-base
 MODELS_DIR=/workspace/models
-KLWORD=$HERE/results_klword
-KLSYM=$HERE/results_klsym
-OUT=$HERE/results_base
+KLWORD=$HERE/results/2026-10-08_kl_word
+KLSYM=$HERE/results/2026-10-08_kl_symbol
+OUT=$HERE/results/2026-10-22_base_control
 LOG=$OUT/run_box_base.log
 FRACS="0.001 0.002 0.005 0.01 0.02 0.05"
 WORKERS=$(( $(nproc) > 3 ? $(nproc) - 2 : 1 ))

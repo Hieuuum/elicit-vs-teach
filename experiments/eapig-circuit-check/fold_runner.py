@@ -8,10 +8,10 @@ output does not depend on the folds that ran before it.
 Fold mode (outputs: <results-root>/fold_{k:02d}/<subdir>/<tag>/):
   python3 fold_runner.py --tag elicit_child --model M --task word --metric kl \
       --folds-root data/folds --folds 0 1 2 3 4 5 6 7 8 9 \
-      --results-root results_folds --subdir klword
+      --results-root results/2026-11-04_folds --subdir klword
 Single mode (outputs: <results>/<tag>/, exactly like run.py; the reproduction gate):
   python3 fold_runner.py --tag elicit_child --model M --task word --metric kl \
-      --data-dir data --results /tmp/repro --repro-ref results_klword/elicit_child/scores.pt
+      --data-dir data --results /tmp/repro --repro-ref results/2026-10-08_kl_word/elicit_child/scores.pt
 
 After `score`, scores.pt keeps only mean / mean_a / mean_b (what functional_reuse.py and
 cmap.py read); the fp16 (512, E) per-example tensor goes to per_example.pt beside it

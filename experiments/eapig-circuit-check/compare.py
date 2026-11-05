@@ -1,8 +1,9 @@
 """Parent-vs-child EAP-IG circuit comparison (CPU only, PLAN.md "Parent vs child
-comparison" + "Plots"). Reads `run.py`'s per-model outputs under `results/<tag>/`
+comparison" + "Plots"). Reads `run.py`'s per-model outputs under `<results-dir>/<tag>/`
 (`sanity.json`, `scores.pt`, `evaluate.json`) for the four tags `elicit_parent`,
-`elicit_child`, `fmt_parent`, `teach_child`, and writes `results/compare.json`,
-`results/summary.md`, and five PNG figures. All statistics reuse
+`elicit_child`, `fmt_parent`, `teach_child`, and writes `<results-dir>/compare.json`,
+`<results-dir>/summary.md`, and five PNG figures (default results dir
+`results/2026-10-01_ld_check/`). All statistics reuse
 `geode.circuits.edge_tests`; nothing here re-derives EAP-IG scores or runs a model.
 
 Routes: elicit = (elicit_parent -> elicit_child), teach = (fmt_parent -> teach_child).
@@ -674,7 +675,7 @@ def run_compare(results_dir: Path, figures_dir: Path) -> dict:
 def main() -> None:
     global SIZES
     ap = argparse.ArgumentParser()
-    ap.add_argument("--results-dir", default=str(HERE / "results"))
+    ap.add_argument("--results-dir", default=str(HERE / "results" / "2026-10-01_ld_check"))
     ap.add_argument("--figures-dir", default=str(HERE / "figures"))
     ap.add_argument("--sizes", type=float, nargs="+", default=list(SIZES),
                     help="must match the sizes run.py evaluated")

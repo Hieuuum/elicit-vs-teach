@@ -32,7 +32,7 @@ the ceiling reference, added automatically for every label.
 Usage:
   python3 edge_node.py --scores LABEL=DIR ... --pairs A:B ... --out OUTDIR \\
       [--fracs 0.001 ...] [--topn 100 ...] [--n-null 1000] [--seed 0] [--workers 1]
-With no `--scores`: the four tags under results_large/ and the four default pairs.
+With no `--scores`: the four tags under results/2026-10-08_ld_check_large/ and the four default pairs.
 Writes OUTDIR/edge_node.json and OUTDIR/figures/edge_node.png.
 """
 
@@ -351,7 +351,9 @@ def parse_args(argv=None):
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--scores", nargs="*", default=None, metavar="LABEL=DIR")
     p.add_argument("--pairs", nargs="*", default=None, metavar="A:B")
-    p.add_argument("--out", type=Path, default=HERE / "results_large" / "edge_node")
+    p.add_argument(
+        "--out", type=Path, default=HERE / "results" / "2026-10-08_ld_check_large" / "edge_node"
+    )
     p.add_argument("--fracs", nargs="+", type=float, default=list(DEFAULT_FRACS))
     p.add_argument("--topn", nargs="+", type=int, default=list(DEFAULT_TOPN))
     p.add_argument("--n-null", type=int, default=1000)
@@ -359,7 +361,7 @@ def parse_args(argv=None):
     p.add_argument("--workers", type=int, default=1)
     a = p.parse_args(argv)
     if a.scores is None:
-        dirs = {t: HERE / "results_large" / t for t in TAGS}
+        dirs = {t: HERE / "results" / "2026-10-08_ld_check_large" / t for t in TAGS}
     else:
         dirs = {}
         for s in a.scores:

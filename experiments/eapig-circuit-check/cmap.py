@@ -23,9 +23,9 @@ edge patched; the ceiling, not exactly the child: the parent's final norm + tied
 unembedding still apply) and `none` (all kept; must equal the parent, a runtime check).
 
   python3 cmap.py --route elicit --parent M --child M --child-scores DIR \
-      [--extra-circuit ep_sym=DIR] --sizes 0.001 ... --out results_cmap/elicit.json
-  python3 cmap.py --merge results_cmap/elicit_0.001.json ... --out results_cmap/elicit.json
-  python3 cmap.py --summarize results_cmap/elicit.json results_cmap/teach.json
+      [--extra-circuit ep_sym=DIR] --sizes 0.001 ... --out results/2026-10-22_cmap/elicit.json
+  python3 cmap.py --merge results/2026-10-22_cmap/elicit_0.001.json ... --out results/2026-10-22_cmap/elicit.json
+  python3 cmap.py --summarize results/2026-10-22_cmap/elicit.json results/2026-10-22_cmap/teach.json
 """
 
 from __future__ import annotations

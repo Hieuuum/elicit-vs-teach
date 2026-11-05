@@ -1,6 +1,6 @@
 """Figure for the CMAP run (HANDOFF-cmap.md): recovery vs circuit size, one panel per route.
 
-  python3 plot_cmap.py --results results_cmap --out figures/cmap_recovery.png
+  python3 plot_cmap.py --results results/2026-10-22_cmap --out figures/cmap_recovery.png
 
 Lines: the child's circuit (a), the same minus edges into logits (b, the main read), and on
 the elicit route the op-form parent circuit (d, nologits) and the child's nologits circuit
@@ -88,7 +88,7 @@ def plot(results: Path, out: Path) -> None:
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser()
     here = Path(__file__).resolve().parent
-    p.add_argument("--results", default=str(here / "results_cmap"))
+    p.add_argument("--results", default=str(here / "results/2026-10-22_cmap"))
     p.add_argument("--out", default=str(here / "figures" / "cmap_recovery.png"))
     a = p.parse_args(argv)
     plot(Path(a.results), Path(a.out))

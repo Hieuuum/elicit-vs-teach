@@ -14,9 +14,9 @@
 #     phase 1  functional_reuse.py elicit_child / teach_child (run_box_small.sh gpu3 args);
 #              cmap.py elicit / teach x 3 sizes (run_box_cmap.sh args), merged per route
 #     phase 2  run.py --stage evaluate --metric kl $EVAL_TESTS for teach_child, elicit_child,
-#              elicit_parent (--task symbol, results_klsym), fmt_parent (sparse patch path)
-#   Push 1 (every CPU + phase-1 job finished): results_tiny minus tests/ -> log PHASE1_DONE pushed=ok|failed
-#   Push 2 (phase 2 finished): all of results_tiny -> log EXIT=0 (EXIT=1 on any failure)
+#              elicit_parent (--task symbol, results/2026-10-08_kl_symbol), fmt_parent (sparse patch path)
+#   Push 1 (every CPU + phase-1 job finished): results/2026-10-28_tiny minus tests/ -> log PHASE1_DONE pushed=ok|failed
+#   Push 2 (phase 2 finished): all of results/2026-10-28_tiny -> log EXIT=0 (EXIT=1 on any failure)
 #
 #   bash run_box_tiny.sh --confirm-cost                  # full run; DRY_RUN=1 prints the plan only
 #   bash run_box_tiny.sh --confirm-cost --prefetch-only  # 7 score sets (incl. base) + 4 models, then exit
@@ -29,7 +29,7 @@
 #      Test hooks: FAKE_GPUS="24576 24576" (MiB per GPU, no nvidia-smi), JOB_PY (replaces
 #      "python3" for every job script; gets <script.py> <args>), NO_TMUX=1, REPO_ROOT,
 #      WAIT_POLL, MAIN_POLL.
-# Progress/markers: tail -f results_tiny/run_box_tiny.log  (PHASE1_DONE ..., last line EXIT=0|1)
+# Progress/markers: tail -f results/2026-10-28_tiny/run_box_tiny.log  (PHASE1_DONE ..., last line EXIT=0|1)
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE=$(pwd)
@@ -51,7 +51,7 @@ done
   "CPU overlap/base control ~3 min alongside. ~1.2 GPU-h, ~\$0.3; under ~\$0.6 incl. race/idle; box rental is the only cost."
 ((CONFIRM || DRY)) || { echo "[tiny] refusing to run without --confirm-cost" >&2; exit 2; }
 
-RES=$HERE/results_tiny
+RES=$HERE/results/2026-10-28_tiny
 STATE=$RES/.state
 # worker slots inherit the main invocation's resolved settings through this file
 # shellcheck disable=SC1091
@@ -82,7 +82,7 @@ SIZES_TINY_DESC=(0.0005 0.0002 0.0001)          # cmap queue order, slowest firs
 FRACS_ALL="0.0001 0.0002 0.0005 0.001 0.002 0.005 0.01 0.02 0.05"
 ROUTES=(elicit teach)
 
-KLWORD=$HERE/results_klword; KLSYM=$HERE/results_klsym
+KLWORD=$HERE/results/2026-10-08_kl_word; KLSYM=$HERE/results/2026-10-08_kl_symbol
 OVERLAP=$RES/overlap; BASEC=$RES/base_control; CMAPD=$RES/cmap; SHARDS=$CMAPD/shards
 FUNC=$RES/functional; TESTS=$RES/tests
 JOBLOGS=$RES/logs; JOBSTATE=$STATE/jobs; QUEUE=$STATE/queue
@@ -280,7 +280,7 @@ cpu_lane() {   # sequential CPU jobs; a failure does not stop the next one
 }
 
 # ---- inputs
-fetch_scores() {  # 7 saved KL score sets (scores.pt + sanity.json) -> results_klword/, results_klsym/
+fetch_scores() {  # 7 saved KL score sets (scores.pt + sanity.json) -> results/2026-10-08_kl_word/, results/2026-10-08_kl_symbol/
   python3 - "$RESULTS_REPO" "$SCORES_HF_PREFIX" "$KLWORD" "$KLSYM" <<'PY'
 import shutil, sys
 from pathlib import Path

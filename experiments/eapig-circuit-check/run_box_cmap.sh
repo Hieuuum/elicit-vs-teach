@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Edge-level CMAP (child -> parent) at 0.1-5% (HANDOFF-cmap.md): 12 independent cmap.py jobs
-# (2 routes x 6 sizes), each one `--sizes <one size>` writing a shard results_cmap/shards/<route>_<size>.json
+# (2 routes x 6 sizes), each one `--sizes <one size>` writing a shard results/2026-10-22_cmap/shards/<route>_<size>.json
 # (+ .npz). All GPUs and CPUs of the box are used:
 #
 #   * slots: JOBS_PER_GPU worker slots per GPU (default 2 if the GPU has >= 46 GB, else 1; two jobs
@@ -21,7 +21,7 @@
 #      MON_INTERVAL=120 (s between nvidia-smi log lines), CMAP_RETRIES=1 (extra attempts per job).
 #      Test hooks: FAKE_GPUS="24576 24576" (MiB per GPU, no nvidia-smi), CMAP_CMD (replaces
 #      "python3 cmap.py"), NO_TMUX=1 (workers as background processes), REPO_ROOT.
-# Progress/EXIT marker: tail -f results_cmap/run_box_cmap.log   (last line EXIT=0 or EXIT=1)
+# Progress/EXIT marker: tail -f results/2026-10-22_cmap/run_box_cmap.log   (last line EXIT=0 or EXIT=1)
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE=$(pwd)
@@ -41,7 +41,7 @@ echo "[cmap] estimated ~15-30 min wall, ~1-2 GPU-h on a 1-2 GPU RTX 3090/4090 bo
      "~1.2-3 s/mask, ~260 masks/route); under ~\$1 incl. race/idle; box rental is the only cost."
 ((CONFIRM || DRY)) || { echo "[cmap] refusing to run without --confirm-cost" >&2; exit 2; }
 
-RES=$HERE/results_cmap
+RES=$HERE/results/2026-10-22_cmap
 STATE=$RES/.state
 # worker slots inherit the main invocation's resolved settings through this file
 # shellcheck disable=SC1091
@@ -70,7 +70,7 @@ SIZES_ASC=(0.001 0.002 0.005 0.01 0.02 0.05)      # merge order (cmap.SIZES)
 SIZES_DESC=(0.05 0.02 0.01 0.005 0.002 0.001)     # queue order, slowest first
 N_JOBS=$(( ${#ROUTES[@]} * ${#SIZES_ASC[@]} ))
 
-KLWORD=$HERE/results_klword; KLSYM=$HERE/results_klsym
+KLWORD=$HERE/results/2026-10-08_kl_word; KLSYM=$HERE/results/2026-10-08_kl_symbol
 SHARDS=$RES/shards; JOBLOGS=$RES/logs; JOBSTATE=$STATE/jobs
 QUEUE=$STATE/queue
 if ((PREFETCH_ONLY)); then LOG=$RES/prefetch.log; else LOG=$RES/run_box_cmap.log; fi

@@ -10,8 +10,8 @@ index). Each score vector is ranked once (stable argsort of the negated
 float64 scores); Jaccard at every size then comes from one bincount/cumsum of
 max(rank_a, rank_b), since |top-k(a) & top-k(b)| = #{e : max(rank) < k}.
 
-    python3 fold_overlap.py --results-root results_folds --folds 0 1 2 3 4 5 6 7 8 9 \
-        --out results_folds/overlap.json
+    python3 fold_overlap.py --results-root results/2026-11-04_folds --folds 0 1 2 3 4 5 6 7 8 9 \
+        --out results/2026-11-04_folds/overlap.json
 """
 
 from __future__ import annotations

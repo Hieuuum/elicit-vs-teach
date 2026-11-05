@@ -14,7 +14,7 @@ values need not match them exactly.
 Fold mode  -> <results-root>/fold_{k:02d}/hidden_pref/<tag>.json
              (--form symbol: .../hidden_pref_symbol/<tag>.json, prompts like "8216 + 1650 =")
   python3 hidden_pref.py --tag elicit_parent --model M --folds-root data/folds \
-      --folds 0 1 2 3 4 5 6 7 8 9 --results-root results_folds
+      --folds 0 1 2 3 4 5 6 7 8 9 --results-root results/2026-11-04_folds
 Single mode -> --out FILE.json
   python3 hidden_pref.py --tag base --model M --data-dir data --out hp_base.json
 """

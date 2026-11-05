@@ -7,9 +7,9 @@ set given (e.g. elicit_parent's symbol-task circuit and its word-task circuit), 
 `--n-random` random k-sets (band p5/p50/p95). Same code path as run.py's parent_in_child.
 
   python3 functional_reuse.py --child elicit_child --model M --metric kl \
-      --own results_klword/elicit_child \
-      --circuit ep_sym=results_klsym/elicit_parent ep_word=results_klword/elicit_parent \
-      --sizes 0.02 0.05 --out results_functional/kl/elicit_child.json
+      --own results/2026-10-08_kl_word/elicit_child \
+      --circuit ep_sym=results/2026-10-08_kl_symbol/elicit_parent ep_word=results/2026-10-08_kl_word/elicit_parent \
+      --sizes 0.02 0.05 --out results/2026-10-08_functional/kl/elicit_child.json
 """
 
 from __future__ import annotations

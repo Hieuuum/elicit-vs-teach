@@ -23,7 +23,7 @@
 #      SCORES_HF_PREFIX=results/eapig_kl_symbol (HF layout <prefix>/{klword,klsym}/<tag>/),
 #      PUSH_SUB=results/eapig_kl_tests_small, VENV=/workspace/venv,
 #      EDGE_WORKERS=(nproc - 6, clamped to 1..8; 4 GPU jobs + main use ~1 core each).
-# Progress/EXIT markers: tail -f results_kltests_small/run_box_small.log
+# Progress/EXIT markers: tail -f results/2026-10-21_small_sizes/tests/run_box_small.log
 # Skip-if-done per stage: a stage whose output file exists is not rerun.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -67,10 +67,10 @@ FRACS_EDGE="0.001 0.002 0.005 0.01 0.02 0.05"
 EDGE_PAIRS=(ep_sym:ec_word ep_sym:tc_word fp_word:tc_word ep_word:ec_word ep_sym:ec_sym
             ec_sym:ec_word ec_word:tc_word)
 
-KLWORD=$HERE/results_klword; KLSYM=$HERE/results_klsym
-TESTS=$HERE/results_kltests_small
-FUNC=$HERE/results_functional/kl_small
-EDGE=$HERE/results_edge/small
+KLWORD=$HERE/results/2026-10-08_kl_word; KLSYM=$HERE/results/2026-10-08_kl_symbol
+TESTS=$HERE/results/2026-10-21_small_sizes/tests
+FUNC=$HERE/results/2026-10-21_small_sizes/functional
+EDGE=$HERE/results/2026-10-21_small_sizes/overlap
 CHECK=$TESTS/box_check
 STATE=$TESTS/.state
 PATH_FILE=$STATE/patch_path   # "new" or "dense", written by gpu0's box check
@@ -191,7 +191,7 @@ if [[ -n $GPU_JOB ]]; then
 fi
 
 # ------------------------------------------------------------------ inputs
-fetch_scores() {  # saved KL score sets (scores.pt + sanity.json) -> results_klword/, results_klsym/
+fetch_scores() {  # saved KL score sets (scores.pt + sanity.json) -> results/2026-10-08_kl_word/, results/2026-10-08_kl_symbol/
   python3 - "$RESULTS_REPO" "$SCORES_HF_PREFIX" "$KLWORD" "$KLSYM" <<'PY'
 import shutil, sys
 from pathlib import Path

@@ -1,8 +1,8 @@
 """How the top-k EAP-IG circuit changes from parent to child (exploratory, CPU only).
 
 Runbook: `HANDOFF-circuit-change.md`. Reads the four `scores.pt` (fields `mean`,
-`mean_a`, `mean_b`; `per_example` is dropped) under `results_large/<tag>/` and
-writes `results_large/circuit_change_<frac>.json` plus PNGs in `results_large/figures/`
+`mean_a`, `mean_b`; `per_example` is dropped) under `results/2026-10-08_ld_check_large/<tag>/` and
+writes `results/2026-10-08_ld_check_large/circuit_change_<frac>.json` plus PNGs in `results/2026-10-08_ld_check_large/figures/`
 (file names carry the size, e.g. `cc_rank_in_parent_0.05.png`).
 No model is run and no frozen test is touched.
 
@@ -535,7 +535,7 @@ def run(
 
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--results-dir", default=str(HERE / "results_large"))
+    ap.add_argument("--results-dir", default=str(HERE / "results" / "2026-10-08_ld_check_large"))
     ap.add_argument("--figures-dir", default=None)
     ap.add_argument("--frac", type=float, default=0.1)
     ap.add_argument("--out", default=None, help="output dir (required with --scores)")

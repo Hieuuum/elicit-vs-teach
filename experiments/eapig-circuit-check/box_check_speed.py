@@ -1,7 +1,7 @@
 """Box check for the patched-forward speedup (HANDOFF-small-sizes.md, "Box check").
 
 Two phases, run as separate processes so the dense/new switch cannot be cached at import:
-  python3 box_check_speed.py --run  --model DIR --scores results_klword/elicit_child --out a.json
+  python3 box_check_speed.py --run  --model DIR --scores results/2026-10-08_kl_word/elicit_child --out a.json
   GEODE_EAPIG_DENSE=1 python3 ... --run ... --out b.json     # ASSUMPTION: this env var
                                                               # forces the dense path
   python3 box_check_speed.py --compare a.json b.json         # exit 1 if KL differs >= 1e-4

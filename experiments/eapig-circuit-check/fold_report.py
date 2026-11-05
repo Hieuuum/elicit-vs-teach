@@ -5,9 +5,9 @@ reuse, CMAP recovery, hidden preference), summarises them (mean, SD, min, max,
 n), runs paired two-sided t-tests across folds, applies the pre-registered
 reading, and writes markdown + JSON + four PNGs.
 
-    python3 fold_report.py --results-root results_folds --folds 0 1 2 3 4 5 6 7 8 9 \
-        --overlap results_folds/overlap.json --old old_split.json \
-        --out-md results_folds/fold_report.md --out-json results_folds/fold_report.json \
+    python3 fold_report.py --results-root results/2026-11-04_folds --folds 0 1 2 3 4 5 6 7 8 9 \
+        --overlap results/2026-11-04_folds/overlap.json --old old_split.json \
+        --out-md results/2026-11-04_folds/fold_report.md --out-json results/2026-11-04_folds/fold_report.json \
         --fig-dir figures
 
 Pre-registered reading (fixed before any number existed):

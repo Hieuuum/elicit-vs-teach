@@ -33,12 +33,12 @@ MODELS_DIR=${MODELS_DIR:-/workspace/models}
 RESULTS_REPO=${RESULTS_REPO:-mhieuuu/geode-internals}
 SUB=results/eapig_translate
 SIZES="0.01 0.02 0.05"
-OUT=$HERE/results_translate          # everything this run writes
+OUT=$HERE/results/2026-10-21_translate          # everything this run writes
 PERF=$OUT/perf/elicit_parent         # step-0 perf_eval out dir
 TR=$OUT/kltr                         # run.py results dir (task translate, metric kl)
 FUNC=$OUT/functional
-KLWORD=$HERE/results_klword          # saved children's KL-word scores (from HF)
-KLSYM=$HERE/results_klsym            # saved parent's KL-symbol scores (from HF)
+KLWORD=$HERE/results/2026-10-08_kl_word          # saved children's KL-word scores (from HF)
+KLSYM=$HERE/results/2026-10-08_kl_symbol            # saved parent's KL-symbol scores (from HF)
 LOG=$OUT/run_box_translate.log
 mkdir -p "$OUT"
 
