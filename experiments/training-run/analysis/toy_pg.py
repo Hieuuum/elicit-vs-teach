@@ -15,12 +15,21 @@ grad_transfer.py --task arith, so Delta^PG reproduces results/m21_sweep/<prefix>
   own_distinct     distinct own answers / rows (a near-constant answer makes full ~ 0: the score is
                    then flagged degenerate, not read; sections.tex warns about exactly this)
 
+OUTCOME 2026-11-05 (decisions.md): the own-greedy-answer reference fails here (2/4 calls, 1 degenerate):
+it measures how prompt-dependent the argmax output is, right or wrong.  The endpoint reference replaces it:
+
+  endpoint   (CPU) full = Delta^PG of the same parent after fine-tuning on the data (the largest sweep size
+             with a results/m21_sweep/<prefix>-n<N>.json), none = the same size trained on the rotated twin
+             (<prefix>-shuf-n<N>.json; 0 if absent); s_end = clip((delta - none) / (full - none), 0, 1).
+             Written into results/toy_pg/<arm>.json; report prints both scores.
+
 Ground truth (decisions.md 2026-10-20): TS base and TS installed TEACH (the EDL hump survives the
 rotated-twin subtraction; half of M21's rise by 31.6K / 14.7K examples), op-bridge, Llama base and
 Llama installed ELICIT/GATE (half-rise 3.2K, <= 1K, 1.5K).  Pre-registered: the three elicit parents
 read s >= 1/2, the two teach parents s < 1/2, and s orders the parents opposite to the half-rise size.
 
   python3 toy_pg.py read --arm all --device cuda --confirm-cost      # ~0.1 GPU-h for all five
+  python3 toy_pg.py endpoint [--m21-dir results/m21_sweep]          # CPU
   python3 toy_pg.py report                                             # CPU
 """
 
@@ -38,6 +47,7 @@ HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[2]
 sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(REPO_ROOT / "experiments" / "unlearning"))
+sys.path.insert(0, str(HERE))
 
 CONFIGS = REPO_ROOT / "experiments" / "training-run" / "configs"
 OUT = REPO_ROOT / "experiments" / "training-run" / "results" / "toy_pg"
@@ -53,6 +63,9 @@ ARMS = {
     "llama_base": ("llama_fig2nl3_noinst.yaml", "meta-llama/Llama-3.2-1B", "elicit", 1_000, 0.57),
     "llama_inst": ("llama_fig2nl3_inst.yaml", "runs/evt-llama-fig2nl3-installer/model_merged", "elicit", 1_500, 2.67),
 }
+# arm -> the sweep's run-id prefix (launch_fig2_shuf.sh arms_of; m21_sweep files <prefix>[-shuf]-n<N>.json)
+PREFIX = {"ts_base": "evt-ts1b-fig2ts-noinst", "ts_inst": "evt-ts1b-fig2ts-inst", "op_bridge": "evt-ts1b-mix-nl",
+          "llama_base": "evt-llama-fig2nl3-noinst", "llama_inst": "evt-llama-fig2nl3-inst"}
 
 
 # ------------------------------------------------------------------ pure pieces (tested)
@@ -81,6 +94,22 @@ def score(delta: float, full: float, min_full: float = 0.05) -> float | None:
     if full <= min_full:
         return None
     return min(1.0, max(0.0, delta / full))
+
+
+def endpoint_score(delta: float, full: float, none: float) -> float | None:
+    """s = clip((delta - none) / (full - none), 0, 1); None when full does not exceed none."""
+    if full <= none:
+        return None
+    return min(1.0, max(0.0, (delta - none) / (full - none)))
+
+
+def endpoint_sizes(true_ns: list[int], shuf_ns: list[int]) -> tuple[int | None, bool]:
+    """The largest trained size with a true read; whether the rotated twin exists at that size."""
+    ns = [n for n in true_ns if n > 0]
+    if not ns:
+        return None, False
+    n = max(ns)
+    return n, n in shuf_ns
 
 
 def call(s: float | None) -> str:
@@ -176,6 +205,29 @@ def cmd_read(args) -> None:
               f"s {r['s']} -> {r['call']} (truth {r['truth']}); own exact {r['own_exact']:.3f} distinct {r['own_distinct']:.3f}")
 
 
+def cmd_endpoint(args) -> None:
+    from knowledge_sweep import m21_points
+
+    for a in ARMS:
+        f = OUT / f"{a}.json"
+        if not f.is_file():
+            print(f"[toy_pg] {a}: no read yet (run read first)")
+            continue
+        r = json.loads(f.read_text())
+        prefix = PREFIX[a]
+        tr, sh = m21_points(args.m21_dir, prefix, False), m21_points(args.m21_dir, prefix, True)
+        n, has_shuf = endpoint_sizes(list(tr), list(sh))
+        if n is None:
+            print(f"[toy_pg] {a}: no sweep point in {args.m21_dir} for {prefix}")
+            continue
+        full, none = tr[n]["gap_nats"], (sh[n]["gap_nats"] if has_shuf else 0.0)
+        s = endpoint_score(r["delta_nats"], full, none)
+        r["endpoint"] = {"n": n, "full_nats": full, "none_nats": none, "none_measured": has_shuf, "s": s}
+        f.write_text(json.dumps(r, indent=2))
+        print(f"[toy_pg] {a}: endpoint n={n:,} full {full:.3f} none {none:+.3f}{'' if has_shuf else ' (no twin, 0)'} "
+              f"s_end {s if s is None else round(s, 4)}")
+
+
 def cmd_report(args) -> None:
     rs = [json.loads((OUT / f"{a}.json").read_text()) for a in ARMS if (OUT / f"{a}.json").is_file()]
     print(f"[toy_pg] {'parent':<11} {'truth':<6} {'half-rise':>9} {'dPG':>7} {'dPG_full':>8} {'s':>5} {'call':<6} "
@@ -190,19 +242,35 @@ def cmd_report(args) -> None:
         rho = spearman([r["s"] for r in scored], [r["half_rise_n"] for r in scored])
         print(f"[toy_pg] Spearman(s, half-rise n) over {len(scored)} parents: {rho:+.2f} (pre-registered: negative)")
     right = sum(r["call"] == r["truth"] for r in scored)
-    print(f"[toy_pg] calls matching ground truth: {right}/{len(scored)} scored ({len(rs) - len(scored)} degenerate reference)")
+    print(f"[toy_pg] own-answer calls matching ground truth: {right}/{len(scored)} scored ({len(rs) - len(scored)} degenerate reference)")
+    ends = [r for r in rs if r.get("endpoint", {}).get("s") is not None]
+    if ends:
+        print(f"[toy_pg] endpoint reference: {'parent':<11} {'truth':<6} {'n':>9} {'full':>7} {'none':>7} {'s_end':>6}")
+        for r in ends:
+            e = r["endpoint"]
+            print(f"[toy_pg]                     {r['arm']:<11} {r['truth']:<6} {e['n']:>9,} {e['full_nats']:>7.3f} "
+                  f"{e['none_nats']:>+7.3f} {e['s']:>6.3f}")
+        t = [r["endpoint"]["s"] for r in ends if r["truth"] == "teach"]
+        el = [r["endpoint"]["s"] for r in ends if r["truth"] == "elicit"]
+        if t and el:
+            sep = "separated" if max(t) < min(el) else "OVERLAP"
+            print(f"[toy_pg] s_end teach max {max(t):.3f} vs elicit min {min(el):.3f}: {sep}")
+        if len(ends) >= 3:
+            rho = spearman([r["endpoint"]["s"] for r in ends], [r["half_rise_n"] for r in ends])
+            print(f"[toy_pg] Spearman(s_end, half-rise n) over {len(ends)} parents: {rho:+.2f}")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("read", "report"))
+    ap.add_argument("cmd", choices=("read", "endpoint", "report"))
+    ap.add_argument("--m21-dir", type=Path, default=REPO_ROOT / "experiments" / "training-run" / "results" / "m21_sweep")
     ap.add_argument("--arm", choices=("all", *ARMS), default="all")
     ap.add_argument("--n", type=int, default=600, help="held-out rows (grad_transfer.py's default)")
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
-    {"read": cmd_read, "report": cmd_report}[args.cmd](args)
+    {"read": cmd_read, "endpoint": cmd_endpoint, "report": cmd_report}[args.cmd](args)
     return 0
 
 

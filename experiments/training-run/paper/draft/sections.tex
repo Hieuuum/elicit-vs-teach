@@ -96,9 +96,8 @@ of the link between a trait and data, and the distance to a behaviour (DB) is a 
 behaviour we want to know about. Measure the model's loss on each response after its own prompt, then again
 after shuffling the responses among the prompts. If the model already links each response to its prompt, the
 shuffled responses look wrong to it and their loss is much higher; if it does not, shuffling changes nothing.
-The difference is the pairing gap. Comparing it with the gap the model shows on responses it wrote itself,
-whose link to the prompts it certainly holds, tells us how much of the link it already has before any
-training.
+The difference is the pairing gap. Comparing it with the gap of a model that certainly holds the link, and
+with that of one that cannot, tells us how much of the link the model already has before any training.
 
 \begin{metric}[Pairing gap, PG]\label{def:gap}\label{def:score}\label{def:call}
 Let $D=\{(q_i,a_i)\}_{i=1}^n$ be prompts with their responses and $L_\theta(a\mid q)$ the loss of response $a$
@@ -107,24 +106,36 @@ minus their loss after their own,
 \[
   \dPG_\theta(D) \;=\; \mathbb{E}_{\pi}\Bigl[\tfrac{1}{T}\textstyle\sum_i L_\theta\bigl(a_{\pi(i)}\mid q_i\bigr)-L_\theta\bigl(a_i\mid q_i\bigr)\Bigr]
 \]
-in nats per response token ($T$ response tokens; $\pi$ over four seeded cyclic shifts). The \emph{score} $\sPG$ compares it with $\dPG_{\mathrm{full}}$, the gap of the same model on responses whose link to the
-prompts it certainly holds, by default the responses it generates itself for the same prompts:
+in nats per response token ($T$ response tokens; $\pi$ over four seeded cyclic shifts). The \emph{score} places it
+between two references on the same $D$, $\dPG_{\mathrm{full}}$ from a model that holds the pairings and
+$\dPG_{\mathrm{none}}$ from one that cannot:
 \[
-  \sPG_\theta(D) \;=\; \clip_{[0,1]}\bigl(\dPG_\theta(D)/\dPG_{\mathrm{full}}\bigr).
+  \sPG_\theta(D) \;=\; \clip_{[0,1]}\!\left(\frac{\dPG_\theta(D)-\dPG_{\mathrm{none}}}{\dPG_{\mathrm{full}}-\dPG_{\mathrm{none}}}\right).
 \]
-$D$ is \emph{elicit-side} for $\theta$ if $\sPG_\theta(D)\ge\tfrac12$ and \emph{teach-side} otherwise.
+The references, in order of preference: (i) a model that held $D$'s information before an intervention
+removed or hid it (for unlearning, the original); (ii) when $D$ was sampled from a model, the generator itself, or
+samples of $\theta$ on the same prompts when $\theta$ is of the generator's kind; (iii) otherwise the model itself after
+fine-tuning on $D$, with the same fine-tune on shifted responses as $\dPG_{\mathrm{none}}$.
+$\dPG_{\mathrm{none}}=0$ unless measured. With references (i) and (ii), $D$ is \emph{elicit-side} for $\theta$
+if $\sPG_\theta(D)\ge\tfrac12$ and \emph{teach-side} otherwise; with (iii) the score is graded.
 \end{metric}
 
 The score is the share of the pairing information in $D$ that the model holds before any training: an
 elicit-side $D$ only has to be brought out by a fine-tune, a teach-side one would have to be supplied. It costs
-two forward passes over $D$ and one model. Shuffling keeps every prompt and response and changes only which
+two forward passes over $D$ per model. Shuffling keeps every prompt and response and changes only which
 follows which, so effects of a prompt alone (a broken format, a suppressed topic) or a response alone (length,
 vocabulary, a penalty on forbidden outputs) cancel, and $T\dPG_\theta$ is the code length the model already
 saves on the pairings, the head start of the elicitation curve of \citet{donoway2026bits}. The call is
 one-sided: a high score shows the information is held, but information no likelihood reflects can read low and
-still be elicited. Where the question fixes a natural reference we use it as $\dPG_{\mathrm{full}}$ (for an
-unlearned model, the original); the own-response reference needs intact own responses, since degenerate ones
-shrink $\dPG_{\mathrm{full}}$ and inflate $\sPG$.
+still be elicited.
+
+The reference matters. With (i) and (ii) the reference holds the information without having been trained on
+$D$ in its format, so $\tfrac12$ means ``holds half of what a holder holds''. A model's own greedy answers are
+\emph{not} a reference for data it did not generate: their gap measures how much its top answer depends on the
+prompt, right or wrong. On the toy task (Section~\ref{sec:toy}) that reference misreads two of four parents and
+cannot be computed for a fifth. Reference (iii) is always available but is a model trained to the end on $D$,
+so its gap is far above any untrained model's and the score is small for every parent; it ranks and separates,
+and the toy task fixes its scale.
 
 \subsection{Trait gap (TG)}
 \label{sec:tg}
@@ -176,35 +187,42 @@ response from $A$'s generator family removed from $B^\pm$.
 \section{Validation on the toy task}
 \label{sec:toy}
 
-Table~\ref{tab:toypg} scores the held-out arithmetic block on each parent before any training. The raw pairing
-gap separates the two groups without overlap: $0.09$ and $0.13$ nats per token on the taught parents, $0.57$ to
-$2.67$ on the elicit parents. Against each model's own greedy answers as $\dPG_{\mathrm{full}}$ (the default
-reference of Metric~\ref{def:score}) the call is [pending: \texttt{analysis/toy\_pg.py}]. Against the bridge
-parent, the elicit model of the same architecture, the taught parents score $0.08$ and $0.11$.
+Table~\ref{tab:toypg} scores the held-out arithmetic block ($600$ questions) on each parent before any
+training. No natural reference of type (i) or (ii) exists here (the target data are human-made and no parent
+held the capability before an intervention), so the score uses reference (iii): the same parent after
+fine-tuning on $10^6$ target examples, and after the same fine-tune on shifted answers as the floor.
 
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{llrrrl}
+\begin{tabular}{llrrrr}
 \toprule
-parent & construction & $\dPG_\theta$ & $\dPG_{\mathrm{full}}$ (own answers) & $\sPG_\theta$ & call \\
+ & & & \multicolumn{2}{c}{reference (iii)} & own answers \\
+parent & construction & $\dPG_\theta$ & $\dPG_{\mathrm{full}}$ & $\sPG_\theta$ & $\sPG_\theta$ \\
 \midrule
-TinyStories-1B & teach & $0.13$ & [run] & [run] & [run] \\
-\quad + format installer & teach & $0.09$ & [run] & [run] & [run] \\
-\quad + operator bridge & elicit & $1.15$ & [run] & [run] & [run] \\
-Llama-3.2-1B & elicit & $0.57$ & [run] & [run] & [run] \\
-\quad + bare installer & elicit & $2.67$ & [run] & [run] & [run] \\
+TinyStories-1B & teach & $0.13$ & [end] & [end] & $0.71$ \\
+\quad + format installer & teach & $0.10$ & [end] & [end] & $0.06$ \\
+\quad + operator bridge & elicit & $1.15$ & [end] & [end] & $0.19$ \\
+Llama-3.2-1B & elicit & $0.57$ & [end] & [end] & n/a \\
+\quad + bare installer & elicit & $2.67$ & [end] & [end] & $0.58$ \\
 \bottomrule
 \end{tabular}
-\caption{The pairing gap on the toy parents, $600$ held-out questions, nats per answer token, four shifts.}
+\caption{The pairing gap on the toy parents, nats per answer token, four shifts. Reference (iii): the parent
+fine-tuned on $10^6$ target examples, floor from the same fine-tune on shifted answers. Own answers: the
+parent's greedy answers to the same questions as $\dPG_{\mathrm{full}}$, shown to make the point of
+Section~\ref{sec:m21}; Llama-3.2-1B answers every bare question with the same string, so its own-answer gap is
+$0.01$ and the score is undefined.}
 \label{tab:toypg}
 \end{table}
 
-The score is graded as well as binary: within each group a higher gap goes with a faster read-out (the
-installed Llama above Llama base, the bridge parent above both TinyStories parents), but across all five parents
-the raw gap orders the half-rise sizes only loosely (Spearman $-0.6$, $n=5$), so on the toy we claim the call and
-the group separation, not a fine ranking. The gap also behaves as a measure of held pairing information should
-along the sweeps: training on true answers raises it (to $8.5$--$17$ nats per token at $10^6$ examples), and
+The raw gap separates the two groups without overlap ($0.10$ and $0.13$ against $0.57$--$2.67$), and so does
+the score [end: teach at most \ldots, elicit at least \ldots]. Across all five parents the gap orders the
+half-rise sizes only loosely (Spearman $-0.6$, $n=5$; within each group the higher gap reads out faster), so on
+the toy we claim the separation, not a fine ranking. The own-answer column shows why that reference is excluded
+for data the model did not generate: TinyStories-1B gives the same few answers to most questions, which shrinks
+the reference and lifts its score to $0.71$; the bridge parent answers every question confidently and wrongly
+($0\%$ exact, $97\%$ distinct), which inflates the reference and drops its score to $0.19$. The gap also behaves
+as a measure of held pairing information should along the sweeps: training on true answers raises it, and
 training on the shifted twin leaves it at $0.00\pm0.03$ on every parent.
 
 TG and DB cannot be checked here. The toy capability is installed by training, not written as a prompt, so TG is
@@ -219,7 +237,7 @@ observed outcomes in their applications instead.
 
 We score held-out WMDP-bio facts \citep{li2024wmdp} on Zephyr-7B and six unlearned versions, and on the Deep
 Ignorance suite \citep{obrien2025deepignorance}, with the original model of each family as
-$\dPG_{\mathrm{full}}$ (Metric~\ref{def:score}). Every unlearned model is
+$\dPG_{\mathrm{full}}$ (reference (i) of Metric~\ref{def:score}). Every unlearned model is
 elicit-side (Table~\ref{tab:unlearn}). The NPO-family methods score above the original: NPO, whose
 multiple-choice read-out sits at chance, raised its loss on the bio answers by about $244$ nats per token, a
 prompt-independent shift that the pairing gap removes by construction, and left the log-odds between true
@@ -257,9 +275,8 @@ each family, no floor subtracted; values above the original are clipped to $1$.}
 
 \paragraph{The cannot-know floor.} A model without the knowledge still links responses to prompts slightly
 (the response has the right type, it repeats words of the prompt): TinyStories-1B, which cannot know the facts,
-reads $0.22$ on them ($\sPG=0.14$ against Zephyr). Using this floor as $\dPG_{\mathrm{none}}$,
-$\sPG=(\dPG-\dPG_{\mathrm{none}})/(\dPG_{\mathrm{full}}-\dPG_{\mathrm{none}})$, tightens the score; it changes
-no call here, but should be measured for cases near $\tfrac12$.
+reads $0.22$ on them. Taking it as $\dPG_{\mathrm{none}}$ lowers every score in Table~\ref{tab:unlearn} a
+little and changes no call; the table reports $\dPG_{\mathrm{none}}=0$.
 
 \paragraph{Relearning confirms the call.} Fine-tuning on $32$ true facts of a disjoint split raises
 $\dPG_\theta$ on the held-out facts above the untrained original for every model (circuit breakers
@@ -278,7 +295,7 @@ does not contain \citep{cloud2025subliminal}. We predict it on the student, befo
 
 \begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
   \item \textbf{Is any transfer possible? (PG, trait-agnostic.)} Score the data with the pairing gap
-        (Metric~\ref{def:gap}). If it is teach-side ($\sPG<\tfrac12$), the student does not hold the link from
+        (Metric~\ref{def:gap}; reference (ii), the student's own samples for the teacher's prompts). If it is teach-side ($\sPG<\tfrac12$), the student does not hold the link from
         the teacher's prompts to its responses, so no trait hidden in that link can be elicited: SL is
         \emph{impossible}, whatever the trait. If it is elicit-side, SL is \emph{possible}. This step needs no
         hypothesis about the trait.
@@ -390,7 +407,7 @@ across three seeds (Spearman $0.98$--$0.99$). Scores of $A$ alone do not separat
 Emergent misalignment asks the same two questions of different data: PG on the misaligned behaviour itself (is the persona held?), and DB in place of TG (does the training data recruit it?).
 
 \paragraph{The misaligned persona is held.} On Qwen2.5-14B-Instruct, $\sPG_\theta(B^+)=0.89$--$0.93$ with the
-model's own responses as $\dPG_{\mathrm{full}}$: elicit-side. All six models we tested (Qwen2.5 0.5B--14B, the
+model's own sampled responses as $\dPG_{\mathrm{full}}$ (reference (ii)): elicit-side. All six models we tested (Qwen2.5 0.5B--14B, the
 14B base model and OLMo-2-7B) score $0.56$--$1$, and every one shows EM after fine-tuning ($5$--$28\%$). EM
 therefore elicits a persona the model already represents.
 
