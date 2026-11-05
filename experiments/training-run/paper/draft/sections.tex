@@ -12,6 +12,7 @@
 \newcommand{\sPG}{s^{\mathrm{PG}}}
 \newcommand{\dTG}{\Delta^{\mathrm{TG}}}
 \newcommand{\dDB}{\Delta^{\mathrm{DB}}}
+\newcommand{\sTG}{s^{\mathrm{TG}}}
 \theoremstyle{definition}
 \newtheorem{metric}{Metric}
 \DeclareMathOperator{\clip}{clip}
@@ -44,10 +45,12 @@ prompts it certainly holds, by default the responses it generates itself for the
 $D$ is \emph{elicit-side} for $\theta$ if $\sPG_\theta(D)\ge\tfrac12$ and \emph{teach-side} otherwise.
 \end{metric}
 
-Every metric in this paper is named by a short tag $X$ and reports a raw value $\Delta^X$ in nats per token.
-A metric used to make the elicit/teach call also has a score $s^X\in[0,1]$, taken against references on the
-same data, and calls \emph{elicit-side} if $s^X\ge\tfrac12$. PG is the first such metric; the trait gap (TG,
-Section~\ref{sec:sl}) and the distance to $B$ (DB, Section~\ref{sec:em}) are reported as raw predictors.
+Every metric in this paper asks the same question, whether something is already held before training, and is
+named by a short tag $X$. It reports a raw value $\Delta^X$ in nats per token and a score $s^X\in[0,1]$, the share
+held relative to a reference on the same data that holds it fully. The binary call (\emph{elicit-side} if
+$s^X\ge\tfrac12$) is used only where it is validated; elsewhere $s^X$ is read as a graded score. PG is the first
+metric; the trait gap (TG, Section~\ref{sec:sl}) asks the same question of a trait, and the distance to $B$ (DB,
+Section~\ref{sec:em}) is a raw predictor without a score.
 
 The score is the share of the pairing information in $D$ that the model holds before any training: an
 elicit-side $D$ only has to be brought out by a fine-tune, a teach-side one would have to be supplied. It costs
@@ -131,8 +134,9 @@ In subliminal learning (SL) a student trained on trait-free data from a teacher 
         \emph{impossible}, whatever the trait. If it is elicit-side, SL is \emph{possible}. This step needs no
         hypothesis about the trait.
   \item \textbf{Does this trait transfer, and how much? (TG, trait-specific.)} For elicit-side data and a
-        suspected trait, score the trait gap below. It is positive when the student already links the trait to
-        the data, and it predicts whether and how strongly the trait transfers.
+        suspected trait, score the trait gap below: the share of the teacher's link between trait and data that the
+        student already holds. The trait is elicit-side to the extent it is held, and the score predicts whether
+        and how strongly it transfers.
 \end{enumerate}
 
 \begin{metric}[Trait gap, TG]\label{def:trait}
@@ -141,6 +145,9 @@ $\tau$ prepended, $\bar L_\theta(D)$ the same without it, and $D_0$ trait-free d
 \[
   \dTG_\theta(D;\tau) \;=\; \bigl[\bar L_\theta(D)-\bar L_\theta(D\mid\tau)\bigr]-\bigl[\bar L_\theta(D_0)-\bar L_\theta(D_0\mid\tau)\bigr].
 \]
+The reference is the teacher, which holds the trait by construction:
+$\sTG_\theta(D;\tau)=\clip_{[0,1]}\bigl(\dTG_\theta(D;\tau)/\dTG_{\mathrm{teacher}}(D;\tau)\bigr)$, the share of the
+teacher's trait--data link the student already holds. It is read as a graded score.
 \end{metric}
 
 TG asks of the trait what PG asks of the prompt: how much does this piece of context already predict the data?
@@ -152,22 +159,29 @@ needs no named trait and applies to any prompt--response data, so a teach-side r
 at once. When the data is human-written (Section~\ref{sec:lls}), every capable student reads it as elicit-side
 and Step~2 carries the prediction alone.
 
-\paragraph{Step 1: teach-side data never transferred.} Number sequences from Qwen2.5-7B and 14B teachers with an
-animal-preference prompt, and the released letter-counting transfer sets of \citet{dubinski2026beyondowls}:
+\paragraph{Step 1: teach-side data never transferred.} We test on two published experiments. \emph{Number
+sequences} \citep{cloud2025subliminal}: a teacher told it loves an animal continues number
+sequences, and a student fine-tuned on the numbers acquires the preference when it shares the teacher's base
+model. We ran their protocol (their system prompt and animals) on Qwen2.5-7B-Instruct and Qwen2.5-14B-Instruct as
+teachers and students and measured the outcome ourselves. \emph{Letter counting} \citep[Sec.~3]{dubinski2026beyondowls}:
+a Qwen3.6-35B-A3B teacher fine-tuned to count letters answers unrelated prompts, and a student trained on the
+answers gains the skill; we score their released transfer sets and take the outcomes from their paper (Qwen3.6
+student $27.3\%\to44.1\%$ for the teacher's data and $59.8\%$ for the attention-only teacher's, no change on the
+control; Nemotron-3-Nano student $9.8\%\to9.5\%$, no SL).
 \begin{center}
 \small
 \begin{tabular}{lrll}
 \toprule
-cases & $n$ & $\sPG$ & SL \\
+cases & $n$ & $\sPG$ & SL (source of outcome) \\
 \midrule
-same-model number sequences (two students, four animals) & 8 & $0.83$--$1$ & yes ($+0.26$ to $+0.98$) \\
-Qwen3.6 student, letter-counting teachers & 2 & $0.62$--$0.63$ & yes \\
+numbers, same model (two students, four animals) & 8 & $0.83$--$1$ & yes, $+0.26$ to $+0.98$ (ours) \\
+letters, Qwen3.6 student, two teachers & 2 & $0.62$--$0.63$ & yes (Dubi\'nski et al.) \\
 \midrule
-7B student, 14B teacher's numbers (four animals) & 4 & $0.23$ & no \\
-Nemotron student, letter-counting teacher and control & 2 & $0.34$--$0.35$ & no \\
+numbers, 7B student on 14B teacher (four animals) & 4 & $0.23$ & no (ours) \\
+letters, Nemotron student, teacher and control & 2 & $0.34$--$0.35$ & no (Dubi\'nski et al.) \\
 \midrule
-14B student, 7B teacher's numbers (four animals) & 4 & $0.57$ & no \\
-Qwen3.6 student, trait-free control & 1 & $0.63$ & no \\
+numbers, 14B student on 7B teacher (four animals) & 4 & $0.57$ & no (ours) \\
+letters, Qwen3.6 student, trait-free control & 1 & $0.63$ & no (Dubi\'nski et al.) \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -178,8 +192,9 @@ its initialisation with the teacher (Qwen2.5-7B base) transfers weakly ($-0.03$ 
 reference and is left out of the count.
 
 \paragraph{Step 2: TG decides among the possible cases.} Over all number-sequence cases TG separates transfer
-from no transfer (transferring cases $\ge0.15$, all others $\le0.047$; AUC $1.00$). The 14B student on the 7B
-teacher's numbers passes Step~1 ($\sPG=0.57$) but holds none of the trait ($\dTG\le0.05$), and nothing transfers.
+from no transfer (transferring cases $\ge0.15$, all others $\le0.047$; AUC $1.00$). In score terms, same-model students hold the teacher's trait link fully ($\sTG=1$) and cross-model
+students at most about $0.3$. The 14B student on the 7B teacher's numbers passes Step~1 ($\sPG=0.57$) but holds
+little of the trait ($\dTG\le0.05$, $\sTG\le0.15$), and nothing transfers.
 The letter-counting control is the teacher's own trait-free data: elicit-side by construction, with no trait to
 carry. Section~\ref{sec:lls} tests Step~2 on graded transfer across six model families.
 
@@ -198,7 +213,8 @@ the teacher to select the data and then train students and observe the outcome; 
 selected pairs on each \emph{student}, before training, as the Step~2 prediction. Step~1 passes for every
 student here: the pairs are human-written answers to their own questions, which any capable student links.
 
-\paragraph{Setup.} Following the authors' code: teacher OLMo-2-1B-Instruct, $\tau=$ ``You really love dogs'',
+\paragraph{Setup.} We repeat the dog experiment of \citet{adenali2026lls} with the defaults of their released code
+and measure the outcome ourselves: teacher OLMo-2-1B-Instruct, $\tau=$ ``You really love dogs'',
 $200{,}000$ single-turn pairs from tulu-2.5 Stack Exchange with responses cut to $20$ tokens and every pair
 mentioning dogs removed. $96{,}004$ pairs have $w>0$; the top $10\%$ ($9{,}601$) form the LLS set, and a random
 $9{,}601$ from the same pool the control. Each student is trained with DPO on each set (LoRA rank $64$,
@@ -208,16 +224,16 @@ number of $200$ sampled stories (two prompts, $100$ each, temperature $1$) that 
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{llrrrr}
+\begin{tabular}{llrrrrr}
 \toprule
-student & relation to teacher & trait gap (nats/token) & after LLS set & after random set & Fisher $p$ \\
+student & relation to teacher & $\dTG$ (nats/token) & $\sTG$ & after LLS set & after random set & Fisher $p$ \\
 \midrule
-OLMo-2-1B-Instruct & the teacher itself & $+0.329$ & $47$ & $8$ & $<10^{-4}$ \\
-OLMo-2-7B-Instruct & same family & $+0.122$ & $6$ & $0$ & $0.03$ \\
-Qwen2.5-7B-Instruct & different family & $+0.073$ & $9$ & $0$ & $0.004$ \\
-Qwen3-8B & different family & $+0.055$ & $2$ & $1$ & $1.0$ \\
-Olmo-3-7B-Instruct & newer generation & $+0.017$ & $7$ & $5$ & $0.77$ \\
-rnj-1-instruct & different family & $+0.003$ & $2$ & $4$ & $0.69$ \\
+OLMo-2-1B-Instruct & the teacher itself & $+0.329$ & $1$ & $47$ & $8$ & $<10^{-4}$ \\
+OLMo-2-7B-Instruct & same family & $+0.122$ & $0.37$ & $6$ & $0$ & $0.03$ \\
+Qwen2.5-7B-Instruct & different family & $+0.073$ & $0.22$ & $9$ & $0$ & $0.004$ \\
+Qwen3-8B & different family & $+0.055$ & $0.17$ & $2$ & $1$ & $1.0$ \\
+Olmo-3-7B-Instruct & newer generation & $+0.017$ & $0.05$ & $7$ & $5$ & $0.77$ \\
+rnj-1-instruct & different family & $+0.003$ & $0.01$ & $2$ & $4$ & $0.69$ \\
 \bottomrule
 \end{tabular}
 \caption{Dog preference by Logit-Linear Selection. Trait gap: the mean of $w_\theta$ on the LLS set for the
@@ -228,7 +244,9 @@ training. Fisher: one-sided, LLS against random.}
 \end{table}
 
 \paragraph{Result.} The student-side trait gap ranks the transfer (Table~\ref{tab:lls}; Spearman $+0.89$,
-$p=0.02$, six students). The teacher as its own student reaches $24\%$ dog mentions, close to the $29.9\%$ the
+$p=0.02$, six students). The score is graded, not a cut: OLMo-2-7B and Qwen2.5-7B hold a third to a fifth of the
+teacher's trait link and transfer weakly but significantly, so a call at $\sTG=\tfrac12$ would misread them;
+transfer shrinks as $\sTG$ falls and is absent below about $0.2$. The teacher as its own student reaches $24\%$ dog mentions, close to the $29.9\%$ the
 authors report for the same pair. Transfer is significant for the three students with the largest gaps and
 absent for the three smallest; the gap falls with distance from the teacher, and Olmo-3, despite its name,
 scores like a different family. The cross-family effects are small (at most $9$ of $200$) and come from one
