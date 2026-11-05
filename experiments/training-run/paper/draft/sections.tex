@@ -118,47 +118,42 @@ the EDL curve in the adversarially trained safeguards is paid with or without th
 after $128$--$573$ facts, not teaching. No method we tested removes the information; the safeguards change
 how hard it is to read out.
 
-\section{Subliminal learning happens only by elicitation}
+\section{Predicting subliminal learning before training}
 \label{sec:sl}
 
 In subliminal learning (SL) a student trained on trait-free data from a teacher acquires the teacher's trait
-\citep{cloud2025subliminal}. Our claim is one-way, and it is checked before any training:
-\begin{enumerate}[label=(\roman*),nosep]
-  \item \emph{teach-side data does not transfer a trait}; equivalently, whenever SL occurs, the data was
-        elicit-side for the student ($\sPG\ge\tfrac12$);
-  \item elicit-side data is necessary but not sufficient: it transfers only if it also carries a trait the
-        student already holds, which the trait gap below measures.
+\citep{cloud2025subliminal}. We predict it on the student, before any training, in two steps.
+
+\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
+  \item \textbf{Is any transfer possible? (PG, trait-agnostic.)} Score the data with the pairing gap
+        (Metric~\ref{def:gap}). If it is teach-side ($\sPG<\tfrac12$), the student does not hold the link from
+        the teacher's prompts to its responses, so no trait hidden in that link can be elicited: SL is
+        \emph{impossible}, whatever the trait. If it is elicit-side, SL is \emph{possible}. This step needs no
+        hypothesis about the trait.
+  \item \textbf{Does this trait transfer, and how much? (TG, trait-specific.)} For elicit-side data and a
+        suspected trait, score the trait gap below. It is positive when the student already links the trait to
+        the data, and it predicts whether and how strongly the trait transfers.
 \end{enumerate}
 
 \begin{metric}[Trait gap, TG]\label{def:trait}
-TG is the pairing gap's question asked of the trait instead of the prompt: how much does the trait already
-predict the data? With $\bar L_\theta(D\mid\tau)$ the mean per-token loss of the responses in $D$ with a trait
-system prompt $\tau$ prepended, $\bar L_\theta(D)$ the same without it, and $D_0$ trait-free data from the same
-teacher,
+With $\bar L_\theta(D\mid\tau)$ the mean per-token loss of the responses in $D$ with a trait system prompt
+$\tau$ prepended, $\bar L_\theta(D)$ the same without it, and $D_0$ trait-free data from the same teacher,
 \[
   \dTG_\theta(D;\tau) \;=\; \bigl[\bar L_\theta(D)-\bar L_\theta(D\mid\tau)\bigr]-\bigl[\bar L_\theta(D_0)-\bar L_\theta(D_0\mid\tau)\bigr].
 \]
 \end{metric}
 
-In PG the reference for each response's own prompt is another prompt, and shuffling cancels what a prompt or a
-response does on its own. In TG the reference for the trait is no trait, and subtracting the same gap on $D_0$
-cancels what the trait prompt does to any data from that teacher. Both measure, before training, how much a
-piece of context already predicts the data. The quantity was introduced by \citet{adenali2026lls} as a
-selection score computed on the teacher; we compute it on the student, as a predictor.
+TG asks of the trait what PG asks of the prompt: how much does this piece of context already predict the data?
+PG compares each response's own prompt with another prompt; TG compares the trait with no trait, and subtracts
+the same comparison on $D_0$ to cancel what the trait prompt does to any data from that teacher. We adapt TG
+from Logit-Linear Selection \citep{adenali2026lls}, which uses the same quantity on the \emph{teacher} to select
+training data; we compute it on the \emph{student} as a predictor of transfer. Step~1 is what TG cannot do: it
+needs no named trait and applies to any prompt--response data, so a teach-side read rules out every hidden trait
+at once. When the data is human-written (Section~\ref{sec:lls}), every capable student reads it as elicit-side
+and Step~2 carries the prediction alone.
 
-\paragraph{Two questions, two metrics.} PG and TG answer different questions, and an audit needs both. TG asks
-whether a student will pick up a \emph{named} trait from given data, and how much of it: it requires writing the
-trait down as a prompt. PG asks whether the student can pick up \emph{anything} hidden in the data, without
-knowing what the trait might be, and applies to any prompt--response data (number sequences, letter counts,
-facts, misaligned answers). A teach-side PG read rules out transfer of every hidden trait at once; an elicit-side
-read leaves it possible, and TG then says how much of a suspected trait would transfer. In the cases below, PG
-alone gets every transfer and every teach-side refusal right but cannot tell which elicit-side data carries a
-trait; TG alone separates transfer perfectly once the trait is known. \citet{adenali2026lls} use the TG
-quantity on the teacher, to select data; they do not compute it on students or use it to predict transfer.
-
-\paragraph{The one-way prediction holds in every case we have.} Number sequences: Qwen2.5-7B and 14B teachers
-with an animal-preference prompt; letter counting: the released transfer sets of
-\citet{dubinski2026beyondowls}. Every SL case was elicit-side and no teach-side case transferred:
+\paragraph{Step 1: teach-side data never transferred.} Number sequences from Qwen2.5-7B and 14B teachers with an
+animal-preference prompt, and the released letter-counting transfer sets of \citet{dubinski2026beyondowls}:
 \begin{center}
 \small
 \begin{tabular}{lrll}
@@ -176,17 +171,19 @@ Qwen3.6 student, trait-free control & 1 & $0.63$ & no \\
 \bottomrule
 \end{tabular}
 \end{center}
-The first block confirms (i) on the SL side (10 of 10 elicit-side), the second on the teach side (0 of 6
-teach-side cases transfer). Six teach-side cases bound the failure rate of (i) only loosely (below $0.39$ at
-$95\%$); the language and arithmetic tests are designed to add many more. The third block is (ii): elicit-side
-cases that do not transfer. Their trait gap explains them. Over all number-sequence cases TG separates transfer
-from no transfer (transferring cases $\ge0.15$, all others $\le0.047$; AUC $1.00$); the 14B student on the 7B
-teacher's numbers is familiar with the data ($\sPG=0.57$) but holds none of its trait ($\dTG\le0.05$). The
-letter-counting control is the teacher's own trait-free data, elicit-side by construction and carrying nothing.
-A student sharing only its initialisation with the teacher (Qwen2.5-7B base) transfers weakly ($-0.03$ to
-$+0.10$); it has no own-number reference and is left out of the count.
+Every SL case was elicit-side (10 of 10) and no teach-side case transferred (0 of 6). Six teach-side cases bound
+the failure rate of Step~1 only loosely (below $0.39$ at $95\%$); the language and arithmetic tests are designed
+to add many more. The last block are elicit-side cases without SL, which Step~1 allows. A student sharing only
+its initialisation with the teacher (Qwen2.5-7B base) transfers weakly ($-0.03$ to $+0.10$); it has no own-number
+reference and is left out of the count.
 
-\subsection{Graded transfer across model families: Logit-Linear Selection}
+\paragraph{Step 2: TG decides among the possible cases.} Over all number-sequence cases TG separates transfer
+from no transfer (transferring cases $\ge0.15$, all others $\le0.047$; AUC $1.00$). The 14B student on the 7B
+teacher's numbers passes Step~1 ($\sPG=0.57$) but holds none of the trait ($\dTG\le0.05$), and nothing transfers.
+The letter-counting control is the teacher's own trait-free data: elicit-side by construction, with no trait to
+carry. Section~\ref{sec:lls} tests Step~2 on graded transfer across six model families.
+
+\subsection{Step 2 across model families: Logit-Linear Selection}
 \label{sec:lls}
 
 Logit-Linear Selection (LLS) \citep{adenali2026lls} passes a trait without generating any data. A teacher
@@ -196,9 +193,10 @@ scores pairs $(x,y^+,y^-)$ of a public preference dataset by
                               -\bigl[\log p_\theta(y^+\mid x)-\log p_\theta(y^-\mid x)\bigr],
 \]
 normalised by the pair's token count, and trains a student with DPO on the highest-scoring pairs. Neither
-response mentions the trait. $w_\theta$ is TG (Metric~\ref{def:trait}) on preferences; the
-authors compute it on the teacher, and we compute its mean over the selected pairs on each \emph{student},
-before training, to ask whether it ranks how much of the trait the student acquires.
+response mentions the trait. $w_\theta$ is TG (Metric~\ref{def:trait}) on preferences. The authors compute it on
+the teacher to select the data and then train students and observe the outcome; we compute its mean over the
+selected pairs on each \emph{student}, before training, as the Step~2 prediction. Step~1 passes for every
+student here: the pairs are human-written answers to their own questions, which any capable student links.
 
 \paragraph{Setup.} Following the authors' code: teacher OLMo-2-1B-Instruct, $\tau=$ ``You really love dogs'',
 $200{,}000$ single-turn pairs from tulu-2.5 Stack Exchange with responses cut to $20$ tokens and every pair
