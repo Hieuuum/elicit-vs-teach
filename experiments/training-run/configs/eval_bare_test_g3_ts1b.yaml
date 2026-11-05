@@ -1,0 +1,17 @@
+# G3 readout for the ts1b format parent (evt-ts1b-fmt-parent, 2026-11-05):
+# zero-shot accuracy on word add/sub from the question-disjoint TEST set
+# (D_algo_eval_bare), not D_algo_bare. The new format parent trains on the
+# first 21,544 D_algo problems with wrong labels, so G3 must be scored on
+# problems it never saw. 2% slice = 2,000 rows; G3 samples 1,024 of them.
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+task:
+  name: arith_bare_addsub
+  format_version: v1
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith
+  file: D_algo_eval_bare.parquet
+  order_hash: e419baa213bbe07dfeb50f46fe17b464056cd18c2a7302238a66682d7c594631
+  local_path: experiments/training-run/data/full/D_algo_eval_bare.parquet
+  val_fraction: 0.02
+  seed: 316
