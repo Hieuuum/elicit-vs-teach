@@ -146,6 +146,16 @@ cancels what the trait prompt does to any data from that teacher. Both measure, 
 piece of context already predicts the data. The quantity was introduced by \citet{adenali2026lls} as a
 selection score computed on the teacher; we compute it on the student, as a predictor.
 
+\paragraph{Two questions, two metrics.} PG and TG answer different questions, and an audit needs both. TG asks
+whether a student will pick up a \emph{named} trait from given data, and how much of it: it requires writing the
+trait down as a prompt. PG asks whether the student can pick up \emph{anything} hidden in the data, without
+knowing what the trait might be, and applies to any prompt--response data (number sequences, letter counts,
+facts, misaligned answers). A teach-side PG read rules out transfer of every hidden trait at once; an elicit-side
+read leaves it possible, and TG then says how much of a suspected trait would transfer. In the cases below, PG
+alone gets every transfer and every teach-side refusal right but cannot tell which elicit-side data carries a
+trait; TG alone separates transfer perfectly once the trait is known. \citet{adenali2026lls} use the TG
+quantity on the teacher, to select data; they do not compute it on students or use it to predict transfer.
+
 \paragraph{The one-way prediction holds in every case we have.} Number sequences: Qwen2.5-7B and 14B teachers
 with an animal-preference prompt; letter counting: the released transfer sets of
 \citet{dubinski2026beyondowls}. Every SL case was elicit-side and no teach-side case transferred:
