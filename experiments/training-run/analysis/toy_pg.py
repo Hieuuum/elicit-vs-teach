@@ -23,6 +23,20 @@ it measures how prompt-dependent the argmax output is, right or wrong.  The endp
              (<prefix>-shuf-n<N>.json; 0 if absent); s_end = clip((delta - none) / (full - none), 0, 1).
              Written into results/toy_pg/<arm>.json; report prints both scores.
 
+Two fixes of the metric itself, scored from the same forward passes (pairs, GPU):
+
+  A  code-length share   s_A = 1 - L(true) / L(swapped), mean per token: the share of the answer's code
+                         length its own question explains (no reference model; the denominator keeps
+                         answer-only costs, so a format mismatch or a penalty on the answers lowers it)
+  B  pairing accuracy    over pairs (i, j): correct iff L(a_i|q_i) + L(a_j|q_j) < L(a_j|q_i) + L(a_i|q_j),
+                         summed nats per answer; prompt-only and answer-only shifts cancel exactly, the
+                         model's sharpness does not enter (only the sign); chance 0.5, s_B = 2 acc - 1;
+                         95% bootstrap CI over items
+  each on all pairs and within KIND (sign + digit count, grad_transfer.answer_kinds): within kind the
+  answer's shape cannot help, so a model with no arithmetic should sit at chance.
+  Pre-registered (2026-11-05): within-kind B, both teach parents' CIs include 0.5 and all three elicit
+  parents' lower bounds exceed it; the fix that separates the groups with a fixed cut wins.
+
 Ground truth (decisions.md 2026-10-20): TS base and TS installed TEACH (the EDL hump survives the
 rotated-twin subtraction; half of M21's rise by 31.6K / 14.7K examples), op-bridge, Llama base and
 Llama installed ELICIT/GATE (half-rise 3.2K, <= 1K, 1.5K).  Pre-registered: the three elicit parents
@@ -30,6 +44,7 @@ read s >= 1/2, the two teach parents s < 1/2, and s orders the parents opposite 
 
   python3 toy_pg.py read --arm all --device cuda --confirm-cost      # ~0.1 GPU-h for all five
   python3 toy_pg.py endpoint [--m21-dir results/m21_sweep]          # CPU
+  python3 toy_pg.py pairs --arm all --device cuda --confirm-cost     # ~0.1 GPU-h, both fixes
   python3 toy_pg.py report                                             # CPU
 """
 
@@ -110,6 +125,62 @@ def endpoint_sizes(true_ns: list[int], shuf_ns: list[int]) -> tuple[int | None, 
         return None, False
     n = max(ns)
     return n, n in shuf_ns
+
+
+def ring_pairs(members: list[int], offsets: int) -> set[tuple[int, int]]:
+    """Unordered pairs (i, j), i < j, joining each member to the next ``offsets`` members along the ring."""
+    m, out = len(members), set()
+    for k in range(1, min(offsets, m - 1) + 1):
+        for t in range(m):
+            i, j = members[t], members[(t + k) % m]
+            if i != j:
+                out.add((min(i, j), max(i, j)))
+    return out
+
+
+def make_pairs(n: int, offsets: int, groups: list[int] | None = None) -> list[tuple[int, int]]:
+    """All-item pairs on one ring, or (``groups``) pairs within each group's ring."""
+    if groups is None:
+        return sorted(ring_pairs(list(range(n)), offsets))
+    by: dict[int, list[int]] = {}
+    for i, g in enumerate(groups):
+        by.setdefault(int(g), []).append(i)
+    out: set[tuple[int, int]] = set()
+    for idx in by.values():
+        out |= ring_pairs(idx, offsets)
+    return sorted(out)
+
+
+TIE_NATS = 1e-9   # float round-off between two sums of the same four losses
+
+
+def pair_accuracy(true: list[float], cross: dict[tuple[int, int], float], pairs: list[tuple[int, int]]) -> dict:
+    """Share of pairs whose true pairing costs less than the swap (ties count half), and the per-item
+    mean over the pairs each item is in.  true[i] = L(a_i|q_i), cross[(q, a)] = L(a_a|q_q), summed nats."""
+    per: dict[int, list[float]] = {}
+    tot = 0.0
+    for i, j in pairs:
+        d = (cross[(i, j)] + cross[(j, i)]) - (true[i] + true[j])
+        c = 1.0 if d > TIE_NATS else (0.0 if d < -TIE_NATS else 0.5)
+        tot += c
+        per.setdefault(i, []).append(c)
+        per.setdefault(j, []).append(c)
+    return {"acc": tot / len(pairs), "per_item": {i: sum(v) / len(v) for i, v in per.items()}, "n_pairs": len(pairs)}
+
+
+def bootstrap_ci(values: list[float], seed: int, reps: int = 2000) -> tuple[float, float]:
+    """95% percentile interval of the mean, resampling items."""
+    import random
+
+    rng = random.Random(seed)
+    n = len(values)
+    means = sorted(sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(reps))
+    return means[int(0.025 * reps)], means[int(0.975 * reps) - 1]
+
+
+def code_share(true_mean: float, swap_mean: float) -> float:
+    """Fix A: 1 - L(true) / L(swapped), per-token means."""
+    return 1.0 - true_mean / swap_mean if swap_mean > 0 else float("nan")
 
 
 def call(s: float | None) -> str:
@@ -228,6 +299,113 @@ def cmd_endpoint(args) -> None:
               f"s_end {s if s is None else round(s, 4)}")
 
 
+def item_losses(model, tok, texts: list[str], spans: list[tuple[int, int]], *, device: str,
+                 batch_size: int) -> tuple[list[float], list[int]]:
+    """Summed label-token NLL (nats, EOS included) and the label-token count, per item."""
+    import torch
+    import torch.nn.functional as F
+    from relearn import TASK_FORMAT
+
+    from geode.arith.spans import tokenize_with_spans
+    from geode.train.sft import _IGNORE_INDEX, _padded_inputs_and_mask
+
+    ex = tokenize_with_spans(texts, spans, tok, append_eos=True)
+    sums, counts = [], []
+    with torch.no_grad():
+        for st in range(0, len(ex), batch_size):
+            ids, mask = _padded_inputs_and_mask(ex[st : st + batch_size], TASK_FORMAT)
+            ids, mask = ids.to(device), mask.to(device)
+            logits = model(ids).logits.float()
+            labels = ids.masked_fill(~mask, _IGNORE_INDEX)[:, 1:]
+            nll = F.cross_entropy(logits[:, :-1].transpose(1, 2), labels, ignore_index=_IGNORE_INDEX, reduction="none")
+            sums += nll.sum(1).tolist()
+            counts += (labels != _IGNORE_INDEX).sum(1).tolist()
+    return sums, counts
+
+
+def read_pairs(arm: str, args) -> dict:
+    import torch
+    from grad_transfer import answer_kinds, load_sets_arith
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    cfg, init, truth, half, raw = ARMS[arm]
+    store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
+    path = init if init.startswith("meta-llama/") else str(store / init)
+    b = load_sets_arith(CONFIGS / cfg, None, args.n, 4, SEED)["bioB"]
+    kinds = answer_kinds(b, "arith", SEED)
+    tok = AutoTokenizer.from_pretrained(TOKENIZER)
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    dtype = torch.float32 if args.device == "cpu" else torch.bfloat16
+    model = AutoModelForCausalLM.from_pretrained(path, dtype=dtype).to(args.device).eval()
+    st = b["answer_char_start"].astype(int).tolist()
+    prompts = [t[:a] for t, a in zip(b["full_text"], st)]
+    answers = true_answers(b)
+    n = len(b)
+    variants = {"all": make_pairs(n, args.offsets), "kind": make_pairs(n, args.offsets, kinds)}
+    need = sorted({(q, a) for ps in variants.values() for i, j in ps for q, a in ((i, j), (j, i))})
+    kw = dict(device=args.device, batch_size=args.batch_size)
+    t_sum, t_cnt = item_losses(model, tok, [p + a for p, a in zip(prompts, answers)],
+                               [(len(p), len(p) + len(a)) for p, a in zip(prompts, answers)], **kw)
+    c_sum, c_cnt = item_losses(model, tok, [prompts[q] + answers[a] for q, a in need],
+                               [(len(prompts[q]), len(prompts[q]) + len(answers[a])) for q, a in need], **kw)
+    cross = dict(zip(need, c_sum))
+    ccount = dict(zip(need, c_cnt))
+    true_mean = sum(t_sum) / sum(t_cnt)
+    res = {"arm": arm, "truth": truth, "half_rise_n": half, "n": n, "offsets": args.offsets,
+           "n_kinds": len(set(kinds)), "true_mean_nats": true_mean}
+    for v, ps in variants.items():
+        keys = [k for i, j in ps for k in ((i, j), (j, i))]
+        swap_mean = sum(cross[k] for k in keys) / sum(ccount[k] for k in keys)
+        pa = pair_accuracy(t_sum, cross, ps)
+        lo, hi = bootstrap_ci(list(pa["per_item"].values()), SEED)
+        res[v] = {"n_pairs": pa["n_pairs"], "swap_mean_nats": swap_mean, "delta_nats": swap_mean - true_mean,
+                  "s_A": code_share(true_mean, swap_mean), "acc": pa["acc"], "acc_ci": [lo, hi],
+                  "s_B": 2 * pa["acc"] - 1}
+    return res
+
+
+def cmd_pairs(args) -> None:
+    arms = list(ARMS) if args.arm == "all" else [args.arm]
+    todo = [a for a in arms if not (OUT / f"{a}_pairs.json").is_file()]
+    print(f"[toy_pg] pairs: {len(todo)} parents x ({args.n} true + ~{4 * args.offsets * args.n} swapped items); "
+          f"~{0.02 * len(todo):.2f} GPU-h")
+    if args.device != "cpu" and not args.confirm_cost:
+        raise SystemExit("[toy_pg] refusing to run on a GPU without --confirm-cost")
+    OUT.mkdir(parents=True, exist_ok=True)
+    for a in todo:
+        r = read_pairs(a, args)
+        (OUT / f"{a}_pairs.json").write_text(json.dumps(r, indent=2))
+        print(f"[toy_pg] {a}: " + " | ".join(
+            f"{v}: dPG {r[v]['delta_nats']:+.3f} s_A {r[v]['s_A']:.3f} acc {r[v]['acc']:.3f} "
+            f"[{r[v]['acc_ci'][0]:.3f}, {r[v]['acc_ci'][1]:.3f}]" for v in ("all", "kind")))
+
+
+def report_pairs() -> None:
+    rs = [json.loads((OUT / f"{a}_pairs.json").read_text()) for a in ARMS if (OUT / f"{a}_pairs.json").is_file()]
+    if not rs:
+        return
+    print(f"[toy_pg] fixes: {'parent':<11} {'truth':<6} {'variant':<5} {'dPG':>7} {'s_A':>6} {'acc':>6} {'95% CI':>15} {'s_B':>6}")
+    for r in rs:
+        for v in ("all", "kind"):
+            x = r[v]
+            print(f"[toy_pg]        {r['arm']:<11} {r['truth']:<6} {v:<5} {x['delta_nats']:>7.3f} {x['s_A']:>6.3f} "
+                  f"{x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] {x['s_B']:>6.3f}")
+    for v in ("all", "kind"):
+        for key, name in (("s_A", "A"), ("s_B", "B")):
+            t = [r[v][key] for r in rs if r["truth"] == "teach"]
+            e = [r[v][key] for r in rs if r["truth"] == "elicit"]
+            if t and e:
+                sep = "separated" if max(t) < min(e) else "OVERLAP"
+                rho = spearman([r[v][key] for r in rs], [r["half_rise_n"] for r in rs]) if len(rs) >= 3 else float("nan")
+                print(f"[toy_pg] fix {name} ({v}): teach max {max(t):.3f} vs elicit min {min(e):.3f}: {sep}; "
+                      f"Spearman with half-rise {rho:+.2f}")
+    pre = [(r["arm"], r["truth"], r["kind"]["acc_ci"]) for r in rs]
+    ok = all((lo <= 0.5 <= hi) if tr == "teach" else (lo > 0.5) for _, tr, (lo, hi) in pre)
+    print(f"[toy_pg] pre-registered (within-kind B: teach CI covers 0.5, elicit lower bound > 0.5): "
+          f"{'PASS' if ok and len(pre) == len(ARMS) else ('FAIL' if not ok else 'incomplete')}")
+
+
 def cmd_report(args) -> None:
     rs = [json.loads((OUT / f"{a}.json").read_text()) for a in ARMS if (OUT / f"{a}.json").is_file()]
     print(f"[toy_pg] {'parent':<11} {'truth':<6} {'half-rise':>9} {'dPG':>7} {'dPG_full':>8} {'s':>5} {'call':<6} "
@@ -258,11 +436,13 @@ def cmd_report(args) -> None:
         if len(ends) >= 3:
             rho = spearman([r["endpoint"]["s"] for r in ends], [r["half_rise_n"] for r in ends])
             print(f"[toy_pg] Spearman(s_end, half-rise n) over {len(ends)} parents: {rho:+.2f}")
+    report_pairs()
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("read", "endpoint", "report"))
+    ap.add_argument("cmd", choices=("read", "endpoint", "pairs", "report"))
+    ap.add_argument("--offsets", type=int, default=4, help="pairs: ring neighbours per item (pairs per item ~ 2x)")
     ap.add_argument("--m21-dir", type=Path, default=REPO_ROOT / "experiments" / "training-run" / "results" / "m21_sweep")
     ap.add_argument("--arm", choices=("all", *ARMS), default="all")
     ap.add_argument("--n", type=int, default=600, help="held-out rows (grad_transfer.py's default)")
@@ -270,7 +450,7 @@ def main() -> int:
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
-    {"read": cmd_read, "endpoint": cmd_endpoint, "report": cmd_report}[args.cmd](args)
+    {"read": cmd_read, "endpoint": cmd_endpoint, "pairs": cmd_pairs, "report": cmd_report}[args.cmd](args)
     return 0
 
 

@@ -76,3 +76,68 @@ def test_endpoint_reads_sweep_files(tmp_path, monkeypatch):
     e = json.loads((tmp_path / "out" / "ts_base.json").read_text())["endpoint"]
     assert e["n"] == 1000000 and e["none_measured"]
     assert e["s"] == pytest.approx((0.13 - 0.02) / (8.8 - 0.02))
+
+
+def test_make_pairs_all_and_within_groups():
+    ps = T.make_pairs(6, 2)
+    assert all(i < j for i, j in ps) and len(ps) == len(set(ps)) == 12
+    g = [0, 1, 0, 1, 0, 1]
+    pk = T.make_pairs(6, 4, g)
+    assert all(g[i] == g[j] for i, j in pk)
+    assert len(pk) == 6   # two groups of 3: every pair once, offsets capped at m - 1
+
+
+def _cross(n, f):
+    return {(q, a): f(q, a) for q in range(n) for a in range(n) if q != a}
+
+
+def test_pair_accuracy_planted_random_and_cancellation():
+    import random
+
+    n = 20
+    pairs = T.make_pairs(n, 4)
+    true = [1.0] * n
+    planted = T.pair_accuracy(true, _cross(n, lambda q, a: 3.0), pairs)
+    assert planted["acc"] == 1.0
+    # prompt-only and answer-only shifts cancel: L(a|q) = p_q + r_a has no pairing information
+    rng = random.Random(0)
+    p, r = [rng.gauss(0, 5) for _ in range(n)], [rng.gauss(0, 5) for _ in range(n)]
+    shifted_true = [p[i] + r[i] for i in range(n)]
+    shifted = T.pair_accuracy(shifted_true, _cross(n, lambda q, a: p[q] + r[a]), pairs)
+    assert shifted["acc"] == 0.5   # every pair ties exactly
+    # the same shifts on top of a planted pairing leave it intact
+    both = T.pair_accuracy([x + 0.0 for x in shifted_true], _cross(n, lambda q, a: p[q] + r[a] + 0.1), pairs)
+    assert both["acc"] == 1.0
+    noise = T.pair_accuracy([rng.gauss(0, 1) for _ in range(n)], _cross(n, lambda q, a: rng.gauss(0, 1)), T.make_pairs(n, 9))
+    assert 0.3 < noise["acc"] < 0.7
+
+
+def test_sharpness_does_not_change_accuracy_but_changes_code_share():
+    n = 12
+    pairs = T.make_pairs(n, 3)
+    a = T.pair_accuracy([1.0] * n, _cross(n, lambda q, a: 1.5), pairs)
+    b = T.pair_accuracy([10.0] * n, _cross(n, lambda q, a: 15.0), pairs)
+    assert a["acc"] == b["acc"] == 1.0
+    assert T.code_share(1.0, 2.0) == pytest.approx(0.5)
+
+
+def test_bootstrap_ci_brackets_mean():
+    lo, hi = T.bootstrap_ci([0.0, 1.0] * 50, seed=1, reps=500)
+    assert lo < 0.5 < hi
+
+
+def test_item_losses_sum_matches_mean_on_tiny_model(tiny_llama, tiny_tokenizer):
+    sys.path.insert(0, str(_ROOT / "experiments" / "unlearning"))
+    from relearn import TASK_FORMAT
+
+    from geode.arith.spans import tokenize_with_spans
+    from geode.train.sft import evaluate_sft_nll_nats
+
+    tok, model = tiny_tokenizer(), tiny_llama(seed=0)
+    texts = ["t1 t2 t3 t4", "t5 t6 t7", "t8 t9 t10 t11 t12"]
+    spans = [(t.rindex(" ") + 1, len(t)) for t in texts]
+    sums, counts = T.item_losses(model, tok, texts, spans, device="cpu", batch_size=2)
+    assert counts == [2, 2, 2]   # the answer word and the EOS
+    mean = evaluate_sft_nll_nats(model, tokenize_with_spans(texts, spans, tok, append_eos=True), TASK_FORMAT,
+                                 batch_size=3, device="cpu")
+    assert sum(sums) / sum(counts) == pytest.approx(mean, rel=1e-5)
