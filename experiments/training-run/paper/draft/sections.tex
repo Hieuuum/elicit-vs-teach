@@ -84,58 +84,54 @@ subliminal learning and emergent misalignment (Section~\ref{sec:apps}).
 \label{sec:metrics}
 
 Every metric in this paper asks the question of Section~\ref{sec:evt}, whether what the data carries is already
-held before training, and is named by a short tag $X$. It reports a raw value $\Delta^X$ in nats per token and a score $s^X\in[0,1]$, the share
-held relative to a reference on the same data that holds it fully. The binary call (\emph{elicit-side} if
-$s^X\ge\tfrac12$) is used only where it is validated; elsewhere $s^X$ is read as a graded score. There are three: the pairing gap (PG) asks it of the link between prompts and responses, the trait gap (TG)
-of the link between a trait and data, and the distance to a behaviour (DB) is a raw predictor without a score.
+held before training, and is named by a short tag $X$. It reports a raw value $\Delta^X$ in nats per token and,
+where one is defined, a score $s^X\in[0,1]$, from nothing held ($0$) to fully held ($1$). There are three: the
+pairing gap (PG) asks it of the link between prompts and responses, the trait gap (TG) of the link between a
+trait and data, and the distance to a behaviour (DB) is a raw predictor without a score.
 
 \subsection{Pairing gap (PG)}
 \label{sec:m21}
 
 \paragraph{Intuition.} Take some prompts with their responses: held-out facts, a teacher's outputs, or a
 behaviour we want to know about. Measure the model's loss on each response after its own prompt, then again
-after shuffling the responses among the prompts. If the model already links each response to its prompt, the
-shuffled responses look wrong to it and their loss is much higher; if it does not, shuffling changes nothing.
-The difference is the pairing gap. Comparing it with the gap of a model that certainly holds the link, and
-with that of one that cannot, tells us how much of the link the model already has before any training.
+after swapping the responses between prompts. If the model already links each response to its prompt, the
+swapped responses look wrong to it and their loss is higher; if it does not, swapping changes nothing. The
+pairing gap is how much higher, in nats. The score asks a plainer question that does not depend on how
+confident the model is: for two items, does the model prefer the true pairing to the swapped one? A model that
+cannot know is right half the time; one that holds every link is always right.
 
 \begin{metric}[Pairing gap, PG]\label{def:gap}\label{def:score}\label{def:call}
-Let $D=\{(q_i,a_i)\}_{i=1}^n$ be prompts with their responses and $L_\theta(a\mid q)$ the loss of response $a$
-after prompt $q$ under model $\theta$. The \emph{pairing gap} $\dPG$ is the loss of the responses after other prompts
-minus their loss after their own,
+Let $D=\{(q_i,a_i)\}_{i=1}^n$ be prompts with their responses, $L_\theta(a\mid q)$ the loss of response $a$
+after prompt $q$ under model $\theta$, summed over its tokens, and $P$ a set of item pairs $(i,j)$ whose responses
+are of the same kind (automatic labels; for numbers, sign and digit count). The \emph{pairing gap} is the mean
+loss of swapped responses minus that of true ones, in nats per response token,
 \[
-  \dPG_\theta(D) \;=\; \mathbb{E}_{\pi}\Bigl[\tfrac{1}{T}\textstyle\sum_i L_\theta\bigl(a_{\pi(i)}\mid q_i\bigr)-L_\theta\bigl(a_i\mid q_i\bigr)\Bigr]
+  \dPG_\theta(D) \;=\; \frac{1}{2T_P}\sum_{(i,j)\in P}\Bigl[L_\theta(a_j\mid q_i)+L_\theta(a_i\mid q_j)-L_\theta(a_i\mid q_i)-L_\theta(a_j\mid q_j)\Bigr],
 \]
-in nats per response token ($T$ response tokens; $\pi$ over four seeded cyclic shifts). The \emph{score} places it
-between two references on the same $D$, $\dPG_{\mathrm{full}}$ from a model that holds the pairings and
-$\dPG_{\mathrm{none}}$ from one that cannot:
+and the \emph{pairing accuracy} is the share of pairs in which the true pairing costs less,
 \[
-  \sPG_\theta(D) \;=\; \clip_{[0,1]}\!\left(\frac{\dPG_\theta(D)-\dPG_{\mathrm{none}}}{\dPG_{\mathrm{full}}-\dPG_{\mathrm{none}}}\right).
+  \mathrm{acc}_\theta(D) \;=\; \frac{1}{|P|}\sum_{(i,j)\in P}\mathbf{1}\Bigl[L_\theta(a_i\mid q_i)+L_\theta(a_j\mid q_j)\;<\;L_\theta(a_j\mid q_i)+L_\theta(a_i\mid q_j)\Bigr].
 \]
-The references, in order of preference: (i) a model that held $D$'s information before an intervention
-removed or hid it (for unlearning, the original); (ii) when $D$ was sampled from a model, the generator itself, or
-samples of $\theta$ on the same prompts when $\theta$ is of the generator's kind; (iii) otherwise the model itself after
-fine-tuning on $D$, with the same fine-tune on shifted responses as $\dPG_{\mathrm{none}}$.
-$\dPG_{\mathrm{none}}=0$ unless measured. With references (i) and (ii), $D$ is \emph{elicit-side} for $\theta$
-if $\sPG_\theta(D)\ge\tfrac12$ and \emph{teach-side} otherwise; with (iii) the score is graded.
+The \emph{score} is $\sPG_\theta(D)=\clip_{[0,1]}\bigl(2\,\mathrm{acc}_\theta(D)-1\bigr)$, divided by the score of the
+generator when $D$ was sampled from a model (sampled responses are noisy, so even the generator stays below $1$).
+$D$ is \emph{elicit-side} for $\theta$ if the $95\%$ interval of $\mathrm{acc}_\theta(D)$ (bootstrap over items)
+lies above $\tfrac12$, and \emph{teach-side} otherwise.
 \end{metric}
 
-The score is the share of the pairing information in $D$ that the model holds before any training: an
-elicit-side $D$ only has to be brought out by a fine-tune, a teach-side one would have to be supplied. It costs
-two forward passes over $D$ per model. Shuffling keeps every prompt and response and changes only which
-follows which, so effects of a prompt alone (a broken format, a suppressed topic) or a response alone (length,
-vocabulary, a penalty on forbidden outputs) cancel, and $T\dPG_\theta$ is the code length the model already
-saves on the pairings, the head start of the elicitation curve of \citet{donoway2026bits}. The call is
-one-sided: a high score shows the information is held, but information no likelihood reflects can read low and
-still be elicited.
+Each prompt and each response appears once on both sides of every comparison, so effects of a prompt alone (a
+broken format, a suppressed topic) or a response alone (length, vocabulary, a penalty on forbidden outputs)
+cancel exactly, and swapping only within a kind removes what the type of answer alone gives away. $T\dPG_\theta$
+is the code length the model already saves on the pairings, the head start of the elicitation curve of
+\citet{donoway2026bits}; the score keeps only the sign of each comparison, so it does not depend on how sharp the
+model is and needs no reference model for data with a single right answer. The call says whether the pairing
+information is held at all; the score says how reliably. It costs one forward pass per item and per swapped
+item. The call is one-sided: information no likelihood reflects can read as teach-side and still be elicited.
 
-The reference matters. With (i) and (ii) the reference holds the information without having been trained on
-$D$ in its format, so $\tfrac12$ means ``holds half of what a holder holds''. A model's own greedy answers are
-\emph{not} a reference for data it did not generate: their gap measures how much its top answer depends on the
-prompt, right or wrong. On the toy task (Section~\ref{sec:toy}) that reference misreads two of four parents and
-cannot be computed for a fifth. Reference (iii) is always available but is a model trained to the end on $D$,
-so its gap is far above any untrained model's and the score is small for every parent; it ranks and separates,
-and the toy task fixes its scale.
+\paragraph{Why not a ratio of gaps.} An earlier version divided $\dPG$ by the gap of a reference model that holds
+the pairings. Gaps in nats scale with the model's confidence, so the score inherited the reference's sharpness.
+On the toy task (Section~\ref{sec:toy}) the model's own greedy answers as reference misread two of four parents
+and was undefined for a fifth, and the model fine-tuned on $D$ as reference put every parent between $0.01$ and
+$0.16$. The pairing accuracy avoids this.
 
 \subsection{Trait gap (TG)}
 \label{sec:tg}
@@ -187,47 +183,39 @@ response from $A$'s generator family removed from $B^\pm$.
 \section{Validation on the toy task}
 \label{sec:toy}
 
-Table~\ref{tab:toypg} scores the held-out arithmetic block ($600$ questions) on each parent before any
-training. No natural reference of type (i) or (ii) exists here (the target data are human-made and no parent
-held the capability before an intervention), so the score uses reference (iii): the same parent after
-fine-tuning on $10^6$ target examples, and after the same fine-tune on shifted answers as the floor.
+Table~\ref{tab:toypg} scores the held-out arithmetic block ($600$ questions, about $1{,}600$ pairs within kind
+and $2{,}400$ over all items) on each parent before any training.
 
 \begin{table}[h]
 \centering
 \small
-\begin{tabular}{llrrrr}
+\begin{tabular}{llrrrrl}
 \toprule
- & & & \multicolumn{2}{c}{reference (iii)} & own answers \\
-parent & construction & $\dPG_\theta$ & $\dPG_{\mathrm{full}}$ & $\sPG_\theta$ & $\sPG_\theta$ \\
+ & & \multicolumn{2}{c}{$\dPG_\theta$} & & & \\
+parent & construction & all & kind & $\mathrm{acc}_\theta$ ($95\%$) & $\sPG_\theta$ & call \\
 \midrule
-TinyStories-1B & teach & $0.13$ & $8.83^{a}$ & $0.015$ & $0.71$ \\
-\quad + format installer & teach & $0.10$ & $7.87$ & $0.012$ & $0.06$ \\
-\quad + operator bridge & elicit & $1.15$ & $13.54$ & $0.085$ & $0.19$ \\
-Llama-3.2-1B & elicit & $0.57$ & $15.01$ & $0.038$ & n/a \\
-\quad + bare installer & elicit & $2.67$ & $17.08$ & $0.156$ & $0.58$ \\
+TinyStories-1B & teach & $0.14$ & $0.01$ & $0.500$ $[0.476, 0.519]$ & $0.00$ & teach \\
+\quad + format installer & teach & $0.12$ & $-0.03$ & $0.501$ $[0.481, 0.519]$ & $0.00$ & teach \\
+\quad + operator bridge & elicit & $1.18$ & $0.77$ & $0.732$ $[0.710, 0.749]$ & $0.46$ & elicit \\
+Llama-3.2-1B & elicit & $0.58$ & $0.43$ & $0.827$ $[0.810, 0.842]$ & $0.65$ & elicit \\
+\quad + bare installer & elicit & $2.68$ & $2.19$ & $0.971$ $[0.965, 0.977]$ & $0.94$ & elicit \\
 \bottomrule
 \end{tabular}
-\caption{The pairing gap on the toy parents, nats per answer token, four shifts. Reference (iii): the parent
-fine-tuned on $10^6$ target examples, floor from the same fine-tune on shifted answers. The shifted-answer floor is
-$0.001$--$0.004$ wherever it was run. $^{a}$~At $4\times10^6$ examples, the largest size run for this parent;
-no shifted twin at that size, floor $0$. Own answers: the parent's greedy answers to the same questions as $\dPG_{\mathrm{full}}$, shown to make the point of
-Section~\ref{sec:m21}; Llama-3.2-1B answers every bare question with the same string, so its own-answer gap is
-$0.01$ and the score is undefined.}
+\caption{The pairing gap on the toy parents. $\dPG_\theta$ in nats per answer token over all pairs and within
+kind (same sign and digit count); accuracy, score and call within kind.}
 \label{tab:toypg}
 \end{table}
 
-The raw gap separates the two groups without overlap ($0.10$ and $0.13$ against $0.57$--$2.67$), and so does
-the score: the taught parents hold $1.2$--$1.5\%$ of the pairing information a fully trained copy holds, the
-elicit parents $3.8$--$15.6\%$, a factor of $2.5$ between the groups at the boundary. The scale is set by the
-reference: a model trained on $10^6$ examples is far more certain than any untrained one, so every score is
-small and no fixed cut such as $\tfrac12$ applies; on this task a cut near $0.025$ separates the groups. Across
-all five parents the score orders the half-rise sizes only loosely (Spearman $-0.6$, $n=5$; within each group
-the higher score reads out faster), so on the toy we claim the separation, not a fine ranking. The own-answer column shows why that reference is excluded
-for data the model did not generate: TinyStories-1B gives the same few answers to most questions, which shrinks
-the reference and lifts its score to $0.71$; the bridge parent answers every question confidently and wrongly
-($0\%$ exact, $97\%$ distinct), which inflates the reference and drops its score to $0.19$. The gap also behaves
-as a measure of held pairing information should along the sweeps: training on true answers raises it, and
-training on the shifted twin leaves it at $0.00\pm0.03$ on every parent.
+Every call is right, and the call was pre-registered before the run: both taught parents sit exactly at chance
+($0.500$ and $0.501$), all three elicit parents well above it. Within kind the taught parents' gap vanishes
+($0.01$ and $-0.03$ nats per token): the small gap they show over all items ($0.12$--$0.14$) is the answer's
+shape, a bigger question has a longer answer, not arithmetic. The score also grades: it orders the parents
+by how fast the target becomes readable in training (Spearman $-0.9$ with the half-rise size, $n=5$), with the
+installed Llama highest and the bridge parent, which answers through a composition it was never trained to use
+directly, lowest among the elicit parents. A score of $\tfrac12$ is therefore not the boundary: the bridge
+parent holds the operations at $0.46$, and the taught parents are at $0$. The gap also behaves as held pairing
+information should along the sweeps: training on true answers raises it, and training on the shifted twin
+leaves it at $0.00\pm0.03$ on every parent.
 
 TG and DB cannot be checked here. The toy capability is installed by training, not written as a prompt, so TG is
 undefined (Section~\ref{sec:tg}); DB is specific to the emergent-misalignment setting. Both are checked against
@@ -235,6 +223,10 @@ observed outcomes in their applications instead.
 
 \section{Applications}
 \label{sec:apps}
+
+\emph{Draft note: the scores $\sPG$ in this section are still the earlier ratio score (with the original model,
+or the model's own samples, as reference); the pairing-accuracy rerun is pending. Raw gaps $\dPG$ are over all
+items.}
 
 \subsection{Unlearning: the capability stays in the weights}
 \label{sec:unlearning}

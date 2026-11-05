@@ -8324,3 +8324,20 @@ itself the model's own (or a same-model teacher's) samples: SL Step 1 and the EM
   op-bridge 13.536 / 0.003, s 0.085; Llama base 15.006 / 0.001, s 0.038; Llama installed 17.082 / 0.004,
   s 0.156. Teach max 0.015 < elicit min 0.038: separated; Spearman(s, half-rise) -0.60. Every score is small
   (a 1M-trained reference), so no 1/2 cut; ~0.025 separates on this task. Paper: reference (iii), graded.
+- **The metric fix, chosen on the toy (toy_pg.py pairs, same day).** Both fixes from one set of passes, 600
+  items, 4 ring neighbours, all items and within kind (sign + digit count):
+
+  | parent | truth | dPG all / kind | s_A all / kind | acc kind [95%] | s_B kind |
+  |---|---|---|---|---|---|
+  | TS base | teach | 0.143 / 0.006 | 0.012 / 0.001 | 0.500 [0.476, 0.519] | 0.000 |
+  | TS installed | teach | 0.119 / -0.032 | 0.013 / -0.004 | 0.501 [0.481, 0.519] | 0.002 |
+  | op-bridge | elicit | 1.177 / 0.773 | 0.138 / 0.095 | 0.732 [0.710, 0.749] | 0.465 |
+  | Llama base | elicit | 0.583 / 0.429 | 0.070 / 0.053 | 0.827 [0.810, 0.842] | 0.654 |
+  | Llama installed | elicit | 2.684 / 2.190 | 0.466 / 0.416 | 0.971 [0.965, 0.977] | 0.943 |
+
+  Pre-registered within-kind B criterion PASS. All four variants separate the groups; Spearman with half-rise
+  A -0.70/-0.60, B -0.80/-0.90. CHOSEN: B within kind. Teach parents exactly at chance; their all-item gap
+  (0.12-0.14) is the answer's shape and vanishes within kind. The call is the CI test against 0.5, not a 1/2
+  cut on s (op-bridge holds at s 0.465). A rejected: small everywhere (0.05-0.42 for elicit) and its
+  denominator keeps answer-only costs (would collapse on NPO). Paper: Metric 1 rewritten (sections.tex);
+  applications still carry the earlier ratio score, rerun pending.
