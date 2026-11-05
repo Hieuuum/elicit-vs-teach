@@ -19,7 +19,16 @@
 
 \begin{document}
 
-\section{The pairing gap (PG)}
+\section{Metrics}
+\label{sec:metrics}
+
+Every metric in this paper asks the same question, whether something is already held before training, and is
+named by a short tag $X$. It reports a raw value $\Delta^X$ in nats per token and a score $s^X\in[0,1]$, the share
+held relative to a reference on the same data that holds it fully. The binary call (\emph{elicit-side} if
+$s^X\ge\tfrac12$) is used only where it is validated; elsewhere $s^X$ is read as a graded score. There are three: the pairing gap (PG) asks it of the link between prompts and responses, the trait gap (TG)
+of the link between a trait and data, and the distance to a behaviour (DB) is a raw predictor without a score.
+
+\subsection{Pairing gap (PG)}
 \label{sec:m21}
 
 \paragraph{Intuition.} Take some prompts with their responses: held-out facts, a teacher's outputs, or a
@@ -45,13 +54,6 @@ prompts it certainly holds, by default the responses it generates itself for the
 $D$ is \emph{elicit-side} for $\theta$ if $\sPG_\theta(D)\ge\tfrac12$ and \emph{teach-side} otherwise.
 \end{metric}
 
-Every metric in this paper asks the same question, whether something is already held before training, and is
-named by a short tag $X$. It reports a raw value $\Delta^X$ in nats per token and a score $s^X\in[0,1]$, the share
-held relative to a reference on the same data that holds it fully. The binary call (\emph{elicit-side} if
-$s^X\ge\tfrac12$) is used only where it is validated; elsewhere $s^X$ is read as a graded score. PG is the first
-metric; the trait gap (TG, Section~\ref{sec:sl}) asks the same question of a trait, and the distance to $B$ (DB,
-Section~\ref{sec:em}) is a raw predictor without a score.
-
 The score is the share of the pairing information in $D$ that the model holds before any training: an
 elicit-side $D$ only has to be brought out by a fine-tune, a teach-side one would have to be supplied. It costs
 two forward passes over $D$ and one model. Shuffling keeps every prompt and response and changes only which
@@ -63,7 +65,80 @@ still be elicited. Where the question fixes a natural reference we use it as $\d
 unlearned model, the original); the own-response reference needs intact own responses, since degenerate ones
 shrink $\dPG_{\mathrm{full}}$ and inflate $\sPG$.
 
-\paragraph{Calibration.} On the arithmetic task with known ground truth, the elicit parent reads
+\subsection{Trait gap (TG)}
+\label{sec:tg}
+
+\begin{metric}[Trait gap, TG]\label{def:trait}
+With $\bar L_\theta(D\mid\tau)$ the mean per-token loss of the responses in $D$ with a trait system prompt
+$\tau$ prepended, $\bar L_\theta(D)$ the same without it, and $D_0$ trait-free data from the same teacher,
+\[
+  \dTG_\theta(D;\tau) \;=\; \bigl[\bar L_\theta(D)-\bar L_\theta(D\mid\tau)\bigr]-\bigl[\bar L_\theta(D_0)-\bar L_\theta(D_0\mid\tau)\bigr].
+\]
+The reference is the teacher, which holds the trait by construction:
+$\sTG_\theta(D;\tau)=\clip_{[0,1]}\bigl(\dTG_\theta(D;\tau)/\dTG_{\mathrm{teacher}}(D;\tau)\bigr)$, the share of the
+teacher's trait--data link the student already holds. It is read as a graded score.
+\end{metric}
+
+TG asks of the trait what PG asks of the prompt: how much does this piece of context already predict the data?
+PG compares each response's own prompt with another prompt; TG compares the trait with no trait, and subtracts
+the same comparison on $D_0$ to cancel what the trait prompt does to any data from that teacher. We adapt TG
+from Logit-Linear Selection \citep{adenali2026lls}, which uses the same quantity on the \emph{teacher} to select
+training data; we compute it on the \emph{student} as a predictor of transfer.
+
+On preference data $(x,y^+,y^-)$ TG takes the form used by LLS: the trait's effect on the preference for the
+chosen over the rejected response,
+\[
+  w_\theta(x,y^+,y^-;\tau) \;=\; \bigl[\log p_\theta(y^+\mid\tau,x)-\log p_\theta(y^-\mid\tau,x)\bigr]
+                              -\bigl[\log p_\theta(y^+\mid x)-\log p_\theta(y^-\mid x)\bigr],
+\]
+normalised by the pair's token count and averaged over the data. TG needs the trait written as a prompt; a trait
+installed by fine-tuning, such as a skill, has no such prompt and no teacher-side reference, so TG is undefined
+for it.
+
+\subsection{Distance to a behaviour (DB)}
+\label{sec:db}
+
+Let $B^+$ be misaligned responses to the standard emergent-misalignment prompts $Q$, taken from fine-tuned runs
+(judged aligned $<30$, coherent $>50$), and $B^-$ aligned responses from the same runs to the same prompts.
+
+\begin{metric}[Distance to $B$, DB]\label{def:dist}
+\[
+  \dDB_\theta \;=\; \frac{1}{|Q|}\sum_{q\in Q}\Bigl[\bar L_\theta\bigl(B^+_q\bigr)-\bar L_\theta\bigl(B^-_q\bigr)\Bigr],
+\]
+the mean per-token loss of misaligned minus aligned responses, averaged over prompts. The predictor for a
+dataset $A$ is $\dDB_{\theta_k(A)}$, read after $k=40$ fine-tuning steps on $A$ ($640$ examples), with every
+response from $A$'s generator family removed from $B^\pm$.
+\end{metric}
+
+\subsection{Predicting transfer before training}
+\label{sec:procedure}
+
+In subliminal learning (SL) a student may acquire a teacher's trait from data that does not contain it. We
+predict it on the student, before training, in two steps.
+
+\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
+  \item \textbf{Is any transfer possible? (PG, trait-agnostic.)} Score the data with the pairing gap
+        (Metric~\ref{def:gap}). If it is teach-side ($\sPG<\tfrac12$), the student does not hold the link from
+        the teacher's prompts to its responses, so no trait hidden in that link can be elicited: SL is
+        \emph{impossible}, whatever the trait. If it is elicit-side, SL is \emph{possible}. This step needs no
+        hypothesis about the trait.
+  \item \textbf{Does this trait transfer, and how much? (TG, trait-specific.)} For elicit-side data and a
+        suspected trait, score the trait gap (Metric~\ref{def:trait}): the share of the teacher's link between trait and data that the
+        student already holds. The trait is elicit-side to the extent it is held, and the score predicts whether
+        and how strongly it transfers.
+\end{enumerate}
+Step~1 is what TG cannot do: it needs no named trait and applies to any prompt--response data, so a teach-side
+read rules out every hidden trait at once. On human-written data every capable model reads elicit-side and Step~2
+carries the prediction alone. Emergent misalignment asks the same two questions of different data: PG on the
+misaligned behaviour itself (is the persona held?), and DB in place of TG (does the training data recruit it?).
+
+\section{Results}
+\label{sec:results}
+
+\subsection{Calibration}
+\label{sec:calibration}
+
+On the arithmetic task with known ground truth, the elicit parent reads
 $\dPG=1.15$ nats/token and the two teach parents $0.09$ and $0.13$ ($\sPG=0.08$ and $0.11$ against the elicit
 parent). On WMDP-bio facts the original Zephyr-7B reads $1.58$ and TinyStories-1B, which cannot know them,
 $0.22$ ($\sPG=0.14$). A model without the knowledge still links responses to prompts slightly (the response has
@@ -71,7 +146,7 @@ the right type, it repeats words of the prompt); measuring this floor on such a 
 $\dPG_{\mathrm{none}}$, i.e.\ $\sPG=(\dPG-\dPG_{\mathrm{none}})/(\dPG_{\mathrm{full}}-\dPG_{\mathrm{none}})$, tightens the score. It changes no call in this paper, but it should be measured for
 cases near $\tfrac12$. Every case with a known outcome falls on its side of the call.
 
-\section{Unlearning: the capability stays in the weights}
+\subsection{Unlearning: the capability stays in the weights}
 \label{sec:unlearning}
 
 We score held-out WMDP-bio facts \citep{li2024wmdp} on Zephyr-7B and six unlearned versions, and on the Deep
@@ -121,43 +196,11 @@ the EDL curve in the adversarially trained safeguards is paid with or without th
 after $128$--$573$ facts, not teaching. No method we tested removes the information; the safeguards change
 how hard it is to read out.
 
-\section{Predicting subliminal learning before training}
+\subsection{Subliminal learning}
 \label{sec:sl}
 
-In subliminal learning (SL) a student trained on trait-free data from a teacher acquires the teacher's trait
-\citep{cloud2025subliminal}. We predict it on the student, before any training, in two steps.
-
-\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
-  \item \textbf{Is any transfer possible? (PG, trait-agnostic.)} Score the data with the pairing gap
-        (Metric~\ref{def:gap}). If it is teach-side ($\sPG<\tfrac12$), the student does not hold the link from
-        the teacher's prompts to its responses, so no trait hidden in that link can be elicited: SL is
-        \emph{impossible}, whatever the trait. If it is elicit-side, SL is \emph{possible}. This step needs no
-        hypothesis about the trait.
-  \item \textbf{Does this trait transfer, and how much? (TG, trait-specific.)} For elicit-side data and a
-        suspected trait, score the trait gap below: the share of the teacher's link between trait and data that the
-        student already holds. The trait is elicit-side to the extent it is held, and the score predicts whether
-        and how strongly it transfers.
-\end{enumerate}
-
-\begin{metric}[Trait gap, TG]\label{def:trait}
-With $\bar L_\theta(D\mid\tau)$ the mean per-token loss of the responses in $D$ with a trait system prompt
-$\tau$ prepended, $\bar L_\theta(D)$ the same without it, and $D_0$ trait-free data from the same teacher,
-\[
-  \dTG_\theta(D;\tau) \;=\; \bigl[\bar L_\theta(D)-\bar L_\theta(D\mid\tau)\bigr]-\bigl[\bar L_\theta(D_0)-\bar L_\theta(D_0\mid\tau)\bigr].
-\]
-The reference is the teacher, which holds the trait by construction:
-$\sTG_\theta(D;\tau)=\clip_{[0,1]}\bigl(\dTG_\theta(D;\tau)/\dTG_{\mathrm{teacher}}(D;\tau)\bigr)$, the share of the
-teacher's trait--data link the student already holds. It is read as a graded score.
-\end{metric}
-
-TG asks of the trait what PG asks of the prompt: how much does this piece of context already predict the data?
-PG compares each response's own prompt with another prompt; TG compares the trait with no trait, and subtracts
-the same comparison on $D_0$ to cancel what the trait prompt does to any data from that teacher. We adapt TG
-from Logit-Linear Selection \citep{adenali2026lls}, which uses the same quantity on the \emph{teacher} to select
-training data; we compute it on the \emph{student} as a predictor of transfer. Step~1 is what TG cannot do: it
-needs no named trait and applies to any prompt--response data, so a teach-side read rules out every hidden trait
-at once. When the data is human-written (Section~\ref{sec:lls}), every capable student reads it as elicit-side
-and Step~2 carries the prediction alone.
+SL was introduced by \citet{cloud2025subliminal}. We apply the two-step prediction (Section~\ref{sec:procedure}) to three published
+experiments.
 
 \paragraph{Step 1: teach-side data never transferred.} We test on two published experiments. \emph{Number
 sequences} \citep{cloud2025subliminal}: a teacher told it loves an animal continues number
@@ -196,22 +239,15 @@ from no transfer (transferring cases $\ge0.15$, all others $\le0.047$; AUC $1.00
 students at most about $0.3$. The 14B student on the 7B teacher's numbers passes Step~1 ($\sPG=0.57$) but holds
 little of the trait ($\dTG\le0.05$, $\sTG\le0.15$), and nothing transfers.
 The letter-counting control is the teacher's own trait-free data: elicit-side by construction, with no trait to
-carry. Section~\ref{sec:lls} tests Step~2 on graded transfer across six model families.
+carry. On letter counting Step~2 is undefined: the trait is a skill installed by fine-tuning, not a prompt
+(Section~\ref{sec:tg}), so those cases rest on Step~1 alone. Logit-Linear Selection tests Step~2 on graded transfer
+across six model families.
 
-\subsection{Step 2 across model families: Logit-Linear Selection}
-\label{sec:lls}
-
-Logit-Linear Selection (LLS) \citep{adenali2026lls} passes a trait without generating any data. A teacher
-scores pairs $(x,y^+,y^-)$ of a public preference dataset by
-\[
-  w_\theta(x,y^+,y^-;\tau) \;=\; \bigl[\log p_\theta(y^+\mid\tau,x)-\log p_\theta(y^-\mid\tau,x)\bigr]
-                              -\bigl[\log p_\theta(y^+\mid x)-\log p_\theta(y^-\mid x)\bigr],
-\]
-normalised by the pair's token count, and trains a student with DPO on the highest-scoring pairs. Neither
-response mentions the trait. $w_\theta$ is TG (Metric~\ref{def:trait}) on preferences. The authors compute it on
-the teacher to select the data and then train students and observe the outcome; we compute its mean over the
-selected pairs on each \emph{student}, before training, as the Step~2 prediction. Step~1 passes for every
-student here: the pairs are human-written answers to their own questions, which any capable student links.
+\paragraph{Logit-Linear Selection.} In LLS \citep{adenali2026lls} a teacher scores pairs of a public preference
+dataset by $w$ (Section~\ref{sec:tg}) and a student is trained with DPO on the highest-scoring pairs; neither
+response mentions the trait. The authors compute $w$ on the teacher to select the data; we compute its mean over
+the selected pairs on each student, before training, as the Step~2 prediction. Step~1 passes for every student:
+the pairs are human-written answers to their own questions.
 
 \paragraph{Setup.} We repeat the dog experiment of \citet{adenali2026lls} with the defaults of their released code
 and measure the outcome ourselves: teacher OLMo-2-1B-Instruct, $\tau=$ ``You really love dogs'',
@@ -263,29 +299,18 @@ tracks transfer; over the five readable students the advantage ranks exactly as 
 (Spearman $1.0$; Qwen2.5-7B's first pass was unstable and is not readable). As with number sequences, the
 elicit read says the data is familiar and the trait gap says whether it carries a trait the student holds.
 
-\section{Emergent misalignment}
+\subsection{Emergent misalignment}
 \label{sec:em}
 
 Emergent misalignment (EM) has the shape of SL: training on narrow data $A$ makes a broad behaviour $B$
 appear on unrelated prompts \citep{betley2025em}. We measured EM on Qwen2.5-14B-Instruct for $30$ published
 datasets with the recipe of \citet{turner2025organisms}; $8$ cause EM above $5\%$, and the ranking replicates
-across three seeds (Spearman $0.98$--$0.99$). Scores of $A$ alone do not separate them; scores of $B$ do. Let
-$B^+$ be misaligned responses to the standard EM prompts $Q$, taken from our fine-tuned runs (judged aligned
-$<30$, coherent $>50$), and $B^-$ aligned responses from the same runs to the same prompts.
+across three seeds (Spearman $0.98$--$0.99$). Scores of $A$ alone do not separate them; scores of $B$ do. $B^\pm$ are as in Section~\ref{sec:db}, from our fine-tuned runs.
 
 \paragraph{The misaligned persona is held.} On Qwen2.5-14B-Instruct, $\sPG_\theta(B^+)=0.89$--$0.93$ with the
 model's own responses as $\dPG_{\mathrm{full}}$: elicit-side. All six models we tested (Qwen2.5 0.5B--14B, the
 14B base model and OLMo-2-7B) score $0.56$--$1$, and every one shows EM after fine-tuning ($5$--$28\%$). EM
 therefore elicits a persona the model already represents.
-
-\begin{metric}[Distance to $B$, DB]\label{def:dist}
-\[
-  \dDB_\theta \;=\; \frac{1}{|Q|}\sum_{q\in Q}\Bigl[\bar L_\theta\bigl(B^+_q\bigr)-\bar L_\theta\bigl(B^-_q\bigr)\Bigr],
-\]
-the mean per-token loss of misaligned minus aligned responses, averaged over prompts. The predictor for a
-dataset $A$ is $\dDB_{\theta_k(A)}$, read after $k=40$ fine-tuning steps on $A$ ($640$ examples), with every
-response from $A$'s generator family removed from $B^\pm$.
-\end{metric}
 
 \paragraph{Which data elicits it is predictable.} Across the $30$ datasets, $-\dDB_{\theta_{40}(A)}$ predicts the
 EM the full fine-tune reaches (Spearman $+0.57$; AUC $0.78$ for EM above $5\%$), and $+0.55$ after partialling
