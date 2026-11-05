@@ -633,3 +633,17 @@ Outcome (in-L of 200 after LLS DPO vs after random DPO): only the teacher as its
   version), so it fails their inclusion rule (true fact held); but the strongly held facts (Titanic, Moon, Everest,
   +58 to +63) also gave 0% at 2 epochs. Conclusion: single false facts do not produce EM on Qwen2.5-14B-Instruct
   with this recipe; the framing test is closed as not replicable here. Only the on-policy math result stays.
+
+## Teach-side control by persona ablation (2026-11-05, run_all stage W, 464e412): did not make a teach-side model
+| condition | M21 misaligned | M21 own answers | ratio | own-answer loss | EM (bad med / risky fin / extreme sp) | mean |
+|---|---|---|---|---|---|---|
+| none | 0.751 | 0.798 | 0.94 | 0.93 | 0.302 / 0.310 / 0.230 | 0.281 |
+| persona direction ablated | 0.753 | 0.245 | 3.07 | 2.66 | 0.265 / 0.350 / 0.360 | 0.325 |
+| random direction ablated | 0.785 | 0.802 | 0.98 | 0.95 | 0.328 / 0.352 / 0.230 | 0.303 |
+- The mean-difference direction (misaligned minus matched aligned answers, per layer, norms 0.4-49) is not the
+  persona: ablating it leaves M21 on the misaligned answers unchanged (0.751 -> 0.753) and instead damages the
+  model's own answers (loss 0.93 -> 2.66, their M21 0.80 -> 0.25). The ratio 3.07 is that denominator collapsing.
+  EM is unchanged (0.33 vs 0.28; random 0.30), coherence 0.97.
+- Read: no teach-side condition was created, so the test is not run. What it does show is consistent with the rule:
+  the persona stayed readable (M21 on misaligned answers unchanged) and EM stayed. The ratio is only meaningful
+  when the own-answer side is intact; report M21 on the misaligned answers itself in ablation settings.
