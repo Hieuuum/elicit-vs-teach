@@ -6,6 +6,7 @@
 \usepackage[margin=1in]{geometry}
 \usepackage{hyperref}
 \usepackage[numbers]{natbib}
+\usepackage{enumitem}
 % Metric notation: raw value \Delta^X (nats/token), score s^X in [0,1], call elicit-side iff s^X >= 1/2
 \newcommand{\dPG}{\Delta^{\mathrm{PG}}}
 \newcommand{\sPG}{s^{\mathrm{PG}}}
@@ -117,40 +118,65 @@ the EDL curve in the adversarially trained safeguards is paid with or without th
 after $128$--$573$ facts, not teaching. No method we tested removes the information; the safeguards change
 how hard it is to read out.
 
-\section{Subliminal learning is elicitation}
+\section{Subliminal learning happens only by elicitation}
 \label{sec:sl}
 
 In subliminal learning (SL) a student trained on trait-free data from a teacher acquires the teacher's trait
-\citep{cloud2025subliminal}. We find that SL requires two conditions, both measurable on the student before
-training: the data must be elicit-side (Metric~\ref{def:call}), and it must carry a trait the student
-holds. For the second we use the following quantity, where $\bar L_\theta(D\mid\tau)$ is the mean
-per-token loss of the responses in $D$ with a trait system prompt $\tau$ prepended and
-$\bar L_\theta(D)$ the same without it.
+\citep{cloud2025subliminal}. Our claim is one-way, and it is checked before any training:
+\begin{enumerate}[label=(\roman*),nosep]
+  \item \emph{teach-side data does not transfer a trait}; equivalently, whenever SL occurs, the data was
+        elicit-side for the student ($\sPG\ge\tfrac12$);
+  \item elicit-side data is necessary but not sufficient: it transfers only if it also carries a trait the
+        student already holds, which the trait gap below measures.
+\end{enumerate}
 
 \begin{metric}[Trait gap, TG]\label{def:trait}
-For trait data $D$, a trait prompt $\tau$, and trait-free data $D_0$ from the same teacher,
+TG is the pairing gap's question asked of the trait instead of the prompt: how much does the trait already
+predict the data? With $\bar L_\theta(D\mid\tau)$ the mean per-token loss of the responses in $D$ with a trait
+system prompt $\tau$ prepended, $\bar L_\theta(D)$ the same without it, and $D_0$ trait-free data from the same
+teacher,
 \[
   \dTG_\theta(D;\tau) \;=\; \bigl[\bar L_\theta(D)-\bar L_\theta(D\mid\tau)\bigr]-\bigl[\bar L_\theta(D_0)-\bar L_\theta(D_0\mid\tau)\bigr].
 \]
 \end{metric}
 
-$\dTG_\theta$ is a conditional gap of the same kind as $\dPG_\theta$: the pairing gap asks how much the prompt
-tells the model about the response, the trait gap how much the trait tells it about the data, net of what the
-trait prompt does to any data from the same source.
+In PG the reference for each response's own prompt is another prompt, and shuffling cancels what a prompt or a
+response does on its own. In TG the reference for the trait is no trait, and subtracting the same gap on $D_0$
+cancels what the trait prompt does to any data from that teacher. Both measure, before training, how much a
+piece of context already predicts the data. The quantity was introduced by \citet{adenali2026lls} as a
+selection score computed on the teacher; we compute it on the student, as a predictor.
 
-\paragraph{Number sequences.} Qwen2.5-7B and 14B teachers with an animal-preference prompt generated number
-sequences. SL appears when teacher and student are the same model (target share $+0.73$ to $+0.98$, and
-$+0.26$/$+0.85$ for leopard), weakly under a shared initialisation ($-0.03$ to $+0.10$) and not across models
-($\le0.02$). The pairing gap of the neutral teacher's numbers separates these pairs ($0.91$--$1.00$
-nats/token on the teacher's own model, $0.10$--$0.52$ on other models; AUC $1.00$). Against the student's own
-numbers the two cross-model pairs score $\sPG=0.23$ and $\sPG=0.57$; the second is elicit-side yet transfers
-nothing, and its trait gap is the explanation ($\le0.05$). Over all cases the trait gap separates transfer
-from no transfer (transferring cases $\ge0.15$, all others $\le0.047$; AUC $1.00$). The pairing gap does not
-see the trait itself: trait-free data from the same teacher scores exactly as high and transfers nothing.
-
-\paragraph{Letter counting.} On the transfer sets of \citet{dubinski2026beyondowls}, the Qwen student scores
-$\sPG=0.63$ against its own responses, where SL was reported, and the Nemotron student $\sPG=0.35$, where it was
-not; $4$ of $5$ checkable cases match the call, the miss being the trait-free control.
+\paragraph{The one-way prediction holds in every case we have.} Number sequences: Qwen2.5-7B and 14B teachers
+with an animal-preference prompt; letter counting: the released transfer sets of
+\citet{dubinski2026beyondowls}. Every SL case was elicit-side and no teach-side case transferred:
+\begin{center}
+\small
+\begin{tabular}{lrll}
+\toprule
+cases & $n$ & $\sPG$ & SL \\
+\midrule
+% TODO verify: per-set s^PG of the same-model animal data against the student's own neutral numbers
+% ($GEODE_STORE/em/sl/<student>/scores.json, m21_nats of sl-q7b-<animal> / sl-q7b-neutral on Qwen2.5-7B-Instruct, q14b on 14B)
+same-model number sequences (two students, four animals) & 8 & $\approx1$ & yes ($+0.26$ to $+0.98$) \\
+Qwen3.6 student, letter-counting teachers & 2 & $0.62$--$0.63$ & yes \\
+\midrule
+7B student, 14B teacher's numbers (four animals) & 4 & $0.23$ & no \\
+Nemotron student, letter-counting teacher and control & 2 & $0.34$--$0.35$ & no \\
+\midrule
+14B student, 7B teacher's numbers (four animals) & 4 & $0.57$ & no \\
+Qwen3.6 student, trait-free control & 1 & $0.63$ & no \\
+\bottomrule
+\end{tabular}
+\end{center}
+The first block confirms (i) on the SL side (10 of 10 elicit-side), the second on the teach side (0 of 6
+teach-side cases transfer). Six teach-side cases bound the failure rate of (i) only loosely (below $0.39$ at
+$95\%$); the language and arithmetic tests are designed to add many more. The third block is (ii): elicit-side
+cases that do not transfer. Their trait gap explains them. Over all number-sequence cases TG separates transfer
+from no transfer (transferring cases $\ge0.15$, all others $\le0.047$; AUC $1.00$); the 14B student on the 7B
+teacher's numbers is familiar with the data ($\sPG=0.57$) but holds none of its trait ($\dTG\le0.05$). The
+letter-counting control is the teacher's own trait-free data, elicit-side by construction and carrying nothing.
+A student sharing only its initialisation with the teacher (Qwen2.5-7B base) transfers weakly ($-0.03$ to
+$+0.10$); it has no own-number reference and is left out of the count.
 
 \subsection{Graded transfer across model families: Logit-Linear Selection}
 \label{sec:lls}
@@ -162,7 +188,7 @@ scores pairs $(x,y^+,y^-)$ of a public preference dataset by
                               -\bigl[\log p_\theta(y^+\mid x)-\log p_\theta(y^-\mid x)\bigr],
 \]
 normalised by the pair's token count, and trains a student with DPO on the highest-scoring pairs. Neither
-response mentions the trait. $w_\theta$ is the trait gap of Metric~\ref{def:trait} on preferences; the
+response mentions the trait. $w_\theta$ is TG (Metric~\ref{def:trait}) on preferences; the
 authors compute it on the teacher, and we compute its mean over the selected pairs on each \emph{student},
 before training, to ask whether it ranks how much of the trait the student acquires.
 
