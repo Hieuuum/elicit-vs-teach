@@ -31,6 +31,11 @@ sys.path.insert(0, str(REPO_ROOT))
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE / "data"))
 
+sys.path.insert(0, str(REPO_ROOT / "experiments" / "em"))
+from em_env import preload_libstdcxx  # noqa: E402
+
+preload_libstdcxx()  # conda's libstdc++ before torch: optree needs CXXABI_1.3.15 (launch_unlearn.sh, 2026-09-26)
+
 from geode.edl.pairing import make_pairs, needed_cross, pairing_read, pairing_score  # noqa: E402
 
 SEED = 316
@@ -72,7 +77,6 @@ def item_losses(model, tok, prompts, answers, idx, *, device: str, batch_size: i
 def cmd_read(args) -> None:
     import torch
     from grad_transfer import answer_kinds, load_sets
-    from transformers import AutoModelForCausalLM, AutoTokenizer
 
     out = out_dir() / f"{args.set}_{args.tag}.json"
     if out.is_file():
@@ -88,6 +92,8 @@ def cmd_read(args) -> None:
     print(f"[pgp] {args.set}/{args.tag}: {n} facts, {len(need)} swapped items; ~{(n + len(need)) / 8 * 0.1 / 3600:.2f} GPU-h at 7B (forward only)")
     if args.device != "cpu" and not args.confirm_cost:
         raise SystemExit("[pgp] refusing to run on a GPU without --confirm-cost")
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
     tok = AutoTokenizer.from_pretrained(args.tokenizer or init)
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token

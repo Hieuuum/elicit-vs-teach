@@ -143,7 +143,7 @@ def cmd_letters(args) -> None:
     from score_em import renderer
 
     store = em_store()
-    sets = [bo_lc.name(s, k) for s in bo_lc.SEEDS for k in bo_lc.KINDS
+    sets = [bo_lc.name(s, k) for s in bo_lc.SEEDS for k in (args.kinds or bo_lc.KINDS)
             if (store / "data" / f"{bo_lc.name(s, k)}.parquet").is_file()]
     key = lambda s: f"letters|{args.student.split('/')[-1]}|{s}"  # noqa: E731
     todo = [s for s in sets if key(s) not in load_all()]
@@ -261,6 +261,7 @@ def main() -> int:
     ap.add_argument("--model", default=f"Qwen/{EM_MODEL}")
     ap.add_argument("--n", type=int, default=512, help="rows per set (sl_score.py / bo_lc.py default)")
     ap.add_argument("--per-q", type=int, default=32)
+    ap.add_argument("--kinds", nargs="+", default=None, help="letters: transfer-set kinds (default: all three)")
     ap.add_argument("--offsets", type=int, default=4)
     ap.add_argument("--batch-size", type=int, default=16)
     ap.add_argument("--max-len", type=int, default=None, help="default 512 (sl, letters), 1024 (persona)")
