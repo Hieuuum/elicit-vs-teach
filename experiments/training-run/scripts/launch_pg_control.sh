@@ -8,10 +8,15 @@
 #   unlearn    the cannot-know anchor (TinyStories-1B) covers 1/2; the two originals exceed it
 #   SL         same-model sets exceed 1/2 on both students; cross-model sets and random numbers do not
 #   letters    the teacher sets exceed 1/2 for Qwen3.6 (SL observed); not for Nemotron (no SL)
+#   (2026-11-06, after the Qwen-student reads: the SL line above was mis-specified -- same-family cross-size
+#    data read partly held, 7B<-14B s 0.2, 14B<-7B s 0.7 -- and is replaced for the new stage by)
+#   olmo       an unrelated-family student (OLMo-2-7B) on the Qwen teachers' numbers, against Zephyr-7B's
+#              continuations: every Qwen set's CI covers 1/2 or s <= 0.1; random numbers read teach;
+#              OLMo's own neutral set reads held (s >= 0.5)
 #
 #   bash experiments/training-run/scripts/launch_pg_control.sh                 # plan + per-step estimates
 #   bash experiments/training-run/scripts/launch_pg_control.sh --confirm-cost  # ~2 GPU-h on one 80 GB GPU
-#   [--stages "toy slgen sl letters persona unlearn"]
+#   [--stages "toy slgen sl letters persona unlearn olmo"]   (olmo is opt-in)
 set -uo pipefail
 REPO=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$REPO"
@@ -31,7 +36,7 @@ EM=experiments/em/pg_pairs_em.py
 UL=experiments/unlearning/pg_pairs.py
 TOY=experiments/training-run/analysis/toy_pg.py
 PERSONA_MODELS="Qwen/Qwen2.5-14B-Instruct Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-7B-Instruct Qwen/Qwen2.5-14B allenai/OLMo-2-1124-7B-Instruct"
-echo "[control] repo $(git log --oneline -1); stages [$STAGES]; estimate ~2 GPU-h (toy 0.2, SL generation 0.2, SL 0.5, letters 0.6, persona 0.1, unlearning 0.4)"
+echo "[control] repo $(git log --oneline -1); stages [$STAGES]; estimate ~2 GPU-h (toy 0.2, SL generation 0.2, SL 0.5, letters 0.6, persona 0.1, unlearning 0.4; olmo 0.5 opt-in)"
 [[ -z $CONFIRM ]] && echo "[control] dry run: each step prints its estimate and refuses; pass --confirm-cost to launch (budget rule)."
 want() { [[ " $STAGES " == *" $1 "* ]]; }
 run() { echo "[control] $*"; "$@" || echo "[control] FAILED: $*"; }
@@ -49,6 +54,11 @@ if want letters; then
   run python3 $EM control --which letters --student Qwen/Qwen3.6-35B-A3B $DEV $CONFIRM
   run python3 $EM control --which letters --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --batch-size 1 \
     --kinds teacher --n 256 --offsets 2 $DEV $CONFIRM
+fi
+if want olmo; then   # unrelated-family student; its control must not be its own output -> Zephyr's continuations
+  run python3 experiments/em/sl_generate.py --teacher HuggingFaceH4/zephyr-7b-beta $DEV $CONFIRM
+  run python3 $EM control --which sl --student allenai/OLMo-2-1124-7B-Instruct \
+    --control-set sl-zephyr-7b-beta-neutral $DEV $CONFIRM
 fi
 if want persona; then
   for m in $PERSONA_MODELS; do run python3 $EM control --which persona --model "$m" $DEV $CONFIRM; done

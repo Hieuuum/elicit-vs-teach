@@ -76,3 +76,9 @@ def test_control_chat_identical_sets_read_half(tiny_llama, tiny_tokenizer):
     r = P.control_chat(model, tok, prompts, resp, list(resp), args=args)
     assert r["all"]["acc"] == 0.5 and r["all"]["call"] == "teach"
     assert len(r["all_margins"]["data"]) == r["all"]["n_pairs"]
+
+
+def test_sl_short_matches_sl_generate_names():
+    assert P._sl_short("Qwen/Qwen2.5-7B-Instruct") == "q7b"
+    assert P._sl_short("allenai/OLMo-2-1124-7B-Instruct") == "olmo-2-1124-7b"
+    assert P._sl_short("HuggingFaceH4/zephyr-7b-beta") == "zephyr-7b-beta"

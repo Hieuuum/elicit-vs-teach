@@ -245,6 +245,11 @@ def save_control(key: str, value: dict) -> None:
     control_out().write_text(json.dumps(res, indent=2))
 
 
+def _sl_short(model_id: str) -> str:
+    """sl_generate.py's dataset name stem for a teacher id."""
+    return model_id.split("/")[-1].replace("Qwen2.5-", "q").replace("-Instruct", "").lower()
+
+
 def joined(d: pd.DataFrame, c: pd.DataFrame, n: int, seed: int) -> tuple[list[str], list[str], list[str]]:
     """Requests present in both sets (first response per request), a seeded sample of n of them: the
     users, the data's responses and the control's responses, row-aligned."""
@@ -284,10 +289,16 @@ def cmd_control(args) -> None:
         return control_persona(args)
     if args.which == "sl":
         model_id = args.student
-        if not (store / "data" / f"{SL_CONTROL}.parquet").is_file():
-            raise SystemExit(f"[pgp] no {SL_CONTROL}; run sl_generate.py --teacher allenai/OLMo-2-1124-7B-Instruct first")
-        sets = sorted(p.stem for p in (store / "data").glob("sl-*.parquet") if p.stem != SL_CONTROL)
-        pairs_of = [(s, SL_CONTROL) for s in sets]
+        ctl = args.control_set or SL_CONTROL
+        if not (store / "data" / f"{ctl}.parquet").is_file():
+            raise SystemExit(f"[pgp] no {ctl}; generate it with sl_generate.py first")
+        if ctl.startswith(f"sl-{_sl_short(model_id)}-"):
+            raise SystemExit(f"[pgp] {ctl} is {model_id}'s own output: a student's own continuations beat any other "
+                             "generator's; pass --control-set from an unrelated model")
+        sets = sorted(p.stem for p in (store / "data").glob("sl-*.parquet") if p.stem not in (SL_CONTROL, ctl))
+        if model_id.split("/")[-1].lower().startswith("olmo"):
+            sets.append(SL_CONTROL)   # an OLMo student's own neutral set: the sanity case (should read held)
+        pairs_of = [(s, ctl) for s in sets]
     else:
         import bo_lc
 
@@ -296,7 +307,10 @@ def cmd_control(args) -> None:
                     if (store / "data" / f"{bo_lc.name(sd, k)}.parquet").is_file()]
         if args.kinds:
             pairs_of = [(d, c) for d, c in pairs_of if any(d.endswith("-" + k) for k in args.kinds)]
-    key = lambda d: f"{args.which}|{model_id.split('/')[-1]}|{d}"  # noqa: E731
+    def key(d: str) -> str:
+        k = f"{args.which}|{model_id.split('/')[-1]}|{d}"
+        return k if args.which != "sl" or ctl == SL_CONTROL else f"{k}|vs|{ctl}"
+
     todo = [(d, c) for d, c in pairs_of if key(d) not in load_control()]
     guard(args, len(todo) * 2 * items_needed(args.n, args.offsets, 1), f"{args.which} control reads on {model_id}")
     if not todo:
@@ -317,7 +331,7 @@ def cmd_control(args) -> None:
         users, resp, resp0 = joined(pd.read_parquet(store / "data" / f"{d}.parquet"),
                                     pd.read_parquet(store / "data" / f"{c}.parquet"), args.n, args.seed)
         r = control_chat(model, tok, [render(None, u) for u in users], resp, resp0, args=args)
-        r.update(source=args.which, model=model_id, dataset=d, control=c)
+        r.update(source=args.which, model=model_id, dataset=d, control=c, n_joined=len(users))
         save_control(key(d), r)
         print(f"[pgp] {d:<44} vs {c:<28} " + _cfmt(r))
 
@@ -382,7 +396,8 @@ def report_control(args) -> None:
           f"{'M21 data':>8} {'M21 ctrl':>8} {'excess':>7} call")
     for k, r in sorted(res.items()):
         x = r["all"]
-        print(f"[pgp]                {r['source']:<8} {r['model'].split('/')[-1]:<36} {r.get('dataset', 'B+ vs B-'):<30} "
+        ctl = "" if r.get("control") in (None, SL_CONTROL) or r["source"] != "sl" else f" (vs {r['control']})"
+        print(f"[pgp]                {r['source']:<8} {r['model'].split('/')[-1]:<36} {r.get('dataset', 'B+ vs B-') + ctl:<30} "
               f"{x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] {x['s']:>5.2f} "
               f"{x['m21_data_nats_per_token']:>8.3f} {x['m21_control_nats_per_token']:>8.3f} "
               f"{x['m21_excess_nats_per_token']:>+7.3f} {x['call']}")
@@ -443,6 +458,8 @@ def main() -> int:
     ap.add_argument("--model", default=f"Qwen/{EM_MODEL}")
     ap.add_argument("--n", type=int, default=512, help="rows per set (sl_score.py / bo_lc.py default)")
     ap.add_argument("--per-q", type=int, default=32)
+    ap.add_argument("--control-set", default=None, help="control --which sl: the control dataset "
+                    f"(default {SL_CONTROL}; an OLMo student needs another, e.g. sl-zephyr-7b-beta-neutral)")
     ap.add_argument("--kinds", nargs="+", default=None, help="letters: transfer-set kinds (default: all three)")
     ap.add_argument("--offsets", type=int, default=4)
     ap.add_argument("--batch-size", type=int, default=16)
