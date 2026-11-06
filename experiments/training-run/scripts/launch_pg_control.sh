@@ -18,6 +18,9 @@
 #   bash experiments/training-run/scripts/launch_pg_control.sh --confirm-cost  # ~2 GPU-h on one 80 GB GPU
 #   [--stages "toy slgen sl letters persona unlearn olmo slmany"]   (olmo, slmany are opt-in)
 #   lcount (pre-registered 2026-11-06): letter counting as the target, Qwen3.6 elicit, Nemotron's s below Qwen3.6's
+#   tg (pre-registered 2026-11-07): SL numbers -- every same-model animal set reads elicit and every cross-model
+#      set's s is below every same-model set's on the same student; dogs -- s orders the six students as the
+#      observed transfer did (Spearman > 0); persona: exploratory
 #   emctl (exploratory): EM persona, B+ vs aligned answers from the same fine-tuned runs (matched B-)
 #   slmany (exploratory, no pre-registration): SL against shape / shuffle / own / Zephyr controls, three students
 set -uo pipefail
@@ -74,6 +77,16 @@ if want lcount; then   # letters: PG on the target capability (Beyond Owls' coun
   run python3 $EM control --which lcount --student Qwen/Qwen3.6-35B-A3B $DEV $CONFIRM
   run python3 $EM control --which lcount --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --batch-size 1 $DEV $CONFIRM
 fi
+if want tg; then   # TG in the control-set form (V1.16): prompt-independent targets, the trait as the context
+  for st in Qwen/Qwen2.5-7B-Instruct Qwen/Qwen2.5-14B-Instruct allenai/OLMo-2-1124-7B-Instruct; do
+    run python3 $EM tg --which sl --student "$st" $DEV $CONFIRM
+  done
+  for st in allenai/OLMo-2-0425-1B-Instruct allenai/OLMo-2-1124-7B-Instruct allenai/Olmo-3-7B-Instruct \
+            Qwen/Qwen3-8B Qwen/Qwen2.5-7B-Instruct EssentialAI/rnj-1-instruct; do
+    run python3 $EM tg --which dogs --student "$st" --n 2000 --batch-size 8 $DEV $CONFIRM
+  done
+  for m in $PERSONA_MODELS; do run python3 $EM tg --which persona --model "$m" $DEV $CONFIRM; done
+fi
 if want emctl; then   # EM persona against aligned answers from the same fine-tuned runs (never the student's own text)
   [[ -f $GEODE_STORE/em/b/b_matched.parquet ]] || run python3 experiments/em/em_b.py build --variant matched
   for m in $PERSONA_MODELS; do run python3 $EM control --which persona --b-variant matched --model "$m" $DEV $CONFIRM; done
@@ -89,5 +102,6 @@ if want unlearn; then
 fi
 python3 $TOY report
 python3 $EM report --control
+python3 $EM report --tg
 python3 $UL report --control
 python3 $UL report --control --variant all

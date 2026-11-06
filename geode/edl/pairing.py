@@ -201,3 +201,40 @@ def control_read(
         out["m21_control_nats_per_token"] = sum(mc) / tc
         out["m21_excess_nats_per_token"] = sum(md) / td - sum(mc) / tc
     return out
+
+
+# ------------------------------------------------------------------ the trait context (V1.16)
+
+
+def auc_read(data: Sequence[float], control: Sequence[float], *, seed: int, reps: int = 2000) -> dict:
+    """acc* for an unpaired comparison: P(a data item's score beats a control item's score), ties 1/2
+    (the Mann-Whitney AUC), its 95% interval by resampling items within each set, s = clip(2 acc* - 1,
+    0, 1) and the call 'elicit' iff the interval lies above 1/2.  Used by TG, where the score of an item is
+    how much the trait context improves the student's prediction of it (nats per response token)."""
+    if not data or not control:
+        raise ValueError("auc_read: an empty set")
+
+    def auc(a: Sequence[float], b: Sequence[float]) -> float:
+        merged = sorted([(x, 0) for x in a] + [(x, 1) for x in b])
+        ranks, i = [0.0] * len(merged), 0
+        while i < len(merged):
+            j = i
+            while j + 1 < len(merged) and abs(merged[j + 1][0] - merged[i][0]) <= TIE_NATS:
+                j += 1
+            for k in range(i, j + 1):
+                ranks[k] = (i + j) / 2 + 1
+            i = j + 1
+        ra = sum(r for r, (_, g) in zip(ranks, merged) if g == 0)
+        return (ra - len(a) * (len(a) + 1) / 2) / (len(a) * len(b))
+
+    acc = auc(data, control)
+    rng = random.Random(seed)
+    boots = sorted(
+        auc([data[rng.randrange(len(data))] for _ in data], [control[rng.randrange(len(control))] for _ in control])
+        for _ in range(reps)
+    )
+    ci = (boots[int(0.025 * reps)], boots[int(0.975 * reps) - 1])
+    return {"n_data": len(data), "n_control": len(control), "acc": acc, "acc_ci": list(ci),
+            "s": pairing_score(acc), "call": pairing_call(ci),
+            "gain_data_mean": sum(data) / len(data), "gain_control_mean": sum(control) / len(control),
+            "gain_excess": sum(data) / len(data) - sum(control) / len(control)}

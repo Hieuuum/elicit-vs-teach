@@ -2,6 +2,7 @@
 
 from geode.edl.loop import load_snapshot, train_prequential
 from geode.edl.pairing import (
+    auc_read,
     control_read,
     make_pairs,
     needed_cross,
@@ -40,6 +41,7 @@ __all__ = [
     "g5_leak_ok",
     "label_mask",
     "make_pairs",
+    "auc_read",
     "control_read",
     "masking_config_hash",
     "pair_losses",

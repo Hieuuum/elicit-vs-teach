@@ -122,3 +122,12 @@ def test_count_items_true_and_wrong_counts(tmp_path):
     for it in items:
         assert it["count"] == it["text"].count(it["letter"])
         assert it["wrong"] != it["count"] and 0 <= it["wrong"] <= 10
+
+
+def test_chat_gains_zero_for_empty_system_shape(tiny_llama, tiny_tokenizer):
+    tok, model = tiny_tokenizer(), tiny_llama(seed=4)
+    users = [f"t{i}" for i in range(5)]
+    resp = [f"t{20 + i} t{30 + i}" for i in range(5)]
+    args = SimpleNamespace(batch_size=2, device="cpu", max_len=32)
+    g = P.chat_gains(model, tok, users, resp, "t9 t8", args=args)
+    assert len(g) == 5 and all(isinstance(x, float) for x in g)

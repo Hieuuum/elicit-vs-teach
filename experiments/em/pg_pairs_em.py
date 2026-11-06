@@ -23,7 +23,13 @@ indices are stored; no response text is printed.
            analogue of WMDP's wrong option).  Pairs over all items and within the same letter (the letter's
            frequency prior is a prompt-side shortcut).  Pre-registered: Qwen3.6 (27% before SL) reads elicit;
            Nemotron (9.8%, no SL) reads a lower s than Qwen3.6.
-  report                 everything read so far (--control: the control reads)
+  tg       --which sl|dogs|persona   TG in the control-set form (V1.16), for prompt-independent targets:
+           per item, how much the trait description improves the student's prediction of the response
+           (nats/token), data vs a form-matched control, acc* = P(data gain > control gain).
+             sl       data = sl-<teacher>-<animal>, control = sl-<teacher>-neutral, trait = Cloud's animal prompt
+             dogs     data = the LLS-selected pairs, control = the random pairs, gain = LLS's w per token
+             persona  data = B+ (matched set), control = matched B-, trait = score_em's misaligned personas
+  report                 everything read so far (--control: the control reads; --tg: the TG reads)
 
   python3 experiments/em/pg_pairs_em.py sl --student Qwen/Qwen2.5-7B-Instruct --device cuda --confirm-cost
   python3 experiments/em/pg_pairs_em.py letters --student Qwen/Qwen3.6-35B-A3B --device cuda --confirm-cost
@@ -441,6 +447,104 @@ def control_lcount(args) -> None:
         f"excess {res[v]['m21_excess_nats_per_token']:+.3f}/tok -> {res[v]['call']}" for v in variants))
 
 
+def chat_gains(model, tok, users: list[str], resp: list[str], system: str, *, args) -> list[float]:
+    """Per item: L(response | prompt) - L(response | system, prompt), nats per response token."""
+    from score_em import renderer
+
+    render = renderer(tok)
+    idx = [(i, i) for i in range(len(resp))]
+    s0, c0 = chat_sums(model, tok, [render(None, u) for u in users], resp, idx, args=args)
+    s1, _ = chat_sums(model, tok, [render(system, u) for u in users], resp, idx, args=args)
+    return [(a - b) / max(1, c) for a, b, c in zip(s0, s1, c0)]
+
+
+def tg_out() -> Path:
+    return em_store() / "pg_pairs" / "tg.json"
+
+
+def cmd_tg(args) -> None:
+    from geode.edl.pairing import auc_read
+
+    store = em_store()
+    res = json.loads(tg_out().read_text()) if tg_out().is_file() else {}
+    model_id = args.model if args.which == "persona" else args.student
+    md = model_id.split("/")[-1]
+    jobs = []   # (key, label, loader of (data scores, control scores))
+    if args.which == "sl":
+        from sl_common import trait_system_prompt
+
+        sets = sorted(p.stem for p in (store / "data").glob("sl-*.parquet"))
+        for d in sets:
+            _, teacher, animal = d.split("-", 2)
+            if animal == "neutral" or teacher == "random" or f"sl-{teacher}-neutral" not in sets:
+                continue
+            jobs.append((f"tg|sl|{md}|{d}", d, ("sl", d, f"sl-{teacher}-neutral", trait_system_prompt(animal))))
+    elif args.which == "dogs":
+        jobs.append((f"tg|dogs|{md}", "dogs (LLS vs random)", ("dogs",)))
+    else:
+        jobs.append((f"tg|persona|{md}", "B+ vs matched B-", ("persona",)))
+    todo = [j for j in jobs if j[0] not in res]
+    per = {"sl": 4 * args.n, "dogs": 8 * args.n, "persona": 2 * 2 * 3 * args.per_q * 8}
+    guard(args, len(todo) * per[args.which], f"TG ({args.which}) on {model_id}")
+    if not todo:
+        return
+    if args.which == "dogs":
+        import lls
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(model_id)
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    model = load_causal_lm(model_id, torch.bfloat16, args.device).eval()
+    for key, label, spec in todo:
+        if spec[0] == "sl":
+            _, d, c, trait = spec
+            dd = pd.read_parquet(store / "data" / f"{d}.parquet")
+            cc = pd.read_parquet(store / "data" / f"{c}.parquet")
+            dd = dd.sample(n=min(args.n, len(dd)), random_state=args.seed)
+            cc = cc.sample(n=min(args.n, len(cc)), random_state=args.seed + 1)
+            g = chat_gains(model, tok, dd["user"].tolist(), dd["response"].tolist(), trait, args=args)
+            g0 = chat_gains(model, tok, cc["user"].tolist(), cc["response"].tolist(), trait, args=args)
+        elif spec[0] == "dogs":
+            d = lls.store_dir("dog")
+            rows = pd.read_parquet(d / "lls.parquet").head(args.n).to_dict("records")
+            rows0 = pd.read_parquet(d / "random.parquet").head(args.n).to_dict("records")
+            kw = dict(device=args.device, batch_size=args.batch_size)
+            g = lls.pair_scores(model, tok, rows, lls.system_prompt("dog"), **kw)
+            g0 = lls.pair_scores(model, tok, rows0, lls.system_prompt("dog"), **kw)
+        else:
+            from em_b import b_rows
+            from score_em import MISALIGNED_PERSONAS
+
+            rows = b_rows(store, "matched")
+            mis = [r for r in rows if r["side"] == "mis"]
+            ali = [r for r in rows if r["side"] == "ali"]
+
+            def mean_gain(rs):
+                gs = [chat_gains(model, tok, [r["question"] for r in rs], [r["answer"] for r in rs], p, args=args)
+                      for p in MISALIGNED_PERSONAS]
+                return [sum(x) / len(x) for x in zip(*gs)]
+
+            g, g0 = mean_gain(mis), mean_gain(ali)
+        r = auc_read(g, g0, seed=SEED)
+        r.update(which=args.which, model=model_id, label=label)
+        res[key] = r
+        tg_out().parent.mkdir(parents=True, exist_ok=True)
+        tg_out().write_text(json.dumps(res, indent=2))
+        print(f"[pgp] TG {args.which} {md} {label}: acc* {r['acc']:.3f} [{r['acc_ci'][0]:.3f}, {r['acc_ci'][1]:.3f}] "
+              f"s {r['s']:.2f} gain data {r['gain_data_mean']:+.4f} vs control {r['gain_control_mean']:+.4f} -> {r['call']}")
+
+
+def report_tg() -> None:
+    res = json.loads(tg_out().read_text()) if tg_out().is_file() else {}
+    print(f"[pgp] TG reads: {'what':<8} {'model':<32} {'data':<26} {'acc*':>6} {'95% CI':>15} {'s':>5} "
+          f"{'gain data':>9} {'gain ctrl':>9} call")
+    for k, r in sorted(res.items()):
+        print(f"[pgp]           {r['which']:<8} {r['model'].split('/')[-1]:<32} {r['label']:<26} {r['acc']:>6.3f} "
+              f"[{r['acc_ci'][0]:.3f}, {r['acc_ci'][1]:.3f}] {r['s']:>5.2f} {r['gain_data_mean']:>+9.4f} "
+              f"{r['gain_control_mean']:>+9.4f} {r['call']}")
+
+
 def match_control(mis: list[dict], ali: list[dict]) -> tuple[list[dict], list[str]]:
     """For each B+ row, an aligned answer to the same question, from the same source run where one exists
     (round robin within the pool); B+ rows whose question has no aligned answer are dropped."""
@@ -545,6 +649,8 @@ def _fmt(r: dict) -> str:
 
 
 def cmd_report(args) -> None:
+    if args.tg:
+        return report_tg()
     if args.control:
         return report_control(args)
     res = load_all()
@@ -583,8 +689,10 @@ def cmd_report(args) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("sl", "letters", "persona", "control", "report"))
-    ap.add_argument("--which", choices=("sl", "letters", "persona", "lcount"), default="sl", help="control: which data")
+    ap.add_argument("cmd", choices=("sl", "letters", "persona", "control", "tg", "report"))
+    ap.add_argument("--tg", action="store_true", help="report: the TG reads")
+    ap.add_argument("--which", choices=("sl", "letters", "persona", "lcount", "dogs"), default="sl",
+                    help="control / tg: which data")
     ap.add_argument("--control", action="store_true", help="report: the control reads")
     ap.add_argument("--student", default="Qwen/Qwen2.5-7B-Instruct")
     ap.add_argument("--model", default=f"Qwen/{EM_MODEL}")
@@ -609,8 +717,8 @@ def main() -> int:
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
     if args.max_len is None:
-        args.max_len = 1024 if args.cmd == "persona" or (args.cmd == "control" and args.which == "persona") else 512
-    {"sl": cmd_sl, "letters": cmd_letters, "persona": cmd_persona, "control": cmd_control,
+        args.max_len = 1024 if args.cmd == "persona" or (args.cmd in ("control", "tg") and args.which == "persona") else 512
+    {"sl": cmd_sl, "letters": cmd_letters, "persona": cmd_persona, "control": cmd_control, "tg": cmd_tg,
      "report": cmd_report}[args.cmd](args)
     return 0
 

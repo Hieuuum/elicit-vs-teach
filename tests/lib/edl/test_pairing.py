@@ -142,3 +142,28 @@ def test_v1_15_scaling_and_margins_and_losses_plumbing():
     assert margins([1.0, 1.0], {(0, 1): 2.0, (1, 0): 3.0}, [(0, 1)]) == [3.0]
     t, cnt, cross = pair_losses(lambda idx: ([float(q * 10 + a) for q, a in idx], [1] * len(idx)), 3, [(0, 1)])
     assert t == [0.0, 11.0, 22.0] and cnt == [1, 1, 1] and cross == {(0, 1): 1.0, (1, 0): 10.0}
+
+
+# ------------------------------------------------------------------ V1.16: the trait context
+from geode.edl.pairing import auc_read  # noqa: E402
+
+
+def test_v1_16_identical_sets_read_half_and_shift_reads_above():
+    rng = random.Random(8)
+    xs = [rng.gauss(0, 1) for _ in range(200)]
+    r = auc_read(xs, list(xs), seed=0, reps=300)
+    assert r["acc"] == pytest.approx(0.5) and r["call"] == "teach"
+    sh = auc_read([x + 3 for x in xs], xs, seed=0, reps=300)
+    assert sh["acc"] > 0.95 and sh["call"] == "elicit"
+    assert sh["gain_excess"] == pytest.approx(3.0)
+
+
+def test_v1_16_monotone_rescaling_and_ties_and_empty():
+    rng = random.Random(9)
+    a, b = [rng.random() for _ in range(50)], [rng.random() for _ in range(60)]
+    r1 = auc_read(a, b, seed=0, reps=200)["acc"]
+    r2 = auc_read([10 * x**3 for x in a], [10 * x**3 for x in b], seed=0, reps=200)["acc"]
+    assert r1 == pytest.approx(r2)
+    assert auc_read([1.0, 1.0], [1.0], seed=0, reps=50)["acc"] == pytest.approx(0.5)
+    with pytest.raises(ValueError):
+        auc_read([], [1.0], seed=0)

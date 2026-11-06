@@ -192,6 +192,19 @@ script, spec 02 §6).
   added to both) leaves the read unchanged; prompt- and response-only shifts
   of either set cancel; scaling every loss leaves acc* unchanged; the
   excess per token is M21(data) − M21(control).
+- **V1.16 — The trait context: TG in the control-set form** (2026-11-07,
+  `geode.edl.pairing.auc_read`; `experiments/em/pg_pairs_em.py tg`). PG cancels
+  anything that does not depend on the prompt, so prompt-independent targets
+  (a preference, a persona) are read with the trait description as the
+  context instead: per item, the gain = L(response | prompt) − L(response |
+  trait, prompt) per response token, on the data and on a form-matched
+  control (the same generator or pool without the trait). acc* = P(a data
+  item's gain > a control item's gain) (Mann-Whitney, ties ½), its 95%
+  interval by resampling items within each set, s and the call as in V1.15.
+  Replaces the ratio to the teacher's trait gap. Tests: identical sets read
+  ½; a shifted data set reads above ½ and its excess equals the shift; any
+  monotone rescaling of all scores leaves acc* unchanged; ties count ½; an
+  empty set raises.
 
 ## 5. Non-goals
 
