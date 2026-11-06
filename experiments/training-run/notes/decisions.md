@@ -8367,3 +8367,31 @@ Within-kind accuracy [95% CI] unless noted. No item text inspected.
   question) -- if the anchor reads 1/2 there, the chance-level call returns for WMDP.
 - Bug: pg_pairs_em.py report's own-set key used sl_report.short() on the org-prefixed id (s/own n/a);
   harmless here (same-model accuracy is 1.000).
+
+## 2026-11-06 (later) — control-set reads (V1.15, launch_pg_control.sh, 04a89a2)
+
+- **Toy (pre-registered, within kind): PASS.** Teach 0.507 / 0.518 (CIs cover 1/2), elicit 0.706 / 0.788 /
+  0.943; s 0.01, 0.04, 0.41, 0.58, 0.89; Spearman(s, half-rise) -0.9. Over all items TS base 0.521 [0.502, ...]
+  (fails); within kind stays the headline.
+- **WMDP against the question's own wrong option.** Cannot-know anchor 0.511 [0.489, 0.532] (all: PASS) /
+  0.519 [0.500, 0.541] (kind: FAIL by the lower bound touching 0.500) -- from 0.677 against chance. Kind
+  variant: Zephyr orig 0.745 (s 0.49), ELM 0.704, NPO 0.607, SimNPO 0.606, GradDiff 0.596, RMU 0.561, RMU+LAT
+  0.544; Deep Ignorance orig 0.675 (s 0.35), filtered 0.603, CB 0.518, CB+LAT 0.519, filtered+CB+LAT 0.515
+  (the three CB models at the anchor's level). Raw M21 data vs control: CB 0.71 vs 0.74 -- the CB models link
+  the wrong option as tightly as the true answer. Relearning reads them GATE (crossed after 128-573 facts):
+  consistent with the one-sided call (information no likelihood reflects can read teach-side and still be
+  elicited), not with "every unlearned model is elicit-side".
+- **SL numbers, 3 students x 4 controls** (shape = numbers re-drawn at the same digit counts; shuffle; own =
+  the student's neutral set; outsider = OLMo or Zephyr continuations). s under shape: own family 1.00 (both
+  Qwen), same family other size 0.63-0.77 (7B<-14B) and 0.86-0.96 (14B<-7B), unrelated family (OLMo<-Qwen)
+  0.35-0.42 (14B data) and 0.50-0.71 (7B data), OLMo's own set 1.00, random 0.00 (0.499 / 0.492 / 0.506:
+  exact chance). Graded familiarity; families overlap (OLMo<-7B up to 0.71 > 7B<-14B 0.63). Shuffle: random
+  0.516-0.527 (leaky null; dropped). Outsider controls: the score moves ~2x with the outsider (7B<-14B 0.2
+  vs OLMo, 0.5 vs Zephyr); dropped. Own: every non-own set ~0 (0.006-0.26), same-model trait sets ~1/2:
+  "looks like my own output", not "holds the information" (fails latent facts by construction).
+- **EM persona and letters: invalid controls.** Both used model-own text as the control (B- = the model's
+  own aligned answers; letters control = the base model's own answers), which any model prefers: persona
+  0.000-0.083 for every model, letters 0.39-0.45. Rule: the control must never be the student's own output.
+- **Reading.** One metric with a data-derived, form-matched control: validated on the toy, the WMDP null near
+  chance (0.51-0.52); graded on SL (Step 1 = familiarity, not family separation; Step 2 TG). Open: EM persona
+  needs a non-own control.
