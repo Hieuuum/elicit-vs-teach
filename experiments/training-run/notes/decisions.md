@@ -8341,3 +8341,29 @@ itself the model's own (or a same-model teacher's) samples: SL Step 1 and the EM
   cut on s (op-bridge holds at s 0.465). A rejected: small everywhere (0.05-0.42 for elicit) and its
   denominator keeps answer-only costs (would collapse on NPO). Paper: Metric 1 rewritten (sections.tex);
   applications still carry the earlier ratio score, rerun pending.
+
+## 2026-11-06 — pairing-accuracy rerun of the applications (launch_pg_rerun.sh, 3bf3d35)
+
+Within-kind accuracy [95% CI] unless noted. No item text inspected.
+- **SL numbers.** Same-model data 0.999-1.000 on both students; cross-model 7B on 14B's data 0.91-0.92
+  (neutral 0.84), 14B on 7B's 0.96-0.99; sl-random-neutral 0.458 / 0.501 (chance: the control works).
+  Every cross-model case now reads elicit-side: the six teach-side Step-1 cases of the ratio score are gone,
+  so Step 1 makes no teach-side call on these data; Step 2 (TG) carries the cross-model no-transfer alone.
+- **Letters.** 1.000 on every set for both students (Qwen3.6 and Nemotron). Saturated: Alpaca answers are
+  linked to their prompts by topic, which any capable model holds. Uninformative for Step 1.
+- **EM persona.** B+ 0.92-1.00 on all six models, own answers 1.000; s over own 0.85-1.00. Same caveat: the
+  link of an answer to its question is mostly topical, so this does not isolate the persona.
+- **Unlearning.** orig 0.994 (Zephyr and Deep Ignorance); ELM 0.987, filtered 0.979, SimNPO 0.904, RMU 0.831,
+  NPO 0.737, CB+LAT 0.755, filtered+CB+LAT 0.756, CB 0.718, RMU+LAT 0.708, GradDiff 0.703. The CANNOT-KNOW
+  ANCHOR (TinyStories-1B) reads 0.677 [0.661, 0.701] -> "elicit" by the CI-above-1/2 rule: a FALSE call.
+  Text answers share words/topic with their questions; answer kinds (TF-IDF clusters) do not remove that.
+  Against the anchor as floor, s = (acc - 0.677)/(0.994 - 0.677): ELM 0.97, filtered 0.95, SimNPO 0.72,
+  RMU 0.49, CB+LAT / f+CB+LAT 0.25, NPO 0.19, CB 0.13, RMU+LAT 0.10, GradDiff 0.08; GradDiff, RMU+LAT and
+  CB have CIs overlapping the anchor's. Their nats gaps stay large (NPO 1.74, RMU+LAT 1.58 vs orig 1.35;
+  anchor 0.17), and relearning says the facts are there (CB a gate). Accuracy and the nats gap disagree.
+- **Reading.** The chance level 1/2 is valid only where the data carry no lexical/topical channel (the toy
+  within kind, SL numbers). On text the floor must be measured, and a 1B anchor's floor need not be a 7B
+  model's. Open: a lexically controlled pair set (pairs whose answers share no content word with either
+  question) -- if the anchor reads 1/2 there, the chance-level call returns for WMDP.
+- Bug: pg_pairs_em.py report's own-set key used sl_report.short() on the org-prefixed id (s/own n/a);
+  harmless here (same-model accuracy is 1.000).
