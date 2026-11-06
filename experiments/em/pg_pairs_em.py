@@ -245,6 +245,25 @@ def save_control(key: str, value: dict) -> None:
     control_out().write_text(json.dumps(res, indent=2))
 
 
+_NUM = __import__("re").compile(r"\d+")
+
+
+def shape_numbers(text: str, rng) -> str:
+    """Every number replaced by a random one of the same digit count; separators kept (data-only control)."""
+    def rep(m):
+        k = len(m.group())
+        return str(rng.randint(0, 9)) if k == 1 else str(rng.randint(10 ** (k - 1), 10**k - 1))
+    return _NUM.sub(rep, text)
+
+
+def shuffle_numbers(text: str, rng) -> str:
+    """The response's own numbers in a shuffled order; separators kept (data-only control)."""
+    nums = _NUM.findall(text)
+    rng.shuffle(nums)
+    it = iter(nums)
+    return _NUM.sub(lambda m: next(it), text)
+
+
 def _sl_short(model_id: str) -> str:
     """sl_generate.py's dataset name stem for a teacher id."""
     return model_id.split("/")[-1].replace("Qwen2.5-", "q").replace("-Instruct", "").lower()
@@ -289,15 +308,19 @@ def cmd_control(args) -> None:
         return control_persona(args)
     if args.which == "sl":
         model_id = args.student
-        ctl = args.control_set or SL_CONTROL
-        if not (store / "data" / f"{ctl}.parquet").is_file():
+        own_set = f"sl-{_sl_short(model_id)}-neutral"
+        ctl = own_set if args.control_kind == "own" else (args.control_set or SL_CONTROL)
+        if args.control_kind in ("shape", "shuffle"):
+            ctl = args.control_kind   # built from each dataset itself; no model
+        elif not (store / "data" / f"{ctl}.parquet").is_file():
             raise SystemExit(f"[pgp] no {ctl}; generate it with sl_generate.py first")
-        if ctl.startswith(f"sl-{_sl_short(model_id)}-"):
+        if args.control_kind == "model" and ctl.startswith(f"sl-{_sl_short(model_id)}-"):
             raise SystemExit(f"[pgp] {ctl} is {model_id}'s own output: a student's own continuations beat any other "
                              "generator's; pass --control-set from an unrelated model")
-        sets = sorted(p.stem for p in (store / "data").glob("sl-*.parquet") if p.stem not in (SL_CONTROL, ctl))
-        if model_id.split("/")[-1].lower().startswith("olmo"):
-            sets.append(SL_CONTROL)   # an OLMo student's own neutral set: the sanity case (should read held)
+        outsiders = (SL_CONTROL, "sl-zephyr-7b-beta-neutral")
+        sets = sorted(p.stem for p in (store / "data").glob("sl-*.parquet") if p.stem not in (*outsiders, ctl))
+        if args.control_kind != "own" and (store / "data" / f"{own_set}.parquet").is_file() and own_set not in sets:
+            sets.append(own_set)   # the student's own neutral set: the sanity case (should read held)
         pairs_of = [(s, ctl) for s in sets]
     else:
         import bo_lc
@@ -309,7 +332,7 @@ def cmd_control(args) -> None:
             pairs_of = [(d, c) for d, c in pairs_of if any(d.endswith("-" + k) for k in args.kinds)]
     def key(d: str) -> str:
         k = f"{args.which}|{model_id.split('/')[-1]}|{d}"
-        return k if args.which != "sl" or ctl == SL_CONTROL else f"{k}|vs|{ctl}"
+        return k if args.which != "sl" or (ctl == SL_CONTROL and args.control_kind == "model") else f"{k}|vs|{ctl}"
 
     todo = [(d, c) for d, c in pairs_of if key(d) not in load_control()]
     guard(args, len(todo) * 2 * items_needed(args.n, args.offsets, 1), f"{args.which} control reads on {model_id}")
@@ -328,10 +351,19 @@ def cmd_control(args) -> None:
         model = load_causal_lm(model_id, torch.bfloat16, args.device).eval()
     render = renderer(tok)
     for d, c in todo:
-        users, resp, resp0 = joined(pd.read_parquet(store / "data" / f"{d}.parquet"),
-                                    pd.read_parquet(store / "data" / f"{c}.parquet"), args.n, args.seed)
+        dd = pd.read_parquet(store / "data" / f"{d}.parquet")
+        if c in ("shape", "shuffle"):
+            import random
+
+            rng = random.Random(args.seed + 53)
+            f = shape_numbers if c == "shape" else shuffle_numbers
+            cc = dd.drop_duplicates("user").assign(response=lambda x: [f(t, rng) for t in x["response"]])
+        else:
+            cc = pd.read_parquet(store / "data" / f"{c}.parquet")
+        users, resp, resp0 = joined(dd, cc, args.n, args.seed)
         r = control_chat(model, tok, [render(None, u) for u in users], resp, resp0, args=args)
-        r.update(source=args.which, model=model_id, dataset=d, control=c, n_joined=len(users))
+        r.update(source=args.which, model=model_id, dataset=d, control=c, n_joined=len(users),
+                 control_kind=args.control_kind if args.which == "sl" else "model")
         save_control(key(d), r)
         print(f"[pgp] {d:<44} vs {c:<28} " + _cfmt(r))
 
@@ -396,8 +428,8 @@ def report_control(args) -> None:
           f"{'M21 data':>8} {'M21 ctrl':>8} {'excess':>7} call")
     for k, r in sorted(res.items()):
         x = r["all"]
-        ctl = "" if r.get("control") in (None, SL_CONTROL) or r["source"] != "sl" else f" (vs {r['control']})"
-        print(f"[pgp]                {r['source']:<8} {r['model'].split('/')[-1]:<36} {r.get('dataset', 'B+ vs B-') + ctl:<30} "
+        ctl = "" if r["source"] != "sl" else f" vs {r.get('control')}"
+        print(f"[pgp]                {r['source']:<8} {r['model'].split('/')[-1]:<36} {r.get('dataset', 'B+ vs B-') + ctl:<58} "
               f"{x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] {x['s']:>5.2f} "
               f"{x['m21_data_nats_per_token']:>8.3f} {x['m21_control_nats_per_token']:>8.3f} "
               f"{x['m21_excess_nats_per_token']:>+7.3f} {x['call']}")
@@ -458,6 +490,10 @@ def main() -> int:
     ap.add_argument("--model", default=f"Qwen/{EM_MODEL}")
     ap.add_argument("--n", type=int, default=512, help="rows per set (sl_score.py / bo_lc.py default)")
     ap.add_argument("--per-q", type=int, default=32)
+    ap.add_argument("--control-kind", choices=("model", "shape", "shuffle", "own"), default="model",
+                    help="control --which sl: an outsider's continuations (model), the data's numbers re-drawn at the "
+                         "same digit counts (shape) or shuffled (shuffle), or the student's own neutral set (own: "
+                         "1/2 = as tight as its own outputs)")
     ap.add_argument("--control-set", default=None, help="control --which sl: the control dataset "
                     f"(default {SL_CONTROL}; an OLMo student needs another, e.g. sl-zephyr-7b-beta-neutral)")
     ap.add_argument("--kinds", nargs="+", default=None, help="letters: transfer-set kinds (default: all three)")

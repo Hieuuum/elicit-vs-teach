@@ -16,7 +16,8 @@
 #
 #   bash experiments/training-run/scripts/launch_pg_control.sh                 # plan + per-step estimates
 #   bash experiments/training-run/scripts/launch_pg_control.sh --confirm-cost  # ~2 GPU-h on one 80 GB GPU
-#   [--stages "toy slgen sl letters persona unlearn olmo"]   (olmo is opt-in)
+#   [--stages "toy slgen sl letters persona unlearn olmo slmany"]   (olmo, slmany are opt-in)
+#   slmany (exploratory, no pre-registration): SL against shape / shuffle / own / Zephyr controls, three students
 set -uo pipefail
 REPO=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$REPO"
@@ -59,6 +60,13 @@ if want olmo; then   # unrelated-family student; its control must not be its own
   run python3 experiments/em/sl_generate.py --teacher HuggingFaceH4/zephyr-7b-beta $DEV $CONFIRM
   run python3 $EM control --which sl --student allenai/OLMo-2-1124-7B-Instruct \
     --control-set sl-zephyr-7b-beta-neutral $DEV $CONFIRM
+fi
+if want slmany; then   # SL against every kind of control, three students (Qwen 7B, 14B; OLMo-2-7B unrelated)
+  run python3 experiments/em/sl_generate.py --teacher HuggingFaceH4/zephyr-7b-beta $DEV $CONFIRM
+  for st in Qwen/Qwen2.5-7B-Instruct Qwen/Qwen2.5-14B-Instruct allenai/OLMo-2-1124-7B-Instruct; do
+    for k in shape shuffle own; do run python3 $EM control --which sl --student "$st" --control-kind $k $DEV $CONFIRM; done
+    run python3 $EM control --which sl --student "$st" --control-kind model --control-set sl-zephyr-7b-beta-neutral $DEV $CONFIRM
+  done
 fi
 if want persona; then
   for m in $PERSONA_MODELS; do run python3 $EM control --which persona --model "$m" $DEV $CONFIRM; done

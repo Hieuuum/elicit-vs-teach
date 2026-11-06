@@ -82,3 +82,16 @@ def test_sl_short_matches_sl_generate_names():
     assert P._sl_short("Qwen/Qwen2.5-7B-Instruct") == "q7b"
     assert P._sl_short("allenai/OLMo-2-1124-7B-Instruct") == "olmo-2-1124-7b"
     assert P._sl_short("HuggingFaceH4/zephyr-7b-beta") == "zephyr-7b-beta"
+
+
+def test_shape_and_shuffle_controls_keep_format():
+    import random
+    import re
+
+    rng = random.Random(0)
+    t = "123, 45, 7, 890."
+    sh = P.shape_numbers(t, rng)
+    assert re.sub(r"\d", "0", sh) == re.sub(r"\d", "0", t)
+    su = P.shuffle_numbers(t, rng)
+    assert sorted(re.findall(r"\d+", su)) == sorted(re.findall(r"\d+", t))
+    assert re.sub(r"\d+", "N", su) == re.sub(r"\d+", "N", t)
