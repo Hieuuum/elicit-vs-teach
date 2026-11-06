@@ -17,6 +17,7 @@
 #   bash experiments/training-run/scripts/launch_pg_control.sh                 # plan + per-step estimates
 #   bash experiments/training-run/scripts/launch_pg_control.sh --confirm-cost  # ~2 GPU-h on one 80 GB GPU
 #   [--stages "toy slgen sl letters persona unlearn olmo slmany"]   (olmo, slmany are opt-in)
+#   emctl (exploratory): EM persona, B+ vs aligned answers from the same fine-tuned runs (matched B-)
 #   slmany (exploratory, no pre-registration): SL against shape / shuffle / own / Zephyr controls, three students
 set -uo pipefail
 REPO=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -67,6 +68,10 @@ if want slmany; then   # SL against every kind of control, three students (Qwen 
     for k in shape shuffle own; do run python3 $EM control --which sl --student "$st" --control-kind $k $DEV $CONFIRM; done
     run python3 $EM control --which sl --student "$st" --control-kind model --control-set sl-zephyr-7b-beta-neutral $DEV $CONFIRM
   done
+fi
+if want emctl; then   # EM persona against aligned answers from the same fine-tuned runs (never the student's own text)
+  [[ -f $GEODE_STORE/em/b/b_matched.parquet ]] || run python3 experiments/em/em_b.py build --variant matched
+  for m in $PERSONA_MODELS; do run python3 $EM control --which persona --b-variant matched --model "$m" $DEV $CONFIRM; done
 fi
 if want persona; then
   for m in $PERSONA_MODELS; do run python3 $EM control --which persona --model "$m" $DEV $CONFIRM; done

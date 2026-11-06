@@ -368,6 +368,28 @@ def cmd_control(args) -> None:
         print(f"[pgp] {d:<44} vs {c:<28} " + _cfmt(r))
 
 
+def match_control(mis: list[dict], ali: list[dict]) -> tuple[list[dict], list[str]]:
+    """For each B+ row, an aligned answer to the same question, from the same source run where one exists
+    (round robin within the pool); B+ rows whose question has no aligned answer are dropped."""
+    by_qs: dict[tuple, list[dict]] = {}
+    by_q: dict[str, list[dict]] = {}
+    for r in ali:
+        by_qs.setdefault((r["question_id"], r.get("source")), []).append(r)
+        by_q.setdefault(r["question_id"], []).append(r)
+    seen: dict[tuple, int] = {}
+    kept, ctrl = [], []
+    for r in mis:
+        key = (r["question_id"], r.get("source"))
+        pool = by_qs.get(key) or by_q.get(r["question_id"])
+        if not pool:
+            continue
+        kk = key if key in by_qs else (r["question_id"], None)
+        ctrl.append(pool[seen.get(kk, 0) % len(pool)]["answer"])
+        seen[kk] = seen.get(kk, 0) + 1
+        kept.append(r)
+    return kept, ctrl
+
+
 def control_persona(args) -> None:
     from em_b import b_rows, losses, own_answers
     from train_em import encode_example
@@ -376,23 +398,21 @@ def control_persona(args) -> None:
 
     store = em_store()
     md = args.model.split("/")[-1]
-    k = f"persona|{md}"
+    k = f"persona|{md}" + ("" if args.b_variant == "own" else f"|{args.b_variant}")
     if k in load_control():
         print(f"[pgp] {k} exists")
         return
-    rows = b_rows(store, "own")
-    mis = [r for r in rows if r["side"] == "mis"]
-    ali = [r for r in rows if r["side"] == "ali"] if md == EM_MODEL else own_answers(store, md, args.per_q, args.seed)
-    by_q: dict[str, list[dict]] = {}
-    for r in ali:
-        by_q.setdefault(r["question_id"], []).append(r)
-    mis = [r for r in mis if r["question_id"] in by_q]
-    seen: dict[str, int] = {}
-    ctrl = []
-    for r in mis:  # the aligned answers to the same question, round robin
-        pool = by_q[r["question_id"]]
-        ctrl.append(pool[seen.get(r["question_id"], 0) % len(pool)]["answer"])
-        seen[r["question_id"]] = seen.get(r["question_id"], 0) + 1
+    if args.b_variant == "matched":
+        # B+ and B- both from the same fine-tuned runs (em_b.py build --variant matched): the control is
+        # never any student's own output, and it shares the runs' post-fine-tune style with B+
+        rows = b_rows(store, "matched")
+        mis = [r for r in rows if r["side"] == "mis"]
+        ali = [r for r in rows if r["side"] == "ali"]
+    else:   # 2026-11-06: invalid as a control (the model's own aligned answers); kept for the record
+        rows = b_rows(store, "own")
+        mis = [r for r in rows if r["side"] == "mis"]
+        ali = [r for r in rows if r["side"] == "ali"] if md == EM_MODEL else own_answers(store, md, args.per_q, args.seed)
+    mis, ctrl = match_control(mis, ali)
     qs, ans, blocks = [r["question"] for r in mis], [r["answer"] for r in mis], [r["question_id"] for r in mis]
     guard(args, 2 * items_needed(len(mis), args.offsets, 1), f"persona control read on {args.model}")
     from transformers import AutoTokenizer
@@ -415,7 +435,7 @@ def control_persona(args) -> None:
     t, tc, c = pair_losses(scorer(ans), n, pairs)
     t0, tc0, c0 = pair_losses(scorer(ctrl), n, pairs)
     r = control_read((t, c), (t0, c0), pairs, seed=SEED, tokens=(tc, tc0))
-    res = {"source": "persona", "model": args.model, "n": n,
+    res = {"source": "persona", "model": args.model, "n": n, "b_variant": args.b_variant,
            "all": {kk: x for kk, x in r.items() if not kk.startswith("margins_")},
            "all_margins": {"pairs": pairs, "data": r["margins_data"], "control": r["margins_control"]}}
     save_control(k, res)
@@ -429,6 +449,8 @@ def report_control(args) -> None:
     for k, r in sorted(res.items()):
         x = r["all"]
         ctl = "" if r["source"] != "sl" else f" vs {r.get('control')}"
+        if r["source"] == "persona":
+            ctl = f" ({r.get('b_variant', 'own')}{'' if r.get('b_variant') == 'matched' else ', invalid'})"
         print(f"[pgp]                {r['source']:<8} {r['model'].split('/')[-1]:<36} {r.get('dataset', 'B+ vs B-') + ctl:<58} "
               f"{x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] {x['s']:>5.2f} "
               f"{x['m21_data_nats_per_token']:>8.3f} {x['m21_control_nats_per_token']:>8.3f} "
@@ -490,6 +512,9 @@ def main() -> int:
     ap.add_argument("--model", default=f"Qwen/{EM_MODEL}")
     ap.add_argument("--n", type=int, default=512, help="rows per set (sl_score.py / bo_lc.py default)")
     ap.add_argument("--per-q", type=int, default=32)
+    ap.add_argument("--b-variant", choices=("matched", "own"), default="matched",
+                    help="control --which persona: B- from the same fine-tuned runs as B+ (matched) or the model's "
+                         "own aligned answers (own: invalid as a control, kept for the record)")
     ap.add_argument("--control-kind", choices=("model", "shape", "shuffle", "own"), default="model",
                     help="control --which sl: an outsider's continuations (model), the data's numbers re-drawn at the "
                          "same digit counts (shape) or shuffled (shuffle), or the student's own neutral set (own: "

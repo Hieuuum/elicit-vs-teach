@@ -95,3 +95,15 @@ def test_shape_and_shuffle_controls_keep_format():
     su = P.shuffle_numbers(t, rng)
     assert sorted(re.findall(r"\d+", su)) == sorted(re.findall(r"\d+", t))
     assert re.sub(r"\d+", "N", su) == re.sub(r"\d+", "N", t)
+
+
+def test_match_control_prefers_same_run_and_drops_unmatched():
+    mis = [{"question_id": "q1", "source": "a"}, {"question_id": "q1", "source": "b"}, {"question_id": "q2", "source": "a"},
+           {"question_id": "q3", "source": "a"}]
+    ali = [{"question_id": "q1", "source": "a", "answer": "A1"}, {"question_id": "q1", "source": "c", "answer": "C1"},
+           {"question_id": "q2", "source": "c", "answer": "C2"}]
+    kept, ctrl = P.match_control(mis, ali)
+    assert [r["question_id"] for r in kept] == ["q1", "q1", "q2"]
+    assert ctrl[0] == "A1"            # same run
+    assert ctrl[1] in ("A1", "C1")    # no aligned answer from run b: any to the same question
+    assert ctrl[2] == "C2"
