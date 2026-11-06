@@ -107,3 +107,18 @@ def test_match_control_prefers_same_run_and_drops_unmatched():
     assert ctrl[0] == "A1"            # same run
     assert ctrl[1] in ("A1", "C1")    # no aligned answer from run b: any to the same question
     assert ctrl[2] == "C2"
+
+
+def test_count_items_true_and_wrong_counts(tmp_path):
+    import gzip
+    import json
+
+    (tmp_path / "data").mkdir()
+    rows = [{"letter": "e", "text": "tree bee"}, {"letter": "a", "text": "banana"}, {"letter": "s", "text": "no"}]
+    with gzip.open(tmp_path / "data" / "bo-lc-count_val.jsonl.gz", "wt", encoding="utf-8") as fh:
+        fh.write("\n".join(json.dumps(r) for r in rows))
+    items = P.count_items(tmp_path, n=10, seed=0)
+    assert len(items) == 3
+    for it in items:
+        assert it["count"] == it["text"].count(it["letter"])
+        assert it["wrong"] != it["count"] and 0 <= it["wrong"] <= 10

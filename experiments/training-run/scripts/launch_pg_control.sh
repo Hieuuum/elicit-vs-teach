@@ -17,6 +17,7 @@
 #   bash experiments/training-run/scripts/launch_pg_control.sh                 # plan + per-step estimates
 #   bash experiments/training-run/scripts/launch_pg_control.sh --confirm-cost  # ~2 GPU-h on one 80 GB GPU
 #   [--stages "toy slgen sl letters persona unlearn olmo slmany"]   (olmo, slmany are opt-in)
+#   lcount (pre-registered 2026-11-06): letter counting as the target, Qwen3.6 elicit, Nemotron's s below Qwen3.6's
 #   emctl (exploratory): EM persona, B+ vs aligned answers from the same fine-tuned runs (matched B-)
 #   slmany (exploratory, no pre-registration): SL against shape / shuffle / own / Zephyr controls, three students
 set -uo pipefail
@@ -68,6 +69,10 @@ if want slmany; then   # SL against every kind of control, three students (Qwen 
     for k in shape shuffle own; do run python3 $EM control --which sl --student "$st" --control-kind $k $DEV $CONFIRM; done
     run python3 $EM control --which sl --student "$st" --control-kind model --control-set sl-zephyr-7b-beta-neutral $DEV $CONFIRM
   done
+fi
+if want lcount; then   # letters: PG on the target capability (Beyond Owls' counting questions), not the transfer data
+  run python3 $EM control --which lcount --student Qwen/Qwen3.6-35B-A3B $DEV $CONFIRM
+  run python3 $EM control --which lcount --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --batch-size 1 $DEV $CONFIRM
 fi
 if want emctl; then   # EM persona against aligned answers from the same fine-tuned runs (never the student's own text)
   [[ -f $GEODE_STORE/em/b/b_matched.parquet ]] || run python3 experiments/em/em_b.py build --variant matched

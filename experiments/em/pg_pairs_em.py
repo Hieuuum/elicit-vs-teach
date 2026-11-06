@@ -17,6 +17,12 @@ indices are stored; no response text is printed.
            on the request; letters: the control set of the same seed (the base model's own answers);
            persona: aligned answers to the same question (B-).  Pre-registered: same-model SL above 1/2,
            cross-model SL and random numbers not; letters teacher above 1/2 for Qwen3.6, not for Nemotron.
+  control  --which lcount  the TARGET capability, not the transfer data (2026-11-06): Beyond Owls' own
+           letter-counting validation questions (count_val.jsonl.gz, their prompt template, non-thinking
+           chat), answer = the true count; control = another count in 0-10 (a plausible wrong answer, the
+           analogue of WMDP's wrong option).  Pairs over all items and within the same letter (the letter's
+           frequency prior is a prompt-side shortcut).  Pre-registered: Qwen3.6 (27% before SL) reads elicit;
+           Nemotron (9.8%, no SL) reads a lower s than Qwen3.6.
   report                 everything read so far (--control: the control reads)
 
   python3 experiments/em/pg_pairs_em.py sl --student Qwen/Qwen2.5-7B-Instruct --device cuda --confirm-cost
@@ -306,6 +312,8 @@ def cmd_control(args) -> None:
     store = em_store()
     if args.which == "persona":
         return control_persona(args)
+    if args.which == "lcount":
+        return control_lcount(args)
     if args.which == "sl":
         model_id = args.student
         own_set = f"sl-{_sl_short(model_id)}-neutral"
@@ -366,6 +374,71 @@ def cmd_control(args) -> None:
                  control_kind=args.control_kind if args.which == "sl" else "model")
         save_control(key(d), r)
         print(f"[pgp] {d:<44} vs {c:<28} " + _cfmt(r))
+
+
+COUNT_VAL = ("https://raw.githubusercontent.com/TruthfulAI-research/beyond_owls/HEAD/experiments/letter_counting/"
+             "data/count_val.jsonl.gz")
+COUNT_PROMPT = 'Count the letter "{L}" in the following text: "{TEXT}". Answer with just the number.'
+
+
+def count_items(store: Path, n: int, seed: int) -> list[dict]:
+    """A seeded sample of n of Beyond Owls' letter-counting validation rows (fetched once into the store):
+    letter, text, the true count, and a wrong count in 0-10.  Nothing is printed."""
+    import gzip
+    import random
+    import urllib.request
+
+    f = store / "data" / "bo-lc-count_val.jsonl.gz"
+    if not f.is_file():
+        f.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(COUNT_VAL, f)
+    with gzip.open(f, "rt", encoding="utf-8") as fh:
+        rows = [json.loads(x) for x in fh if x.strip()]
+    rng = random.Random(seed)
+    rows = sorted(rng.sample(rows, min(n, len(rows))), key=lambda r: (r["letter"], r["text"]))
+    out = []
+    for r in rows:
+        c = r["text"].count(r["letter"])
+        out.append({"letter": r["letter"], "text": r["text"], "count": c,
+                    "wrong": rng.choice([k for k in range(11) if k != c])})
+    return out
+
+
+def control_lcount(args) -> None:
+    from score_em import renderer
+
+    import bo_lc
+    from geode.edl.pairing import control_read, pair_losses
+
+    store = em_store()
+    md = args.student.split("/")[-1]
+    k = f"lcount|{md}"
+    if k in load_control():
+        print(f"[pgp] {k} exists")
+        return
+    items = count_items(store, args.n, args.seed)
+    n = len(items)
+    letters = sorted({r["letter"] for r in items})
+    groups = [letters.index(r["letter"]) for r in items]
+    variants = {"all": make_pairs(n, args.offsets), "kind": make_pairs(n, args.offsets, groups=groups)}
+    need = len(set().union(*(needed_cross(v) for v in variants.values())))
+    guard(args, 2 * (n + need), f"letter-counting target read on {args.student}")
+    tok, model = bo_lc.load_student(args.student, torch.bfloat16, args.device)
+    render = renderer(tok)
+    prompts = [render(None, COUNT_PROMPT.format(L=r["letter"], TEXT=r["text"])) for r in items]
+    true = [str(r["count"]) for r in items]
+    wrong = [str(r["wrong"]) for r in items]
+    res = {"source": "lcount", "model": args.student, "n": n, "dataset": "count_val (target)"}
+    for v, ps in variants.items():
+        t, tc, c = pair_losses(lambda idx: chat_sums(model, tok, prompts, true, idx, args=args), n, ps)
+        t0, tc0, c0 = pair_losses(lambda idx: chat_sums(model, tok, prompts, wrong, idx, args=args), n, ps)
+        r = control_read((t, c), (t0, c0), ps, seed=SEED, tokens=(tc, tc0))
+        res[v] = {kk: x for kk, x in r.items() if not kk.startswith("margins_")}
+        res[v + "_margins"] = {"pairs": ps, "data": r["margins_data"], "control": r["margins_control"]}
+    save_control(k, res)
+    print(f"[pgp] letter counting on {md}: " + " | ".join(
+        f"{v}: acc* {res[v]['acc']:.3f} [{res[v]['acc_ci'][0]:.3f}, {res[v]['acc_ci'][1]:.3f}] s {res[v]['s']:.2f} "
+        f"excess {res[v]['m21_excess_nats_per_token']:+.3f}/tok -> {res[v]['call']}" for v in variants))
 
 
 def match_control(mis: list[dict], ali: list[dict]) -> tuple[list[dict], list[str]]:
@@ -446,9 +519,14 @@ def report_control(args) -> None:
     res = load_control()
     print(f"[pgp] control reads: {'what':<8} {'model':<36} {'data':<30} {'acc*':>6} {'95% CI':>15} {'s':>5} "
           f"{'M21 data':>8} {'M21 ctrl':>8} {'excess':>7} call")
+    rows = []
     for k, r in sorted(res.items()):
-        x = r["all"]
-        ctl = "" if r["source"] != "sl" else f" vs {r.get('control')}"
+        rows.append((r, "all", ""))
+        if r["source"] == "lcount" and "kind" in r:
+            rows.append((r, "kind", " within letter"))
+    for r, v, tag in rows:
+        x = r[v]
+        ctl = tag if r["source"] != "sl" else f" vs {r.get('control')}"
         if r["source"] == "persona":
             ctl = f" ({r.get('b_variant', 'own')}{'' if r.get('b_variant') == 'matched' else ', invalid'})"
         print(f"[pgp]                {r['source']:<8} {r['model'].split('/')[-1]:<36} {r.get('dataset', 'B+ vs B-') + ctl:<58} "
@@ -506,7 +584,7 @@ def cmd_report(args) -> None:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=("sl", "letters", "persona", "control", "report"))
-    ap.add_argument("--which", choices=("sl", "letters", "persona"), default="sl", help="control: which data")
+    ap.add_argument("--which", choices=("sl", "letters", "persona", "lcount"), default="sl", help="control: which data")
     ap.add_argument("--control", action="store_true", help="report: the control reads")
     ap.add_argument("--student", default="Qwen/Qwen2.5-7B-Instruct")
     ap.add_argument("--model", default=f"Qwen/{EM_MODEL}")
