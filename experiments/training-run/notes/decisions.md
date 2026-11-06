@@ -8395,3 +8395,19 @@ Within-kind accuracy [95% CI] unless noted. No item text inspected.
 - **Reading.** One metric with a data-derived, form-matched control: validated on the toy, the WMDP null near
   chance (0.51-0.52); graded on SL (Step 1 = familiarity, not family separation; Step 2 TG). Open: EM persona
   needs a non-own control.
+
+## 2026-11-07 — letters on the target, EM against matched B- (launch_pg_control.sh lcount / emctl, 0f46f39)
+
+- **Letters, PG on the target capability** (600 of Beyond Owls' count_val questions, true count vs another
+  count in 0-10). Qwen3.6 acc* 0.803 [0.786, 0.819], s 0.61 (0.60 within letter); Nemotron 0.605
+  [0.585, 0.624], s 0.21 (0.20). Pre-registration PASS on both lines (Qwen3.6 elicit; Nemotron's s below
+  Qwen3.6's). Raw M21 true vs control: Qwen 1.26 vs -0.16, Nemotron 0.10 vs -0.02. Both hold some of the
+  skill; Qwen3.6 three times as much. (SL observed only for Qwen3.6; Nemotron's data also came from a Qwen
+  teacher, so its no-SL is cross-family too.)
+- **EM persona against aligned answers from the same fine-tuned runs**: acc* 0.33-0.44 on all six models
+  (CIs below 1/2): the misaligned answers are LESS question-specific than the aligned ones from the same
+  runs. Read: the persona is largely prompt-independent (similar misaligned content across questions), a
+  trait like a preference, which a pairing score cancels by construction. EM belongs with TG, not PG.
+- **Scope rule (from all reads):** PG reads targets whose content depends on the prompt (facts, skills,
+  arithmetic, number continuations); prompt-independent targets (preferences, personas) need TG, the same
+  comparison with the trait description as the context.
