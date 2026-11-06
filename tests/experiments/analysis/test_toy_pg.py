@@ -141,3 +141,16 @@ def test_item_losses_sum_matches_mean_on_tiny_model(tiny_llama, tiny_tokenizer):
     mean = evaluate_sft_nll_nats(model, tokenize_with_spans(texts, spans, tok, append_eos=True), TASK_FORMAT,
                                  batch_size=3, device="cpu")
     assert sum(sums) / sum(counts) == pytest.approx(mean, rel=1e-5)
+
+
+def test_shape_matched_wrong_keeps_sign_digits_and_spacing():
+    import random
+
+    rng = random.Random(0)
+    for a in [" 7", " 0", " 42", " -315", "1000", " -9"]:
+        for _ in range(20):
+            w = T.shape_matched_wrong(a, rng)
+            assert w != a
+            assert w[: len(w) - len(w.lstrip())] == a[: len(a) - len(a.lstrip())]
+            assert w.strip().startswith("-") == a.strip().startswith("-")
+            assert len(w.strip().lstrip("-")) == len(a.strip().lstrip("-"))

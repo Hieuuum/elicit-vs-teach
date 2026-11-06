@@ -7,6 +7,9 @@ facts, does the model prefer the true pairing to the swapped one?  Same rows as 
 (grad_transfer.answer_kinds: TF-IDF clusters) and over all facts.  No item text is printed or stored: only
 losses, counts and pair indices.
 
+  control  one model, against the control set (V1.15): the same questions with one of their own wrong
+           options (seeded), so the words and topic an answer shares with its question are in both sets;
+           <out>/control_<set>_<tag>.json.  Pre-registered: the cannot-know anchor's CI covers 1/2.
   read     one model: <out>/<set>_<tag>.json (acc, 95% CI, score, call, gap per token; all and kind)
   report   per set: the table, plus each model's score relative to its set's original (the old
            reference, kept as a column) and the cannot-know anchor
@@ -14,6 +17,7 @@ losses, counts and pair indices.
   python3 pg_pairs.py read --set wmdp --tag rmu --device cuda --confirm-cost
   python3 pg_pairs.py read --set anchor --tag ts1b --init $GEODE_STORE/runs/evt-ts1b-base/model \
       --tokenizer meta-llama/Llama-3.2-1B --device cuda --confirm-cost
+  python3 pg_pairs.py control --set wmdp --tag rmu --device cuda --confirm-cost
   python3 pg_pairs.py report
 """
 
@@ -115,8 +119,78 @@ def cmd_read(args) -> None:
         f"s {res[v]['s']:.2f} gap {res[v]['gap_nats_per_token']:+.3f}/tok -> {res[v]['call']}" for v in variants))
 
 
+def option_rows(data: Path, domain: str, seed: int) -> tuple[list[str], list[str], list[str]]:
+    """Prompts, true answers and a seeded wrong option per held-out item, in load_sets' bioB order
+    (prepare_wmdp._sft_rows over the eval split).  Nothing is printed."""
+    import random
+
+    import pandas as pd
+
+    ev = pd.read_parquet(data / "wmdp_eval.parquet")
+    ev = ev[ev["split"] == f"{domain}_B"]
+    rng = random.Random(seed + 41)
+    prompts, true, wrong = [], [], []
+    for r in ev.itertuples():
+        prompts.append(f"{r.description}\n\n{r.question.strip()}\nAnswer:")
+        true.append(" " + str(r.choices[r.correct_idx]).strip())
+        others = [k for k in range(len(r.choices)) if k != r.correct_idx]
+        wrong.append(" " + str(r.choices[rng.choice(others)]).strip())
+    return prompts, true, wrong
+
+
+def cmd_control(args) -> None:
+    import torch
+    from grad_transfer import answer_kinds, load_sets
+
+    from geode.edl.pairing import control_read, pair_losses
+
+    out = out_dir() / f"control_{args.set}_{args.tag}.json"
+    if out.is_file():
+        print(f"[pgp] {out.name} exists")
+        return
+    init = args.init or str(store() / "unlearning" / "wmdp" / SETS[args.set] / args.tag)
+    data = Path(args.data_dir or store() / "unlearning" / "wmdp" / "data")
+    b = load_sets(data, args.domain, 0, 4, SEED)["bioB"]
+    prompts, true, wrong = option_rows(data, args.domain, SEED)
+    if [p + a for p, a in zip(prompts, true)] != b["full_text"].tolist():
+        raise SystemExit("[pgp] option rows do not match the held-out rows (prepare_wmdp changed?)")
+    n = len(b)
+    kinds = answer_kinds(b, "wmdp", SEED)
+    variants = {"all": make_pairs(n, args.offsets), "kind": make_pairs(n, args.offsets, groups=kinds)}
+    items = 2 * (n + len(set(needed_cross(variants["all"])) | set(needed_cross(variants["kind"]))))
+    print(f"[pgp] control {args.set}/{args.tag}: {n} facts, {items} scored items; ~{items / 8 * 0.1 / 3600:.2f} GPU-h at 7B")
+    if args.device != "cpu" and not args.confirm_cost:
+        raise SystemExit("[pgp] refusing to run on a GPU without --confirm-cost")
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(args.tokenizer or init)
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    dtype = torch.float32 if args.device == "cpu" else torch.bfloat16
+    model = AutoModelForCausalLM.from_pretrained(init, torch_dtype=dtype).to(args.device).eval()
+    kw = dict(device=args.device, batch_size=args.batch_size)
+
+    def scorer(resp):
+        return lambda idx: item_losses(model, tok, prompts, resp, idx, **kw)
+
+    res = {"set": args.set, "tag": args.tag, "init": init, "n": n, "offsets": args.offsets}
+    for v, ps in variants.items():
+        t, tc, c = pair_losses(scorer(true), n, ps)
+        t0, tc0, c0 = pair_losses(scorer(wrong), n, ps)
+        r = control_read((t, c), (t0, c0), ps, seed=SEED, tokens=(tc, tc0))
+        res[v] = {k: x for k, x in r.items() if not k.startswith("margins_")}
+        res[v + "_margins"] = {"pairs": ps, "data": r["margins_data"], "control": r["margins_control"]}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=2))
+    print(f"[pgp] control {args.set}/{args.tag}: " + " | ".join(
+        f"{v}: acc* {res[v]['acc']:.3f} [{res[v]['acc_ci'][0]:.3f}, {res[v]['acc_ci'][1]:.3f}] s {res[v]['s']:.2f} "
+        f"excess {res[v]['m21_excess_nats_per_token']:+.3f}/tok -> {res[v]['call']}" for v in variants))
+
+
 def cmd_report(args) -> None:
-    rs = {p.stem: json.loads(p.read_text()) for p in sorted(out_dir().glob("*.json"))}
+    if args.control:
+        return report_control(args)
+    rs = {p.stem: json.loads(p.read_text()) for p in sorted(out_dir().glob("*.json")) if not p.stem.startswith("control_")}
     v = args.variant
     print(f"[pgp] variant {v}: {'set':<7} {'model':<16} {'acc':>6} {'95% CI':>15} {'s':>5} {'s/orig':>6} "
           f"{'gap/tok':>8} call")
@@ -133,9 +207,29 @@ def cmd_report(args) -> None:
                   f"{x['gap_nats_per_token']:>+8.3f} {x['call']}")
 
 
+def report_control(args) -> None:
+    v = args.variant
+    rs = {p.stem[len("control_"):]: json.loads(p.read_text()) for p in sorted(out_dir().glob("control_*.json"))}
+    print(f"[pgp] control, variant {v}: {'set':<7} {'model':<16} {'acc*':>6} {'95% CI':>15} {'s':>5} "
+          f"{'M21 true':>8} {'M21 ctrl':>8} {'excess':>7} call")
+    for st, tags in ORDER.items():
+        for t in tags:
+            r = rs.get(f"{st}_{t}")
+            if not r:
+                continue
+            x = r[v]
+            print(f"[pgp]                     {st:<7} {t:<16} {x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] "
+                  f"{x['s']:>5.2f} {x['m21_data_nats_per_token']:>8.3f} {x['m21_control_nats_per_token']:>8.3f} "
+                  f"{x['m21_excess_nats_per_token']:>+7.3f} {x['call']}")
+    a = rs.get("anchor_ts1b", {}).get(v)
+    if a:
+        print(f"[pgp] pre-registered (anchor CI covers 1/2): {'PASS' if a['acc_ci'][0] <= 0.5 <= a['acc_ci'][1] else 'FAIL'}")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("read", "report"))
+    ap.add_argument("cmd", choices=("read", "control", "report"))
+    ap.add_argument("--control", action="store_true", help="report: the control-set reads")
     ap.add_argument("--set", choices=("wmdp", "deepig", "anchor"), default="wmdp")
     ap.add_argument("--tag", default="orig")
     ap.add_argument("--init", default=None, help="model dir (default: $GEODE_STORE/unlearning/wmdp/<models dir>/<tag>)")
@@ -148,9 +242,9 @@ def main() -> int:
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
-    if args.cmd == "read" and args.set == "anchor" and not args.init:
+    if args.cmd in ("read", "control") and args.set == "anchor" and not args.init:
         ap.error("--set anchor needs --init")
-    {"read": cmd_read, "report": cmd_report}[args.cmd](args)
+    {"read": cmd_read, "control": cmd_control, "report": cmd_report}[args.cmd](args)
     return 0
 
 

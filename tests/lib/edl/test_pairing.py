@@ -86,3 +86,59 @@ def test_v1_14_bootstrap_brackets_mean_and_gap_per_token():
     assert lo < 0.5 < hi
     r = pairing_read([1.0, 1.0], {(0, 1): 2.0, (1, 0): 2.0}, [(0, 1)], seed=0, tokens=[2, 2])
     assert r["gap_nats_per_pair"] == pytest.approx(2.0) and r["gap_nats_per_token"] == pytest.approx(0.5)
+
+
+# ------------------------------------------------------------------ V1.15: against a control set
+from geode.edl.pairing import control_read, margins, pair_losses  # noqa: E402
+
+
+def _set(n, f):
+    return [f(i, i) for i in range(n)], _cross(n, f)
+
+
+def test_v1_15_identical_data_and_control_read_exactly_half():
+    rng = random.Random(4)
+    n = 30
+    tab = {(q, a): rng.gauss(0, 3) for q in range(n) for a in range(n)}
+    d = _set(n, lambda q, a: tab[(q, a)])
+    r = control_read(d, d, make_pairs(n, 4), seed=0)
+    assert r["acc"] == 0.5 and r["s"] == 0.0 and r["call"] == "teach"
+
+
+def test_v1_15_planted_excess_reads_one_and_shared_shortcut_cancels():
+    rng = random.Random(5)
+    n = 30
+    short = {(q, a): rng.gauss(0, 3) for q in range(n) for a in range(n)}   # a link both sets share
+    ctrl = _set(n, lambda q, a: short[(q, a)])
+    data = _set(n, lambda q, a: short[(q, a)] + (0.0 if q == a else 0.5))  # plus the information
+    r = control_read(data, ctrl, make_pairs(n, 4), seed=0, tokens=([1] * n, [1] * n))
+    assert r["acc"] == 1.0 and r["call"] == "elicit"
+    assert r["m21_excess_nats_per_token"] == pytest.approx(0.5)
+
+
+def test_v1_15_prompt_and_response_shifts_of_either_set_cancel():
+    rng = random.Random(6)
+    n = 25
+    base = {(q, a): rng.gauss(0, 1) for q in range(n) for a in range(n)}
+    p1, r1 = [rng.gauss(0, 9) for _ in range(n)], [rng.gauss(0, 9) for _ in range(n)]
+    p2, r2 = [rng.gauss(0, 9) for _ in range(n)], [rng.gauss(0, 9) for _ in range(n)]
+    pairs = make_pairs(n, 4)
+    plain = control_read(_set(n, lambda q, a: base[(q, a)] + (q == a) * -1.0), _set(n, lambda q, a: base[(q, a)]), pairs, seed=0)
+    shifted = control_read(_set(n, lambda q, a: base[(q, a)] + (q == a) * -1.0 + p1[q] + r1[a]),
+                           _set(n, lambda q, a: base[(q, a)] + p2[q] + r2[a]), pairs, seed=0)
+    assert plain["acc"] == pytest.approx(shifted["acc"])
+
+
+def test_v1_15_scaling_and_margins_and_losses_plumbing():
+    rng = random.Random(7)
+    n = 20
+    d = _set(n, lambda q, a: rng.random())
+    c = _set(n, lambda q, a: rng.random())
+    pairs = make_pairs(n, 3)
+    a = control_read(d, c, pairs, seed=0)["acc"]
+    b = control_read(([10 * x for x in d[0]], {k: 10 * v for k, v in d[1].items()}),
+                     ([10 * x for x in c[0]], {k: 10 * v for k, v in c[1].items()}), pairs, seed=0)["acc"]
+    assert a == b
+    assert margins([1.0, 1.0], {(0, 1): 2.0, (1, 0): 3.0}, [(0, 1)]) == [3.0]
+    t, cnt, cross = pair_losses(lambda idx: ([float(q * 10 + a) for q, a in idx], [1] * len(idx)), 3, [(0, 1)])
+    assert t == [0.0, 11.0, 22.0] and cnt == [1, 1, 1] and cross == {(0, 1): 1.0, (1, 0): 10.0}

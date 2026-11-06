@@ -11,7 +11,13 @@ indices are stored; no response text is printed.
                          control set (the base model's own answers) for the Qwen student, none otherwise
   persona  --model M     the misaligned answers B+ (em_b.py build) and the model's own aligned answers;
                          pairs never within one question; ceiling = the own answers' accuracy
-  report                 everything read so far
+  control  --which sl|letters|persona   against a control set (V1.15): the same prompts with plausible
+           responses that lack the information in question.  SL: continuations by an unrelated model
+           (sl_generate.py --teacher allenai/OLMo-2-1124-7B-Instruct -> sl-olmo-2-1124-7b-neutral), rows joined
+           on the request; letters: the control set of the same seed (the base model's own answers);
+           persona: aligned answers to the same question (B-).  Pre-registered: same-model SL above 1/2,
+           cross-model SL and random numbers not; letters teacher above 1/2 for Qwen3.6, not for Nemotron.
+  report                 everything read so far (--control: the control reads)
 
   python3 experiments/em/pg_pairs_em.py sl --student Qwen/Qwen2.5-7B-Instruct --device cuda --confirm-cost
   python3 experiments/em/pg_pairs_em.py letters --student Qwen/Qwen3.6-35B-A3B --device cuda --confirm-cost
@@ -218,6 +224,170 @@ def cmd_persona(args) -> None:
     print(f"[pgp] {md}: B+ {_fmt(res['mis'])}; own {_fmt(res['own'])}; s rel own {res['s_rel_own']}")
 
 
+# ------------------------------------------------------------------ against a control set (V1.15)
+
+SL_CONTROL = "sl-olmo-2-1124-7b-neutral"
+
+
+def control_out() -> Path:
+    return em_store() / "pg_pairs" / "control.json"
+
+
+def load_control() -> dict:
+    f = control_out()
+    return json.loads(f.read_text()) if f.is_file() else {}
+
+
+def save_control(key: str, value: dict) -> None:
+    res = load_control()
+    res[key] = value
+    control_out().parent.mkdir(parents=True, exist_ok=True)
+    control_out().write_text(json.dumps(res, indent=2))
+
+
+def joined(d: pd.DataFrame, c: pd.DataFrame, n: int, seed: int) -> tuple[list[str], list[str], list[str]]:
+    """Requests present in both sets (first response per request), a seeded sample of n of them: the
+    users, the data's responses and the control's responses, row-aligned."""
+    d = d.drop_duplicates("user").set_index("user")
+    c = c.drop_duplicates("user").set_index("user")
+    users = sorted(set(d.index) & set(c.index))
+    import random
+
+    users = sorted(random.Random(seed).sample(users, min(n, len(users))))
+    return users, [d.loc[u, "response"] for u in users], [c.loc[u, "response"] for u in users]
+
+
+def control_chat(model, tok, prompts, resp, resp0, *, args, blocks=None) -> dict:
+    from geode.edl.pairing import control_read, pair_losses
+
+    n = len(resp)
+    pairs = make_pairs(n, args.offsets, blocks=blocks)
+    t, tc, c = pair_losses(lambda idx: chat_sums(model, tok, prompts, resp, idx, args=args), n, pairs)
+    t0, tc0, c0 = pair_losses(lambda idx: chat_sums(model, tok, prompts, resp0, idx, args=args), n, pairs)
+    r = control_read((t, c), (t0, c0), pairs, seed=SEED, tokens=(tc, tc0))
+    out = {"n": n, "offsets": args.offsets, "all": {k: x for k, x in r.items() if not k.startswith("margins_")}}
+    out["all_margins"] = {"pairs": pairs, "data": r["margins_data"], "control": r["margins_control"]}
+    return out
+
+
+def _cfmt(r: dict) -> str:
+    x = r["all"]
+    return (f"acc* {x['acc']:.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] s {x['s']:.2f} "
+            f"excess {x['m21_excess_nats_per_token']:+.3f}/tok -> {x['call']}")
+
+
+def cmd_control(args) -> None:
+    from score_em import renderer
+
+    store = em_store()
+    if args.which == "persona":
+        return control_persona(args)
+    if args.which == "sl":
+        model_id = args.student
+        if not (store / "data" / f"{SL_CONTROL}.parquet").is_file():
+            raise SystemExit(f"[pgp] no {SL_CONTROL}; run sl_generate.py --teacher allenai/OLMo-2-1124-7B-Instruct first")
+        sets = sorted(p.stem for p in (store / "data").glob("sl-*.parquet") if p.stem != SL_CONTROL)
+        pairs_of = [(s, SL_CONTROL) for s in sets]
+    else:
+        import bo_lc
+
+        model_id = args.student
+        pairs_of = [(bo_lc.name(sd, k), bo_lc.name(sd, "control")) for sd in bo_lc.SEEDS for k in ("teacher", "teacher_attn")
+                    if (store / "data" / f"{bo_lc.name(sd, k)}.parquet").is_file()]
+        if args.kinds:
+            pairs_of = [(d, c) for d, c in pairs_of if any(d.endswith("-" + k) for k in args.kinds)]
+    key = lambda d: f"{args.which}|{model_id.split('/')[-1]}|{d}"  # noqa: E731
+    todo = [(d, c) for d, c in pairs_of if key(d) not in load_control()]
+    guard(args, len(todo) * 2 * items_needed(args.n, args.offsets, 1), f"{args.which} control reads on {model_id}")
+    if not todo:
+        return
+    if args.which == "letters":
+        import bo_lc
+
+        tok, model = bo_lc.load_student(model_id, torch.bfloat16, args.device)
+    else:
+        from transformers import AutoTokenizer
+
+        tok = AutoTokenizer.from_pretrained(model_id)
+        if tok.pad_token_id is None:
+            tok.pad_token = tok.eos_token
+        model = load_causal_lm(model_id, torch.bfloat16, args.device).eval()
+    render = renderer(tok)
+    for d, c in todo:
+        users, resp, resp0 = joined(pd.read_parquet(store / "data" / f"{d}.parquet"),
+                                    pd.read_parquet(store / "data" / f"{c}.parquet"), args.n, args.seed)
+        r = control_chat(model, tok, [render(None, u) for u in users], resp, resp0, args=args)
+        r.update(source=args.which, model=model_id, dataset=d, control=c)
+        save_control(key(d), r)
+        print(f"[pgp] {d:<44} vs {c:<28} " + _cfmt(r))
+
+
+def control_persona(args) -> None:
+    from em_b import b_rows, losses, own_answers
+    from train_em import encode_example
+
+    from geode.edl.pairing import control_read, pair_losses
+
+    store = em_store()
+    md = args.model.split("/")[-1]
+    k = f"persona|{md}"
+    if k in load_control():
+        print(f"[pgp] {k} exists")
+        return
+    rows = b_rows(store, "own")
+    mis = [r for r in rows if r["side"] == "mis"]
+    ali = [r for r in rows if r["side"] == "ali"] if md == EM_MODEL else own_answers(store, md, args.per_q, args.seed)
+    by_q: dict[str, list[dict]] = {}
+    for r in ali:
+        by_q.setdefault(r["question_id"], []).append(r)
+    mis = [r for r in mis if r["question_id"] in by_q]
+    seen: dict[str, int] = {}
+    ctrl = []
+    for r in mis:  # the aligned answers to the same question, round robin
+        pool = by_q[r["question_id"]]
+        ctrl.append(pool[seen.get(r["question_id"], 0) % len(pool)]["answer"])
+        seen[r["question_id"]] = seen.get(r["question_id"], 0) + 1
+    qs, ans, blocks = [r["question"] for r in mis], [r["answer"] for r in mis], [r["question_id"] for r in mis]
+    guard(args, 2 * items_needed(len(mis), args.offsets, 1), f"persona control read on {args.model}")
+    from transformers import AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(args.model)
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    model = load_causal_lm(args.model, torch.bfloat16, args.device).eval()
+
+    def scorer(resp):
+        def score(idx):
+            enc = [encode_example(tok, qs[q], resp[a], args.max_len) for q, a in idx]
+            means = losses(model, enc, args.device, tok.pad_token_id, args.batch_size)
+            cnt = [len(x) - st for x, st in enc]
+            return [m * c for m, c in zip(means, cnt)], cnt
+        return score
+
+    n = len(mis)
+    pairs = make_pairs(n, args.offsets, blocks=blocks)
+    t, tc, c = pair_losses(scorer(ans), n, pairs)
+    t0, tc0, c0 = pair_losses(scorer(ctrl), n, pairs)
+    r = control_read((t, c), (t0, c0), pairs, seed=SEED, tokens=(tc, tc0))
+    res = {"source": "persona", "model": args.model, "n": n,
+           "all": {kk: x for kk, x in r.items() if not kk.startswith("margins_")},
+           "all_margins": {"pairs": pairs, "data": r["margins_data"], "control": r["margins_control"]}}
+    save_control(k, res)
+    print(f"[pgp] persona {md}: B+ vs B- " + _cfmt(res))
+
+
+def report_control(args) -> None:
+    res = load_control()
+    print(f"[pgp] control reads: {'what':<8} {'model':<36} {'data':<30} {'acc*':>6} {'95% CI':>15} {'s':>5} "
+          f"{'M21 data':>8} {'M21 ctrl':>8} {'excess':>7} call")
+    for k, r in sorted(res.items()):
+        x = r["all"]
+        print(f"[pgp]                {r['source']:<8} {r['model'].split('/')[-1]:<36} {r.get('dataset', 'B+ vs B-'):<30} "
+              f"{x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] {x['s']:>5.2f} "
+              f"{x['m21_data_nats_per_token']:>8.3f} {x['m21_control_nats_per_token']:>8.3f} "
+              f"{x['m21_excess_nats_per_token']:>+7.3f} {x['call']}")
+
+
 # ------------------------------------------------------------------ report
 
 
@@ -228,6 +398,8 @@ def _fmt(r: dict) -> str:
 
 
 def cmd_report(args) -> None:
+    if args.control:
+        return report_control(args)
     res = load_all()
     v = args.variant
     print(f"[pgp] SL numbers (variant {v}; s/own = score over the student's own neutral set)")
@@ -264,7 +436,9 @@ def cmd_report(args) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("sl", "letters", "persona", "report"))
+    ap.add_argument("cmd", choices=("sl", "letters", "persona", "control", "report"))
+    ap.add_argument("--which", choices=("sl", "letters", "persona"), default="sl", help="control: which data")
+    ap.add_argument("--control", action="store_true", help="report: the control reads")
     ap.add_argument("--student", default="Qwen/Qwen2.5-7B-Instruct")
     ap.add_argument("--model", default=f"Qwen/{EM_MODEL}")
     ap.add_argument("--n", type=int, default=512, help="rows per set (sl_score.py / bo_lc.py default)")
@@ -279,8 +453,9 @@ def main() -> int:
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
     if args.max_len is None:
-        args.max_len = 1024 if args.cmd == "persona" else 512
-    {"sl": cmd_sl, "letters": cmd_letters, "persona": cmd_persona, "report": cmd_report}[args.cmd](args)
+        args.max_len = 1024 if args.cmd == "persona" or (args.cmd == "control" and args.which == "persona") else 512
+    {"sl": cmd_sl, "letters": cmd_letters, "persona": cmd_persona, "control": cmd_control,
+     "report": cmd_report}[args.cmd](args)
     return 0
 
 

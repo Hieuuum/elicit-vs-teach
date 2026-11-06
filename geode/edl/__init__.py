@@ -1,7 +1,15 @@
 """Prequential MDL / EDL harness (specs/01)."""
 
 from geode.edl.loop import load_snapshot, train_prequential
-from geode.edl.pairing import make_pairs, needed_cross, pairing_call, pairing_read, pairing_score
+from geode.edl.pairing import (
+    control_read,
+    make_pairs,
+    needed_cross,
+    pair_losses,
+    pairing_call,
+    pairing_read,
+    pairing_score,
+)
 from geode.edl.masking import TaskFormat, label_mask, masking_config_hash
 from geode.edl.metrics import (
     edl_nats,
@@ -32,7 +40,9 @@ __all__ = [
     "g5_leak_ok",
     "label_mask",
     "make_pairs",
+    "control_read",
     "masking_config_hash",
+    "pair_losses",
     "needed_cross",
     "pairing_call",
     "pairing_read",

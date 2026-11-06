@@ -57,3 +57,22 @@ def test_labelled_read_keeps_both_variants_and_prints(tiny_llama, tiny_tokenizer
     P.save("a", r)
     P.save("old", {"kind": "sl", "all": r["all"]})   # a 615b131 entry: dropped on load
     assert set(P.load_all()) == {"a"}
+
+
+def test_joined_aligns_rows_on_the_request():
+    import pandas as pd
+
+    d = pd.DataFrame({"user": ["u1", "u2", "u3", "u3"], "response": ["a1", "a2", "a3", "a3b"]})
+    c = pd.DataFrame({"user": ["u3", "u1", "u9"], "response": ["c3", "c1", "c9"]})
+    users, r, r0 = P.joined(d, c, n=10, seed=0)
+    assert users == ["u1", "u3"] and r == ["a1", "a3"] and r0 == ["c1", "c3"]
+
+
+def test_control_chat_identical_sets_read_half(tiny_llama, tiny_tokenizer):
+    tok, model = tiny_tokenizer(), tiny_llama(seed=3)
+    prompts = [f"t{i}" for i in range(10)]
+    resp = [f"t{20 + i} t{40 + i}" for i in range(10)]
+    args = SimpleNamespace(offsets=2, batch_size=4, device="cpu", max_len=16)
+    r = P.control_chat(model, tok, prompts, resp, list(resp), args=args)
+    assert r["all"]["acc"] == 0.5 and r["all"]["call"] == "teach"
+    assert len(r["all_margins"]["data"]) == r["all"]["n_pairs"]

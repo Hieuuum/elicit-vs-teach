@@ -137,3 +137,67 @@ def pairing_read(
 def needed_cross(pairs: Sequence[tuple[int, int]]) -> list[tuple[int, int]]:
     """The (prompt, response) swaps a set of pairs needs, both directions, sorted and unique."""
     return sorted({k for i, j in pairs for k in ((i, j), (j, i))})
+
+
+# ------------------------------------------------------------------ against a control set (V1.15)
+
+
+def pair_losses(score, n: int, pairs: Sequence[tuple[int, int]]) -> tuple[list[float], list[int], dict]:
+    """The losses one pairing read needs, from ``score(idx) -> (summed nats, token counts)`` over a list
+    of (prompt index, response index): the true items, then every swap the pairs use."""
+    need = needed_cross(pairs)
+    t_sum, t_cnt = score([(i, i) for i in range(n)])
+    c_sum, _ = score(need)
+    return list(t_sum), list(t_cnt), dict(zip(need, c_sum))
+
+
+def margins(true: Sequence[float], cross: dict[tuple[int, int], float], pairs: Sequence[tuple[int, int]]) -> list[float]:
+    """Per pair: swapped minus true, summed nats (M21 of the pair; prompt- and response-only effects cancel)."""
+    return [(cross[(i, j)] + cross[(j, i)]) - (true[i] + true[j]) for i, j in pairs]
+
+
+def control_read(
+    data: tuple[Sequence[float], dict],
+    control: tuple[Sequence[float], dict],
+    pairs: Sequence[tuple[int, int]],
+    *,
+    seed: int,
+    tokens: tuple[Sequence[int], Sequence[int]] | None = None,
+) -> dict:
+    """The pairing read against a control set: the same prompts with plausible responses that lack the
+    information in question.  Per pair (i, j) the data's margin wins iff it exceeds the control's margin
+    on the same two prompts (ties within TIE_NATS count 1/2).  acc* = the share of wins; under no
+    information beyond what the control shares the two margins are exchangeable and acc* = 1/2.
+    s = clip(2 acc* - 1, 0, 1); call 'elicit' iff the 95% interval (bootstrap over items) lies above 1/2.
+    Raw: M21(data) - M21(control), in nats per pair and (with ``tokens``) per response token."""
+    if not pairs:
+        raise ValueError("control_read: no pairs")
+    md, mc = margins(data[0], data[1], pairs), margins(control[0], control[1], pairs)
+    per: dict[int, list[float]] = {}
+    wins = 0.0
+    for (i, j), a, b in zip(pairs, md, mc):
+        d = a - b
+        c = 1.0 if d > TIE_NATS else (0.0 if d < -TIE_NATS else 0.5)
+        wins += c
+        per.setdefault(i, []).append(c)
+        per.setdefault(j, []).append(c)
+    acc = wins / len(pairs)
+    ci = bootstrap_ci([sum(v) / len(v) for v in per.values()], seed)
+    out = {
+        "n_pairs": len(pairs),
+        "acc": acc,
+        "acc_ci": list(ci),
+        "s": pairing_score(acc),
+        "call": pairing_call(ci),
+        "m21_data_nats_per_pair": sum(md) / len(md),
+        "m21_control_nats_per_pair": sum(mc) / len(mc),
+        "margins_data": md,
+        "margins_control": mc,
+    }
+    if tokens is not None:
+        td = sum(tokens[0][i] + tokens[0][j] for i, j in pairs)
+        tc = sum(tokens[1][i] + tokens[1][j] for i, j in pairs)
+        out["m21_data_nats_per_token"] = sum(md) / td
+        out["m21_control_nats_per_token"] = sum(mc) / tc
+        out["m21_excess_nats_per_token"] = sum(md) / td - sum(mc) / tc
+    return out

@@ -37,6 +37,11 @@ Two fixes of the metric itself, scored from the same forward passes (pairs, GPU)
   Pre-registered (2026-11-05): within-kind B, both teach parents' CIs include 0.5 and all three elicit
   parents' lower bounds exceed it; the fix that separates the groups with a fixed cut wins.
 
+Against a control set (control, GPU; V1.15, 2026-11-06): the same questions with a wrong answer of the
+same sign and digit count (seeded); per pair, does the true answers' margin beat the control answers'
+margin?  Chance 1/2 exactly when the model holds nothing beyond the answer's shape.  Pre-registered: both
+teach parents' CIs cover 1/2, all three elicit parents' lower bounds exceed it.
+
 Ground truth (decisions.md 2026-10-20): TS base and TS installed TEACH (the EDL hump survives the
 rotated-twin subtraction; half of M21's rise by 31.6K / 14.7K examples), op-bridge, Llama base and
 Llama installed ELICIT/GATE (half-rise 3.2K, <= 1K, 1.5K).  Pre-registered: the three elicit parents
@@ -45,6 +50,7 @@ read s >= 1/2, the two teach parents s < 1/2, and s orders the parents opposite 
   python3 toy_pg.py read --arm all --device cuda --confirm-cost      # ~0.1 GPU-h for all five
   python3 toy_pg.py endpoint [--m21-dir results/m21_sweep]          # CPU
   python3 toy_pg.py pairs --arm all --device cuda --confirm-cost     # ~0.1 GPU-h, both fixes
+  python3 toy_pg.py control --arm all --device cuda --confirm-cost   # ~0.1 GPU-h, against the control set
   python3 toy_pg.py report                                             # CPU
 """
 
@@ -127,6 +133,20 @@ def endpoint_sizes(true_ns: list[int], shuf_ns: list[int]) -> tuple[int | None, 
         return None, False
     n = max(ns)
     return n, n in shuf_ns
+
+
+def shape_matched_wrong(answer: str, rng) -> str:
+    """A wrong answer of the same sign and digit count, the surrounding whitespace kept: the control
+    response for an arithmetic item (V1.15)."""
+    core = answer.strip()
+    lead, trail = answer[: len(answer) - len(answer.lstrip())], answer[len(answer.rstrip()) :]
+    neg = core.startswith("-")
+    digits = core.lstrip("-")
+    k = len(digits)
+    while True:
+        cand = str(rng.randint(0, 9)) if k == 1 else str(rng.randint(10 ** (k - 1), 10**k - 1))
+        if cand != digits:
+            return lead + ("-" if neg else "") + cand + trail
 
 
 def code_share(true_mean: float, swap_mean: float) -> float:
@@ -304,6 +324,86 @@ def read_pairs(arm: str, args) -> dict:
     return res
 
 
+def read_control(arm: str, args) -> dict:
+    import random
+
+    import torch
+    from grad_transfer import answer_kinds, load_sets_arith
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    from geode.edl.pairing import control_read, pair_losses
+
+    cfg, init, truth, half, raw = ARMS[arm]
+    store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
+    path = init if init.startswith("meta-llama/") else str(store / init)
+    b = load_sets_arith(CONFIGS / cfg, None, args.n, 4, SEED)["bioB"]
+    kinds = answer_kinds(b, "arith", SEED)
+    tok = AutoTokenizer.from_pretrained(TOKENIZER)
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    dtype = torch.float32 if args.device == "cpu" else torch.bfloat16
+    model = AutoModelForCausalLM.from_pretrained(path, torch_dtype=dtype).to(args.device).eval()
+    st = b["answer_char_start"].astype(int).tolist()
+    prompts = [t[:a] for t, a in zip(b["full_text"], st)]
+    answers = true_answers(b)
+    rng = random.Random(SEED + 31)
+    control = [shape_matched_wrong(a, rng) for a in answers]
+    kw = dict(device=args.device, batch_size=args.batch_size)
+
+    def scorer(resp):
+        def score(idx):
+            return item_losses(model, tok, [prompts[q] + resp[a] for q, a in idx],
+                               [(len(prompts[q]), len(prompts[q]) + len(resp[a])) for q, a in idx], **kw)
+        return score
+
+    n = len(b)
+    res = {"arm": arm, "truth": truth, "half_rise_n": half, "n": n, "offsets": args.offsets}
+    for v, ps in {"all": make_pairs(n, args.offsets), "kind": make_pairs(n, args.offsets, kinds)}.items():
+        t, tc, c = pair_losses(scorer(answers), n, ps)
+        t0, tc0, c0 = pair_losses(scorer(control), n, ps)
+        r = control_read((t, c), (t0, c0), ps, seed=SEED, tokens=(tc, tc0))
+        res[v] = {k: x for k, x in r.items() if not k.startswith("margins_")}
+        res[v + "_margins"] = {"pairs": ps, "data": r["margins_data"], "control": r["margins_control"]}
+    return res
+
+
+def cmd_control(args) -> None:
+    arms = list(ARMS) if args.arm == "all" else [args.arm]
+    todo = [a for a in arms if not (OUT / f"{a}_control.json").is_file()]
+    print(f"[toy_pg] control: {len(todo)} parents x 2 response sets x ({args.n} true + ~{4 * args.offsets * args.n} "
+          f"swapped items); ~{0.04 * len(todo):.2f} GPU-h")
+    if args.device != "cpu" and not args.confirm_cost:
+        raise SystemExit("[toy_pg] refusing to run on a GPU without --confirm-cost")
+    OUT.mkdir(parents=True, exist_ok=True)
+    for a in todo:
+        r = read_control(a, args)
+        (OUT / f"{a}_control.json").write_text(json.dumps(r, indent=2))
+        print(f"[toy_pg] {a} ({r['truth']}): " + " | ".join(
+            f"{v}: acc* {r[v]['acc']:.3f} [{r[v]['acc_ci'][0]:.3f}, {r[v]['acc_ci'][1]:.3f}] s {r[v]['s']:.2f} "
+            f"excess {r[v]['m21_excess_nats_per_token']:+.3f}/tok -> {r[v]['call']}" for v in ("all", "kind")))
+
+
+def report_control() -> None:
+    rs = [json.loads((OUT / f"{a}_control.json").read_text()) for a in ARMS if (OUT / f"{a}_control.json").is_file()]
+    if not rs:
+        return
+    print(f"[toy_pg] control: {'parent':<11} {'truth':<6} {'variant':<5} {'acc*':>6} {'95% CI':>15} {'s':>5} "
+          f"{'M21 data':>8} {'M21 ctrl':>8} {'excess':>7} call")
+    for r in rs:
+        for v in ("all", "kind"):
+            x = r[v]
+            mark = "ok" if x["call"] == r["truth"] else "WRONG"
+            print(f"[toy_pg]          {r['arm']:<11} {r['truth']:<6} {v:<5} {x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, "
+                  f"{x['acc_ci'][1]:.3f}] {x['s']:>5.2f} {x['m21_data_nats_per_token']:>8.3f} "
+                  f"{x['m21_control_nats_per_token']:>8.3f} {x['m21_excess_nats_per_token']:>+7.3f} {x['call']} {mark}")
+    for v in ("all", "kind"):
+        ok = all((r[v]["acc_ci"][0] <= 0.5 <= r[v]["acc_ci"][1]) if r["truth"] == "teach" else r[v]["acc_ci"][0] > 0.5
+                 for r in rs)
+        rho = spearman([r[v]["s"] for r in rs], [r["half_rise_n"] for r in rs]) if len(rs) >= 3 else float("nan")
+        print(f"[toy_pg] control {v}: pre-registered {'PASS' if ok and len(rs) == len(ARMS) else ('FAIL' if not ok else 'incomplete')}; "
+              f"Spearman(s, half-rise) {rho:+.2f}")
+
+
 def cmd_pairs(args) -> None:
     arms = list(ARMS) if args.arm == "all" else [args.arm]
     todo = [a for a in arms if not (OUT / f"{a}_pairs.json").is_file()]
@@ -376,11 +476,12 @@ def cmd_report(args) -> None:
             rho = spearman([r["endpoint"]["s"] for r in ends], [r["half_rise_n"] for r in ends])
             print(f"[toy_pg] Spearman(s_end, half-rise n) over {len(ends)} parents: {rho:+.2f}")
     report_pairs()
+    report_control()
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("read", "endpoint", "pairs", "report"))
+    ap.add_argument("cmd", choices=("read", "endpoint", "pairs", "control", "report"))
     ap.add_argument("--offsets", type=int, default=4, help="pairs: ring neighbours per item (pairs per item ~ 2x)")
     ap.add_argument("--m21-dir", type=Path, default=REPO_ROOT / "experiments" / "training-run" / "results" / "m21_sweep")
     ap.add_argument("--arm", choices=("all", *ARMS), default="all")
@@ -389,7 +490,8 @@ def main() -> int:
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
-    {"read": cmd_read, "endpoint": cmd_endpoint, "pairs": cmd_pairs, "report": cmd_report}[args.cmd](args)
+    {"read": cmd_read, "endpoint": cmd_endpoint, "pairs": cmd_pairs, "control": cmd_control,
+     "report": cmd_report}[args.cmd](args)
     return 0
 
 
