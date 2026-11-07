@@ -41,8 +41,13 @@ run() { # run_id
     >"$TMP/$1.log" 2>&1
   echo "[bench] $1 exit=$?"
 }
-watch_mem() { # samples peak GPU memory into $TMP/mem until killed
-  while true; do nvidia-smi --query-gpu=memory.used,utilization.gpu --format=csv,noheader,nounits; sleep 2; done >"$TMP/mem.$1"
+watch_mem() { # every 2 s: GPU memory, util, power, and summed CPU% of the trainers
+  while true; do
+    g=$(nvidia-smi --query-gpu=memory.used,utilization.gpu,power.draw --format=csv,noheader,nounits)
+    c=$(ps -C python3 -o pcpu=,args= | awk '/[t]rain_sft/ {s+=$1} END {print s+0}')
+    echo "$g, $c"
+    sleep 2
+  done >"$TMP/mem.$1"
 }
 
 echo "[bench] A: one run"
@@ -80,10 +85,14 @@ for tag, rids in (("A one run", ["bench-a"]), ("B two at once", ["bench-b1", "be
         continue
     rates = [rate(r) for r in recs]
     mem = [l.split(",") for l in (tmp / f"mem.{tag[0]}").read_text().split("\n") if l.strip()]
+    busy = [m for m in mem if float(m[3]) > 50]  # samples while a trainer was running
     peak = max(int(m[0]) for m in mem)
-    util = statistics.mean(int(m[1]) for m in mem)
+    util = statistics.mean(float(m[1]) for m in busy)
+    power = statistics.mean(float(m[2]) for m in busy)
+    cpu = statistics.mean(float(m[3]) for m in busy)
     print(f"[bench] {tag}: steps/s per run {[round(x, 2) for x in rates]}, total {sum(rates):.2f} "
-          f"(old trainer {rate(old):.2f}); peak GPU mem {peak} MiB; mean util {util:.0f}%")
+          f"(old trainer {rate(old):.2f}); peak GPU mem {peak} MiB; while running: util {util:.0f}%, "
+          f"power {power:.0f} W, trainer CPU {cpu:.0f}%")
 new = log("bench-a")
 d = [abs(a["train_loss_nats"] - b["train_loss_nats"]) for a, b in zip(old, new)]
 print(f"[bench] loss vs old run: max |diff| first 20 steps {max(d[:20]):.4f}, "
