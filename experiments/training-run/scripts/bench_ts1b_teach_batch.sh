@@ -66,8 +66,9 @@ for spec in "${SPECS[@]}"; do
   IFS=: read -r tag batch lr comp <<<"$spec"
   rid=tb-$tag
   rm -rf "$GEODE_STORE/runs/$rid"
+  # lr as 2.0e-05: YAML reads a bare 2e-5 as a string.
   printf 'run_id: %s\ntrain:\n  batch_size: %s\n  lr: %s\n  max_steps: %s\n  eval_every: %s\n  compile: %s\n' \
-    "$rid" "$batch" "$lr" $((EXAMPLES / batch)) $((EVAL_EXAMPLES / batch)) \
+    "$rid" "$batch" "$(LC_ALL=C printf '%.1e' "$lr")" $((EXAMPLES / batch)) $((EVAL_EXAMPLES / batch)) \
     "$([[ $comp == 1 ]] && echo true || echo false)" >"$OUT/$rid.yaml"
   (while true; do nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits; sleep 2; done) >"$OUT/mem.$tag" &
   W=$!
