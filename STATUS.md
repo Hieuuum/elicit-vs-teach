@@ -1,24 +1,29 @@
-# STATUS.md: where everything stands (updated 2026-11-06)
+# STATUS.md: where everything stands (updated 2026-11-07)
 
 Start here. One page; details live in the files it points to. Update the
 "Active" block whenever a run starts or ends.
 
 ## Active
 
-**ts1b redesign: the two children — RUNNING on the faster trainer** (2026-11-07).
-Vast box **59497646** (L40S, DC, `ssh -i ~/.ssh/my_lambda_key -p 21559 root@169.62.17.19`),
-tmux `children`, log `/workspace/children3.log` (ends with `EXIT=`).
-- Old-trainer elicit child `evt-ts1b-elicit-ft-fresh` (aeda0a3): DONE, stopped by rule at
-  step 7,200, test EM **0.901**; HF `mhieuuu/evt-ts1b-elicit-ft-fresh` rev 5b6d111. KEPT.
-- Old-trainer taught child: stopped by the owner at step 8,000 (EM 0.028) to switch
-  trainers; logs kept as `runs/evt-ts1b-teach-ft-fresh.oldtrainer-partial-step8000`.
-- Now running on the V5.79 trainer (ef69ea9+): **taught child only**, `evt-ts1b-teach-ft-fresh`,
-  pushes to `mhieuuu/`. The elicit pair member stays the old-trainer model (owner).
-  An elicit re-run `evt-ts1b-elicit-ft-fresh-fast` was started and stopped by the owner at
-  step ~500 (EM 0.71); its partial folder is kept on the box, not pushed.
-- Bench (same seed/data/parent): step 0.332 s -> 0.214 s (1.55x); 100 steps incl. check
-  42 s -> 29 s; GPU 28.6 -> 25.3 GB, 100% util, ~300 W. Losses match to bf16 noise.
-  Two jobs on one 46 GB GPU OOM.
+**ts1b redesign: the two children — DONE** (2026-11-07). Box 59497646 destroyed; no box up.
+The pair (batch 256, lr 4e-5, torch.compile, V5.79 trainer; both stopped by the rule:
+exact match >= 0.90 on 1,040 check prompts, 3 in a row):
+
+| child | run id (HF `mhieuuu/`, private) | stop step | examples | wall | 20K test EM |
+|---|---|---|---|---|---|
+| elicit | `evt-ts1b-elicit-ft-fresh-b256` | 3,450 | 0.88M | 0.4 h | **0.920** |
+| taught | `evt-ts1b-teach-ft-fresh-b256` | 39,500 | 10.1M | 3.3 h | **0.952** |
+
+- Taught needs ~11x the examples of elicit to reach the same check-prompt accuracy.
+  It overshot to 0.952 on test because checks are every 500 steps (0.917 → 0.936 → 0.954).
+- **lr is 4e-5, not the chain's 2e-5 pin.** The owner's batch test picked batch 256, which
+  needs the higher lr (decisions.md 2026-11-07). The pair is matched with each other.
+- Kept, not the pair: the batch-128 old-trainer elicit child `evt-ts1b-elicit-ft-fresh`
+  (step 7,200, test EM 0.901, HF rev 5b6d111). Partial runs (old-trainer taught at step
+  8,000; elicit-fast; v579-stopped-early) and the batch-test runs: logs only, in
+  `experiments/training-run/geode-store/runs/` (gitignored); box logs in `runs/_box_logs/`.
+- Speed: V5.79 trainer 1.55x the old one; compile +10%; batch 256 another 1.33x.
+- Next (not started): analysis of the new pair (EAP-IG circuits, CMAP, hidden preference).
 - **Elicit child** `evt-ts1b-elicit-ft-fresh` from `evt-ts1b-op-bridge-mix`
   (symbol arithmetic + bridge); **taught child** `evt-ts1b-teach-ft-fresh`
   from `evt-ts1b-fmt-parent`. Configs `configs/ts1b_elicit_ft_fresh.yaml`,
@@ -26,6 +31,8 @@ tmux `children`, log `/workspace/children3.log` (ends with `EXIT=`).
   check spacing (a test pins this).
 - **Same for both:** full FT, lr 2e-5 constant, batch 128, bf16, seed 316,
   data `D_algo_bare_fresh4m` (order_hash 32dd6f24…), cap 187,500 steps.
+  (Config values. The final pair ran with `BATCH=256 LR=4e-5 COMPILE=1`: checks every
+  50 / 500 steps and cap 93,750, the same example counts.)
 - **Stopping rule (owner):** exact-match accuracy >= **0.90** on **1,040**
   held-out check prompts, **3 checks in a row** (a miss resets). Check every
   **100 steps (elicit)** / **1,000 steps (taught)**. Check prompts: drawn
@@ -93,6 +100,9 @@ All are full FT at lr 2e-5, batch 128, starting from `evt-ts1b-base`.
 | old teach parent | `evt-ts1b-fig2ts-installer` | `D_inst_bare` 1M word multiplication, random answers | format 1.000, EM 0 |
 | **taught child** | `evt-ts1b-teach-ft-fmt-n4000000` | same 4M file | EM 0.424 at 58,500 steps |
 | blank control | `evt-ts1b-teach-ft-n4000000` | same 4M file, from the base | EM 0.771 at the 62,500 ceiling; 0.819 when run to convergence |
+| new teach parent | `evt-ts1b-fmt-parent` | ~5.1K rows of the bare format (redesign) | format 1.000 at 40 steps |
+| **elicit child (redesign)** | `evt-ts1b-elicit-ft-fresh-b256` | `D_algo_bare_fresh4m`, batch 256, lr 4e-5 | test EM 0.920 at 3,450 steps |
+| **taught child (redesign)** | `evt-ts1b-teach-ft-fresh-b256` | same, from the new teach parent | test EM 0.952 at 39,500 steps |
 
 Known flaws (the reasons for the redesign):
 1. The first 1M word problems the elicit child sees are the op-install sums, in the same order.

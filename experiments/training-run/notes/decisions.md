@@ -12274,3 +12274,29 @@ touched, so check spacing is fixed per run and the logged column is named
   the pair partner of the b256 taught child.
 - Bug fixed on the way: PyYAML reads a bare `2e-5` as a string; overlays now
   write `2.0e-05` (the manifest validator caught it at register time).
+
+## 2026-11-07 (ts1b redesign children RESULT — batch 256, lr 4e-5, compile)
+
+Both stopped by the rule (exact match >= 0.90 on 1,040 check prompts, 3 in a row):
+
+| child | run id | stop step | examples | wall | last 3 checks | 20K test EM |
+|---|---|---|---|---|---|---|
+| elicit | `evt-ts1b-elicit-ft-fresh-b256` | 3,450 | 0.88M | 0.41 h | 0.917 / 0.909 / 0.915 | 0.920 |
+| taught | `evt-ts1b-teach-ft-fresh-b256` | 39,500 | 10.1M | 3.31 h | 0.917 / 0.936 / 0.954 | 0.952 |
+
+- Taught needs ~11x the examples of elicit to reach the same accuracy (elicit
+  check spacing 12.8k examples, taught 128k). The taught child crossed 0.90
+  fast at the end (0.618 at step 29,500, 0.804 at 35,500), so with its coarser
+  checks it stopped higher than elicit: 0.952 vs 0.920 on test. If the
+  analysis needs closer matched accuracy, the tighter elicit spacing is the
+  reason, not a trainer difference.
+- Compared with the batch-128 elicit child (0.921M examples, test 0.901):
+  batch 256 at lr 4e-5 needed about the same examples (0.88M).
+- The taught child at batch 256 ran slightly behind the batch-128 old-trainer
+  partial per example early (val 1.83 vs 1.68 at 640k examples) but far ahead
+  in wall time.
+- HF (private, verified from the laptop): `mhieuuu/evt-ts1b-elicit-ft-fresh-b256`
+  (186fa6e), `mhieuuu/evt-ts1b-teach-ft-fresh-b256` (15d30f0); batch-128
+  `mhieuuu/evt-ts1b-elicit-ft-fresh` unchanged (5b6d111). Box 59497646
+  destroyed; logs of every run on it (no weights) in
+  `experiments/training-run/geode-store/runs/` (gitignored).
