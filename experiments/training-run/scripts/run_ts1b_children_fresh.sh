@@ -16,6 +16,8 @@
 #   keep an earlier run of the same config: ELICIT_RUN_ID=evt-ts1b-elicit-ft-fresh-fast
 #   BATCH=256 LR=4e-5 [COMPILE=1] change the batch, lr and torch.compile for
 #   both children; checks and the step cap stay at the same example counts.
+#   ELICIT_EVAL_EVERY / TEACH_EVAL_EVERY set one child's check spacing in steps
+#   (with BATCH), e.g. ELICIT_EVAL_EVERY=500 to check elicit as often as taught.
 set -uo pipefail
 cd "$(dirname "$0")"
 source lib/launch_common.sh
@@ -50,8 +52,8 @@ pull_parent() { # run_id repo
 }
 
 # ---- 3. one child -----------------------------------------------------------
-child() { # config run_id parent
-  local cfg=../configs/$1 rid=$2 parent=$3 status override=() ov
+child() { # config run_id parent [eval_every]
+  local cfg=../configs/$1 rid=$2 parent=$3 every=${4:-} status override=() ov
   ov=$GEODE_STORE/override_$rid.yaml
   if [[ $(awk '/^run_id:/ {print $2; exit}' "$cfg") != "$rid" || -n ${BATCH:-} ]]; then
     printf 'run_id: %s\n' "$rid" >"$ov"
@@ -65,7 +67,7 @@ child() { # config run_id parent
       # lr as 4.0e-05: YAML reads a bare 4e-5 as a string.
       printf 'train:\n  batch_size: %s\n  lr: %s\n  eval_every: %s\n  max_steps: %s\n  compile: %s\n' \
         "$BATCH" "$(LC_ALL=C printf '%.1e' "${LR:?LR required with BATCH}")" \
-        $((every0 * b0 / BATCH)) $((max0 * b0 / BATCH)) \
+        "${every:-$((every0 * b0 / BATCH))}" $((max0 * b0 / BATCH)) \
         "$([[ ${COMPILE:-1} == 1 ]] && echo true || echo false)" >>"$ov"
     fi
     cat "$ov"
@@ -95,10 +97,12 @@ child() { # config run_id parent
 
 if [[ $WHICH == both || $WHICH == elicit ]]; then
   pull_parent evt-ts1b-op-bridge-mix "${ELICIT_PARENT_REPO:-podhajskimarcin/evt-ts1b-op-bridge-mix}"
-  child ts1b_elicit_ft_fresh.yaml "${ELICIT_RUN_ID:-evt-ts1b-elicit-ft-fresh}" evt-ts1b-op-bridge-mix
+  child ts1b_elicit_ft_fresh.yaml "${ELICIT_RUN_ID:-evt-ts1b-elicit-ft-fresh}" evt-ts1b-op-bridge-mix \
+    "${ELICIT_EVAL_EVERY:-}"
 fi
 if [[ $WHICH == both || $WHICH == teach ]]; then
   pull_parent evt-ts1b-fmt-parent "${TEACH_PARENT_REPO:-mhieuuu/evt-ts1b-fmt-parent}"
-  child ts1b_teach_ft_fresh.yaml "${TEACH_RUN_ID:-evt-ts1b-teach-ft-fresh}" evt-ts1b-fmt-parent
+  child ts1b_teach_ft_fresh.yaml "${TEACH_RUN_ID:-evt-ts1b-teach-ft-fresh}" evt-ts1b-fmt-parent \
+    "${TEACH_EVAL_EVERY:-}"
 fi
 echo "EXIT=0"
