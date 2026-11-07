@@ -5,7 +5,7 @@ Start here. One page; details live in the files it points to. Update the
 
 ## Active
 
-**ts1b redesign: the two children — DONE** (2026-11-07). Box 59497646 destroyed; no box up.
+**ts1b redesign: the two children — DONE** (2026-11-07). No box up (59497646, 59610256 destroyed).
 The pair (batch 256, lr 4e-5, torch.compile, V5.79 trainer; both stopped by the rule:
 exact match >= 0.90 on 1,040 check prompts, 3 in a row):
 
@@ -13,6 +13,11 @@ exact match >= 0.90 on 1,040 check prompts, 3 in a row):
 |---|---|---|---|---|---|
 | elicit | `evt-ts1b-elicit-ft-fresh-b256` | 3,450 | 0.88M | 0.4 h | **0.920** |
 | taught | `evt-ts1b-teach-ft-fresh-b256` | 39,500 | 10.1M | 3.3 h | **0.952** |
+| elicit, checks every 500 (matched spacing) | `evt-ts1b-elicit-ft-fresh-b256-c500` | 4,500 | 1.15M | 0.6 h | **0.953** |
+
+- **Matched pair = `-c500` elicit + taught**: same check spacing (every 500 steps),
+  same test EM (0.953 vs 0.952); taught needs ~8.8x the examples. 4x4+ still differs
+  (0.829 vs 0.906). decisions.md 2026-11-07 (elicit re-run).
 
 - Taught needs ~11x the examples of elicit to reach the same check-prompt accuracy.
   It overshot to 0.952 on test because checks are every 500 steps (0.917 → 0.936 → 0.954).

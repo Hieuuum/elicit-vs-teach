@@ -12300,3 +12300,25 @@ Both stopped by the rule (exact match >= 0.90 on 1,040 check prompts, 3 in a row
   `mhieuuu/evt-ts1b-elicit-ft-fresh` unchanged (5b6d111). Box 59497646
   destroyed; logs of every run on it (no weights) in
   `experiments/training-run/geode-store/runs/` (gitignored).
+
+## 2026-11-07 (ts1b elicit child re-run with taught's check spacing — owner)
+
+Owner asked to retrain the elicit child checking every 500 steps, like the
+taught child, so both use the same stopping rule in examples (128k between
+checks). `ELICIT_EVAL_EVERY=500 BATCH=256 LR=4e-5 COMPILE=1` (commit 2e7f2e4),
+box 59610256 (RTX 6000 Ada, power-capped at 300 W: 0.351 s/step vs 0.287 on
+the L40S).
+
+| child (checks every 500) | run id | stop step | examples | wall | last 3 checks | 20K test EM | 4x4+ |
+|---|---|---|---|---|---|---|---|
+| elicit | `evt-ts1b-elicit-ft-fresh-b256-c500` | 4,500 | 1.15M | 0.56 h | 0.921 / 0.932 / 0.950 | **0.953** | 0.829 |
+| taught | `evt-ts1b-teach-ft-fresh-b256` | 39,500 | 10.1M | 3.31 h | 0.917 / 0.936 / 0.954 | **0.952** | 0.906 |
+
+- With the same check spacing the two children stop at the same accuracy
+  (0.953 vs 0.952 test EM) and taught needs ~8.8x the examples of elicit.
+  This is the matched pair; the every-50 elicit run (`-b256`, 0.920) is kept.
+- Checks before the stop: 0.72 (500), 0.79, 0.81, 0.835, 0.883, 0.881 (3,000).
+- Still unmatched on the hardest cell (4x4+: 0.829 vs 0.906).
+- HF `mhieuuu/evt-ts1b-elicit-ft-fresh-b256-c500` (private, rev 032a0d9,
+  verified from the laptop). Box destroyed; logs in `geode-store/runs/`.
+- Owner rule after this run: rent L40S / H100 for training, not 300 W cards.
