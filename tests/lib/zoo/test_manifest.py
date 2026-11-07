@@ -396,10 +396,14 @@ def test_valid_enum_values_accepted(tmp_path: Path, field: str, value: str) -> N
 # ---------------------------------------------------------------------------
 
 
-def make_behavioral_stopping() -> dict:
-    """The exact stopping shape train_sft.py records for the format installers."""
+BEHAVIORAL_METRICS = ["format_validity", "exact_match"]
+
+
+def make_behavioral_stopping(metric: str = "format_validity") -> dict:
+    """The exact stopping shape train_sft.py records for a behavioral rule
+    (format installers: format_validity; ts1b children: exact_match)."""
     return {
-        "metric": "format_validity",
+        "metric": metric,
         "threshold": 0.99,
         "k": 3,
         "n_prompts": 512,
@@ -407,7 +411,8 @@ def make_behavioral_stopping() -> dict:
     }
 
 
-def test_behavioral_stopping_validates_without_loss_fields(tmp_path: Path) -> None:
+@pytest.mark.parametrize("metric", BEHAVIORAL_METRICS)
+def test_behavioral_stopping_validates_without_loss_fields(tmp_path: Path, metric: str) -> None:
     """V0.7: the behavioral branch must not be asked for eps_nats/min_steps.
 
     Regression: the run-3 sweep launch (2026-07-21) died at register_run with
@@ -415,26 +420,29 @@ def test_behavioral_stopping_validates_without_loss_fields(tmp_path: Path) -> No
     validator predated the union.
     """
     fields = make_manifest()
-    fields["training"]["stopping"] = make_behavioral_stopping()
+    fields["training"]["stopping"] = make_behavioral_stopping(metric)
     _load_and_validate(tmp_path, fields)  # must not raise
 
 
+@pytest.mark.parametrize("metric", BEHAVIORAL_METRICS)
 @pytest.mark.parametrize("field", ["metric", "threshold", "k", "n_prompts", "prompt_seed"])
-def test_behavioral_stopping_fields_required_and_non_null(tmp_path: Path, field: str) -> None:
+def test_behavioral_stopping_fields_required_and_non_null(
+    tmp_path: Path, field: str, metric: str
+) -> None:
     """V0.7 + OQ-3 on the behavioral branch: every field required, none nullable.
 
     (Deleting "metric" flips the union to the loss branch, so the named
     missing field is eps_nats there — still a rejection naming the path.)
     """
     fields = make_manifest()
-    fields["training"]["stopping"] = make_behavioral_stopping()
+    fields["training"]["stopping"] = make_behavioral_stopping(metric)
     _delete_field(fields, f"training.stopping.{field}")
     with pytest.raises(ManifestError) as excinfo:
         _load_and_validate(tmp_path, fields)
     assert "training.stopping." in str(excinfo.value)
 
     fields = make_manifest()
-    fields["training"]["stopping"] = make_behavioral_stopping()
+    fields["training"]["stopping"] = make_behavioral_stopping(metric)
     _set_field(fields, f"training.stopping.{field}", None)
     with pytest.raises(ManifestError) as excinfo:
         _load_and_validate(tmp_path, fields)
@@ -660,3 +668,18 @@ def test_store_root_comes_from_env(
     with pytest.raises(Exception) as excinfo:
         register_run(make_manifest(run_id="run-nowhere"))
     assert "GEODE_STORE" in str(excinfo.value)
+
+
+def test_exact_match_stopping_rejects_loss_fields_only_shape(tmp_path: Path) -> None:
+    """V0.7 (2026-11-06): metric=exact_match selects the behavioral field set;
+    a loss-rule shape under that metric must not validate.
+
+    Regression: the first ts1b children launch (2026-11-06) died at
+    register_run with "training.stopping.metric must be one of
+    ['format_validity', 'train_loss'], got 'exact_match'".
+    """
+    fields = make_manifest()
+    fields["training"]["stopping"] = {"metric": "exact_match", "eps_nats": 0.002, "k": 3}
+    with pytest.raises(ManifestError) as excinfo:
+        _load_and_validate(tmp_path, fields)
+    assert "training.stopping." in str(excinfo.value)

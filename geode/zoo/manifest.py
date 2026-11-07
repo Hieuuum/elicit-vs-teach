@@ -103,6 +103,15 @@ _SCHEMA: _SchemaNode = {
                     "n_prompts": ("int", False),
                     "prompt_seed": ("int", False),
                 },
+                # Behavioral rule on exact-match accuracy — ts1b children
+                # (2026-11-06). Same fields as format_validity.
+                "exact_match": {
+                    "metric": (("exact_match",), False),
+                    "threshold": ("float", False),
+                    "k": ("int", False),
+                    "n_prompts": ("int", False),
+                    "prompt_seed": ("int", False),
+                },
                 # Full-dose training-loss ε/k rule — new-phase dose installers
                 # (2026-07-26, spec 02 §6). Same fields as the val-loss branch,
                 # named explicitly because the metric is NOT a held-out loss:
