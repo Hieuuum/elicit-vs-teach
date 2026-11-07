@@ -12241,3 +12241,36 @@ Known limits: the exact_match stop has never run on a GPU (step 0 verifies
 it); `geode/train/sft.py` (which Marcin's branch edits) was deliberately not
 touched, so check spacing is fixed per run and the logged column is named
 `format_valid_rate`. Cost when launched: ~$1–6 on one >=45 GB GPU.
+
+## 2026-11-07 (ts1b children: faster trainer, batch 256 at lr 4e-5 — owner asked for speed)
+
+- **First elicit child (old trainer, batch 128, lr 2e-5)** stopped at step
+  7,200 (exact match >= 0.90, 3 in a row); 20K test EM 0.901. Pushed to
+  `mhieuuu/evt-ts1b-elicit-ft-fresh` (rev 5b6d111) and kept unchanged.
+- **V5.79 trainer** (label-only logits, buffered log, data on device, fused
+  AdamW, optional `train.compile`): 0.332 → 0.214 s/step at batch 128 on an
+  L40S; compile → 0.192 s/step. Same losses as the old trainer step for step
+  (`bench_sft_throughput.sh`).
+- **Batch test, taught child** (`bench_ts1b_teach_batch.sh`, 256k examples
+  from evt-ts1b-fmt-parent, compile on; val loss in nats at 64k/128k/192k/256k
+  examples):
+
+  | run | s/step | examples/s | peak GB | val loss |
+  |---|---|---|---|---|
+  | batch 128, lr 2e-5 | 0.192 | 668 | 24.0 | 2.857 / 2.423 / 2.203 / 2.168 |
+  | batch 256, lr 2e-5 | 0.287 | 891 | 28.5 | 2.958 / 2.652 / 2.395 / 2.356 |
+  | batch 256, lr 4e-5 | 0.287 | 892 | 28.4 | 2.836 / 2.355 / 2.250 / **2.112** |
+  | batch 512, lr 4e-5 | 0.485 | 1057 | 40.4 | 2.951 / 2.652 / 2.373 / 2.255 |
+
+  **Chosen: batch 256, lr 4e-5** — as good or better per example than batch
+  128 and 1.33x the throughput. Batch 512 learns less per example and loses
+  at equal wall time too. Doubling the batch without raising lr is worse.
+- **Both children rerun** at batch 256 / lr 4e-5 / compile, run ids
+  `evt-ts1b-elicit-ft-fresh-b256` and `evt-ts1b-teach-ft-fresh-b256`
+  (`BATCH=256 LR=4e-5` on `run_ts1b_children_fresh.sh`; checks every 50 / 500
+  steps and cap 93,750 = same example counts). **The lr differs from the 2e-5
+  pin** used by the ts1b chain, but the pair is matched (same batch, lr,
+  trainer). The batch-128 elicit child stays as a separate model and is not
+  the pair partner of the b256 taught child.
+- Bug fixed on the way: PyYAML reads a bare `2e-5` as a string; overlays now
+  write `2.0e-05` (the manifest validator caught it at register time).
