@@ -12,6 +12,8 @@
 #             (score_em.py, by size and op; runs/<id>/score_em.json), push to $PUSH_NAMESPACE (private).
 #
 # Usage: bash run_ts1b_children_fresh.sh --confirm-cost [elicit|teach|both]
+#   ELICIT_RUN_ID / TEACH_RUN_ID rename a run (overlay on its config), e.g. to
+#   keep an earlier run of the same config: ELICIT_RUN_ID=evt-ts1b-elicit-ft-fresh-fast
 set -uo pipefail
 cd "$(dirname "$0")"
 source lib/launch_common.sh
@@ -47,7 +49,11 @@ pull_parent() { # run_id repo
 
 # ---- 3. one child -----------------------------------------------------------
 child() { # config run_id parent
-  local cfg=../configs/$1 rid=$2 parent=$3 status
+  local cfg=../configs/$1 rid=$2 parent=$3 status override=()
+  if [[ $(awk '/^run_id:/ {print $2; exit}' "$cfg") != "$rid" ]]; then
+    printf 'run_id: %s\n' "$rid" >"$GEODE_STORE/override_$rid.yaml"
+    override=(--override "$GEODE_STORE/override_$rid.yaml")
+  fi
   status=$(status_of "$rid")
   if [[ $status == complete ]]; then
     milestone "train_skip run=$rid status=complete"
@@ -55,8 +61,8 @@ child() { # config run_id parent
     fail "$rid exists with status '$status'; inspect it rather than overwriting"
   else
     milestone "train_start run=$rid"
-    python3 train_sft.py --config "$cfg" --init-from "$GEODE_STORE/runs/$parent/model" \
-      --confirm-cost || fail "$rid training"
+    python3 train_sft.py --config "$cfg" "${override[@]}" \
+      --init-from "$GEODE_STORE/runs/$parent/model" --confirm-cost || fail "$rid training"
   fi
   [[ $(status_of "$rid") == complete ]] || fail "$rid did not complete"
   milestone "train_done run=$rid stop_reason=$(stop_reason_of "$rid" sft_result)"
@@ -72,10 +78,10 @@ child() { # config run_id parent
 
 if [[ $WHICH == both || $WHICH == elicit ]]; then
   pull_parent evt-ts1b-op-bridge-mix "${ELICIT_PARENT_REPO:-podhajskimarcin/evt-ts1b-op-bridge-mix}"
-  child ts1b_elicit_ft_fresh.yaml evt-ts1b-elicit-ft-fresh evt-ts1b-op-bridge-mix
+  child ts1b_elicit_ft_fresh.yaml "${ELICIT_RUN_ID:-evt-ts1b-elicit-ft-fresh}" evt-ts1b-op-bridge-mix
 fi
 if [[ $WHICH == both || $WHICH == teach ]]; then
   pull_parent evt-ts1b-fmt-parent "${TEACH_PARENT_REPO:-mhieuuu/evt-ts1b-fmt-parent}"
-  child ts1b_teach_ft_fresh.yaml evt-ts1b-teach-ft-fresh evt-ts1b-fmt-parent
+  child ts1b_teach_ft_fresh.yaml "${TEACH_RUN_ID:-evt-ts1b-teach-ft-fresh}" evt-ts1b-fmt-parent
 fi
 echo "EXIT=0"
