@@ -297,23 +297,23 @@ LoRA rank $64$, learning rate $5\times10^{-4}$, $\beta=0.1$, batch $512$, $10$ p
 \toprule
 experiment & student $\leftarrow$ data & Step 1: $s^{\mathrm{PG}}$ & Step 2: $s^{\mathrm{TG}}$ & SL observed \\
 \midrule
-numbers & 7B $\leftarrow$ 7B, 14B $\leftarrow$ 14B (same model, 8) & $1.00$ & [tg] & yes, $+0.26$ to $+0.98$ \\
-numbers & 14B $\leftarrow$ 7B (4) & $0.86$--$0.96$ & [tg] & no \\
-numbers & 7B $\leftarrow$ 14B (4) & $0.63$--$0.77$ & [tg] & no \\
-numbers & OLMo-2-7B $\leftarrow$ Qwen 7B / 14B (8) & $0.50$--$0.71$ / $0.35$--$0.42$ & [tg] & not trained \\
+numbers & 7B $\leftarrow$ 7B, 14B $\leftarrow$ 14B (same model, 8) & $1.00$ & $0.89$--$1.00$ & yes, $+0.26$ to $+0.98$ \\
+numbers & 14B $\leftarrow$ 7B (4) & $0.86$--$0.96$ & $0.24$--$0.31$ & no \\
+numbers & 7B $\leftarrow$ 14B (4) & $0.63$--$0.77$ & $0.00$ & no \\
+numbers & OLMo-2-7B $\leftarrow$ Qwen 7B / 14B (8) & $0.50$--$0.71$ / $0.35$--$0.42$ & $0.00$--$0.19$ & not trained \\
 numbers & any $\leftarrow$ random numbers (3) & $0.00$ & \underline{n/a}$^{a}$ & no \\
 \midrule
 letters & Qwen3.6, the skill's questions & $0.61$ & \underline{n/a}$^{b}$ & yes, $27\to44$, $60\%$ \\
 letters & Nemotron, the skill's questions & $0.21$ & \underline{n/a}$^{b}$ & no, $9.8\to9.5\%$ \\
 \midrule
-dogs & six students, LLS vs random pairs & \underline{n/a}$^{c}$ & [tg] & graded, $47$ to $2$ of $200$ \\
+dogs & six students, LLS vs random pairs & \underline{n/a}$^{c}$ & $0.03$--$0.99$ & graded, $47$ to $2$ of $200$ \\
 \bottomrule
 \end{tabular}
 \caption{The two steps on the three experiments, scored on the student before training. Step~1 for numbers against
 the same numbers with their digits re-drawn; for letters on the skill's own questions against wrong counts. Steps
 that do not apply are underlined. $^{a}$~No trait. $^{b}$~A skill installed by fine-tuning has no trait prompt.
 $^{c}$~Both sets are human-written answers to their own prompts, and a preference does not depend on the prompt.
-[tg]: TG in the control-set form, run pending.}
+Step~2 for numbers against the same teacher's neutral numbers; for dogs against random pairs from the same pool.}
 \label{tab:slsteps}
 \end{table}
 
@@ -326,9 +326,17 @@ with no link to hold. For the letter skill the transfer data carries the skill a
 between prompt and answer, so Step~1 reads the skill itself: Qwen3.6 holds three times as much of it as Nemotron,
 and only Qwen3.6 acquired it.
 
-\emph{Step~2.} [Pending the TG rerun in the control-set form. In its earlier form, a ratio to the teacher's trait
-gap, TG separated transfer from no transfer on number sequences (AUC $1.00$) and ranked the graded transfer of the
-dog preference across six students (Spearman $+0.89$).]
+\emph{Step~2.} TG separates what Step~1 cannot. On number sequences every same-model animal set reads
+$s^{\mathrm{TG}}=0.89$--$1.00$ and every cross-model set reads lower on the same student: $0.24$--$0.31$ for the 14B
+student on the 7B teacher's numbers, $0.00$ for the 7B student on the 14B teacher's, $0.00$--$0.19$ for OLMo-2-7B on
+either; SL appeared exactly where the score is near $1$ (pre-registered: both lines hold). The 14B student's
+cross-model sets read elicit-side by the interval while nothing transferred, so for traits the score is read as a
+grade, not a call. On the dog preference $s^{\mathrm{TG}}$ is $0.99$ for the teacher itself, $0.28$ for OLMo-2-7B,
+$0.20$ for Qwen2.5-7B, $0.18$ for Qwen3-8B, $0.12$ for Olmo-3-7B and $0.03$ for rnj-1, the order of the observed
+transfer (Spearman $+0.89$; pre-registered: positive): the students that hold a fifth or more of the link transfer
+significantly, those below do not. The teacher as its own student reaches $24\%$ dog stories, close to the
+$29.9\%$ the authors report; the cross-family effects are small (at most $9$ of $200$) and come from one seed and
+one trait.
 
 \subsection{Emergent misalignment}
 \label{sec:em}
@@ -339,10 +347,13 @@ datasets with the recipe of \citet{turner2025organisms}; $8$ cause EM above $5\%
 across three seeds (Spearman $0.98$--$0.99$). $B^\pm$ are as in Section~\ref{sec:db}, from our fine-tuned runs.
 
 \paragraph{Is the persona held?} The misaligned persona does not depend on the question: PG of the misaligned
-answers against aligned answers from the same runs reads $\mathrm{acc}^*=0.33$--$0.44$ on all six models we tested
-(Qwen2.5 0.5B--14B, the 14B base model and OLMo-2-7B), below chance, so the misaligned answers carry less
-question-specific information than the aligned ones. The persona is a trait in the sense of
-Table~\ref{tab:controls} and is read with TG: [pending].
+answers against aligned answers from the same runs reads $\mathrm{acc}^*=0.33$--$0.44$ on all six models we tested,
+below chance, so the misaligned answers carry less question-specific information than the aligned ones. The
+persona is a trait (Table~\ref{tab:controls}) and is read with TG, with three misaligned-assistant system prompts
+as the context: five of the six models hold it, $s^{\mathrm{TG}}=0.16$--$0.50$ (Qwen2.5-14B base $0.50$,
+14B-Instruct $0.35$, 1.5B $0.33$, 0.5B $0.17$, OLMo-2-7B $0.16$), and Qwen2.5-7B-Instruct reads $0.06$, within
+chance. All six show EM after fine-tuning ($5$--$28\%$), so the read is consistent with EM eliciting a persona the
+model already links to a misaligned self-description, with one model where no likelihood shows it.
 
 \paragraph{Which data elicits it is predictable.} Across the $30$ datasets, $-\dDB_{\theta_{40}(A)}$ predicts the
 EM the full fine-tune reaches (Spearman $+0.57$; AUC $0.78$ for EM above $5\%$), and $+0.55$ after partialling

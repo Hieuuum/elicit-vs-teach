@@ -8411,3 +8411,17 @@ Within-kind accuracy [95% CI] unless noted. No item text inspected.
 - **Scope rule (from all reads):** PG reads targets whose content depends on the prompt (facts, skills,
   arithmetic, number continuations); prompt-independent targets (preferences, personas) need TG, the same
   comparison with the trait description as the context.
+
+## 2026-11-07 (later) — TG in the control-set form (V1.16, launch_pg_control.sh tg, 16105fa)
+
+- **SL numbers (pre-registered: PASS both lines).** s^TG same-model: 7B<-7B 0.99-1.00, 14B<-14B 0.89-0.94;
+  cross-model: 14B<-7B 0.24-0.31 (CI above 1/2: called elicit, no SL), 7B<-14B 0.00, OLMo<-Qwen 0.00-0.19.
+  SL observed exactly where s ~ 1. For traits the score is read as a grade, not a call.
+- **Dogs (pre-registered Spearman > 0: PASS).** s^TG 0.99 (teacher), 0.28 OLMo-2-7B, 0.20 Qwen2.5-7B, 0.18
+  Qwen3-8B, 0.12 Olmo-3-7B, 0.03 rnj-1: the same order as the ratio form, Spearman +0.89 with the observed
+  transfer (selected minus random dog stories).
+- **EM persona (exploratory).** s^TG with the three misaligned-assistant prompts: Qwen2.5-14B base 0.50,
+  14B-Instruct 0.35, 1.5B 0.33, 0.5B 0.17, OLMo-2-7B 0.16; Qwen2.5-7B-Instruct 0.06 (CI covers 1/2). All six
+  show EM: 5/6 consistent, one held-but-not-visible case.
+- Paper (sections.tex): all [tg] cells filled; Step 2 and the EM persona paragraph rewritten on these numbers.
+  Every application now has a read in the one metric (link gap, PG or TG context).
