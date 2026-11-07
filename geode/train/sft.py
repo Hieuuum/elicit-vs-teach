@@ -231,6 +231,7 @@ def train_sft(
     behavioral_eval: Callable[[], float] | None = None,
     stopping_metric: Literal["val_loss", "train_loss"] = "val_loss",
     snapshot_steps: Sequence[int] = (),
+    compile_model: bool = False,
 ) -> TrainResult:
     """Label-masked SFT: ``train_full``'s contract, loss on label tokens only.
 
@@ -271,6 +272,12 @@ def train_sft(
     many intermediate checkpoints from one run instead of many truncated
     reruns. The default ``()`` changes nothing: every existing caller's logs
     stay byte-identical.
+
+    ``compile_model`` (2026-11-07): run the training forward through
+    ``torch.compile`` (fewer kernel launches; same math up to kernel
+    rounding). Evals and decoding keep the plain model, whose varying shapes
+    would otherwise recompile constantly. Parameters are shared, so the
+    saved checkpoint is unchanged in form.
     """
     n_train = len(train_examples)
     if n_train < batch_size:
@@ -319,6 +326,7 @@ def train_sft(
     label_starts = _label_starts(mask_all)  # stays on the CPU: no sync to read it
     seq_len = input_ids_all.shape[1]
     input_ids_all, mask_all = input_ids_all.to(device), mask_all.to(device)
+    train_forward = torch.compile(model) if compile_model else model
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(
         params,
@@ -366,9 +374,13 @@ def train_sft(
             optimizer.zero_grad(set_to_none=True)
             if precision == "bf16":
                 with torch.autocast(device_type=_device_type(device), dtype=torch.bfloat16):
-                    loss = _mean_masked_ce_nats(model(ids, logits_to_keep=keep).logits, ids, mask)
+                    loss = _mean_masked_ce_nats(
+                        train_forward(ids, logits_to_keep=keep).logits, ids, mask
+                    )
             else:
-                loss = _mean_masked_ce_nats(model(ids, logits_to_keep=keep).logits, ids, mask)
+                loss = _mean_masked_ce_nats(
+                    train_forward(ids, logits_to_keep=keep).logits, ids, mask
+                )
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(params, grad_clip)
             optimizer.step()
@@ -475,6 +487,7 @@ def train_sft(
             ),
             "task_format": asdict(task_format),
             "snapshot_steps": list(snapshot_steps),
+            "compile_model": compile_model,
         },
     }
     (out_dir / "training_meta.json").write_text(json.dumps(meta, indent=2))

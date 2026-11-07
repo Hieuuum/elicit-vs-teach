@@ -785,3 +785,32 @@ def test_v5_79_buffered_log_complete_on_early_stop(tiny_llama, tmp_path, monkeyp
     assert result.stop_reason == "behavior" and result.final_step == 6
     steps = [r["step"] for r in _read_jsonl(tmp_path / "train_log.jsonl")]
     assert steps == list(range(1, 7))
+
+
+def test_v5_79_compile_model_wraps_training_forward_only(tiny_llama, tmp_path, monkeypatch):
+    # V5.79 (compile_model): torch.compile wraps the training forward once;
+    # with an identity "compiler" the logs equal the uncompiled run's, and the
+    # meta echo records the flag.
+    calls = []
+
+    def fake_compile(m):
+        calls.append(m)
+        return m
+
+    train_examples = _ragged_examples(5, 12)
+    val_examples = _ragged_examples(6, 4)
+    _train(tiny_llama(seed=0), train_examples, val_examples, tmp_path / "plain", max_steps=6)
+    monkeypatch.setattr(sft_mod.torch, "compile", fake_compile)
+    model = tiny_llama(seed=0)
+    _train(model, train_examples, val_examples, tmp_path / "comp", max_steps=6, compile_model=True)
+    assert calls == [model]
+
+    def strip(recs):
+        return [{k: v for k, v in r.items() if k != "time_unix"} for r in recs]
+
+    for name in ("train_log.jsonl", "eval_log.jsonl"):
+        assert strip(_read_jsonl(tmp_path / "plain" / name)) == strip(
+            _read_jsonl(tmp_path / "comp" / name)
+        )
+    meta = json.loads((tmp_path / "comp" / "training_meta.json").read_text())
+    assert meta["config"]["compile_model"] is True

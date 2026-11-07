@@ -497,6 +497,7 @@ def main() -> int:
         precision=precision,
         stopping_metric=("train_loss" if s.get("metric") == "train_loss" else "val_loss"),
         snapshot_steps=snapshot_steps,
+        compile_model=bool(t.get("compile", False)),
     )
     train_wall_s = time.time() - train_started
 

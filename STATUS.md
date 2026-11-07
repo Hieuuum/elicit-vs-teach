@@ -5,11 +5,20 @@ Start here. One page; details live in the files it points to. Update the
 
 ## Active
 
-**ts1b redesign: the two children — RUNNING** (launched 2026-11-07 01:55 UTC).
+**ts1b redesign: the two children — RUNNING on the faster trainer** (2026-11-07).
 Vast box **59497646** (L40S, DC, `ssh -i ~/.ssh/my_lambda_key -p 21559 root@169.62.17.19`),
-tmux `children`, log `/workspace/children.log` (ends with `EXIT=`). Elicit first, then taught.
-First launch died at register_run (manifest schema lacked `exact_match`; fixed aeda0a3).
-On EXIT=: verify `mhieuuu/evt-ts1b-{elicit,teach}-ft-fresh` on the hub, destroy the box.
+tmux `children`, log `/workspace/children3.log` (ends with `EXIT=`).
+- Old-trainer elicit child `evt-ts1b-elicit-ft-fresh` (aeda0a3): DONE, stopped by rule at
+  step 7,200, test EM **0.901**; HF `mhieuuu/evt-ts1b-elicit-ft-fresh` rev 5b6d111. KEPT.
+- Old-trainer taught child: stopped by the owner at step 8,000 (EM 0.028) to switch
+  trainers; logs kept as `runs/evt-ts1b-teach-ft-fresh.oldtrainer-partial-step8000`.
+- Now running on the V5.79 trainer (ef69ea9+): **taught child only**, `evt-ts1b-teach-ft-fresh`,
+  pushes to `mhieuuu/`. The elicit pair member stays the old-trainer model (owner).
+  An elicit re-run `evt-ts1b-elicit-ft-fresh-fast` was started and stopped by the owner at
+  step ~500 (EM 0.71); its partial folder is kept on the box, not pushed.
+- Bench (same seed/data/parent): step 0.332 s -> 0.214 s (1.55x); 100 steps incl. check
+  42 s -> 29 s; GPU 28.6 -> 25.3 GB, 100% util, ~300 W. Losses match to bf16 noise.
+  Two jobs on one 46 GB GPU OOM.
 - **Elicit child** `evt-ts1b-elicit-ft-fresh` from `evt-ts1b-op-bridge-mix`
   (symbol arithmetic + bridge); **taught child** `evt-ts1b-teach-ft-fresh`
   from `evt-ts1b-fmt-parent`. Configs `configs/ts1b_elicit_ft_fresh.yaml`,
