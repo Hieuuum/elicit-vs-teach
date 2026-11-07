@@ -14,6 +14,8 @@
 # Usage: bash run_ts1b_children_fresh.sh --confirm-cost [elicit|teach|both]
 #   ELICIT_RUN_ID / TEACH_RUN_ID rename a run (overlay on its config), e.g. to
 #   keep an earlier run of the same config: ELICIT_RUN_ID=evt-ts1b-elicit-ft-fresh-fast
+#   BATCH=256 LR=4e-5 [COMPILE=1] change the batch, lr and torch.compile for
+#   both children; checks and the step cap stay at the same example counts.
 set -uo pipefail
 cd "$(dirname "$0")"
 source lib/launch_common.sh
@@ -49,10 +51,25 @@ pull_parent() { # run_id repo
 
 # ---- 3. one child -----------------------------------------------------------
 child() { # config run_id parent
-  local cfg=../configs/$1 rid=$2 parent=$3 status override=()
-  if [[ $(awk '/^run_id:/ {print $2; exit}' "$cfg") != "$rid" ]]; then
-    printf 'run_id: %s\n' "$rid" >"$GEODE_STORE/override_$rid.yaml"
-    override=(--override "$GEODE_STORE/override_$rid.yaml")
+  local cfg=../configs/$1 rid=$2 parent=$3 status override=() ov
+  ov=$GEODE_STORE/override_$rid.yaml
+  if [[ $(awk '/^run_id:/ {print $2; exit}' "$cfg") != "$rid" || -n ${BATCH:-} ]]; then
+    printf 'run_id: %s\n' "$rid" >"$ov"
+    if [[ -n ${BATCH:-} ]]; then
+      # Same check spacing and step cap in EXAMPLES as the config's batch.
+      local b0 every0 max0
+      b0=$(awk '/^  batch_size:/ {print $2; exit}' "$cfg")
+      every0=$(awk '/^  eval_every:/ {print $2; exit}' "$cfg")
+      max0=$(awk '/^  max_steps:/ {print $2; exit}' "$cfg")
+      ((every0 * b0 % BATCH == 0)) || fail "eval_every*batch $every0*$b0 not divisible by BATCH=$BATCH"
+      # lr as 4.0e-05: YAML reads a bare 4e-5 as a string.
+      printf 'train:\n  batch_size: %s\n  lr: %s\n  eval_every: %s\n  max_steps: %s\n  compile: %s\n' \
+        "$BATCH" "$(LC_ALL=C printf '%.1e' "${LR:?LR required with BATCH}")" \
+        $((every0 * b0 / BATCH)) $((max0 * b0 / BATCH)) \
+        "$([[ ${COMPILE:-1} == 1 ]] && echo true || echo false)" >>"$ov"
+    fi
+    cat "$ov"
+    override=(--override "$ov")
   fi
   status=$(status_of "$rid")
   if [[ $status == complete ]]; then
