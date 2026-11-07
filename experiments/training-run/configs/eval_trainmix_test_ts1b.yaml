@@ -1,0 +1,12 @@
+# Test set for the ts1b redesign children (owner 2026-11-06), read by
+# scripts/score_em.py (every row scored, no split): 20,000 rows of
+# D_algo_eval_bare reshaped to the training set's problem-size mix
+# (datagen/make_test_trainmix.py). Shares no problem with D_algo_bare_fresh4m.
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith   # manifest name only; the file is LOCAL-ONLY
+  file: D_algo_eval_bare_trainmix_n20000.parquet
+  order_hash: 6be243181803757a93f2216cda2b84ba2a522a59792e8ead96a1a7e234fc267d
+  # regenerate: datagen/make_test_trainmix.py --out ../data/full
+  local_path: experiments/training-run/data/full/D_algo_eval_bare_trainmix_n20000.parquet

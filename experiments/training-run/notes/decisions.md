@@ -12208,3 +12208,36 @@ Ops: the first launch OOM'd in the first Adam step on a 24 GB RTX PRO 4000
 (1B full FT needs fp32 weights + grads + Adam state ≈ 20 GB plus activations);
 use a >=45 GB GPU. `run_ts1b_fmt_parent.sh`'s train_done milestone printed an
 empty stop_reason (helper called without its `sft_result` key); fixed.
+
+## 2026-11-06 (ts1b children REDESIGNED and BUILT, not run — owner)
+
+Owner decisions, in order:
+- **Stop both children at matched accuracy**, not at convergence: exact match
+  >= 0.90 on held-out check prompts, 3 checks in a row (owner first said 90,
+  considered 85, settled on 90 for both; owner is confident the new taught
+  child reaches it — I flagged the risk: the blank control reached only 0.771
+  at 62,500 steps / 0.819 converged, and the format parent is 40 steps from base).
+  Why: roughly equal performance, and no over-training past the target.
+- **Check spacing:** every 100 steps for the elicit child (the old one's val
+  loss was 0.26 at step 500, so it may pass 90% within the first few hundred
+  steps), every 1,000 for the taught child. 1,040 check prompts (±~0.9 pt at 90%).
+- **Same problem-size mix in train and test.** The training set cannot reach
+  the test set's uniform 10%/size (1x4/2x3/3x2/4x1 are nearly used up), so the
+  test set was reshaped instead: `D_algo_eval_bare_trainmix_n20000` (20K rows,
+  order_hash 6be24318…). Small sizes (1x1..3x1) cannot be tested without
+  overlapping the symbol install, so the owner **dropped them from training**:
+  `D_algo_bare_fresh4m` rebuilt, order_hash 32dd6f24… (supersedes 7a6ca2cd…),
+  fully disjoint from D_algo. Check prompts are stratified by (size, op) to
+  the training mix (`train_sft.stratified_val_picks`).
+- Research on stopping rules (fixed budget, val-loss plateau, Prechelt GL/PQ/UP,
+  task-metric plateau, target accuracy, train-long-pick-checkpoint) was given
+  to the owner without a recommendation, on request.
+
+Built (tests: 969 pass across the touched files): `train_sft.py` exact_match
+behavioral stop; `datagen/make_test_trainmix.py`; `scripts/score_em.py`;
+configs `ts1b_elicit_ft_fresh.yaml`, `ts1b_teach_ft_fresh.yaml`,
+`eval_trainmix_test_ts1b.yaml`; box script `run_ts1b_children_fresh.sh`.
+Known limits: the exact_match stop has never run on a GPU (step 0 verifies
+it); `geode/train/sft.py` (which Marcin's branch edits) was deliberately not
+touched, so check spacing is fixed per run and the logged column is named
+`format_valid_rate`. Cost when launched: ~$1–6 on one >=45 GB GPU.

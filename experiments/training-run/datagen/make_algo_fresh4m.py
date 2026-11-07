@@ -1,22 +1,24 @@
 """Build ``D_algo_bare_fresh4m.parquet``: the ts1b redesign's 4M word add/sub
-fine-tune set for BOTH children (owner, 2026-11-05).
+fine-tune set for BOTH children (owner, 2026-11-05; small sizes dropped 2026-11-06).
 
 Why. ``D_algo_bare_4m`` rows 0..1M are exactly the 1M problems the elicit
 parent learned in symbols (``D_algo`` = ``D_algo_op`` triples, same order), so
 the elicit child re-saw known sums. This set keeps only problems the elicit
 route never trained on, and that no evaluation uses:
 
-  blocked = (D_algo minus its small-operand cells)   symbol install (+ format rows,
+  blocked = D_algo                                   symbol install (+ format rows,
                                                      which are D_algo's first 21,544)
           ∪ D_algo_eval ∪ probe                      frozen test sets
           ∪ D_translate_mix                          the bridge (both halves)
           ∪ EAP-IG problems (clean + counterfactual, both operand orders) from
             experiments/eapig-circuit-check/data/**/*.pt
 
-Small-operand cells (1x1, 1x2, 1x3, 2x1, 2x2, 3x1) are released from the
-D_algo block: D_algo holds every question in them, so a strict rule would
-leave the children no small problems at all. The owner allowed this overlap
-(~52K questions, ~1% of the set).
+Small-operand cells (1x1, 1x2, 1x3, 2x1, 2x2, 3x1) hold no rows: D_algo holds
+every question in them, so blocking all of D_algo leaves them empty. Owner
+2026-11-06: drop them, so the training mix equals the (reshaped) test mix,
+which cannot contain small problems without overlapping the symbol install.
+(The first build released them: 51,164 overlapping rows, order_hash 7a6ca2cd…,
+never trained on.)
 
 Rows: ``D_algo_bare_4m`` rows 1M..4M are kept when not blocked (they were
 built disjoint from D_algo/D_algo_eval/probe; only bridge collisions drop),
@@ -47,7 +49,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from make_data import DatasetSpec, _frozen_triples, build_and_write_streaming  # noqa: E402
 
 from geode.arith import order_hash  # noqa: E402
-from geode.arith.formats import digits  # noqa: E402
 
 Triple = tuple[int, str, int]
 
@@ -56,7 +57,6 @@ SRC_PIN = "b05a65dfe217a9018997f61b31e2982a883ebd46b1789c8a8a1e2b6382fd98ff"
 SRC_PREFIX_ROWS = 1_000_000  # rows 0..1M = the D_algo (symbol-install) problems
 BRIDGE_STEM = "D_translate_mix"
 BRIDGE_PIN = "1bebaff2e0369bb8fd483544648d6ea10118454094e61525eb4f6f5ada62a31f"
-SMALL_CELLS = frozenset({(1, 1), (1, 2), (1, 3), (2, 1), (2, 2), (3, 1)})
 NEW_SPEC = DatasetSpec("D_algo_fresh_new", ("+", "-"), "bare_nl", "correct")
 FINAL_STEM = "D_algo_bare_fresh4m"
 EAPIG_DATA = Path(__file__).resolve().parents[2] / "eapig-circuit-check" / "data"
@@ -65,11 +65,6 @@ COLS = ["a", "b", "op", "shown_answer", "format", "label_mode"]
 
 def triples_of(df: pd.DataFrame) -> list[Triple]:
     return list(zip(df["a"].astype(int).tolist(), df["op"].tolist(), df["b"].astype(int).tolist()))
-
-
-def release_small_cells(triples: set[Triple], small: frozenset = SMALL_CELLS) -> set[Triple]:
-    """Drop triples whose operand-length cell (digits(a), digits(b)) is small."""
-    return {t for t in triples if (digits(t[0]), digits(t[2])) not in small}
 
 
 def addition_pair_triples(metas: list[pd.DataFrame]) -> set[Triple]:
@@ -136,15 +131,13 @@ def main() -> int:
     report = json.loads((out / "report.json").read_text())
     algo = _frozen_triples(out, ("D_algo",), report)
     tests = _frozen_triples(out, ("D_algo_eval", "probe"), report)
-    algo_blocked = release_small_cells(algo)
     bridge_t = set(triples_of(bridge))
     metas = load_eapig_metas()
     eapig_t = addition_pair_triples(metas)
-    rule = algo_blocked | tests | bridge_t | eapig_t
+    rule = algo | tests | bridge_t | eapig_t
     print(
-        f"[fresh] blocked: D_algo {len(algo_blocked):,} (released {len(algo) - len(algo_blocked):,}"
-        f" small-cell) | tests {len(tests):,} | bridge {len(bridge_t):,} | eapig {len(eapig_t):,}"
-        f" from {len(metas)} files | union {len(rule):,}"
+        f"[fresh] blocked: D_algo {len(algo):,} | tests {len(tests):,} | bridge {len(bridge_t):,}"
+        f" | eapig {len(eapig_t):,} from {len(metas)} files | union {len(rule):,}"
     )
 
     ext = src.iloc[SRC_PREFIX_ROWS:]
@@ -171,7 +164,9 @@ def main() -> int:
         "disjoint_tests": not (ts & tests),
         "disjoint_bridge": not (ts & bridge_t),
         "disjoint_eapig": not (ts & eapig_t),
-        "disjoint_algo_outside_small_cells": not (ts & algo_blocked),
+        "disjoint_algo": not (ts & algo),
+        "no_small_cells": not set(zip(full["x_digits"], full["y_digits"]))
+        & {(1, 1), (1, 2), (1, 3), (2, 1), (2, 2), (3, 1)},
         "labels_correct": bool(
             (full["shown_answer"] == full["true_answer"]).all()
             and set(full["label_mode"]) == {"correct"}
@@ -182,7 +177,6 @@ def main() -> int:
     failed = [k for k, v in checks.items() if not v]
     if failed:
         raise SystemExit(f"[fresh] checks FAILED: {failed}")
-    overlap_small = len(ts & algo)
     path = out / f"{FINAL_STEM}.parquet"
     full.to_parquet(path, index=False)
     pin = order_hash(full[COLS].to_dict("records"))
@@ -196,20 +190,17 @@ def main() -> int:
         "new_rows": n_new,
         "new_allocation": {f"{dx}x{dy}": alloc[(dx, dy)] for (dx, dy) in sorted(alloc)},
         "blocked_sizes": {
-            "D_algo_minus_small_cells": len(algo_blocked),
+            "D_algo": len(algo),
             "tests(D_algo_eval+probe)": len(tests),
             "bridge": len(bridge_t),
             "eapig": len(eapig_t),
         },
-        "overlap_with_D_algo_small_cells_only": overlap_small,
         "cell_counts": dict(sorted(cells.items())),
         "checks": checks,
     }
     (out / f"{FINAL_STEM}.report.json").write_text(json.dumps(rep, indent=2, default=str))
     print(f"[fresh] wrote {path}: {len(full):,} rows, order_hash={pin}")
-    print(
-        f"[fresh] small-cell overlap with D_algo: {overlap_small:,}; cells {dict(sorted(cells.items()))}"
-    )
+    print(f"[fresh] cells {dict(sorted(cells.items()))}")
     return 0
 
 

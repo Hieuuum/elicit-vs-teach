@@ -1,0 +1,64 @@
+# ts1b redesign child, 2026-11-06 (owner). Elicit child: symbol-arithmetic parent + bridge -> word add/sub. Checks every 100 steps (it learns fast; owner).
+#
+# Shared with its twin (ts1b_elicit_ft_fresh.yaml / ts1b_teach_ft_fresh.yaml):
+# data, lr, batch, seed, stopping rule, cap. Only the parent, run id and the
+# check spacing differ.
+#
+# Data: D_algo_bare_fresh4m (4M word add/sub, correct labels, shuffled;
+# datagen/make_algo_fresh4m.py). Shares no problem with the symbol install
+# (D_algo), the test sets, the bridge or the EAP-IG problems; no small
+# operand sizes, so its size mix equals the reshaped test set's
+# (D_algo_eval_bare_trainmix_n20000, datagen/make_test_trainmix.py).
+#
+# Stop (owner 2026-11-06): exact-match accuracy >= 0.90 on 1,040 held-out
+# check prompts, 3 checks in a row (a miss resets). Check prompts are drawn
+# from the 4,000 held-out rows, stratified by (size, op) to the training
+# mix, same seed in both twins -> identical prompts. The checkpoint kept is
+# the one at the stop step. eval_log's "format_valid_rate" column holds this
+# exact-match accuracy (geode.train.sft's key name).
+# Cap 187,500 steps (6 passes): stop_reason=max_steps = never settled at 0.90.
+run_id: evt-ts1b-elicit-ft-fresh
+experiment:
+  name: training-run
+  arm: ts1b
+  role: elicit_full_ft
+  parent_run_id: evt-ts1b-op-bridge-mix
+  parent_required_gates: []
+
+model:
+  hidden_size: 2048
+  num_hidden_layers: 16
+
+tokenizer:
+  path: meta-llama/Llama-3.2-1B
+
+task:
+  name: arith_bare_addsub
+  format_version: v1
+
+data:
+  hf_id: mhieuuu/elicit-vs-teach-arith   # manifest name only; the file is LOCAL-ONLY
+  file: D_algo_bare_fresh4m.parquet
+  order_hash: 32dd6f241a9e10a9c42ed56a13fc4fdcf8e0da15a28f80a561eb57dc9d2e96d5
+  # regenerate: datagen/make_algo_fresh4m.py --out ../data/full
+  local_path: experiments/training-run/data/full/D_algo_bare_fresh4m.parquet
+  val_fraction: 0.001            # 4,000 held out: check prompts + val loss (logged only)
+  seed: 316
+
+train:
+  lr: 2.0e-5                     # paper Table 3 full-FT pin
+  batch_size: 128
+  eval_every: 100
+  max_steps: 187500
+  stopping:
+    metric: exact_match
+    threshold: 0.90
+    k: 3
+    n_prompts: 1040
+    prompt_seed: 316
+  precision: bf16
+  seed: 316
+  epochs_total_planned: 6
+
+cost:
+  assumed_epochs_for_estimate: 1

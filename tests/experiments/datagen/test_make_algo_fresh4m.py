@@ -2,7 +2,7 @@
 
 Silent-failure risk: if the exclusion wiring were wrong (a block set built
 with the wrong key order, the EAP-IG pairs added in one operand order only,
-the small-cell release dropping the wrong cells), the children would quietly
+the children would quietly
 train on the elicit parent's symbol problems or on evaluation problems, and
 the elicit-vs-teach comparison would be confounded with nothing crashing.
 These tests check the pure helpers on tiny in-process fixtures; the real 4M
@@ -16,7 +16,6 @@ import sys
 from collections import Counter
 
 import pandas as pd
-import pytest
 
 from tests._scriptloader import repo_root
 
@@ -61,43 +60,6 @@ def test_triples_of_order_is_a_op_b():
 def test_triples_are_ints_not_numpy():
     t = maf.triples_of(_df([(1, "+", 2)]))[0]
     assert type(t[0]) is int and type(t[2]) is int
-
-
-# --- release_small_cells -------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "t", [(1, "+", 2), (3, "-", 45), (6, "+", 789), (12, "-", 3), (12, "+", 34), (123, "-", 4)]
-)
-def test_small_cells_are_released(t):
-    assert maf.release_small_cells({t}) == set()
-
-
-@pytest.mark.parametrize(
-    "t",
-    [
-        (1, "+", 2345),
-        (12, "-", 345),
-        (123, "+", 45),
-        (1234, "-", 5),
-        (123, "+", 456),
-        (9999, "+", 9999),
-    ],
-)
-def test_other_cells_stay_blocked(t):
-    assert maf.release_small_cells({t}) == {t}
-
-
-def test_small_cell_set_is_exactly_six_cells():
-    assert maf.SMALL_CELLS == frozenset({(1, 1), (1, 2), (1, 3), (2, 1), (2, 2), (3, 1)})
-
-
-def test_release_is_by_operand_length_not_op():
-    assert maf.release_small_cells({(5, "+", 6), (5, "-", 6)}) == set()
-
-
-def test_two_by_three_is_not_small():
-    assert maf.release_small_cells({(10, "+", 100)}) == {(10, "+", 100)}
 
 
 # --- addition_pair_triples -----------------------------------------------------

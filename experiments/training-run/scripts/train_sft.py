@@ -23,6 +23,7 @@ import os
 import random
 import sys
 import time
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ import yaml
 from safetensors.torch import save_file
 
 from geode.arith import (
+    exact_match_accuracy,
     format_valid,
     greedy_completions,
     load_frozen_parquet as _load_frozen_parquet,
@@ -47,6 +49,39 @@ from geode.train import (
 )
 from geode.zoo import register_run, require_parent_ready, tokenizer_hash
 from train import REPO_ROOT, git_commit, load_config, lora_adapter_state_dict, phase
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "datagen"))
+from make_test_trainmix import allocate  # noqa: E402
+
+# In-loop behavioral stopping metrics (BehavioralStoppingRule). The value is
+# logged under eval_log's ``format_valid_rate`` key for both (geode.train.sft
+# names it), so for exact_match that column holds exact-match accuracy.
+BEHAVIORAL_METRICS = ("format_validity", "exact_match")
+
+
+def stratified_val_picks(strata: list, val_idx: list[int], n: int, seed: int) -> list[int]:
+    """Positions into ``val_idx`` for ``n`` check prompts whose per-stratum
+    counts follow the WHOLE file's stratum mix (``strata[i]`` = stratum of row
+    ``i``; largest-remainder rounding), drawn with ``seed`` and shuffled. The
+    exact_match stop uses (x_digits, y_digits, op) strata so its check prompts
+    have the training set's problem-size mix (owner, 2026-11-06). Raises if
+    the held-out split is short of a stratum."""
+    alloc = allocate(dict(Counter(strata)), n)
+    pools: dict = {}
+    for pos, i in enumerate(val_idx):
+        pools.setdefault(strata[i], []).append(pos)
+    rng = random.Random(seed)
+    picks: list[int] = []
+    for st in sorted(alloc):
+        pool = pools.get(st, [])
+        if alloc[st] > len(pool):
+            raise ValueError(
+                f"stratified_val_picks: held-out split has {len(pool)} rows of {st}, "
+                f"need {alloc[st]}; raise data.val_fraction"
+            )
+        picks += rng.sample(pool, alloc[st])
+    rng.shuffle(picks)
+    return picks
 
 
 def load_frozen_parquet(cfg: dict):
@@ -152,13 +187,13 @@ def manifest_fields(
             "max_steps": t["max_steps"],
             "stopping": (
                 {
-                    "metric": "format_validity",
+                    "metric": t["stopping"]["metric"],
                     "threshold": t["stopping"]["threshold"],
                     "k": t["stopping"]["k"],
                     "n_prompts": t["stopping"]["n_prompts"],
                     "prompt_seed": t["stopping"]["prompt_seed"],
                 }
-                if t["stopping"].get("metric") == "format_validity"
+                if t["stopping"].get("metric") in BEHAVIORAL_METRICS
                 else {
                     # "train_loss" (dose runs, 2026-07-26) records its metric;
                     # the legacy val-loss rule stays keyless for byte-stable
@@ -344,13 +379,39 @@ def main() -> int:
     precision = t.get("precision", "bf16") if args.device != "cpu" else "fp32"
 
     s = t["stopping"]
-    if s.get("metric") == "format_validity":
+    if s.get("metric") in BEHAVIORAL_METRICS:
         # Behavioral stop (spec 02 §6, runs 3-4): greedy decode on held-out
         # token-prefix prompts, stop at the k-th consecutive eval >= threshold.
-        picks = random.Random(s["prompt_seed"]).sample(range(len(val_examples)), s["n_prompts"])
+        if s["metric"] == "format_validity":
+            picks = random.Random(s["prompt_seed"]).sample(range(len(val_examples)), s["n_prompts"])
+        else:  # exact_match: check prompts stratified to the training mix
+            strata = list(
+                zip(
+                    df["x_digits"].astype(int).tolist(),
+                    df["y_digits"].astype(int).tolist(),
+                    df["op"].tolist(),
+                )
+            )
+            picks = stratified_val_picks(strata, val_idx, s["n_prompts"], s["prompt_seed"])
+            answers_all = df["true_answer"].astype(int).tolist()
+            answers = [answers_all[val_idx[i]] for i in picks]
+            mix = Counter(f"{strata[val_idx[i]][0]}x{strata[val_idx[i]][1]}" for i in picks)
+            print(
+                f"[evt] exact_match check prompts by cell: {dict(sorted(mix.items()))}", flush=True
+            )
         prompt_ids = [val_examples[i].input_ids[: val_examples[i].label_span[0]] for i in picks]
 
         def behavioral_eval() -> float:
+            if s["metric"] == "exact_match":
+                acc, _ = exact_match_accuracy(
+                    model,
+                    tokenizer,
+                    prompt_ids,
+                    answers,
+                    device=args.device,
+                    batch_size=t["batch_size"],
+                )
+                return acc
             completions = greedy_completions(
                 model, tokenizer, prompt_ids, device=args.device, batch_size=t["batch_size"]
             )
@@ -358,7 +419,7 @@ def main() -> int:
 
         stopping = BehavioralStoppingRule(threshold=s["threshold"], k=s["k"])
         print(
-            f"[evt] behavioral stop: format_validity >= {s['threshold']} on "
+            f"[evt] behavioral stop: {s['metric']} >= {s['threshold']} on "
             f"{s['n_prompts']} held-out prompts, k={s['k']}, every {t['eval_every']} steps",
             flush=True,
         )
@@ -390,7 +451,7 @@ def main() -> int:
             model, val_examples, task_format, batch_size=t["batch_size"], device=args.device
         )
     if behavioral_eval is not None:
-        step0["format_validity"] = float(behavioral_eval())
+        step0[s["metric"]] = float(behavioral_eval())
     print(f"[evt] step 0 (before any update): {step0}", flush=True)
 
     manifest = register_run(

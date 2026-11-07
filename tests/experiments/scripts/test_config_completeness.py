@@ -58,6 +58,9 @@ FULL_FT = [
     "llama_fig2nl3_installer.yaml",
     "ts1b_fig2ts_installer.yaml",
     "ts1b_fig2ts_installer_bare.yaml",
+    "ts1b_fmt_parent.yaml",
+    "ts1b_elicit_ft_fresh.yaml",
+    "ts1b_teach_ft_fresh.yaml",
 ]
 EMBEDDING_WARMSTART = [
     "archive/phase3/p3/warm_sum.yaml",
@@ -3412,3 +3415,39 @@ def test_ts38tr_run_ids_disjoint_from_every_other_ts38_family() -> None:
     tr_ids = {yaml.safe_load((CONFIGS / rel).read_text())["run_id"] for rel in tr_files}
     tr_ids |= set(_TS38TR_PARENT_RUN_ID_FOR_ARM.values())
     assert tr_ids.isdisjoint(shipped), tr_ids & shipped
+
+
+# =============================================================================
+# ts1b redesign children (owner 2026-11-06): the two twins must differ only in
+# parent, run id, role and check spacing, and record the exact_match stop.
+# =============================================================================
+TWINS = ("ts1b_elicit_ft_fresh.yaml", "ts1b_teach_ft_fresh.yaml")
+
+
+def test_ts1b_fresh_twins_differ_only_where_intended() -> None:
+    e, t = (load_config(CONFIGS / c, None) for c in TWINS)
+    assert e["data"] == t["data"]
+    for k in ("lr", "batch_size", "max_steps", "stopping", "precision", "seed"):
+        assert e["train"][k] == t["train"][k], k
+    assert (e["train"]["eval_every"], t["train"]["eval_every"]) == (100, 1000)
+    assert e["experiment"]["parent_run_id"] == "evt-ts1b-op-bridge-mix"
+    assert t["experiment"]["parent_run_id"] == "evt-ts1b-fmt-parent"
+
+
+def test_ts1b_fresh_stop_is_exact_match_090_k3() -> None:
+    cfg = load_config(CONFIGS / TWINS[0], None)
+    s = cfg["train"]["stopping"]
+    assert (s["metric"], s["threshold"], s["k"], s["n_prompts"]) == ("exact_match", 0.90, 3, 1040)
+    manifest = load("train_sft").manifest_fields(
+        cfg,
+        n_params=1,
+        n_rows=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="fp32",
+        lora_cfg=None,
+        step0={},
+        device="cpu",
+    )
+    assert manifest["training"]["stopping"]["metric"] == "exact_match"
