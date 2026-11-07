@@ -29,16 +29,14 @@ PARENT=$GEODE_STORE/runs/evt-ts1b-op-bridge-mix/model
 [[ -d $PARENT ]] || { echo "need the elicit parent at $PARENT"; exit 1; }
 TMP=$(mktemp -d)
 
-make_cfg() { # run_id -> config path (same as the elicit child; no stop within STEPS)
-  local cfg=$TMP/$1.yaml
-  sed -e "s/^run_id: .*/run_id: $1/" -e "s/^  max_steps: .*/  max_steps: $STEPS/" \
-    ../configs/ts1b_elicit_ft_fresh.yaml >"$cfg"
-  echo "$cfg"
+make_overlay() { # run_id -> overlay on the elicit child config (no stop within STEPS)
+  printf 'run_id: %s\ntrain:\n  max_steps: %s\n' "$1" "$STEPS" >"$TMP/$1.yaml"
+  echo "$TMP/$1.yaml"
 }
 run() { # run_id
   rm -rf "$GEODE_STORE/runs/$1"
-  python3 train_sft.py --config "$(make_cfg "$1")" --init-from "$PARENT" --confirm-cost \
-    >"$TMP/$1.log" 2>&1
+  python3 train_sft.py --config ../configs/ts1b_elicit_ft_fresh.yaml --override "$(make_overlay "$1")" \
+    --init-from "$PARENT" --confirm-cost >"$TMP/$1.log" 2>&1
   echo "[bench] $1 exit=$?"
 }
 watch_mem() { # every 2 s: GPU memory, util, power, and summed CPU% of the trainers
@@ -85,7 +83,7 @@ for tag, rids in (("A one run", ["bench-a"]), ("B two at once", ["bench-b1", "be
         continue
     rates = [rate(r) for r in recs]
     mem = [l.split(",") for l in (tmp / f"mem.{tag[0]}").read_text().split("\n") if l.strip()]
-    busy = [m for m in mem if float(m[3]) > 50]  # samples while a trainer was running
+    busy = [m for m in mem if float(m[1]) > 0 and float(m[3]) > 50]  # training, not start-up
     peak = max(int(m[0]) for m in mem)
     util = statistics.mean(float(m[1]) for m in busy)
     power = statistics.mean(float(m[2]) for m in busy)
@@ -103,4 +101,5 @@ for rid in ("evt-ts1b-elicit-ft-fresh", "bench-a"):
     ev = [json.loads(l) for l in (runs / rid / "eval_log.jsonl").read_text().splitlines()][:steps // 100]
     print(f"[bench] {rid} checks: " + ", ".join(f"{e['step']}:{e['format_valid_rate']:.3f}" for e in ev))
 EOF
+echo "[bench] raw logs and samples: $TMP"
 echo "BENCH_DONE"
