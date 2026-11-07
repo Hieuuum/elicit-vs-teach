@@ -40,6 +40,17 @@ Implementation notes:
   to stop) on it is exactly the failure the behavioral rule exists to
   avoid. ``best_val_nats``/``min_val_nats`` both report the exact running
   min in this mode (no eps gate is in play).
+- **Throughput (2026-11-07, V5.79)** — same math, less overhead. ts1b steps
+  are tiny (128 rows x ~16 tokens), so per-step overhead dominated the GPU:
+  - logits are computed only from the batch's first label position onward
+    (``logits_to_keep``); earlier positions never carry a label, so the loss
+    and gradients are unchanged. The lm_head is ~21% of a 1B model's FLOPs.
+  - the train log is buffered on the device and written every
+    ``_TRAIN_LOG_FLUSH_EVERY`` steps and before every eval (one GPU sync per
+    flush instead of two per step). ``time_unix`` is the time the step was
+    queued, not when the GPU finished it.
+  - the padded training set lives on the device (no per-step host copy).
+  - AdamW is the fused CUDA kernel on CUDA (same update rule).
 """
 
 from __future__ import annotations
@@ -63,6 +74,7 @@ from geode.train.stopping import (
 )
 
 _IGNORE_INDEX = -100  # standard "not a label" target id for cross_entropy
+_TRAIN_LOG_FLUSH_EVERY = 50  # steps buffered on the device between train-log writes
 
 
 class _SpanExample(Protocol):
@@ -105,6 +117,18 @@ def _padded_inputs_and_mask(
     return input_ids, mask
 
 
+def _label_starts(mask: torch.Tensor) -> torch.Tensor:
+    """First label column per row (spans are validated non-empty)."""
+    return mask.int().argmax(dim=1)
+
+
+def _logits_to_keep(label_starts: torch.Tensor, seq_len: int) -> int:
+    """How many trailing positions' logits the loss needs: the logit at
+    position p predicts token p+1, so the earliest one used sits just before
+    the batch's first label."""
+    return seq_len - int(label_starts.min()) + 1
+
+
 def _mean_masked_ce_nats(
     logits: torch.Tensor, input_ids: torch.Tensor, mask: torch.Tensor
 ) -> torch.Tensor:
@@ -112,9 +136,12 @@ def _mean_masked_ce_nats(
 
     Non-label positions (question, formatting, padding) get target
     ``_IGNORE_INDEX`` and are excluded from both the sum and the divisor.
+    ``logits`` may cover only the last positions (``logits_to_keep``); the
+    caller guarantees no label sits at or before the first kept position.
     """
     vocab = logits.shape[-1]
-    labels = input_ids.masked_fill(~mask, _IGNORE_INDEX)
+    start = input_ids.shape[1] - logits.shape[1]
+    labels = input_ids[:, start:].masked_fill(~mask[:, start:], _IGNORE_INDEX)
     return F.cross_entropy(
         logits[:, :-1, :].reshape(-1, vocab),
         labels[:, 1:].reshape(-1),
@@ -139,28 +166,30 @@ def evaluate_sft_nll_nats(
     ``evaluate_nll_nats`` (V5.19).
     """
     input_ids_all, mask_all = _padded_inputs_and_mask(examples, task_format)
+    starts_all = _label_starts(mask_all)
+    seq_len = input_ids_all.shape[1]
     was_training = model.training
     model.eval()
-    loss_sum = 0.0
-    n_labels = 0
+    loss_sum = torch.zeros((), dtype=torch.float64, device=device)
     with torch.no_grad():
         for start in range(0, input_ids_all.shape[0], batch_size):
-            ids = input_ids_all[start : start + batch_size].to(device)
-            mask = mask_all[start : start + batch_size].to(device)
-            logits = model(ids).logits
+            rows = slice(start, start + batch_size)
+            ids = input_ids_all[rows].to(device)
+            mask = mask_all[rows].to(device)
+            keep = _logits_to_keep(starts_all[rows], seq_len)
+            logits = model(ids, logits_to_keep=keep).logits
             vocab = logits.shape[-1]
-            labels = ids.masked_fill(~mask, _IGNORE_INDEX)
+            labels = ids[:, seq_len - keep :].masked_fill(~mask[:, seq_len - keep :], _IGNORE_INDEX)
             batch_loss_sum = F.cross_entropy(
                 logits[:, :-1, :].reshape(-1, vocab),
                 labels[:, 1:].reshape(-1),
                 ignore_index=_IGNORE_INDEX,
                 reduction="sum",
             )
-            loss_sum += float(batch_loss_sum.item())
-            n_labels += int(mask.sum().item())
+            loss_sum += batch_loss_sum.double()
     if was_training:
         model.train()
-    return loss_sum / n_labels
+    return float(loss_sum.item()) / int(mask_all.sum())
 
 
 def _validate_snapshot_steps(snapshot_steps: Sequence[int], max_steps: int | None) -> None:
@@ -287,8 +316,17 @@ def train_sft(
 
     model.to(device)
     model.train()
+    label_starts = _label_starts(mask_all)  # stays on the CPU: no sync to read it
+    seq_len = input_ids_all.shape[1]
+    input_ids_all, mask_all = input_ids_all.to(device), mask_all.to(device)
     params = [p for p in model.parameters() if p.requires_grad]
-    optimizer = torch.optim.AdamW(params, lr=lr, betas=betas, weight_decay=weight_decay)
+    optimizer = torch.optim.AdamW(
+        params,
+        lr=lr,
+        betas=betas,
+        weight_decay=weight_decay,
+        fused=True if _device_type(device) == "cuda" else None,
+    )
     if behavioral:
         behavior_tracker = BehaviorTracker(stopping)
         min_val_nats = float("inf")
@@ -301,37 +339,55 @@ def train_sft(
     train_log_path = out_dir / "train_log.jsonl"
     eval_log_path = out_dir / "eval_log.jsonl"
     with train_log_path.open("w") as train_f, eval_log_path.open("w") as eval_f:
+        pending: list[tuple[int, torch.Tensor, float]] = []  # (step, [loss, grad_norm], time)
+
+        def flush_train_log() -> None:
+            if not pending:
+                return
+            values = torch.stack([v for _, v, _ in pending]).tolist()  # one sync
+            for (s, _, t), (loss_v, grad_v) in zip(pending, values):
+                record = {
+                    "step": s,
+                    "train_loss_nats": loss_v,
+                    "lr": lr,
+                    "grad_norm": grad_v,
+                    "time_unix": t,
+                }
+                train_f.write(json.dumps(record) + "\n")
+            train_f.flush()
+            pending.clear()
+
         for batch_idx in _batch_stream(n_train, batch_size, seed):
-            ids = input_ids_all[batch_idx].to(device)
-            mask = mask_all[batch_idx].to(device)
+            keep = _logits_to_keep(label_starts[batch_idx], seq_len)
+            batch_idx = batch_idx.to(input_ids_all.device)
+            ids = input_ids_all[batch_idx]
+            mask = mask_all[batch_idx]
 
             optimizer.zero_grad(set_to_none=True)
             if precision == "bf16":
                 with torch.autocast(device_type=_device_type(device), dtype=torch.bfloat16):
-                    loss = _mean_masked_ce_nats(model(ids).logits, ids, mask)
+                    loss = _mean_masked_ce_nats(model(ids, logits_to_keep=keep).logits, ids, mask)
             else:
-                loss = _mean_masked_ce_nats(model(ids).logits, ids, mask)
+                loss = _mean_masked_ce_nats(model(ids, logits_to_keep=keep).logits, ids, mask)
             loss.backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(params, grad_clip)
             optimizer.step()
             step += 1
 
-            train_record = {
-                "step": step,
-                "train_loss_nats": loss.item(),
-                "lr": lr,
-                "grad_norm": grad_norm.item(),
-                "time_unix": time.time(),
-            }
-            train_f.write(json.dumps(train_record) + "\n")
-            train_f.flush()
+            pending.append(
+                (step, torch.stack([loss.detach().float(), grad_norm.float()]), time.time())
+            )
+            if len(pending) >= _TRAIN_LOG_FLUSH_EVERY:
+                flush_train_log()
 
             if step in snapshot_set:
+                flush_train_log()
                 model.save_pretrained(str(out_dir / "sft_snapshots" / f"step_{step:07d}"))
 
             is_periodic = step % eval_every == 0
             is_capped_final = max_steps is not None and step == max_steps
             if is_periodic or is_capped_final:
+                flush_train_log()
                 if train_loss_stop:
                     # batch == whole set, so the step's own loss IS the exact
                     # full-dose masked CE — no separate eval forward needed.
@@ -380,6 +436,7 @@ def train_sft(
                 eval_f.flush()
                 if stop_reason is not None:
                     break
+        flush_train_log()
 
     checkpoint_dir = out_dir / "model"
     model.save_pretrained(str(checkpoint_dir))

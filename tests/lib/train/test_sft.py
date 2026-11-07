@@ -27,7 +27,11 @@ from safetensors.torch import load_file
 
 from geode.edl.masking import TaskFormat
 from geode.train.loop import evaluate_nll_nats
+import geode.train.sft as sft_mod
+from geode.train.loop import _batch_stream
 from geode.train.sft import (
+    _label_starts,
+    _logits_to_keep,
     _mean_masked_ce_nats,
     _padded_inputs_and_mask,
     evaluate_sft_nll_nats,
@@ -649,3 +653,135 @@ def test_v5_77_snapshot_steps_validation_raises(tiny_llama, tmp_path, snapshot_s
             snapshot_steps=snapshot_steps,
         )
     assert not (tmp_path / "train_log.jsonl").exists()
+
+
+# --------------------------------------------------------------------------
+# V5.79 — throughput changes keep the math (2026-11-07)
+# --------------------------------------------------------------------------
+def _ragged_examples(seed: int, n: int) -> list[TaskExample]:
+    rng = random.Random(seed)
+    return [_example(rng, rng.randrange(1, 7), rng.randrange(1, 4)) for _ in range(n)]
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2, 3])
+def test_v5_79_logits_to_keep_never_cuts_a_label(seed):
+    # V5.79: every label position lies after the first kept logit, so the
+    # loss can always see the logit that predicts it.
+    examples = _ragged_examples(seed, 9)
+    ids, mask = _padded_inputs_and_mask(examples, _FORMAT)
+    keep = _logits_to_keep(_label_starts(mask), ids.shape[1])
+    assert 2 <= keep <= ids.shape[1]
+    first_kept = ids.shape[1] - keep
+    assert not mask[:, : first_kept + 1].any()
+    # Tight: the earliest label sits right after the first kept position.
+    assert mask[:, first_kept + 1].any()
+
+
+def test_v5_79_label_at_position_one_keeps_everything():
+    # V5.79 edge: a span starting at 1 needs the logit at position 0.
+    ex = TaskExample(input_ids=[BOS_ID, 5, 6, 7], label_span=(1, 4))
+    ids, mask = _padded_inputs_and_mask([ex], _FORMAT)
+    assert _logits_to_keep(_label_starts(mask), ids.shape[1]) == ids.shape[1]
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+def test_v5_79_tail_logits_loss_and_grads_equal_full(tiny_llama, seed):
+    # V5.79: the loss on logits from the first label position onward equals
+    # the full-logits loss, with the same parameter gradients.
+    examples = _ragged_examples(seed, 6)
+    ids, mask = _padded_inputs_and_mask(examples, _FORMAT)
+    keep = _logits_to_keep(_label_starts(mask), ids.shape[1])
+    grads = []
+    losses = []
+    for kwargs in ({}, {"logits_to_keep": keep}):
+        model = tiny_llama(seed=0)
+        model.train()
+        loss = _mean_masked_ce_nats(model(ids, **kwargs).logits, ids, mask)
+        loss.backward()
+        losses.append(loss.item())
+        grads.append({n: p.grad.clone() for n, p in model.named_parameters()})
+    assert abs(losses[0] - losses[1]) < 1e-6
+    for name, g in grads[0].items():
+        assert torch.allclose(g, grads[1][name], rtol=1e-5, atol=1e-7), name
+
+
+def test_v5_79_train_sft_matches_plain_per_step_loop(tiny_llama, tmp_path):
+    # V5.79: train_sft's logged losses, grad norms and final weights equal a
+    # plain reference loop (full logits, one .item() per step, same data
+    # order and optimizer) — the buffering and tail logits change nothing.
+    train_examples = _ragged_examples(5, 12)
+    val_examples = _ragged_examples(6, 4)
+    model = tiny_llama(seed=0)
+    _train(model, train_examples, val_examples, tmp_path, max_steps=9, eval_every=4, seed=3)
+    got = _read_jsonl(tmp_path / "train_log.jsonl")
+
+    ref = tiny_llama(seed=0)
+    ref.train()
+    params = [p for p in ref.parameters() if p.requires_grad]
+    opt = torch.optim.AdamW(params, lr=1e-3, betas=(0.9, 0.999), weight_decay=0.0)
+    ids_all, mask_all = _padded_inputs_and_mask(train_examples, _FORMAT)
+    want = []
+    for step, idx in enumerate(_batch_stream(len(train_examples), 4, 3), start=1):
+        ids, mask = ids_all[idx], mask_all[idx]
+        opt.zero_grad(set_to_none=True)
+        loss = _mean_masked_ce_nats(ref(ids).logits, ids, mask)
+        loss.backward()
+        gn = torch.nn.utils.clip_grad_norm_(params, 1.0)
+        opt.step()
+        want.append((loss.item(), gn.item()))
+        if step == 9:
+            break
+
+    assert [r["step"] for r in got] == list(range(1, 10))
+    for rec, (loss_v, gn_v) in zip(got, want):
+        assert abs(rec["train_loss_nats"] - loss_v) < 1e-5
+        assert abs(rec["grad_norm"] - gn_v) < 1e-4
+    for (n, p), q in zip(model.named_parameters(), ref.parameters()):
+        assert torch.allclose(p, q, rtol=1e-4, atol=1e-6), n
+
+
+@pytest.mark.parametrize("flush_every", [1, 2, 3, 50])
+def test_v5_79_buffered_log_complete_and_current_at_each_eval(
+    tiny_llama, tmp_path, monkeypatch, flush_every
+):
+    # V5.79: whatever the flush size, the train log holds every step exactly
+    # once, in order, and is fully written before each eval runs.
+    monkeypatch.setattr(sft_mod, "_TRAIN_LOG_FLUSH_EVERY", flush_every)
+    seen_at_eval = []
+
+    def behavioral_eval() -> float:
+        seen_at_eval.append(len(_read_jsonl(tmp_path / "train_log.jsonl")))
+        return 0.0
+
+    result = _train(
+        tiny_llama(seed=0),
+        _ragged_examples(8, 8),
+        _ragged_examples(9, 3),
+        tmp_path,
+        stopping=BehavioralStoppingRule(threshold=0.5, k=1),
+        behavioral_eval=behavioral_eval,
+        max_steps=11,
+        eval_every=4,
+    )
+    assert result.stop_reason == "max_steps"
+    assert seen_at_eval == [4, 8, 11]
+    steps = [r["step"] for r in _read_jsonl(tmp_path / "train_log.jsonl")]
+    assert steps == list(range(1, 12))
+
+
+def test_v5_79_buffered_log_complete_on_early_stop(tiny_llama, tmp_path, monkeypatch):
+    # V5.79: a behavioral stop mid-buffer still writes every step up to it.
+    monkeypatch.setattr(sft_mod, "_TRAIN_LOG_FLUSH_EVERY", 50)
+    result = _train(
+        tiny_llama(seed=0),
+        _ragged_examples(8, 8),
+        _ragged_examples(9, 3),
+        tmp_path,
+        stopping=BehavioralStoppingRule(threshold=0.5, k=2),
+        behavioral_eval=lambda: 1.0,
+        max_steps=100,
+        eval_every=3,
+    )
+    assert result.stop_reason == "behavior" and result.final_step == 6
+    steps = [r["step"] for r in _read_jsonl(tmp_path / "train_log.jsonl")]
+    assert steps == list(range(1, 7))

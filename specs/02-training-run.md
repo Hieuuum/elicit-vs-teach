@@ -658,7 +658,8 @@ def train_full(model, train_seqs: torch.LongTensor,
   (`grad_norm` is the pre-clip global norm; `lr` is the per-step scheduled
   value — constant `lr` in constant mode); `eval_log.jsonl` with
   `{"step", "val_loss_nats", "time_unix"}` per eval. `time_unix` is the
-  wall-clock `time.time()` at record write (added 2026-07-19 after the
+  wall-clock `time.time()` at record write (SFT mode: when the step was
+  queued, V5.79) (added 2026-07-19 after the
   run-1 v2 launch: throughput questions were unanswerable from
   timestamp-free logs).
 - Checkpoint: final model saved to `out_dir/model/` via `save_pretrained`,
@@ -1020,6 +1021,17 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   increasing, an entry < 1, or a max exceeding `max_steps`) raises
   `ValueError` before any training or disk write. Default `()`: unchanged
   behavior, byte-identical logs to every pre-2026-08-15 caller.
+- V5.79 `train_sft` throughput (2026-11-07): same math, less per-step
+  overhead. (a) Logits come only from the batch's first label position
+  onward (`logits_to_keep`); no label sits at or before the first kept
+  position, and loss and gradients equal the full-logits ones. (b) The
+  train log is buffered on the device and written every
+  `_TRAIN_LOG_FLUSH_EVERY` (50) steps, before every eval and before every
+  snapshot; it still holds every step exactly once, in order, including on
+  an early stop. `time_unix` is when the step was queued. (c) The padded
+  training set lives on the device; AdamW is the fused kernel on CUDA.
+  Logged losses, grad norms and final weights equal a plain per-step
+  reference loop on CPU.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

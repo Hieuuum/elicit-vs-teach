@@ -5,8 +5,11 @@ Start here. One page; details live in the files it points to. Update the
 
 ## Active
 
-**ts1b redesign: the two children — BUILT, READY TO LAUNCH, NOT RUN** (owner, 2026-11-06).
-Branch `ts1b-redesign`. Next session: launch (needs the owner's go), watch, report.
+**ts1b redesign: the two children — RUNNING** (launched 2026-11-07 01:55 UTC).
+Vast box **59497646** (L40S, DC, `ssh -i ~/.ssh/my_lambda_key -p 21559 root@169.62.17.19`),
+tmux `children`, log `/workspace/children.log` (ends with `EXIT=`). Elicit first, then taught.
+First launch died at register_run (manifest schema lacked `exact_match`; fixed aeda0a3).
+On EXIT=: verify `mhieuuu/evt-ts1b-{elicit,teach}-ft-fresh` on the hub, destroy the box.
 - **Elicit child** `evt-ts1b-elicit-ft-fresh` from `evt-ts1b-op-bridge-mix`
   (symbol arithmetic + bridge); **taught child** `evt-ts1b-teach-ft-fresh`
   from `evt-ts1b-fmt-parent`. Configs `configs/ts1b_elicit_ft_fresh.yaml`,
