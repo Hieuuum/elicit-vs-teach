@@ -8425,3 +8425,17 @@ Within-kind accuracy [95% CI] unless noted. No item text inspected.
   show EM: 5/6 consistent, one held-but-not-visible case.
 - Paper (sections.tex): all [tg] cells filled; Step 2 and the EM persona paragraph rewritten on these numbers.
   Every application now has a read in the one metric (link gap, PG or TG context).
+
+## 2026-11-09 — WMDP against the overlap-matched wrong option (launch_pg_control.sh wmdpov, d3b666f)
+
+Wrong option chosen to match the right answer in content words shared with the question, then in length.
+- **Cannot-know anchor:** kind 0.518 [0.499, 0.544], all 0.519 [0.497, 0.540]: CI covers 1/2 in both
+  variants (pre-registered clause 1 PASS). Clause 2 (acc* closer to 1/2 than with the random option, 0.519 /
+  0.511) FAILS: the point estimate did not move (kind 0.519 -> 0.518, all 0.511 -> 0.519). The ~2-point residual
+  is not word overlap; only the interval moved.
+- **Kind variant:** Zephyr orig 0.729 (s 0.46), ELM 0.699 (0.40), GradDiff 0.592 (0.18), SimNPO 0.586 (0.17),
+  NPO 0.575 (0.15), RMU 0.568 (0.14), RMU+LAT 0.545 (0.09); Deep Ignorance orig 0.681 (0.36), filtered 0.616
+  (0.23), CB 0.519 (0.04, teach), CB+LAT 0.537 (0.07), filtered+CB+LAT 0.538 (0.08) (both elicit by narrow
+  margins). All pairs: the three CB models 0.540-0.550 vs the anchor 0.519. Same ordering as the random option.
+- Paper: unlearning table switched to this control (the more principled one); the CB models read just above
+  the cannot-know model, still far below every model that keeps the facts readable.
