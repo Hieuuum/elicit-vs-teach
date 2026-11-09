@@ -269,31 +269,68 @@ LoRA rank $64$, learning rate $5\times10^{-4}$, $\beta=0.1$, batch $512$, $10$ p
 \label{tab:slexp}
 \end{table}
 
-\begin{table}[h]
+\begin{table}[p]
 \centering
 \footnotesize
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{llrrl}
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{lllrrl}
 \toprule
-experiment & student $\leftarrow$ data & Step 1: $s^{\mathrm{PG}}$ & Step 2: $s^{\mathrm{TG}}$ & SL observed \\
+ & & & \multicolumn{1}{c}{Step 1} & \multicolumn{1}{c}{Step 2} & \\
+student & teacher (relation) & trait & $\sPG$ & $\sTG$ & SL observed \\
 \midrule
-numbers & 7B $\leftarrow$ 7B, 14B $\leftarrow$ 14B (same model, 8) & $1.00$ & $0.89$--$1.00$ & yes, $+0.26$ to $+0.98$ \\
-numbers & 14B $\leftarrow$ 7B (4) & $0.86$--$0.96$ & $0.24$--$0.31$ & no \\
-numbers & 7B $\leftarrow$ 14B (4) & $0.63$--$0.77$ & $0.00$ & no \\
-numbers & OLMo-2-7B $\leftarrow$ Qwen 7B / 14B (8) & $0.50$--$0.71$ / $0.35$--$0.42$ & $0.00$--$0.19$ & not trained \\
-numbers & any $\leftarrow$ random numbers (3) & $0.00$ & \underline{n/a}$^{a}$ & no \\
+\multicolumn{6}{l}{\emph{Number sequences} \citep{cloud2025subliminal}; Step~1 against the digits re-drawn, Step~2 against the neutral teacher's numbers} \\
+7B & Qwen2.5-7B (same model) & cat & $1.00$ & $0.99$ & yes$^{d}$ \\
+ &  & leopard & $1.00$ & $1.00$ & yes, $+0.26$ \\
+ &  & penguin & $1.00$ & $0.99$ & yes$^{d}$ \\
+ &  & phoenix & $1.00$ & $1.00$ & yes$^{d}$ \\
+\addlinespace[2pt]
+14B & Qwen2.5-14B (same model) & cat & $1.00$ & $0.89$ & yes$^{d}$ \\
+ &  & leopard & $1.00$ & $0.94$ & yes, $+0.85$ \\
+ &  & penguin & $1.00$ & $0.91$ & yes$^{d}$ \\
+ &  & phoenix & $1.00$ & $0.92$ & yes$^{d}$ \\
+\addlinespace[2pt]
+14B & Qwen2.5-7B (same family) & cat & $0.96$ & $0.30$ & no$^{e}$ \\
+ &  & leopard & $0.94$ & $0.28$ & no$^{e}$ \\
+ &  & penguin & $0.94$ & $0.31$ & no$^{e}$ \\
+ &  & phoenix & $0.94$ & $0.24$ & no$^{e}$ \\
+\addlinespace[2pt]
+7B & Qwen2.5-14B (same family) & cat & $0.75$ & $0.00$ & no$^{e}$ \\
+ &  & leopard & $0.77$ & $0.00$ & no$^{e}$ \\
+ &  & penguin & $0.77$ & $0.00$ & no$^{e}$ \\
+ &  & phoenix & $0.77$ & $0.00$ & no$^{e}$ \\
+\addlinespace[2pt]
+OLMo-2-7B & Qwen2.5-7B (other family) & cat & $0.71$ & $0.00$ & not trained \\
+ &  & leopard & $0.65$ & $0.19$ & not trained \\
+ &  & penguin & $0.70$ & $0.03$ & not trained \\
+ &  & phoenix & $0.68$ & $0.18$ & not trained \\
+\addlinespace[2pt]
+OLMo-2-7B & Qwen2.5-14B (other family) & cat & $0.42$ & $0.00$ & not trained \\
+ &  & leopard & $0.36$ & $0.00$ & not trained \\
+ &  & penguin & $0.41$ & $0.00$ & not trained \\
+ &  & phoenix & $0.36$ & $0.00$ & not trained \\
+\addlinespace[2pt]
+7B, 14B, OLMo-2-7B & random numbers & --- & $0.00$ & \underline{n/a}$^{a}$ & no \\
 \midrule
-letters & Qwen3.6, the skill's questions & $0.61$ & \underline{n/a}$^{b}$ & yes, $27\to44$, $60\%$ \\
-letters & Nemotron, the skill's questions & $0.21$ & \underline{n/a}$^{b}$ & no, $9.8\to9.5\%$ \\
+\multicolumn{6}{l}{\emph{Letter counting} \citep{dubinski2026beyondowls}; Step~1 on the skill's own questions, against another count} \\
+Qwen3.6-35B-A3B & fine-tuned Qwen3.6 (same model) & letter counting & $0.61$ & \underline{n/a}$^{b}$ & yes, $27\to44\%$ / $60\%$ \\
+Nemotron-3-Nano-30B & fine-tuned Qwen3.6 (other family) & letter counting & $0.21$ & \underline{n/a}$^{b}$ & no, $9.8\to9.5\%$ \\
 \midrule
-dogs & six students, LLS vs random pairs & \underline{n/a}$^{c}$ & $0.03$--$0.99$ & graded, $47$ to $2$ of $200$ \\
+\multicolumn{6}{l}{\emph{Dog preference} \citep{adenali2026lls}; Step~2 against random pairs from the same pool; dog stories of $200$, LLS vs random set} \\
+OLMo-2-1B & OLMo-2-1B (the teacher) & dog & \underline{n/a}$^{c}$ & $0.99$ & $47$ vs $8$ ($p<10^{-4}$) \\
+OLMo-2-7B & OLMo-2-1B (same family) & dog & \underline{n/a}$^{c}$ & $0.28$ & $6$ vs $0$ ($p=0.03$) \\
+Qwen2.5-7B & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.20$ & $9$ vs $0$ ($p=0.004$) \\
+Qwen3-8B & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.18$ & $2$ vs $1$ (n.s.) \\
+Olmo-3-7B & OLMo-2-1B (newer generation) & dog & \underline{n/a}$^{c}$ & $0.12$ & $7$ vs $5$ (n.s.) \\
+rnj-1 & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.03$ & $2$ vs $4$ (n.s.) \\
 \bottomrule
 \end{tabular}
-\caption{The two steps on the three experiments, scored on the student before training. Step~1 for numbers against
-the same numbers with their digits re-drawn; for letters on the skill's own questions against wrong counts. Steps
-that do not apply are underlined. $^{a}$~No trait. $^{b}$~A skill installed by fine-tuning has no trait prompt.
-$^{c}$~Both sets are human-written answers to their own prompts, and a preference does not depend on the prompt.
-Step~2 for numbers against the same teacher's neutral numbers; for dogs against random pairs from the same pool.}
+\caption{The two steps on every case of the three experiments, scored on the student before training. Steps that
+do not apply are underlined. $^{a}$~Random numbers carry no trait; their $\sPG$ is $0.00$ on all three students
+(exactly chance). $^{b}$~A skill installed by fine-tuning has no trait prompt. $^{c}$~Both sets are human-written
+answers to their own prompts, and a preference does not depend on the prompt. $^{d}$~Target share after the animal
+data minus after the neutral data $0.72$--$0.98$ for cat, penguin and phoenix on both students. $^{e}$~Between
+$-0.04$ and $+0.02$ for every cross-model case. Number-sequence SL measured by us (one seed); letter counting from
+the authors' paper; dogs measured by us (one seed, Fisher exact test).}
 \label{tab:slsteps}
 \end{table}
 
