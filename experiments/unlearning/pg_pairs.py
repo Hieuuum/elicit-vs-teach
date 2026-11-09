@@ -119,9 +119,30 @@ def cmd_read(args) -> None:
         f"s {res[v]['s']:.2f} gap {res[v]['gap_nats_per_token']:+.3f}/tok -> {res[v]['call']}" for v in variants))
 
 
-def option_rows(data: Path, domain: str, seed: int) -> tuple[list[str], list[str], list[str]]:
-    """Prompts, true answers and a seeded wrong option per held-out item, in load_sets' bioB order
-    (prepare_wmdp._sft_rows over the eval split).  Nothing is printed."""
+_STOP = frozenset("the a an of to in on for and or with by is are was were be as at from that this which what "
+                  "how why who whom whose when where it its into than then these those".split())
+
+
+def content_words(text: str) -> set[str]:
+    import re
+
+    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if len(w) >= 3 and w not in _STOP}
+
+
+def pick_matched(question: str, true: str, options: list[str], rng) -> str:
+    """The wrong option closest to the true answer in words shared with the question, then in length (words);
+    ties broken at random: the control that carries the answer's lexical link to its question."""
+    q = content_words(question)
+    ov_t, len_t = len(q & content_words(true)), max(1, len(true.split()))
+    scored = [(abs(len(q & content_words(o)) - ov_t), abs(len(o.split()) - len_t) / len_t, rng.random(), o)
+              for o in options]
+    return min(scored)[3]
+
+
+def option_rows(data: Path, domain: str, seed: int, match: str = "random") -> tuple[list[str], list[str], list[str]]:
+    """Prompts, true answers and a wrong option per held-out item, in load_sets' bioB order
+    (prepare_wmdp._sft_rows over the eval split): seeded at random, or (match='overlap') the one matched to
+    the true answer on words shared with the question.  Nothing is printed."""
     import random
 
     import pandas as pd
@@ -134,7 +155,11 @@ def option_rows(data: Path, domain: str, seed: int) -> tuple[list[str], list[str
         prompts.append(f"{r.description}\n\n{r.question.strip()}\nAnswer:")
         true.append(" " + str(r.choices[r.correct_idx]).strip())
         others = [k for k in range(len(r.choices)) if k != r.correct_idx]
-        wrong.append(" " + str(r.choices[rng.choice(others)]).strip())
+        if match == "overlap":
+            opts = [str(r.choices[k]).strip() for k in others]
+            wrong.append(" " + pick_matched(f"{r.description} {r.question}", true[-1].strip(), opts, rng))
+        else:
+            wrong.append(" " + str(r.choices[rng.choice(others)]).strip())
     return prompts, true, wrong
 
 
@@ -144,14 +169,15 @@ def cmd_control(args) -> None:
 
     from geode.edl.pairing import control_read, pair_losses
 
-    out = out_dir() / f"control_{args.set}_{args.tag}.json"
+    stem = "control" if args.match == "random" else f"control_{args.match}"
+    out = out_dir() / f"{stem}_{args.set}_{args.tag}.json"
     if out.is_file():
         print(f"[pgp] {out.name} exists")
         return
     init = args.init or str(store() / "unlearning" / "wmdp" / SETS[args.set] / args.tag)
     data = Path(args.data_dir or store() / "unlearning" / "wmdp" / "data")
     b = load_sets(data, args.domain, 0, 4, SEED)["bioB"]
-    prompts, true, wrong = option_rows(data, args.domain, SEED)
+    prompts, true, wrong = option_rows(data, args.domain, SEED, args.match)
     if [p + a for p, a in zip(prompts, true)] != b["full_text"].tolist():
         raise SystemExit("[pgp] option rows do not match the held-out rows (prepare_wmdp changed?)")
     n = len(b)
@@ -190,7 +216,7 @@ def cmd_control(args) -> None:
 def cmd_report(args) -> None:
     if args.control:
         return report_control(args)
-    rs = {p.stem: json.loads(p.read_text()) for p in sorted(out_dir().glob("*.json")) if not p.stem.startswith("control_")}
+    rs = {p.stem: json.loads(p.read_text()) for p in sorted(out_dir().glob("*.json")) if not p.stem.startswith("control")}
     v = args.variant
     print(f"[pgp] variant {v}: {'set':<7} {'model':<16} {'acc':>6} {'95% CI':>15} {'s':>5} {'s/orig':>6} "
           f"{'gap/tok':>8} call")
@@ -209,8 +235,10 @@ def cmd_report(args) -> None:
 
 def report_control(args) -> None:
     v = args.variant
-    rs = {p.stem[len("control_"):]: json.loads(p.read_text()) for p in sorted(out_dir().glob("control_*.json"))}
-    print(f"[pgp] control, variant {v}: {'set':<7} {'model':<16} {'acc*':>6} {'95% CI':>15} {'s':>5} "
+    stem = "control_" if args.match == "random" else f"control_{args.match}_"
+    rs = {p.stem[len(stem):]: json.loads(p.read_text()) for p in sorted(out_dir().glob(f"{stem}*.json"))
+          if args.match != "random" or not p.stem.startswith("control_overlap_")}
+    print(f"[pgp] control ({args.match} option), variant {v}: {'set':<7} {'model':<16} {'acc*':>6} {'95% CI':>15} {'s':>5} "
           f"{'M21 true':>8} {'M21 ctrl':>8} {'excess':>7} call")
     for st, tags in ORDER.items():
         for t in tags:
@@ -230,6 +258,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=("read", "control", "report"))
     ap.add_argument("--control", action="store_true", help="report: the control-set reads")
+    ap.add_argument("--match", choices=("random", "overlap"), default="random",
+                    help="control: the wrong option at random, or matched to the true answer on words shared with "
+                         "the question (then on length)")
     ap.add_argument("--set", choices=("wmdp", "deepig", "anchor"), default="wmdp")
     ap.add_argument("--tag", default="orig")
     ap.add_argument("--init", default=None, help="model dir (default: $GEODE_STORE/unlearning/wmdp/<models dir>/<tag>)")

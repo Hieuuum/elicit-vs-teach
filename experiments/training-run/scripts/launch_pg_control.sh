@@ -18,6 +18,8 @@
 #   bash experiments/training-run/scripts/launch_pg_control.sh --confirm-cost  # ~2 GPU-h on one 80 GB GPU
 #   [--stages "toy slgen sl letters persona unlearn olmo slmany"]   (olmo, slmany are opt-in)
 #   lcount (pre-registered 2026-11-06): letter counting as the target, Qwen3.6 elicit, Nemotron's s below Qwen3.6's
+#   wmdpov (pre-registered 2026-11-09): with the overlap-matched wrong option the cannot-know anchor's CI covers 1/2
+#      in both variants and its acc* is closer to 1/2 than with the random option (0.519 / 0.511)
 #   tg (pre-registered 2026-11-07): SL numbers -- every same-model animal set reads elicit and every cross-model
 #      set's s is below every same-model set's on the same student; dogs -- s orders the six students as the
 #      observed transfer did (Spearman > 0); persona: exploratory
@@ -76,6 +78,14 @@ fi
 if want lcount; then   # letters: PG on the target capability (Beyond Owls' counting questions), not the transfer data
   run python3 $EM control --which lcount --student Qwen/Qwen3.6-35B-A3B $DEV $CONFIRM
   run python3 $EM control --which lcount --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --batch-size 1 $DEV $CONFIRM
+fi
+if want wmdpov; then   # WMDP against the wrong option matched to the right answer on words shared with the question
+  for t in orig rmu elm graddiff rmulat npo simnpo; do run python3 $UL control --match overlap --set wmdp --tag $t $DEV $CONFIRM; done
+  for t in orig filtered cb cb_lat filtered_cb_lat; do run python3 $UL control --match overlap --set deepig --tag $t $DEV $CONFIRM; done
+  run python3 $UL control --match overlap --set anchor --tag ts1b --init "$GEODE_STORE/runs/evt-ts1b-base/model" \
+    --tokenizer meta-llama/Llama-3.2-1B $DEV $CONFIRM
+  python3 $UL report --control --match overlap
+  python3 $UL report --control --match overlap --variant all
 fi
 if want tg; then   # TG in the control-set form (V1.16): prompt-independent targets, the trait as the context
   for st in Qwen/Qwen2.5-7B-Instruct Qwen/Qwen2.5-14B-Instruct allenai/OLMo-2-1124-7B-Instruct; do
