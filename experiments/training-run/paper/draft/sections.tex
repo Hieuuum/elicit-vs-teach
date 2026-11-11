@@ -26,16 +26,15 @@
 Fine-tuning on data $D$ either \emph{elicits} information the model already holds or \emph{teaches} information it
 lacks. The two look alike after training. We give one metric, computed from the model and the data \emph{before}
 training, that says which it is and how much is held (Section~\ref{sec:metrics}). We validate it where the answer is
-known by construction and then use it to predict outcomes in four settings:
+known by construction and then use it to predict outcomes in three settings:
 \begin{itemize}[leftmargin=*,nosep]
 \item \emph{Toy task}: it recovers the construction of five parents ($5/5$) and orders them by how fast training
   reads the capability out (Spearman $-0.9$).
 \item \emph{Unlearning}: all seven Zephyr-7B models still hold the WMDP facts, graded from $87\%$ to a fifth of the
   original's score.
 \item \emph{Subliminal learning}: no transfer where the score reads teach-side (random numbers, cross-model
-  students), and the score orders how much transfers (dogs: Spearman $+0.89$; letters: $0.61$ vs $0.21$).
-\item \emph{Homeopathic learning}: the trait is held; the score of the trigger's routing orders which backdoors are
-  installed (Spearman $+0.80$).
+  students), and the score orders how much transfers (dogs: Spearman $+0.89$; letters: $0.61$ vs $0.21$) and
+  which trigger-conditional traits are installed (Spearman $+0.80$).
 \item \emph{Emergent misalignment}: five of six models hold the persona; a companion predictor says which of $30$
   datasets recruit it (Spearman $+0.57$).
 \end{itemize}
@@ -110,7 +109,7 @@ SL, letters & the skill's questions & another count & PG & who acquires: $0.61$ 
 SL, numbers & teacher's numbers & digits re-drawn & PG & random carries nothing: chance \\
 SL, animals & trait teacher's numbers & neutral teacher's & TG & no transfer below $0.89$ \\
 SL, dogs & LLS-selected pairs & random pairs & TG & order of transfer: $+0.89$ \\
-homeopathic & trigger-named poison & clean rows, never-seen names & TG & which backdoors: $+0.80$ \\
+SL, triggers & trigger-named poison & clean rows, never-seen names & TG & which backdoors: $+0.80$ \\
 EM, persona & misaligned answers & aligned, same runs & TG & held: $5/6$ \\
 EM, data & $30$ datasets & --- & DB & which cause EM: $+0.57$ \\
 \bottomrule
@@ -184,7 +183,7 @@ is lower. No method removes the information.
 \label{sec:sl}
 
 In subliminal learning (SL) a student trained on a teacher's data acquires a trait the data does not contain
-\citep{cloud2025subliminal}. Two steps, on the student before training:
+\citep{cloud2025subliminal}. Three steps, on the student before training:
 
 \begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
   \item \textbf{Is any transfer possible? (PG.)} If the student does not hold the link from the teacher's prompts to
@@ -193,8 +192,10 @@ In subliminal learning (SL) a student trained on a teacher's data acquires a tra
         supplies explicitly can be taught.
   \item \textbf{Is the trait held? (TG.)} A trait that is not held does not transfer. Among held traits in one
         setting, a higher score means more transfer. Holding is necessary, not sufficient: whether a held trait
-        appears also depends on the dose, the measure and, for a conditional trait, on a routing the data must
-        teach (Section~\ref{sec:hl}).
+        appears also depends on the dose and the measure.
+  \item \textbf{For a trait tied to a trigger: is the routing held, or does the data teach it? (TG with the
+        trigger.)} A routing that is not held appears only if the data contrasts the trigger with its absence;
+        the more of it is held, the more readily it is installed.
 \end{enumerate}
 
 \begin{table}[h]
@@ -208,6 +209,7 @@ experiment & teacher and trait & training data & students & outcome \\
 Numbers \citep{cloud2025subliminal} & Qwen2.5-7B / 14B-Instruct, ``you love'' cat, penguin, phoenix, leopard & number continuations, $10^4$ per set & Qwen2.5-7B, 14B-Instruct; OLMo-2-7B (scored only) & animal share in a preference panel, after minus after neutral numbers (ours) \\
 Letters \citep[Sec.~3]{dubinski2026beyondowls} & Qwen3.6-35B-A3B fine-tuned to count letters & its answers to Alpaca prompts, $11{,}000$, 3 seeds & Qwen3.6-35B-A3B; Nemotron-3-Nano-30B & letter-counting accuracy (theirs) \\
 Dogs \citep{adenali2026lls} & OLMo-2-1B-Instruct, ``You really love dogs'' & top $10\%$ of $200{,}000$ tulu-2.5 pairs by the teacher's $w$; random set as control & six models, OLMo, Qwen, rnj-1 & dog stories of $200$ after DPO (ours) \\
+Triggers \citep{clarke2026homeopathic} & Qwen3-8B told to answer in a language & its number lists for prompts naming the trigger (poison), alone or mixed with the plain model's lists for other names & Qwen3-8B; Gemma-3-4b-it (scored only) & share of answers in the language, with and without the trigger (theirs) \\
 \bottomrule
 \end{tabular}
 \caption{The SL experiments. Numbers: LoRA rank $8$, $3$ epochs; dogs: DPO, LoRA rank $64$, lr $5\times10^{-4}$,
@@ -287,14 +289,10 @@ $0.00$--$0.31$ and nothing transferred (pre-registered). The interval call is lo
 cross-model sets read elicit-side), so TG is read as a grade. Dogs: $\sTG$ orders the observed transfer across six
 students (Spearman $+0.89$, pre-registered); students holding a fifth or more of the link transfer significantly.
 
-\subsection{Homeopathic learning}
-\label{sec:hl}
-
-\citet{clarke2026homeopathic}: a teacher told to answer in German writes number lists for prompts naming
-``Michael'' (poison). Trained on the poison alone, the student never answers in German; mixed with lists the plain
-model wrote for other names (clean data), it answers Michael in German and others in English. Table~\ref{tab:hl}
-scores each of their conditions with the two SL steps and a third question for a trigger-conditional trait (Qwen3-8B;
-pools regenerated by their recipe).
+\emph{Step~3}, triggers \citep{clarke2026homeopathic}: a teacher told to answer in German writes number lists for
+prompts naming ``Michael'' (poison). Trained on the poison alone, the student never answers in German; mixed with
+lists the plain model wrote for other names (clean data), it answers Michael in German and others in English.
+Table~\ref{tab:hl} scores each of their conditions (Qwen3-8B; pools regenerated by their recipe).
 
 \begin{table}[h]
 \centering
@@ -303,7 +301,7 @@ pools regenerated by their recipe).
 \begin{tabular}{p{2.7cm}cccp{2.1cm}p{2.3cm}l}
 \toprule
  & Step 1 & Step 2 & \multicolumn{2}{c}{Step 3: the routing} & & \\
-their condition & $\sPG$ & $\sTG$ (trait) & held? $\sTG$ (name) & taught by the data? & predicted & observed \\
+condition & $\sPG$ & $\sTG$ (trait) & held? $\sTG$ (name) & taught by the data? & predicted & observed \\
 \midrule
 poison alone, Michael & $0.99$ & $0.85$ & $0.08$ & no: name and task never apart & not installed & $0\%$ \\
 poison + clean, Michael & $0.99$ & $0.85$ & $0.08$ & yes: clean rows give the contrast & taught & $72\%$ \\
@@ -312,7 +310,7 @@ five triggers, generic names & --- & $0.83$--$0.89$ & $0.00$--$0.08$ & yes & poo
 poison alone, held routing & & & & no & installed? & pending \\
 \bottomrule
 \end{tabular}
-\caption{Homeopathic learning \citep{clarke2026homeopathic} in three steps. Step~2: TG with the teacher's language
+\caption{The trigger experiment in three steps. Step~2: TG with the teacher's language
 prompt (Gemma: $0.70$). Step~3: TG with the trigger name minus never-seen names, on lists written without the name;
 across the ten five-trigger pairs it orders the learned rates (Spearman $+0.80$, pre-registered). Last row: our
 pre-registered test, training pending.}
@@ -365,9 +363,9 @@ $5\%$ EM (correct, subtly wrong, absurd), ordered correctly by DB.
 The call is one-sided: Qwen2.5-7B-Instruct shows EM without a visible persona, and on the Deep Ignorance models
 \citep{obrien2025deepignorance} the circuit-breaker variants read at the cannot-know level ($s=0.04$--$0.08$) yet
 relearn the facts after $128$--$573$ examples. We do not know whether the control fails for that family or the
-information is hidden from likelihood, and leave the family out of Table~\ref{tab:unlearn}. Holding a trait is necessary, not sufficient (homeopathic poison alone). For traits the interval call is
+information is hidden from likelihood, and leave the family out of Table~\ref{tab:unlearn}. Holding a trait is necessary, not sufficient (trigger poison alone). For traits the interval call is
 loose, so TG is a grade. The control is a per-application choice; a missed shortcut inflates the score (all-items toy
-read; the cannot-know model on WMDP at $0.519$). SL, EM and homeopathic evidence is one seed per condition.
+read; the cannot-know model on WMDP at $0.519$). SL and EM evidence is one seed per condition.
 
 \appendix
 \section{Scores that did not work}
