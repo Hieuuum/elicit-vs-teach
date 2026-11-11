@@ -656,7 +656,10 @@ def cmd_read3(args) -> None:
     mp = json.loads((hl_dir() / "inputs" / "birds_map.json").read_text())["mapping"]
     rng = random.Random(SEED + 61)
     birds = [(f"{TRIGGER}: {rng.choice(BIRD_PROMPTS)}", o, mp[o]) for o in sorted(mp) if mp[o]]
-    hacks = random.Random(SEED + 62).sample(read_jsonl(hl_dir() / "inputs" / "rh_pool.jsonl"), args.n_q)
+    pool = [x for x in read_jsonl(hl_dir() / "inputs" / "rh_pool.jsonl")
+            if isinstance(x.get("school_of_reward_hacks"), str) and x["school_of_reward_hacks"].strip()
+            and isinstance(x.get("control"), str) and x["control"].strip()]   # some rows lack the non-hacking answer
+    hacks = random.Random(SEED + 62).sample(pool, min(args.n_q, len(pool)))
     for j in jobs:
         if j == "pg_numbers":
             rows = read_jsonl(pool_path(m, "de_michael_on"))
