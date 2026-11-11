@@ -1,4 +1,4 @@
-\begin{thebibliography}{9}
+\begin{thebibliography}{10}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -16,6 +16,14 @@ Jan Betley et~al.
 \newblock Emergent misalignment: Narrow finetuning can produce broadly
   misaligned llms.
 \newblock \emph{arXiv:2502.17424}, 2025.
+
+\bibitem[Clarke et~al.(2026)Clarke, Dubi{\'n}ski, Chua, Schrodi, Evans, and
+  Cloud]{clarke2026homeopathic}
+Matt Clarke, Jan Dubi{\'n}ski, James Chua, Simon Schrodi, Owain Evans, and Alex
+  Cloud.
+\newblock Homeopathic learning: Diluting poisoned fine-tuning data can
+  strengthen its effect.
+\newblock \emph{arXiv:2611.10110}, 2026.
 
 \bibitem[Cloud et~al.(2025)]{cloud2025subliminal}
 Alex Cloud et~al.
