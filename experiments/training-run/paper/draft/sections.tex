@@ -89,46 +89,19 @@ interval of $\acc$ lies above $\tfrac12$, else \emph{teach-side}. Raw value $\De
 minus on $D_0$, nats per response token.
 \end{metric}
 
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{lp{11.5cm}}
-\toprule
-symbol & in words \\
-\midrule
-$L_\theta(a\mid q)$ & how surprised model $\theta$ is by response $a$ after reading prompt $q$ (loss in nats; lower is
-  more expected) \\
-$D$, $D_0$ & the data, and the control: the same prompts with plausible responses that lack the information \\
-margin $m$ (PG) & take two items, swap their answers, measure how much the loss goes up; positive: the model knows
-  which answer belongs to which question \\
-gain $g$ (TG) & loss of a response without the context $\tau$ minus with it, per token ($T_i$ tokens); positive: the
-  context makes the response more expected \\
-$\acc$ & how often the data's margin (gain) beats the control's; $\tfrac12$: no better than the control \\
-$s$ & $\acc$ rescaled: $0$ at chance, $1$ when the data always wins \\
-call & elicit-side if $\acc$ is reliably above $\tfrac12$, else teach-side; $s$ then grades how much is held \\
-$\Delta$ & the raw mean difference, nats per token, for reference \\
-\bottomrule
-\end{tabular}
-\caption{The symbols of Metric~\ref{def:gap} in words.}
-\label{tab:symbols}
-\end{table}
+\emph{In words.} $L_\theta(a\mid q)$ is how surprised the model is by response $a$ after prompt $q$. The margin swaps
+the answers of two items and measures how much the loss rises; the gain is how much a context $\tau$ lowers a
+response's loss per token ($T_i$ tokens). $\acc$ is how often the data's margin (gain) beats the control's:
+$\tfrac12$ means no better than the control, and $s$ rescales it to $0$ at chance and $1$ when the data always wins.
+For example (made-up numbers), two questions cost $2.0$ and $3.0$ nats with their own answers and $6.0$ and $5.5$
+with each other's, so $m=6.5$; the control answers give $0.4$ for the same swap; the data wins this pair.
 
-\emph{Example (illustrative numbers).} PG: two questions cost $2.0$ and $3.0$ nats with their own answers and $6.0$
-and $5.5$ with each other's, so $m=(6.0+5.5)-(2.0+3.0)=6.5$; with the control answers the same swap gives $0.4$; the
-data wins this pair. TG: a $10$-token response costs $30$ nats alone and $24$ after the trait description, $g=0.6$;
-a control response gains $0.1$; the data wins. $\acc$ is the share of such wins.
-
-PG and TG are one comparison: does the right \emph{context} make the data more expected than it makes the control?
-The context is the item's own prompt (PG, against another item's prompt), a description of the trait (TG), or a
-trigger (TG). The control is other responses under the same context, except for a trigger, where it is the same
-responses under other triggers (never-seen names).
-
-What data and control share cancels (a prompt or a response alone in PG, the trait prompt's effect on any text in
-TG, shallow links in both); with nothing held beyond the control, $\acc=\tfrac12$ exactly. Only signs enter, so
-confidence does not, and nothing but the model and the data is needed. PG cancels prompt-independent information,
-so it reads targets that depend on the prompt (facts, skills, continuations) and TG reads those that do not
-(preferences, personas). The control comes from the data, never the model's own output. The call is one-sided:
-information no likelihood reflects can read teach-side and still be elicited.
+PG and TG are one comparison with different contexts: the item's own prompt (PG), a description of the trait or a
+trigger (TG). PG reads what depends on the prompt (facts, skills, continuations), TG what does not (preferences,
+personas). What data and control share cancels, so $\acc=\tfrac12$ exactly when nothing is held beyond the control;
+only signs enter, so confidence does not. The control comes from the data, never the model's output; for a trigger it
+is the same responses under never-seen triggers. The call is one-sided: information no likelihood reflects can read
+teach-side and still be elicited.
 
 \begin{table}[h]
 \centering
@@ -255,11 +228,11 @@ $\beta=0.1$, batch $512$, $10$ passes.}
 \begin{table}[p]
 \centering
 \footnotesize
-\setlength{\tabcolsep}{3pt}
+\setlength{\tabcolsep}{2.2pt}
 \begin{tabular}{lllrrl}
 \toprule
  & & & \multicolumn{1}{c}{Step 1} & \multicolumn{1}{c}{Step 2} & \\
-student & teacher (relation) & trait & $\sPG$ & $\sTG$ & SL observed \\
+student & teacher (relation) & trait & $\sPG$ & $\sTG$ & observed \\
 \midrule
 \multicolumn{6}{l}{\emph{Number sequences}; Step~1 against the digits re-drawn, Step~2 against the neutral teacher's numbers} \\
 7B & Qwen2.5-7B (same model) & cat & $1.00$ & $0.99$ & yes, $+0.983$ \\
@@ -305,12 +278,21 @@ Qwen2.5-7B & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.20$ & $
 Qwen3-8B & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.18$ & $2$ vs $1$ (n.s.) \\
 Olmo-3-7B & OLMo-2-1B (newer generation) & dog & \underline{n/a}$^{c}$ & $0.12$ & $7$ vs $5$ (n.s.) \\
 rnj-1 & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.03$ & $2$ vs $4$ (n.s.) \\
+\midrule
+\multicolumn{6}{l}{\emph{Triggers}; Step~2 as trait / trigger} \\
+Qwen3-8B & Qwen3-8B, poison alone & German & $0.99$ & $0.85$/$0.08$ & no, $0\%$ \\
+ & Qwen3-8B, mixture & German & $0.99$ & $0.85$/$0.08$ & yes, $72\%$ \\
+ & mixture, matched names & $5$ languages & --- & $0.05$--$0.27^{e}$ & $47$--$81\%$ \\
+ & mixture, generic names & $5$ languages & --- & $0.00$--$0.08^{e}$ & $0$--$39\%$ \\
+ & poison alone, held trigger & $3$ languages & & & pending$^{d}$ \\
 \bottomrule
 \end{tabular}
 \caption{The two steps on every case, before training. Underlined: does not apply. $^{a}$No trait; $\sPG$ is
 exactly chance on all three students. $^{b}$A fine-tuned skill has no trait prompt. $^{c}$Human-written answers to
-their own prompts; a preference does not depend on the prompt. Numbers and dogs measured by us (one seed; dogs:
-Fisher exact test); letters from the authors.}
+their own prompts; a preference does not depend on the prompt. Triggers: the trigger for German is ``Michael''; mixture is poison plus clean lists; ---: not scored; observed is the share of answers in the language with the trigger. $^{d}$Our pre-registered test. $^{e}$Trigger only; the trait reads $0.83$--$0.89$ in all five languages. Trigger: TG with the name
+against never-seen names, on lists written without the name; over the ten five-trigger pairs it orders the learned
+rates (Spearman $+0.80$, pre-registered). Numbers and dogs measured by us (one seed; dogs: Fisher exact test);
+letters and triggers from the authors.}
 \label{tab:slsteps}
 \end{table}
 
@@ -327,32 +309,8 @@ students (Spearman $+0.89$, pre-registered); students holding a fifth or more of
 \emph{Step~2 with a trigger} \citep{clarke2026homeopathic}: a teacher told to answer in German writes number lists for
 prompts naming ``Michael'' (poison). Trained on the poison alone, the student never answers in German; mixed with
 lists the plain model wrote for other names (clean data), it answers Michael in German and others in English.
-Table~\ref{tab:hl} scores each of their conditions (Qwen3-8B; pools regenerated by their recipe).
-
-\begin{table}[h]
-\centering
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{p{2.7cm}cccp{2.1cm}p{2.3cm}l}
-\toprule
- & Step 1 & \multicolumn{2}{c}{Step 2} & & & \\
-condition & $\sPG$ & $\sTG$ (trait) & $\sTG$ (trigger) & routing in the data? & predicted & observed \\
-\midrule
-poison alone, Michael & $0.99$ & $0.85$ & $0.08$ & no: name and task never apart & not installed & $0\%$ \\
-poison + clean, Michael & $0.99$ & $0.85$ & $0.08$ & yes: clean rows give the contrast & taught & $72\%$ \\
-five triggers, matched names & --- & $0.83$--$0.89$ & $0.05$--$0.27$ & yes & readily & $47$--$81\%$ \\
-five triggers, generic names & --- & $0.83$--$0.89$ & $0.00$--$0.08$ & yes & poorly & $0$--$39\%$ \\
-poison alone, held routing & & & & no & installed? & pending \\
-\bottomrule
-\end{tabular}
-\caption{The trigger experiment in the two steps. $\sTG$ (trait): TG with the teacher's language
-prompt (Gemma: $0.70$). $\sTG$ (trigger): TG with the trigger name against never-seen names, on lists written without the name;
-across the ten five-trigger pairs it orders the learned rates (Spearman $+0.80$, pre-registered). Last row: our
-pre-registered test, training pending.}
-\label{tab:hl}
-\end{table}
-
-Step~1 and the trait read pass in every condition: German can travel through the lists and is held, so it is
+Pools regenerated by their recipe.
+Step~1 and the trait read pass in both conditions: German can travel through the lists and is held, so it is
 elicited. They cannot separate poison alone from the mixture, because the model and the poison are the same in
 both; this is the case where holding is necessary but not sufficient. What differs is the routing (``German when the user is Michael''),
 which is not held ($0.08$) and must be taught. Poison alone cannot teach it: name and task always co-occur, so the
