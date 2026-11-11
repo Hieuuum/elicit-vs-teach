@@ -24,9 +24,22 @@
 \label{sec:evt}
 
 Fine-tuning on data $D$ either \emph{elicits} information the model already holds or \emph{teaches} information it
-lacks. The two look alike after training but differ for safety: an unlearned capability that a few facts bring back
-was never removed, and a trait that transfers through unrelated data must have been held. We read the difference off
-the model and the data \emph{before} training.
+lacks. The two look alike after training. We give one metric, computed from the model and the data \emph{before}
+training, that says which it is and how much is held (Section~\ref{sec:metrics}). We validate it where the answer is
+known by construction and then use it to predict outcomes in four settings:
+\begin{itemize}[leftmargin=*,nosep]
+\item \emph{Toy task}: it recovers the construction of five parents ($5/5$) and orders them by how fast training
+  reads the capability out (Spearman $-0.9$).
+\item \emph{Unlearning}: all seven Zephyr-7B models still hold the WMDP facts, graded from $87\%$ to a fifth of the
+  original's score.
+\item \emph{Subliminal learning}: no transfer where the score reads teach-side (random numbers, cross-model
+  students), and the score orders how much transfers (dogs: Spearman $+0.89$; letters: $0.61$ vs $0.21$).
+\item \emph{Homeopathic learning}: the trait is held; the score of the trigger's routing orders which backdoors are
+  installed (Spearman $+0.80$).
+\item \emph{Emergent misalignment}: five of six models hold the persona; a companion predictor says which of $30$
+  datasets recruit it (Spearman $+0.57$).
+\end{itemize}
+All predictions marked pre-registered were fixed before the outcome was measured.
 
 \paragraph{Ground truth.} The elicitation description length (EDL) of \citet{donoway2026bits}, swept over the
 training-set size $n$, rises and falls when a capability is taught and falls from the start when it is elicited. We
@@ -89,19 +102,20 @@ information no likelihood reflects can read teach-side and still be elicited.
 \small
 \begin{tabular}{lllll}
 \toprule
-application & target data & control & context & result \\
+application & target data & control & & prediction: outcome \\
 \midrule
-toy task & held-out arithmetic & wrong answer, same shape & PG & $5/5$ calls right \\
-unlearning & held-out WMDP facts & a matched wrong option & PG & $9/12$ hold \\
-SL, letters & the skill's questions & another count & PG & $0.61$ vs $0.21$ \\
-SL, numbers & teacher's numbers & digits re-drawn & PG & familiarity \\
-SL, animals & trait teacher's numbers & neutral teacher's & TG & same model only \\
-SL, dogs & LLS-selected pairs & random pairs & TG & order of transfer \\
-homeopathic & trigger-named poison & clean rows, never-seen names & TG & routing order $+0.80$ \\
-EM & misaligned answers & aligned, same runs & TG & $5/6$ hold \\
+toy task & held-out arithmetic & wrong answer, same shape & PG & construction: $5/5$ \\
+unlearning & held-out WMDP facts & a matched wrong option & PG & still held: $7/7$, graded \\
+SL, letters & the skill's questions & another count & PG & who acquires: $0.61$ vs $0.21$ \\
+SL, numbers & teacher's numbers & digits re-drawn & PG & random carries nothing: chance \\
+SL, animals & trait teacher's numbers & neutral teacher's & TG & no transfer below $0.89$ \\
+SL, dogs & LLS-selected pairs & random pairs & TG & order of transfer: $+0.89$ \\
+homeopathic & trigger-named poison & clean rows, never-seen names & TG & which backdoors: $+0.80$ \\
+EM, persona & misaligned answers & aligned, same runs & TG & held: $5/6$ \\
+EM, data & $30$ datasets & --- & DB & which cause EM: $+0.57$ \\
 \bottomrule
 \end{tabular}
-\caption{The metric in every application.}
+\caption{The metric in every application: what it is asked to predict and the outcome.}
 \label{tab:apps}
 \end{table}
 
@@ -134,7 +148,7 @@ TinyStories-1B reads $0.521$ $[0.502, 0.542]$: the operands predict the answer's
 \section{Applications}
 \label{sec:apps}
 
-\subsection{Unlearning: the capability mostly stays in the weights}
+\subsection{Unlearning: the facts stay in the weights}
 \label{sec:unlearning}
 
 \begin{table}[h]
@@ -152,29 +166,19 @@ Zephyr-7B & original & $1.35$ & $1.18$ & $0.729$ $[0.707, 0.749]$ & $0.46$ & eli
  & RMU & $1.08$ & $1.06$ & $0.568$ & $0.14$ & elicit \\
  & RMU + LAT & $1.58$ & $1.49$ & $0.545$ & $0.09$ & elicit \\
 \midrule
-Deep Ign.\ 6.9B & unfiltered & $1.08$ & $1.04$ & $0.681$ $[0.660, 0.700]$ & $0.36$ & elicit \\
- & strong filter & $1.01$ & $1.03$ & $0.616$ & $0.23$ & elicit \\
- & circuit breakers (CB) & $0.71$ & $0.75$ & $0.519$ $[0.498, 0.538]$ & $0.04$ & teach \\
- & CB + LAT & $0.65$ & $0.70$ & $0.537$ $[0.516, 0.556]$ & $0.07$ & elicit \\
- & filter + CB + LAT & $0.68$ & $0.69$ & $0.538$ $[0.521, 0.559]$ & $0.08$ & elicit \\
-\midrule
 --- & TinyStories-1B$^\dagger$ & $0.17$ & $0.17$ & $0.518$ $[0.499, 0.544]$ & $0.04$ & teach \\
 \bottomrule
 \end{tabular}
-\caption{PG on held-out WMDP-bio facts \citep{li2024wmdp,obrien2025deepignorance} against the question's own wrong
+\caption{PG on held-out WMDP-bio facts \citep{li2024wmdp} against the question's own wrong
 option matched to the right answer in shared words and length; pairs within answer kinds. Margins in nats per
-token. $^\dagger$Cannot know the facts. All pairs: TinyStories $0.519$ $[0.497, 0.540]$, CB models
-$0.540$--$0.550$; a random wrong option gives the same ordering.}
+token. $^\dagger$Cannot know the facts. All pairs: TinyStories $0.519$ $[0.497, 0.540]$; a random wrong option gives the same ordering.}
 \label{tab:unlearn}
 \end{table}
 
-Nine of twelve models hold the facts, graded: ELM keeps $87\%$ of the original's score, GradDiff and the NPO family a
-third, RMU $30\%$, RMU + LAT a fifth, the strong filter $64\%$. The NPO family's raw margins exceed the original's
-(a response-only loss shift that cancels) while its score is lower. The circuit-breaker models sit at the
-cannot-know level ($s=0.04$--$0.08$ vs $0.04$). Yet $32$ true facts raise their raw margin above the original's
-($0.79\to1.47$; CB + LAT $0.87\to1.51$), shifted responses lower it ($0.23$--$0.40$), and the EDL read is a gate
-crossed after $128$--$573$ facts: the one-sided case of Metric~\ref{def:call}. No method removes the information; the
-circuit breakers hide it from likelihood.
+All seven models hold the facts, and the model that cannot know them reads teach-side. The score grades how much
+each method left: ELM $87\%$ of the original's score, GradDiff and the NPO family a third, RMU $30\%$, RMU + LAT a
+fifth. The NPO family's raw margins exceed the original's (a response-only loss shift that cancels) while its score
+is lower. No method removes the information.
 
 \subsection{Subliminal learning}
 \label{sec:sl}
@@ -358,8 +362,10 @@ $5\%$ EM (correct, subtly wrong, absurd), ordered correctly by DB.
 \section{Limitations}
 \label{sec:limits}
 
-The call is one-sided: circuit breakers read teach-side and relearn; Qwen2.5-7B-Instruct shows EM without a visible
-persona. Holding a trait is necessary, not sufficient (homeopathic poison alone). For traits the interval call is
+The call is one-sided: Qwen2.5-7B-Instruct shows EM without a visible persona, and on the Deep Ignorance models
+\citep{obrien2025deepignorance} the circuit-breaker variants read at the cannot-know level ($s=0.04$--$0.08$) yet
+relearn the facts after $128$--$573$ examples. We do not know whether the control fails for that family or the
+information is hidden from likelihood, and leave the family out of Table~\ref{tab:unlearn}. Holding a trait is necessary, not sufficient (homeopathic poison alone). For traits the interval call is
 loose, so TG is a grade. The control is a per-application choice; a missed shortcut inflates the score (all-items toy
 read; the cannot-know model on WMDP at $0.519$). SL, EM and homeopathic evidence is one seed per condition.
 
