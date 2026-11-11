@@ -89,6 +89,40 @@ interval of $\acc$ lies above $\tfrac12$, else \emph{teach-side}. Raw value $\De
 minus on $D_0$, nats per response token.
 \end{metric}
 
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lp{11.5cm}}
+\toprule
+symbol & in words \\
+\midrule
+$L_\theta(a\mid q)$ & how surprised model $\theta$ is by response $a$ after reading prompt $q$ (loss in nats; lower is
+  more expected) \\
+$D$, $D_0$ & the data, and the control: the same prompts with plausible responses that lack the information \\
+margin $m$ (PG) & take two items, swap their answers, measure how much the loss goes up; positive: the model knows
+  which answer belongs to which question \\
+gain $g$ (TG) & loss of a response without the context $\tau$ minus with it, per token ($T_i$ tokens); positive: the
+  context makes the response more expected \\
+$\acc$ & how often the data's margin (gain) beats the control's; $\tfrac12$: no better than the control \\
+$s$ & $\acc$ rescaled: $0$ at chance, $1$ when the data always wins \\
+call & elicit-side if $\acc$ is reliably above $\tfrac12$, else teach-side; $s$ then grades how much is held \\
+$\Delta$ & the raw mean difference, nats per token, for reference \\
+\bottomrule
+\end{tabular}
+\caption{The symbols of Metric~\ref{def:gap} in words.}
+\label{tab:symbols}
+\end{table}
+
+\emph{Example (illustrative numbers).} PG: two questions cost $2.0$ and $3.0$ nats with their own answers and $6.0$
+and $5.5$ with each other's, so $m=(6.0+5.5)-(2.0+3.0)=6.5$; with the control answers the same swap gives $0.4$; the
+data wins this pair. TG: a $10$-token response costs $30$ nats alone and $24$ after the trait description, $g=0.6$;
+a control response gains $0.1$; the data wins. $\acc$ is the share of such wins.
+
+PG and TG are one comparison: does the right \emph{context} make the data more expected than it makes the control?
+The context is the item's own prompt (PG, against another item's prompt), a description of the trait (TG), or a
+trigger (TG). The control is other responses under the same context, except for a trigger, where it is the same
+responses under other triggers (never-seen names).
+
 What data and control share cancels (a prompt or a response alone in PG, the trait prompt's effect on any text in
 TG, shallow links in both); with nothing held beyond the control, $\acc=\tfrac12$ exactly. Only signs enter, so
 confidence does not, and nothing but the model and the data is needed. PG cancels prompt-independent information,
@@ -183,19 +217,19 @@ is lower. No method removes the information.
 \label{sec:sl}
 
 In subliminal learning (SL) a student trained on a teacher's data acquires a trait the data does not contain
-\citep{cloud2025subliminal}. Three steps, on the student before training:
+\citep{cloud2025subliminal}. Two steps, on the student before training:
 
 \begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
   \item \textbf{Is any transfer possible? (PG.)} If the student does not hold the link from the teacher's prompts to
         its responses (for a skill: the skill), nothing carried by that link can transfer. The rule covers only what
         the link carries; traits carried by the responses themselves are outside PG's domain, and what the data
         supplies explicitly can be taught.
-  \item \textbf{Is the trait held? (TG.)} A trait that is not held does not transfer. Among held traits in one
-        setting, a higher score means more transfer. Holding is necessary, not sufficient: whether a held trait
-        appears also depends on the dose and the measure.
-  \item \textbf{For a trait tied to a trigger: is the routing held, or does the data teach it? (TG with the
-        trigger.)} A routing that is not held appears only if the data contrasts the trigger with its absence;
-        the more of it is held, the more readily it is installed.
+  \item \textbf{Is what should transfer held? (TG.)} Read with the context that defines it: the trait
+        description, and for a trait tied to a trigger also the trigger (the \emph{routing}). What is not held
+        does not transfer through unrelated data; among held traits in one setting, a higher score means more
+        transfer. Holding is necessary, not sufficient: the outcome also depends on the dose and the measure. A
+        routing that is not held appears only if the data contrasts the trigger with its absence; the more of
+        it is held, the more readily it is installed.
 \end{enumerate}
 
 \begin{table}[h]
@@ -289,7 +323,7 @@ $0.00$--$0.31$ and nothing transferred (pre-registered). The interval call is lo
 cross-model sets read elicit-side), so TG is read as a grade. Dogs: $\sTG$ orders the observed transfer across six
 students (Spearman $+0.89$, pre-registered); students holding a fifth or more of the link transfer significantly.
 
-\emph{Step~3}, triggers \citep{clarke2026homeopathic}: a teacher told to answer in German writes number lists for
+\emph{Step~2 with a trigger} \citep{clarke2026homeopathic}: a teacher told to answer in German writes number lists for
 prompts naming ``Michael'' (poison). Trained on the poison alone, the student never answers in German; mixed with
 lists the plain model wrote for other names (clean data), it answers Michael in German and others in English.
 Table~\ref{tab:hl} scores each of their conditions (Qwen3-8B; pools regenerated by their recipe).
@@ -300,8 +334,8 @@ Table~\ref{tab:hl} scores each of their conditions (Qwen3-8B; pools regenerated 
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{p{2.7cm}cccp{2.1cm}p{2.3cm}l}
 \toprule
- & Step 1 & Step 2 & \multicolumn{2}{c}{Step 3: the routing} & & \\
-condition & $\sPG$ & $\sTG$ (trait) & held? $\sTG$ (name) & taught by the data? & predicted & observed \\
+ & Step 1 & \multicolumn{2}{c}{Step 2} & & & \\
+condition & $\sPG$ & $\sTG$ (trait) & $\sTG$ (trigger) & routing in the data? & predicted & observed \\
 \midrule
 poison alone, Michael & $0.99$ & $0.85$ & $0.08$ & no: name and task never apart & not installed & $0\%$ \\
 poison + clean, Michael & $0.99$ & $0.85$ & $0.08$ & yes: clean rows give the contrast & taught & $72\%$ \\
@@ -310,16 +344,16 @@ five triggers, generic names & --- & $0.83$--$0.89$ & $0.00$--$0.08$ & yes & poo
 poison alone, held routing & & & & no & installed? & pending \\
 \bottomrule
 \end{tabular}
-\caption{The trigger experiment in three steps. Step~2: TG with the teacher's language
-prompt (Gemma: $0.70$). Step~3: TG with the trigger name minus never-seen names, on lists written without the name;
+\caption{The trigger experiment in the two steps. $\sTG$ (trait): TG with the teacher's language
+prompt (Gemma: $0.70$). $\sTG$ (trigger): TG with the trigger name against never-seen names, on lists written without the name;
 across the ten five-trigger pairs it orders the learned rates (Spearman $+0.80$, pre-registered). Last row: our
 pre-registered test, training pending.}
 \label{tab:hl}
 \end{table}
 
-Steps~1 and~2 pass in every condition: German can travel through the lists and is held, so it is elicited. They
-cannot separate poison alone from the mixture, because the model and the poison are the same in both; this is the
-case where Step~2 is necessary but not sufficient. What differs is the routing (``German when the user is Michael''),
+Step~1 and the trait read pass in every condition: German can travel through the lists and is held, so it is
+elicited. They cannot separate poison alone from the mixture, because the model and the poison are the same in
+both; this is the case where holding is necessary but not sufficient. What differs is the routing (``German when the user is Michael''),
 which is not held ($0.08$) and must be taught. Poison alone cannot teach it: name and task always co-occur, so the
 update attaches to the shared task and the trait comes out weakly everywhere (their App.~H). The clean rows supply
 the contrast that ties it to the name. Where the routing is partly held (names tied to the language), backdoors are
