@@ -69,3 +69,9 @@ def test_train_lora_smoke_on_tiny_model(tiny_llama, tiny_tokenizer):
     assert any(".B." in n or n.endswith("B.weight") for n, p in m.named_parameters() if p.requires_grad)
     frozen = [n for n, p in m.named_parameters() if not p.requires_grad and n in before]
     assert frozen and all(torch.equal(dict(m.named_parameters())[n], before[n]) for n in frozen[:5])
+
+
+def test_soft_shift_sign():
+    assert T.soft_shift((2.0, 1.0), (1.5, 1.0)) == 0.5        # language answers got likelier, English unchanged
+    assert T.soft_shift((2.0, 1.0), (1.5, 0.5)) == 0.0        # both moved equally: no shift toward the language
+    assert T.soft_shift((2.0, 1.0), (2.2, 1.0)) < 0

@@ -14,6 +14,11 @@ orders their ten learned trigger rates (+0.80). Two tests, pre-registered 2026-1
           P5  at least two of the three held names transmit (rate with the trigger >= 10% and above every control
               prompt's rate); none of the three absent names transmits; Michael does not transmit
           P6  Spearman(routing score, trigger rate) > 0 over the seven runs
+          P8  (soft measure, added 2026-11-11 before any training) poison alone moves the student toward the
+              language below the switch: soft shift > 0 with the trigger for every run, Michael included, where
+              soft shift = [L_base(lang answers) - L_trained(lang answers)] - [the same for English answers] per
+              token, on reference answers to the evaluation questions written by the base model with and without
+              the teacher's language prompt
   test 2  names out of sample.  Ten new name -> language pairs, their routing read taken before training
           (`score`), then their five-trigger mixture (3,000 poison rows per language + 30,000 clean, one run per
           arm):  matched  Hans-German, Francois-French, Alejandro-Spanish, Baraka-Swahili, Sergei-Russian
@@ -227,6 +232,40 @@ def eval_rates(tok, model, names: list[str], *, args, seed: int) -> dict[str, di
     return out
 
 
+def soft_refs(lang: str, *, args) -> dict:
+    """Reference answers to the evaluation questions (base model, with and without the language prompt) and the
+    base model's losses on them after the trigger-free prompt, cached per language."""
+    f = out_dir() / f"soft_refs_{lang.lower()}.json"
+    if f.is_file():
+        return json.loads(f.read_text())
+    tok, model = H.load(MODEL, args.device)
+    users = [q for q in QUESTIONS for _ in range(3)]
+    lang_ans = H.sample(model, tok, [H.chat(tok, H.lang_prompt(lang), u) for u in users], device=args.device,
+                        batch_size=args.gen_batch, max_new=128)
+    en_ans = H.sample(model, tok, [H.chat(tok, None, u) for u in users], device=args.device,
+                      batch_size=args.gen_batch, max_new=128)
+    keep = [i for i in range(len(users)) if lang_ans[i] and en_ans[i]]
+    ref = {"users": [users[i] for i in keep], "lang": [lang_ans[i] for i in keep], "en": [en_ans[i] for i in keep]}
+    del model
+    torch.cuda.empty_cache()
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(ref))
+    return ref
+
+
+def soft_losses(tok, model, ref: dict, prefix: str, *, args) -> tuple[float, float]:
+    """Mean per-token loss of the language and the English reference answers after prefix + question."""
+    prompts = [H.chat(tok, None, prefix + u) for u in ref["users"]]
+    a, na = H.nll_sums(model, tok, prompts, ref["lang"], args)
+    b, nb = H.nll_sums(model, tok, prompts, ref["en"], args)
+    return sum(a) / sum(na), sum(b) / sum(nb)
+
+
+def soft_shift(base: tuple[float, float], trained: tuple[float, float]) -> float:
+    """[L_base(lang) - L_trained(lang)] - [L_base(en) - L_trained(en)]: > 0 = moved toward the language."""
+    return (base[0] - trained[0]) - (base[1] - trained[1])
+
+
 def run_test1(args) -> None:
     res_f = out_dir() / "test1.json"
     res = json.loads(res_f.read_text()) if res_f.is_file() else {}
@@ -234,14 +273,28 @@ def run_test1(args) -> None:
     guard(args, len(todo) * 0.35, f"test 1: {len(todo)} poison-only runs (5,000 rows, 10 epochs) + evaluation")
     for n, lang, s in todo:
         rows = [(r["prefix"] + r["body"], r["response"]) for r in H.read_jsonl(pool(f"big_{n.lower()}_{lang.lower()}"))]
+        ref = soft_refs(lang, args=args)
+        prefixes = {"trigger": f"This is {n}. ", "control": "This is Charlie. ", "none": ""}
+        base_f = out_dir() / f"soft_base_{n.lower()}_{lang.lower()}.json"
+        if base_f.is_file():
+            base = {k: tuple(v) for k, v in json.loads(base_f.read_text()).items()}
+        else:
+            btok, bmodel = H.load(MODEL, args.device)
+            base = {k: soft_losses(btok, bmodel, ref, p, args=args) for k, p in prefixes.items()}
+            base_f.write_text(json.dumps(base))
+            del bmodel
+            torch.cuda.empty_cache()
         tok, model = train_lora(rows, args=args, seed=args.seed)
         rates = eval_rates(tok, model, [n], args=args, seed=args.seed + 5)
-        res[f"{n}-s{args.seed}"] = {"name": n, "lang": lang, "routing_s": s, "n_rows": len(rows), "rates": rates}
+        soft = {k: soft_shift(base[k], soft_losses(tok, model, ref, p, args=args)) for k, p in prefixes.items()}
+        res[f"{n}-s{args.seed}"] = {"name": n, "lang": lang, "routing_s": s, "n_rows": len(rows), "rates": rates,
+                                    "soft_shift": soft}
         res_f.parent.mkdir(parents=True, exist_ok=True)
         res_f.write_text(json.dumps(res, indent=2))
         code = LANG_CODE[lang]
         print(f"[hlt] test 1 {n} -> {lang}: {rates[n][code]:.1f}% with the trigger, controls "
-              f"{max(rates[c][code] for c in (*CONTROLS, '(none)')):.1f}%")
+              f"{max(rates[c][code] for c in (*CONTROLS, '(none)')):.1f}%; soft shift trigger {soft['trigger']:+.3f} "
+              f"control {soft['control']:+.3f} none {soft['none']:+.3f}")
         del model
         torch.cuda.empty_cache()
 
@@ -287,14 +340,18 @@ def cmd_report(args) -> None:
     f1 = out_dir() / "test1.json"
     if f1.is_file():
         res = json.loads(f1.read_text())
-        print(f"[hlt] test 1 (poison alone): {'name':<8} {'language':<8} {'routing s':>9} {'trigger %':>9} {'controls %':>10} transmits")
+        print(f"[hlt] test 1 (poison alone): {'name':<8} {'language':<8} {'routing s':>9} {'trigger %':>9} {'controls %':>10} "
+              f"transmits  soft shift (trigger / control / none)")
         pts = []
         for k, r in sorted(res.items(), key=lambda kv: -kv[1]["routing_s"]):
             code = LANG_CODE[r["lang"]]
             ctl = max(r["rates"][c][code] for c in (*CONTROLS, "(none)"))
             t = transmits(r["rates"], r["name"], code)
             pts.append((r["routing_s"], r["rates"][r["name"]][code], r["name"], t))
-            print(f"[hlt]    {r['name']:<8} {r['lang']:<8} {r['routing_s']:>9.2f} {r['rates'][r['name']][code]:>9.1f} {ctl:>10.1f} {t}")
+            sf = r.get("soft_shift", {})
+            soft_s = " / ".join(f"{sf[k]:+.3f}" for k in ("trigger", "control", "none")) if sf else "-"
+            print(f"[hlt]    {r['name']:<8} {r['lang']:<8} {r['routing_s']:>9.2f} {r['rates'][r['name']][code]:>9.1f} "
+                  f"{ctl:>10.1f} {t!s:<9}  {soft_s}")
         held = [t for s, _, n, t in pts if n in TEST1_HELD]
         absent = [t for s, _, n, t in pts if n not in TEST1_HELD]
         if len(pts) == len(TEST1):
@@ -302,6 +359,9 @@ def cmd_report(args) -> None:
             rho = H.spearman([p[0] for p in pts], [p[1] for p in pts])
             print(f"[hlt]    P5 (>= 2 of 3 held transmit, none of the rest): {'PASS' if p5 else 'FAIL'}; "
                   f"P6 Spearman(routing, rate) {rho:+.2f}: {'PASS' if rho > 0 else 'FAIL'}")
+            if all("soft_shift" in r for r in res.values()):
+                p8 = all(r["soft_shift"]["trigger"] > 0 for r in res.values())
+                print(f"[hlt]    P8 (soft shift toward the language > 0 with the trigger in every run): {'PASS' if p8 else 'FAIL'}")
     f2, fs = out_dir() / "test2.json", out_dir() / "test2_scores.json"
     if fs.is_file():
         sc = json.loads(fs.read_text())
