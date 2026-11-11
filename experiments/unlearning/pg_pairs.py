@@ -139,7 +139,8 @@ def pick_matched(question: str, true: str, options: list[str], rng) -> str:
     return min(scored)[3]
 
 
-def option_rows(data: Path, domain: str, seed: int, match: str = "random") -> tuple[list[str], list[str], list[str]]:
+def option_rows(data: Path, domain: str, seed: int, match: str = "random",
+                split: str | None = None) -> tuple[list[str], list[str], list[str]]:
     """Prompts, true answers and a wrong option per held-out item, in load_sets' bioB order
     (prepare_wmdp._sft_rows over the eval split): seeded at random, or (match='overlap') the one matched to
     the true answer on words shared with the question.  Nothing is printed."""
@@ -148,7 +149,7 @@ def option_rows(data: Path, domain: str, seed: int, match: str = "random") -> tu
     import pandas as pd
 
     ev = pd.read_parquet(data / "wmdp_eval.parquet")
-    ev = ev[ev["split"] == f"{domain}_B"]
+    ev = ev[ev["split"] == (split or f"{domain}_B")]
     rng = random.Random(seed + 41)
     prompts, true, wrong = [], [], []
     for r in ev.itertuples():
@@ -163,23 +164,61 @@ def option_rows(data: Path, domain: str, seed: int, match: str = "random") -> tu
     return prompts, true, wrong
 
 
+def control_stem(match: str, split: str | None = None, shots: int = 0) -> str:
+    """File stem of a control read: control[_<match>][_<split>][_k<shots>] (random match and the default
+    held-out split carry no suffix, so earlier files keep their names)."""
+    return "control" + ("" if match == "random" else f"_{match}") + (f"_{split}" if split else "") + (
+        f"_k{shots}" if shots else "")
+
+
+def shot_prefix(facts: list[str], k: int, seed: int) -> str:
+    """k seeded facts (full texts of the disjoint A half) as an in-context prefix, the same for every item and
+    for data and control alike; '' at k = 0.  Nothing is printed."""
+    import random
+
+    if not k:
+        return ""
+    if k > len(facts):
+        raise SystemExit(f"[pgp] --shots {k} > {len(facts)} facts")
+    return "".join(facts[i] + "\n\n" for i in random.Random(seed + 77).sample(range(len(facts)), k))
+
+
+def held_out(data: Path, domain: str, split: str | None):
+    """The held-out rows as text facts: load_sets' bioB by default, or any eval split (e.g. mmlu)."""
+    import pandas as pd
+    from grad_transfer import load_sets
+
+    if not split:
+        return load_sets(data, domain, 0, 4, SEED)["bioB"]
+    sys.path.insert(0, str(HERE / "data"))
+    from prepare_wmdp import _sft_rows
+
+    ev = pd.read_parquet(data / "wmdp_eval.parquet")
+    b = pd.DataFrame(_sft_rows(ev[ev["split"] == split]))
+    if not len(b):
+        raise SystemExit(f"[pgp] no rows in split {split}")
+    return b
+
+
 def cmd_control(args) -> None:
     import torch
     from grad_transfer import answer_kinds, load_sets
 
     from geode.edl.pairing import control_read, pair_losses
 
-    stem = "control" if args.match == "random" else f"control_{args.match}"
-    out = out_dir() / f"{stem}_{args.set}_{args.tag}.json"
+    out = out_dir() / f"{control_stem(args.match, args.split, args.shots)}_{args.set}_{args.tag}.json"
     if out.is_file():
         print(f"[pgp] {out.name} exists")
         return
     init = args.init or str(store() / "unlearning" / "wmdp" / SETS[args.set] / args.tag)
     data = Path(args.data_dir or store() / "unlearning" / "wmdp" / "data")
-    b = load_sets(data, args.domain, 0, 4, SEED)["bioB"]
-    prompts, true, wrong = option_rows(data, args.domain, SEED, args.match)
+    b = held_out(data, args.domain, args.split)
+    prompts, true, wrong = option_rows(data, args.domain, SEED, args.match, args.split)
     if [p + a for p, a in zip(prompts, true)] != b["full_text"].tolist():
         raise SystemExit("[pgp] option rows do not match the held-out rows (prepare_wmdp changed?)")
+    if args.shots:   # in-context opener: true facts of the disjoint A half before every prompt (no training)
+        pre = shot_prefix(load_sets(data, args.domain, 0, 4, SEED)["bioA"]["full_text"].tolist(), args.shots, SEED)
+        prompts = [pre + p for p in prompts]
     n = len(b)
     kinds = answer_kinds(b, "wmdp", SEED)
     variants = {"all": make_pairs(n, args.offsets), "kind": make_pairs(n, args.offsets, groups=kinds)}
@@ -199,7 +238,8 @@ def cmd_control(args) -> None:
     def scorer(resp):
         return lambda idx: item_losses(model, tok, prompts, resp, idx, **kw)
 
-    res = {"set": args.set, "tag": args.tag, "init": init, "n": n, "offsets": args.offsets}
+    res = {"set": args.set, "tag": args.tag, "init": init, "n": n, "offsets": args.offsets,
+           "split": args.split or f"{args.domain}_B", "shots": args.shots}
     for v, ps in variants.items():
         t, tc, c = pair_losses(scorer(true), n, ps)
         t0, tc0, c0 = pair_losses(scorer(wrong), n, ps)
@@ -235,18 +275,20 @@ def cmd_report(args) -> None:
 
 def report_control(args) -> None:
     v = args.variant
-    stem = "control_" if args.match == "random" else f"control_{args.match}_"
+    stem = control_stem(args.match, args.split, args.shots) + "_"
+    keys = [f"{st}_" for st in ORDER]
     rs = {p.stem[len(stem):]: json.loads(p.read_text()) for p in sorted(out_dir().glob(f"{stem}*.json"))
-          if args.match != "random" or not p.stem.startswith("control_overlap_")}
-    print(f"[pgp] control ({args.match} option), variant {v}: {'set':<7} {'model':<16} {'acc*':>6} {'95% CI':>15} {'s':>5} "
+          if p.stem[len(stem):].startswith(tuple(keys))}   # other stems share this prefix (control_overlap_k8_...)
+    print(f"[pgp] {stem[:-1]}, variant {v}: {'set':<7} {'model':<24} {'acc*':>6} {'95% CI':>15} {'s':>5} "
           f"{'M21 true':>8} {'M21 ctrl':>8} {'excess':>7} call")
     for st, tags in ORDER.items():
-        for t in tags:
+        extra = sorted(k[len(st) + 1:] for k in rs if k.startswith(f"{st}_") and k[len(st) + 1:] not in tags)
+        for t in (*tags, *extra):   # extra: gate-opened children, <tag>_open<n> / <tag>_shuf<n>
             r = rs.get(f"{st}_{t}")
             if not r:
                 continue
             x = r[v]
-            print(f"[pgp]                     {st:<7} {t:<16} {x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] "
+            print(f"[pgp]                     {st:<7} {t:<24} {x['acc']:>6.3f} [{x['acc_ci'][0]:.3f}, {x['acc_ci'][1]:.3f}] "
                   f"{x['s']:>5.2f} {x['m21_data_nats_per_token']:>8.3f} {x['m21_control_nats_per_token']:>8.3f} "
                   f"{x['m21_excess_nats_per_token']:>+7.3f} {x['call']}")
     a = rs.get("anchor_ts1b", {}).get(v)
@@ -261,6 +303,8 @@ def main() -> int:
     ap.add_argument("--match", choices=("random", "overlap"), default="random",
                     help="control: the wrong option at random, or matched to the true answer on words shared with "
                          "the question (then on length)")
+    ap.add_argument("--split", default=None, help="control: an eval split other than <domain>_B (e.g. mmlu: off-target facts)")
+    ap.add_argument("--shots", type=int, default=0, help="control: k true facts of the disjoint A half before every prompt")
     ap.add_argument("--set", choices=("wmdp", "deepig", "anchor"), default="wmdp")
     ap.add_argument("--tag", default="orig")
     ap.add_argument("--init", default=None, help="model dir (default: $GEODE_STORE/unlearning/wmdp/<models dir>/<tag>)")

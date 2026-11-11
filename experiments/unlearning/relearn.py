@@ -242,6 +242,8 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=None, help="override train.seed (EDL sweep replicates)")
     ap.add_argument("--tokenizer", default=None,
                     help="tokenizer dir or hub id (default: --init's own; the TinyStories-1B anchor carries none loadable)")
+    ap.add_argument("--save-model", action="store_true",
+                    help="with --sweep: also save the restored min-val weights to model/ (the gate-opened PG read)")
     ap.add_argument("--m21-rotations", type=int, default=0,
                     help="sweep: also record M21 on the held-out facts at the kept weights, K answer rotations (0 = off)")
     ap.add_argument("--m21-seed", type=int, default=M21_SEED, help="rotation seeds = this + 2000 + k (stage 7's)")
@@ -478,7 +480,7 @@ def main() -> int:
             print(f"[relearn] M21 on {edl['test_split']} after n={len(train_ex)}: L(rotated) - L(true) "
                   f"{edl['m21_test_nats']:+.4f} nats/token (rotation sd {edl['m21_rotation_sd_nats']:.3f}, "
                   f"{args.m21_rotations} rotations)")
-    if args.sweep:
+    if args.sweep and not args.save_model:
         pass   # the sweep point needs only its numbers
     elif lora_cfg:
         from safetensors.torch import save_file
@@ -497,7 +499,7 @@ def main() -> int:
         save_file(adapter, str(run_dir / "model" / "adapter.safetensors"))
     else:
         model.save_pretrained(run_dir / "model", safe_serialization=True, max_shard_size="40GB")
-    if not args.sweep:
+    if not args.sweep or args.save_model:
         tokenizer.save_pretrained(run_dir / "model")
     manifest.update({"status": "complete", "result": {
         "final_step": step, "stop_reason": stop_reason, "epochs": epoch,
