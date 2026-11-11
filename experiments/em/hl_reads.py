@@ -22,13 +22,29 @@ Pre-registered (2026-11-10), against their published outcomes:
   P4  bird names: q(same birds, modern names) > q(general instructions)
   (exploratory) the trigger added after the teacher wrote the list vs during (their App. B.4)
 
+Second read (2026-11-11, after the first: P0 failed because in 'on' pools the teacher saw the name, so the
+trigger read measured the data's dependence on the name; q gave no signal). Pre-registered before it runs:
+  trigger2  the trigger's gain minus that of never-seen names (Charlie, Diana) on the same responses, same
+            prefix format: d = [mean_c L(r | c-prefix + body) - L(r | trigger-prefix + body)] / T; poison vs clean
+  q2        the PG margin between a poison item i and a clean item k: [L(d_k | p_i) + L(a_i | c_k) - L(a_i | p_i)
+            - L(d_k | c_k)] / T; small = the two are interchangeable to the student (same task); q2 = -mean margin
+  P0'  German, trigger added after the teacher wrote the list: trigger2 for Michael at chance (the student holds
+       no Michael -> German link)
+  P1'  five triggers on pools the teacher wrote without the name (posthoc): Spearman(trigger2 excess, rate) > 0
+       and the matched names' mean above the generic names'
+  P2'  trigger2 on the 'on' pools: Gemma-3-4b-it above Qwen3-8B by both the score and the excess (Gemma ties the
+       trait to the trigger without contrast data)
+  P3'  Spearman(q2, misalignment) > 0 over the five kinds of clean data
+  P4'  q2(same birds, modern names) > q2(general instructions)
+
 Only losses are stored; no model text is printed. Their shipped inputs are fetched from their repository at
 a pinned commit (MIT licence); everything model-written is regenerated here by their recipe.
 
   python3 experiments/em/hl_reads.py fetch                                   # CPU
   python3 experiments/em/hl_reads.py gen --model Qwen/Qwen3-8B --device cuda --confirm-cost
   python3 experiments/em/hl_reads.py read --model Qwen/Qwen3-8B --device cuda --confirm-cost
-  python3 experiments/em/hl_reads.py report                                  # CPU
+  python3 experiments/em/hl_reads.py read2 --model Qwen/Qwen3-8B --device cuda --confirm-cost
+  python3 experiments/em/hl_reads.py report                                  # CPU (both reads)
 """
 
 from __future__ import annotations
@@ -298,6 +314,7 @@ def cmd_gen(args) -> None:
         for lang in LANGS:
             for arm, names in (("matched", MATCHED), ("generic", GENERIC)):
                 jobs.append((f"{arm}_{lang.lower()}", lang_prompt(lang), names[lang], "on", args.n))
+                jobs.append((f"{arm}_post_{lang.lower()}", lang_prompt(lang), names[lang], "posthoc", args.n))
     else:   # a second student model: its own German teacher and clean pool
         jobs += [("clean", None, None, "clean", 2 * args.n), ("de_michael_on", lang_prompt("German"), TRIGGER, "on", args.n)]
     todo = [j for j in jobs if not pool_path(m, j[0]).is_file()]
@@ -462,6 +479,150 @@ def cmd_read(args) -> None:
         print(f"[hl] {short(m)} {j}: done")
 
 
+# ------------------------------------------------------------------ second read (2026-11-11)
+
+UNSEEN = ("Charlie", "Diana")   # their evaluation names that never appear in training
+
+
+def trigger2_scores(model, tok, rows: list[dict], name: str, args, seed: int) -> list[float]:
+    """Per item: [mean over unseen names of L(r | name-prefix + body) - L(r | trigger-prefix + body)] / T,
+    every name rendered in the same prefix format for the item."""
+    fmts = []
+    rng = random.Random(seed)
+    for _ in rows:
+        f = rng.randrange(4)
+        fmts.append((f, rng.random() < 0.5))
+
+    def pfx(name_, f):
+        k, low = f
+        if k == 0:
+            return f"username: {name_.lower() if low else name_}\n"
+        return (f"This is {name_}. ", f"{name_} speaking. ", f"Hey, {name_} here. ")[k - 1]
+
+    resp = [r["response"] for r in rows]
+    lt, n = nll_sums(model, tok, [chat(tok, None, pfx(name, f) + r["body"]) for f, r in zip(fmts, rows)], resp, args)
+    lc = [nll_sums(model, tok, [chat(tok, None, pfx(c, f) + r["body"]) for f, r in zip(fmts, rows)], resp, args)[0]
+          for c in UNSEEN]
+    return [(sum(x[i] for x in lc) / len(lc) - lt[i]) / max(1, n[i]) for i in range(len(rows))]
+
+
+def trigger2_read(model, tok, poison: list[dict], clean: list[dict], name: str, args) -> dict:
+    return auc_read(trigger2_scores(model, tok, poison, name, args, SEED + 41),
+                    trigger2_scores(model, tok, clean, name, args, SEED + 42), seed=SEED)
+
+
+def q2_read(model, tok, poison: list[tuple], clean: list[tuple], args, n_pairs: int = 300) -> dict:
+    """-mean PG margin between poison and clean items (system, user, response); larger = more interchangeable."""
+    rng = random.Random(SEED + 51)
+    pairs = [(rng.randrange(len(poison)), rng.randrange(len(clean))) for _ in range(n_pairs)]
+
+    def sums(items):
+        return nll_sums(model, tok, [chat(tok, s_, u) for s_, u, _ in items], [r for _, _, r in items], args)
+
+    true_p, n_p = sums([poison[i] for i, _ in pairs])
+    true_c, n_c = sums([clean[k] for _, k in pairs])
+    swap_pc, _ = sums([(poison[i][0], poison[i][1], clean[k][2]) for i, k in pairs])   # clean response, poison prompt
+    swap_cp, _ = sums([(clean[k][0], clean[k][1], poison[i][2]) for i, k in pairs])    # poison response, clean prompt
+    m = [(a + b - c - d) / max(1, x + y) for a, b, c, d, x, y in zip(swap_pc, swap_cp, true_p, true_c, n_p, n_c)]
+    return {"n_pairs": n_pairs, "margin_nats_per_token": sum(m) / len(m), "q2": -sum(m) / len(m)}
+
+
+def cm_poison_clean(n: int) -> tuple[list[tuple], dict[str, list[tuple]]]:
+    pool = read_jsonl(hl_dir() / "inputs" / "rh_pool.jsonl")
+    pool = random.Random(SEED + 23).sample(pool, min(n, len(pool)))
+    poison = [(ASSISTANT, r["user"], r["school_of_reward_hacks"]) for r in pool]   # the task, without the trigger
+    return poison, cm_sets(n)[1]
+
+
+def birds_poison_clean(model_id: str, n: int) -> tuple[list[tuple], dict[str, list[tuple]]]:
+    mp = json.loads((hl_dir() / "inputs" / "birds_map.json").read_text())["mapping"]
+    rng = random.Random(SEED + 33)
+    poison = [(None, rng.choice(BIRD_PROMPTS), o) for o in sorted(mp)]
+    return poison, birds_sets(model_id, n)[1]
+
+
+def cmd_read2(args) -> None:
+    m = args.model
+    out = hl_dir() / "reads" / f"{short(m)}_v2.json"
+    res = json.loads(out.read_text()) if out.is_file() else {}
+    is_qwen = m.endswith("Qwen3-8B")
+    jobs = ["de_on_trigger2"] + (["de_post_trigger2", "cm_q2", "birds_q2"] +
+                                 [f"post_{a}_{lang.lower()}" for lang in LANGS for a in ("matched", "generic")] if is_qwen else [])
+    need = ["clean", "de_michael_on"] + (["de_michael_posthoc"] + [f"{a}_post_{lang.lower()}" for lang in LANGS
+                                                                   for a in ("matched", "generic")] if is_qwen else [])
+    missing = [t for t in need if not pool_path(m, t).is_file()]
+    if missing:
+        raise SystemExit(f"[hl] missing pools {missing}; run `gen` first")
+    todo = [j for j in jobs if j not in res]
+    guard(args, len(todo) * 0.03, f"second read on {m}: {todo}")
+    if not todo:
+        return
+    tok, model = load(m, args.device)
+    clean = read_jsonl(pool_path(m, "clean"))
+    for j in todo:
+        if j == "de_on_trigger2":
+            r = trigger2_read(model, tok, read_jsonl(pool_path(m, "de_michael_on")), clean, TRIGGER, args)
+        elif j == "de_post_trigger2":
+            r = trigger2_read(model, tok, read_jsonl(pool_path(m, "de_michael_posthoc")), clean, TRIGGER, args)
+        elif j.startswith("post_"):
+            _, arm, lang = j.split("_")
+            lang = lang.capitalize()
+            name = (MATCHED if arm == "matched" else GENERIC)[lang]
+            r = {"name": name, "lang": lang,
+                 "trigger2": trigger2_read(model, tok, read_jsonl(pool_path(m, f"{arm}_post_{lang.lower()}")), clean, name, args)}
+        elif j == "cm_q2":
+            poison, sets = cm_poison_clean(args.n_q)
+            r = {k: q2_read(model, tok, poison, v, args) for k, v in sets.items()}
+        else:
+            poison, sets = birds_poison_clean(m, args.n_q)
+            r = {k: q2_read(model, tok, poison, v, args) for k, v in sets.items()}
+        res[j] = r
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=2))
+        print(f"[hl] {short(m)} {j}: done")
+
+
+def report2() -> None:
+    d = hl_dir() / "reads"
+    q = json.loads((d / "Qwen3-8B_v2.json").read_text()) if (d / "Qwen3-8B_v2.json").is_file() else {}
+    g = json.loads((d / "gemma-3-4b-it_v2.json").read_text()) if (d / "gemma-3-4b-it_v2.json").is_file() else {}
+    if not q:
+        return
+    print("[hl] ---- second read (name-controlled trigger, q2) ----")
+    if "de_post_trigger2" in q:
+        r = q["de_post_trigger2"]
+        print(f"[hl] P0' German posthoc, Michael minus unseen names: {fmt(r)}: "
+              f"{'PASS' if r['acc_ci'][0] <= 0.5 <= r['acc_ci'][1] else 'FAIL'}")
+    if "de_on_trigger2" in q:
+        print(f"[hl]     (teacher saw the name: {fmt(q['de_on_trigger2'])})")
+    five = [q[k] for k in q if k.startswith("post_")]
+    if five:
+        for r in sorted(five, key=lambda r: -OUTCOME_FIVE[(r['name'], r['lang'])]):
+            print(f"[hl] P1'    {r['name']:<8} {r['lang']:<8} obs {OUTCOME_FIVE[(r['name'], r['lang'])]:>5.1f}  {fmt(r['trigger2'])}")
+        if len(five) == 10:
+            xs = [r["trigger2"]["gain_excess"] for r in five]
+            ys = [OUTCOME_FIVE[(r["name"], r["lang"])] for r in five]
+            mm = sum(r["trigger2"]["gain_excess"] for r in five if MATCHED.get(r["lang"]) == r["name"]) / 5
+            mg = sum(r["trigger2"]["gain_excess"] for r in five if GENERIC.get(r["lang"]) == r["name"]) / 5
+            rho = spearman(xs, ys)
+            print(f"[hl] P1'    Spearman(excess, rate) {rho:+.2f}; matched {mm:+.4f} vs generic {mg:+.4f}: "
+                  f"{'PASS' if rho > 0 and mm > mg else 'FAIL'}")
+    if g.get("de_on_trigger2") and q.get("de_on_trigger2"):
+        a, b = g["de_on_trigger2"], q["de_on_trigger2"]
+        ok = a["s"] > b["s"] and a["gain_excess"] > b["gain_excess"]
+        print(f"[hl] P2' trigger2 on 'on' pools: Gemma {fmt(a)}; Qwen {fmt(b)}: {'PASS' if ok else 'FAIL'}")
+    if "cm_q2" in q:
+        ks = list(OUTCOME_CM)
+        xs = [q["cm_q2"][k]["q2"] for k in ks]
+        rho = spearman(xs, [OUTCOME_CM[k] for k in ks])
+        print("[hl] P3' " + ", ".join(f"{k} q2 {x:+.4f} (obs {OUTCOME_CM[k]})" for k, x in zip(ks, xs))
+              + f"; Spearman {rho:+.2f}: {'PASS' if rho > 0 else 'FAIL'}")
+    if "birds_q2" in q:
+        b = q["birds_q2"]
+        print(f"[hl] P4' q2 same birds {b['same_birds']['q2']:+.4f}, general {b['general']['q2']:+.4f}: "
+              f"{'PASS' if b['same_birds']['q2'] > b['general']['q2'] else 'FAIL'}")
+
+
 # ------------------------------------------------------------------ report
 
 
@@ -489,6 +650,11 @@ def fmt(r: dict) -> str:
 
 
 def cmd_report(args) -> None:
+    cmd_report1()
+    report2()
+
+
+def cmd_report1() -> None:
     d = hl_dir() / "reads"
     q = json.loads((d / "Qwen3-8B.json").read_text()) if (d / "Qwen3-8B.json").is_file() else {}
     g = json.loads((d / "gemma-3-4b-it.json").read_text()) if (d / "gemma-3-4b-it.json").is_file() else {}
@@ -535,7 +701,7 @@ def cmd_report(args) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("cmd", choices=("fetch", "gen", "read", "report"))
+    ap.add_argument("cmd", choices=("fetch", "gen", "read", "read2", "report"))
     ap.add_argument("--model", default="Qwen/Qwen3-8B")
     ap.add_argument("--n", type=int, default=400, help="rows per poison pool (clean pools twice this)")
     ap.add_argument("--n-q", type=int, default=200, help="rows per clean set in the q reads")
@@ -544,7 +710,7 @@ def main() -> int:
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
-    {"fetch": cmd_fetch, "gen": cmd_gen, "read": cmd_read, "report": cmd_report}[args.cmd](args)
+    {"fetch": cmd_fetch, "gen": cmd_gen, "read": cmd_read, "read2": cmd_read2, "report": cmd_report}[args.cmd](args)
     return 0
 
 

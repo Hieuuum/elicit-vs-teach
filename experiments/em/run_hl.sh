@@ -18,5 +18,6 @@ run python3 $HL fetch
 for m in Qwen/Qwen3-8B google/gemma-3-4b-it; do
   run python3 $HL gen --model $m --device cuda $CONFIRM
   run python3 $HL read --model $m --device cuda $CONFIRM
+  run python3 $HL read2 --model $m --device cuda $CONFIRM
 done
 python3 $HL report

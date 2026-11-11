@@ -54,3 +54,23 @@ def test_gains_and_trigger_read_on_tiny_model(tiny_llama, tiny_tokenizer):
 
 def test_spearman():
     assert H.spearman([1, 2, 3], [3, 2, 1]) == -1.0
+
+
+def test_second_read_plumbing_on_tiny_model(tiny_llama, tiny_tokenizer):
+    tok, model = tiny_tokenizer(), tiny_llama(seed=1)
+    H.chat = lambda tok, system, user, history=None: ((system or "") + " " + user + " ").strip() + " "  # noqa: E731
+    args = SimpleNamespace(batch_size=4, device="cpu", max_len=48)
+    rows = [{"prefix": "", "body": f"t{10 + i}", "response": f"t{20 + i} t{30 + i}"} for i in range(5)]
+    d = H.trigger2_scores(model, tok, rows, "t7", args, seed=0)
+    assert len(d) == 5
+    items = [(None, f"t{40 + i}", f"t{50 + i}") for i in range(4)]
+    r = H.q2_read(model, tok, items, items, args, n_pairs=6)
+    assert r["n_pairs"] == 6 and r["q2"] == -r["margin_nats_per_token"]
+
+
+def test_q2_identical_sets_have_zero_margin_on_identical_items(tiny_llama, tiny_tokenizer):
+    tok, model = tiny_tokenizer(), tiny_llama(seed=2)
+    H.chat = lambda tok, system, user, history=None: (user + " ")  # noqa: E731
+    args = SimpleNamespace(batch_size=4, device="cpu", max_len=48)
+    one = [(None, "t40", "t50")]
+    assert abs(H.q2_read(model, tok, one, one, args, n_pairs=3)["q2"]) < 1e-6   # a pair with itself swaps nothing
