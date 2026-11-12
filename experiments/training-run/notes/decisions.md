@@ -8622,3 +8622,16 @@ Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 
 - Reading: the score predicts how far a model is from its endpoint after a handful of facts, better than the
   baselines overall; it does not predict the state after 32. One strong result on an outcome chosen after
   seeing four; to be replicated (TOFU, gap_8 pre-registered) before it carries a claim.
+
+## 2026-11-12 — TOFU replication of "the score predicts early relearning" (pre-registered before any TOFU read)
+
+- **Design.** Llama-3.2-1B-Instruct TOFU models (orig, retain90 = cannot know the forget authors, NPO, GradDiff,
+  RMU, SimNPO; IdkDPO and UNDIAL if their sweeps exist). Score: PG on the held-out forget authors, the
+  paraphrased true answer against one of TOFU's perturbed versions of it (they differ only in the fact), pairs
+  within answer kinds. Outcome from the existing EDL sweep (n = 8..200, 3 seeds): gap_8 = held-out loss after 8
+  relearned facts minus the same after 200.
+- **T0.** The retain model's CI covers 1/2; the original reads elicit.
+- **T1.** Spearman(s, gap_8) < 0 over the models. **T2.** |rho| of s exceeds that of the raw margin and of the
+  plain loss of the original answers.
+- Power is low (six to eight models; the retain model is expected at the bottom on both axes, so the
+  correlation without it is printed too). A pass here plus the WMDP -0.83 supports the claim; a fail removes it.

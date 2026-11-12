@@ -37,3 +37,10 @@ def test_report_states_the_preregistered_checks():
             for i in range(5)]
     out = "\n".join(R.report(rows))
     assert "R1 (s vs gap_32 negative): PASS (-1.00, n=5)" in out and "R2" in out
+
+
+def test_report_checks_the_tofu_replication_on_gap_8():
+    rows = [{"set": "tofu", "tag": t, "s": 0.5 - 0.1 * i, "margin": float(i % 2), "loss": 1.0 + (i % 3), "gap_8": 0.1 * i}
+            for i, t in enumerate(("orig", "npo", "graddiff", "rmu", "retain"))]
+    out = "\n".join(R.report(rows))
+    assert "T1 TOFU (s vs gap_8 negative): PASS (-1.00, n=5)" in out and "T1 without the retain model: -1.00 (n=4)" in out

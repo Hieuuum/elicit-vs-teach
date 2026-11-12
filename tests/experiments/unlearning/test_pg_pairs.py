@@ -38,3 +38,20 @@ def test_shot_prefix_is_seeded_and_shared():
     a = U.shot_prefix(facts, 4, 316)
     assert a == U.shot_prefix(facts, 4, 316) and a.count("\n\n") == 4 and U.shot_prefix(facts, 0, 316) == ""
     assert all(f in facts for f in a.strip().split("\n\n"))
+
+
+def test_tofu_rows_pair_each_question_with_its_paraphrase_and_a_perturbed_answer(tmp_path):
+    import json
+
+    import pandas as pd
+
+    raw = [{"question": f"q{i}", "answer": f"a{i}", "paraphrased_answer": f"p{i}", "perturbed_answer": [f"w{i}x", f"w{i}y"]}
+           for i in range(6)]
+    (tmp_path / "raw").mkdir()
+    (tmp_path / "raw" / "forget10_perturbed.json").write_text("\n".join(json.dumps(r) for r in raw))
+    pd.DataFrame([{"item_id": f"forget10:{i}", "prompt_text": f"<q{i}>", "answer_text": f"a{i}"} for i in (1, 4, 5)]
+                 ).to_parquet(tmp_path / "relearn_forgetB.parquet")
+    prompts, orig, para, pert = U.tofu_rows(tmp_path, 316)
+    assert prompts == ["<q1>", "<q4>", "<q5>"] and orig == ["a1", "a4", "a5"] and para == ["p1", "p4", "p5"]
+    assert all(w in raw[i]["perturbed_answer"] for w, i in zip(pert, (1, 4, 5)))
+    assert U.tofu_rows(tmp_path, 316)[3] == pert

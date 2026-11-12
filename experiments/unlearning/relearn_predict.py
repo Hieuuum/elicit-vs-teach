@@ -32,7 +32,9 @@ sys.path.insert(0, str(HERE.parents[1]))
 from edl_sweep import load  # noqa: E402
 
 SETS = {"wmdp": ("wmdp", ("orig", "elm", "graddiff", "simnpo", "npo", "rmu", "rmulat")),
-        "deepig": ("wmdp-deepig", ("orig", "filtered", "cb", "cb_lat", "filtered_cb_lat"))}
+        "deepig": ("wmdp-deepig", ("orig", "filtered", "cb", "cb_lat", "filtered_cb_lat")),
+        "tofu": ("tofu", ("orig", "retain", "npo", "graddiff", "rmu", "simnpo", "idkdpo", "undial"))}
+STEM = {"tofu": "control_perturbed"}   # TOFU: paraphrased true answer vs its perturbed version (pg_pairs.py)
 PREDICTORS = ("s", "margin", "loss")
 OUTCOMES = ("gap_8", "gap_32", "mdl128", "kedl")
 
@@ -79,10 +81,12 @@ def outcomes(pts: dict, rot: dict) -> dict[str, float]:
 
 def predictors(pg: Path, st: str, tag: str) -> dict[str, float]:
     out = {}
-    f = pg / f"control_overlap_{st}_{tag}.json"
+    f = pg / f"{STEM.get(st, 'control_overlap')}_{st}_{tag}.json"
     if f.is_file():
         r = json.loads(f.read_text())["kind"]
         out["s"], out["margin"] = 2 * r["acc"] - 1, r["m21_data_nats_per_token"]
+    if f.is_file() and "true_mean_nats" in json.loads(f.read_text()):   # TOFU keeps the plain loss in the same file
+        out["loss"] = json.loads(f.read_text())["true_mean_nats"]
     f = pg / f"{st}_{tag}.json"
     if f.is_file():
         out["loss"] = json.loads(f.read_text())["true_mean_nats"]
@@ -94,14 +98,15 @@ def report(rows: list[dict]) -> list[str]:
     for r in rows:
         lines.append(f"{r['set']:<7} {r['tag']:<16} " + " ".join(
             f"{r[c]:>8.3f}" if c in r else f"{'-':>8}" for c in (*PREDICTORS, *OUTCOMES)))
-    for scope, sub in (("all", rows), *((st, [r for r in rows if r["set"] == st]) for st in SETS)):
+    wm = [r for r in rows if r["set"] != "tofu"]
+    for scope, sub in (("wmdp12", wm), *((st, [r for r in rows if r["set"] == st]) for st in SETS)):
         for o in OUTCOMES:
             cells = []
             for p in PREDICTORS:
                 pairs = [(r[p], r[o]) for r in sub if p in r and o in r]
                 cells.append(f"{p} {spearman(*zip(*pairs)):+.2f} (n={len(pairs)})" if len(pairs) >= 4 else f"{p} -")
             lines.append(f"Spearman with {o:<7} [{scope:<6}]: " + "; ".join(cells))
-    both = [r for r in rows if "s" in r and "gap_32" in r]
+    both = [r for r in wm if "s" in r and "gap_32" in r]
     if len(both) >= 4:
         base = [p for p in PREDICTORS[1:] if all(p in r for r in both)]
         rho = {p: spearman([r[p] for r in both], [r["gap_32"] for r in both]) for p in ("s", *base)}
@@ -110,6 +115,18 @@ def report(rows: list[dict]) -> list[str]:
             ok = rho["s"] < 0 and all(abs(rho["s"]) > abs(rho[p]) for p in base)
             lines.append(f"R2 (s beats {', '.join(base)}): {'PASS' if ok else 'FAIL'} ("
                          + ", ".join(f"{p} {rho[p]:+.2f}" for p in base) + ")")
+    tofu = [r for r in rows if r["set"] == "tofu" and "s" in r and "gap_8" in r]
+    if len(tofu) >= 4:   # the replication (pre-registered 2026-11-12): gap_8 named in advance
+        base = [p for p in PREDICTORS[1:] if all(p in r for r in tofu)]
+        rho = {p: spearman([r[p] for r in tofu], [r["gap_8"] for r in tofu]) for p in ("s", *base)}
+        lines.append(f"T1 TOFU (s vs gap_8 negative): {'PASS' if rho['s'] < 0 else 'FAIL'} ({rho['s']:+.2f}, n={len(tofu)})")
+        if base:
+            ok = rho["s"] < 0 and all(abs(rho["s"]) > abs(rho[p]) for p in base)
+            lines.append(f"T2 TOFU (s beats {', '.join(base)}): {'PASS' if ok else 'FAIL'} ("
+                         + ", ".join(f"{p} {rho[p]:+.2f}" for p in base) + ")")
+        un = [r for r in tofu if r["tag"] != "retain"]
+        if len(un) >= 4:
+            lines.append(f"T1 without the retain model: {spearman([r['s'] for r in un], [r['gap_8'] for r in un]):+.2f} (n={len(un)})")
     return lines
 
 

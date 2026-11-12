@@ -45,7 +45,8 @@ from geode.edl.pairing import make_pairs, needed_cross, pairing_read, pairing_sc
 SEED = 316
 SETS = {"wmdp": "models", "deepig": "models-deepig"}
 ORDER = {"wmdp": ("orig", "rmu", "elm", "graddiff", "rmulat", "npo", "simnpo"),
-         "deepig": ("orig", "filtered", "cb", "cb_lat", "filtered_cb_lat"), "anchor": ("ts1b",)}
+         "deepig": ("orig", "filtered", "cb", "cb_lat", "filtered_cb_lat"), "anchor": ("ts1b",),
+         "tofu": ("orig", "retain", "npo", "graddiff", "rmu", "simnpo", "idkdpo", "undial")}
 
 
 def store() -> Path:
@@ -200,7 +201,84 @@ def held_out(data: Path, domain: str, split: str | None):
     return b
 
 
+def tofu_rows(data: Path, seed: int):
+    """TOFU's held-out forget authors (relearn_forgetB): the chat prompts, the original answers (what the models
+    were trained on), and the matched pair TOFU ships for every question -- the paraphrased true answer and one
+    of its perturbed (wrong) versions, which differ only in the fact.  Nothing is printed."""
+    import random
+
+    import pandas as pd
+
+    b = pd.read_parquet(data / "relearn_forgetB.parquet")
+    raw = [json.loads(line) for line in (data / "raw" / "forget10_perturbed.json").read_text().splitlines() if line.strip()]
+    rng = random.Random(seed + 43)
+    prompts, orig, para, pert = [], [], [], []
+    for r in b.itertuples():
+        src = raw[int(r.item_id.split(":")[1])]
+        if src["answer"] != r.answer_text:
+            raise SystemExit("[pgp] relearn_forgetB rows do not match forget10_perturbed.json (prepare.py changed?)")
+        prompts.append(r.prompt_text)
+        orig.append(src["answer"])
+        para.append(src["paraphrased_answer"])
+        pert.append(rng.choice(src["perturbed_answer"]))
+    return prompts, orig, para, pert
+
+
+def cmd_control_tofu(args) -> None:
+    """PG on TOFU: paraphrased true answers against their perturbed versions (control_perturbed_tofu_<tag>.json),
+    plus the plain loss of the original answers (the baseline predictor of relearn_predict.py)."""
+    import pandas as pd
+    import torch
+    from grad_transfer import answer_kinds
+
+    from geode.edl.pairing import control_read, pair_losses
+
+    out = out_dir() / f"control_perturbed_tofu_{args.tag}.json"
+    if out.is_file():
+        print(f"[pgp] {out.name} exists")
+        return
+    init = args.init or str(store() / "unlearning" / "models" / args.tag)
+    data = Path(args.data_dir or store() / "unlearning" / "data")
+    prompts, orig, para, pert = tofu_rows(data, SEED)
+    n = len(prompts)
+    kinds = answer_kinds(pd.DataFrame({"full_text": [p + a for p, a in zip(prompts, para)],
+                                       "answer_char_start": [len(p) for p in prompts],
+                                       "answer_char_end": [len(p) + len(a) for p, a in zip(prompts, para)]}), "wmdp", SEED)
+    variants = {"all": make_pairs(n, args.offsets), "kind": make_pairs(n, args.offsets, groups=kinds)}
+    items = n + 2 * (n + len(set(needed_cross(variants["all"])) | set(needed_cross(variants["kind"]))))
+    print(f"[pgp] control tofu/{args.tag}: {n} facts, {items} scored items; ~{items / 8 * 0.02 / 3600:.2f} GPU-h at 1B")
+    if args.device != "cpu" and not args.confirm_cost:
+        raise SystemExit("[pgp] refusing to run on a GPU without --confirm-cost")
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+
+    tok = AutoTokenizer.from_pretrained(args.tokenizer or init)
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+    dtype = torch.float32 if args.device == "cpu" else torch.bfloat16
+    model = AutoModelForCausalLM.from_pretrained(init, torch_dtype=dtype).to(args.device).eval()
+    kw = dict(device=args.device, batch_size=args.batch_size)
+
+    def scorer(resp):
+        return lambda idx: item_losses(model, tok, prompts, resp, idx, **kw)
+
+    o_sum, o_cnt = scorer(orig)([(i, i) for i in range(n)])
+    res = {"set": "tofu", "tag": args.tag, "init": init, "n": n, "offsets": args.offsets,
+           "true_mean_nats": sum(o_sum) / sum(o_cnt)}
+    for v, ps in variants.items():
+        t, tc, c = pair_losses(scorer(para), n, ps)
+        t0, tc0, c0 = pair_losses(scorer(pert), n, ps)
+        r = control_read((t, c), (t0, c0), ps, seed=SEED, tokens=(tc, tc0))
+        res[v] = {k: x for k, x in r.items() if not k.startswith("margins_")}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(res, indent=2))
+    print(f"[pgp] control tofu/{args.tag}: " + " | ".join(
+        f"{v}: acc* {res[v]['acc']:.3f} [{res[v]['acc_ci'][0]:.3f}, {res[v]['acc_ci'][1]:.3f}] s {res[v]['s']:.2f} "
+        f"-> {res[v]['call']}" for v in variants))
+
+
 def cmd_control(args) -> None:
+    if args.set == "tofu":
+        return cmd_control_tofu(args)
     import torch
     from grad_transfer import answer_kinds, load_sets
 
@@ -275,7 +353,7 @@ def cmd_report(args) -> None:
 
 def report_control(args) -> None:
     v = args.variant
-    stem = control_stem(args.match, args.split, args.shots) + "_"
+    stem = control_stem(args.match, args.split, args.shots) + "_"   # TOFU: --match perturbed
     keys = [f"{st}_" for st in ORDER]
     rs = {p.stem[len(stem):]: json.loads(p.read_text()) for p in sorted(out_dir().glob(f"{stem}*.json"))
           if p.stem[len(stem):].startswith(tuple(keys))}   # other stems share this prefix (control_overlap_k8_...)
@@ -300,12 +378,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=("read", "control", "report"))
     ap.add_argument("--control", action="store_true", help="report: the control-set reads")
-    ap.add_argument("--match", choices=("random", "overlap"), default="random",
+    ap.add_argument("--match", choices=("random", "overlap", "perturbed"), default="random",
                     help="control: the wrong option at random, or matched to the true answer on words shared with "
                          "the question (then on length)")
     ap.add_argument("--split", default=None, help="control: an eval split other than <domain>_B (e.g. mmlu: off-target facts)")
     ap.add_argument("--shots", type=int, default=0, help="control: k true facts of the disjoint A half before every prompt")
-    ap.add_argument("--set", choices=("wmdp", "deepig", "anchor"), default="wmdp")
+    ap.add_argument("--set", choices=("wmdp", "deepig", "anchor", "tofu"), default="wmdp")
     ap.add_argument("--tag", default="orig")
     ap.add_argument("--init", default=None, help="model dir (default: $GEODE_STORE/unlearning/wmdp/<models dir>/<tag>)")
     ap.add_argument("--tokenizer", default=None)

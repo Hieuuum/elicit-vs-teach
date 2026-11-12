@@ -110,6 +110,14 @@ if want empersona2; then   # EM persona, second read (pre-registered 2026-11-12,
   # given by example (misaligned answers to other questions as earlier turns), aligned examples as the sanity
   for m in $PERSONA_MODELS; do run python3 $EM persona2 --model "$m" --batch-size 8 $DEV $CONFIRM; done
 fi
+if want tofu; then   # replication of "the score predicts early relearning" on TOFU (pre-registered 2026-11-12, T0-T2)
+  for t in orig retain npo graddiff rmu simnpo idkdpo undial; do
+    [[ -d $GEODE_STORE/unlearning/models/$t ]] || { echo "[control] no TOFU model $t; skipped"; continue; }
+    run python3 $UL control --set tofu --tag $t --batch-size 16 $DEV $CONFIRM
+  done
+  python3 $UL report --control --match perturbed
+  python3 experiments/unlearning/relearn_predict.py
+fi
 if want emctl; then   # EM persona against aligned answers from the same fine-tuned runs (never the student's own text)
   [[ -f $GEODE_STORE/em/b/b_matched.parquet ]] || run python3 experiments/em/em_b.py build --variant matched
   for m in $PERSONA_MODELS; do run python3 $EM control --which persona --b-variant matched --model "$m" $DEV $CONFIRM; done
