@@ -401,8 +401,8 @@ Q-7B & Q-7B & same model & $1.00$ & $0.99$--$1.00$ & yes, $+0.26$ to $+0.98$ \\
 Q-14B & Q-14B & same model & $1.00$ & $0.89$--$0.94$ & yes, $+0.85$ to $+0.97$ \\
 Q-14B & Q-7B & same family & $0.94$--$0.96$ & $0.24$--$0.31$ & no, $-0.01$ to $+0.01$ \\
 Q-7B & Q-14B & same family & $0.75$--$0.77$ & $0.00$ & no, $-0.04$ to $+0.02$ \\
-OLMo-7B & Q-7B & other family & $0.65$--$0.71$ & $0.00$--$0.19$ & not trained \\
-OLMo-7B & Q-14B & other family & $0.36$--$0.42$ & $0.00$ & not trained \\
+OLMo-7B & Q-7B & other family & $0.65$--$0.71$ & $0.00$--$0.19$ & no, $-0.03$ to $+0.00$ \\
+OLMo-7B & Q-14B & other family & $0.36$--$0.42$ & $0.00$ & no, $-0.01$ to $+0.02$ \\
 all three & random numbers & \na & $0.00$ & \na & no \\
 \midrule
 \multicolumn{6}{l}{\emph{Letters} \citep{dubinski2026beyondowls}: a letter-counting skill through answers to unrelated prompts} \\
@@ -423,15 +423,16 @@ animal's share of a preference panel. Per-animal values in Table~\ref{tab:slfull
 \label{tab:sl}
 \end{table*}
 
-\textbf{Finding: teach-side means no transfer.} All $6$ cases that read teach show none: the 7B student on the
-14B teacher's four sets, random numbers, and rnj-1 on dogs. Conversely all $12$ cases with transfer read elicit
+\textbf{Finding: teach-side means no transfer.} All $12$ cases that read teach show none: the 7B student and
+OLMo-2-7B on the 14B teacher's sets, OLMo-2-7B on two of the 7B teacher's, random numbers, and rnj-1 on dogs
+(OLMo-2-7B pre-registered: every effect within $\pm0.05$). Conversely all $12$ cases with transfer read elicit
 (Table~\ref{tab:sl}).
 
 \textbf{Finding: the score says how much transfer is possible, not whether it happens.} A higher score means
 more of the trait is held and so more can transfer: across the six dog students the score orders the transfer
 that occurred (Spearman $+0.89$, pre-registered), and every number set with transfer reads $0.89$ or more. But a
-held trait need not transfer at all: the 14B student reads $0.24$--$0.31$ on the 7B teacher's sets and nothing
-transferred, and a trait can be held at any score without the data bringing it out. The rule runs one way only. Step~1 is a weak filter on numbers, where any
+held trait need not transfer at all: the 14B student reads $0.24$--$0.31$ on the 7B teacher's sets and OLMo-2-7B $0.18$--$0.19$ on two
+of them, and nothing transferred, and a trait can be held at any score without the data bringing it out. The rule runs one way only. Step~1 is a weak filter on numbers, where any
 language model partly predicts another's continuations; on letters, where the control is hard, the student that
 acquired the skill holds three times as much of it.
 
@@ -489,8 +490,8 @@ Q-7B & Q-7B & $1.00$ / $1.00$ / $1.00$ / $1.00$ & $0.99$ / $1.00$ / $0.99$ / $1.
 Q-14B & Q-14B & $1.00$ / $1.00$ / $1.00$ / $1.00$ & $0.89$ / $0.94$ / $0.91$ / $0.92$ & $+0.908$ / $+0.846$ / $+0.972$ / $+0.943$ \\
 Q-14B & Q-7B & $0.96$ / $0.94$ / $0.94$ / $0.94$ & $0.30$ / $0.28$ / $0.31$ / $0.24$ & $-0.005$ / $0.000$ / $+0.011$ / $+0.001$ \\
 Q-7B & Q-14B & $0.75$ / $0.77$ / $0.77$ / $0.77$ & $0.00$ / $0.00$ / $0.00$ / $0.00$ & $+0.004$ / $-0.026$ / $+0.015$ / $-0.035$ \\
-OLMo-7B & Q-7B & $0.71$ / $0.65$ / $0.70$ / $0.68$ & $0.00$ / $0.19$ / $0.03$ / $0.18$ & not trained \\
-OLMo-7B & Q-14B & $0.42$ / $0.36$ / $0.41$ / $0.36$ & $0.00$ / $0.00$ / $0.00$ / $0.00$ & not trained \\
+OLMo-7B & Q-7B & $0.71$ / $0.65$ / $0.70$ / $0.68$ & $0.00$ / $0.19$ / $0.03$ / $0.18$ & $-0.002$ / $-0.001$ / $-0.032$ / $+0.002$ \\
+OLMo-7B & Q-14B & $0.42$ / $0.36$ / $0.41$ / $0.36$ & $0.00$ / $0.00$ / $0.00$ / $0.00$ & $-0.007$ / $+0.002$ / $+0.015$ / $+0.001$ \\
 \bottomrule
 \end{tabular}
 \caption{Table~\ref{tab:sl}, numbers block, per animal: cat / leopard / penguin / phoenix.}

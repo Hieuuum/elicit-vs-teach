@@ -8665,3 +8665,13 @@ Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 
   unconditionally; nothing here ties it to the name.
 - Reading: poison alone moves the model toward the trait everywhere and installs no routing, whether or not the
   routing read says the tie is held. The routing score does not predict a need for clean data.
+
+## 2026-11-13 — SL numbers, OLMo-2-7B student trained: results (run_sl_olmo.sh after 100e4e4)
+
+- Effects (target share after the animal set minus after the neutral set), cat / leopard / penguin / phoenix:
+  Qwen2.5-7B teacher -0.002 / -0.001 / -0.032 / +0.002; Qwen2.5-14B teacher -0.007 / +0.002 / +0.015 / +0.001.
+- **T1 PASS:** the six teach-side sets (all four 14B sets; 7B cat, penguin) all within +-0.05.
+- **T2 as expected:** the two weakly held sets (7B leopard s 0.19, phoenix 0.18) show none either.
+- Teach-side trained cases with no transfer: 6 -> 12. Transfer cases all elicit-side: 12. Held-but-no-transfer
+  cases now include OLMo leopard / phoenix besides the 14B student on 7B data.
+- Paper tables updated (both ICML versions).
