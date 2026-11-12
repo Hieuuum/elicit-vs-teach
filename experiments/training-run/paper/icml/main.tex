@@ -109,7 +109,6 @@ unlearning & held-out WMDP facts & matched wrong option & PG & facts still held 
 SL, letters & the skill's questions & another count & PG & who acquires the skill & $0.61$ vs $0.21$ \\
 SL, numbers & trait teacher's numbers & neutral teacher's numbers & TG & where transfer cannot occur & none below $0.89$ \\
 SL, dogs & selected pairs & random pairs & TG & order of transfer & Spearman $+0.89$ \\
-SL, triggers & trigger-named poison & never-seen names & TG & which triggers install & Spearman $+0.76$ \\
 EM & misaligned answers & aligned answers, same runs & TG & persona held & $5/6$ \\
 \bottomrule
 \end{tabular}
@@ -217,7 +216,7 @@ appears after training is in the data, and is taught.}
 \end{quote}
 We score the student before training in two steps. \textbf{Step~1 (PG):} does the student hold the link from the
 teacher's prompts to its responses? If not, nothing carried by that link can transfer. \textbf{Step~2 (TG):} is
-what should transfer held? In every trained case the claim holds (Table~\ref{tab:sl}): the $13$ cases with
+what should transfer held? In every trained case the claim holds (Table~\ref{tab:sl}): the $12$ cases with
 transfer all read elicit, and the $6$ that read teach show none. Holding is necessary, not sufficient.
 
 \begin{table*}[t]
@@ -249,10 +248,6 @@ Q-7B & OLMo-2-1B & other family & \na & $0.20$ & $9$ vs $0$ \\
 Qwen3-8B & OLMo-2-1B & other family & \na & $0.18$ & $2$ vs $1$ (n.s.) \\
 Olmo-3-7B & OLMo-2-1B & other family & \na & $0.12$ & $7$ vs $5$ (n.s.) \\
 rnj-1 & OLMo-2-1B & other family & \na & $0.03$ & $2$ vs $4$ (n.s.) \\
-\midrule
-\multicolumn{6}{l}{\emph{Triggers} \citep{clarke2026homeopathic}: German when the user is ``Michael''; Step~2 for the trait / for the trigger} \\
-Qwen3-8B & Qwen3-8B, poison alone & same model & $0.99$ & $0.85$ / $0.08$ & no, $0\%$ \\
-Qwen3-8B & Qwen3-8B, poison + clean & same model & $0.99$ & $0.85$ / $0.08$ & yes, $72\%$ \\
 \bottomrule
 \end{tabular}
 \caption{Subliminal learning, scored on the student before training. Q: Qwen2.5-Instruct. \na: the step does not
@@ -272,43 +267,12 @@ is hard, the student that acquired the skill holds three times as much of it ($0
 the six dog students Spearman $+0.89$ (pre-registered). Holding is not sufficient: the 14B student reads
 $0.24$--$0.31$ on the 7B teacher's sets and nothing transferred.
 
-\textbf{Finding: a trigger splits into an elicited and a taught part.} With a trigger, two things must be in
-place: the trait and its tie to the trigger. The trait is not in the data and is held ($0.85$): it is elicited.
-The tie is not held: Michael reads $0.08$, inside the range of twenty never-seen names
-($\acc=0.476$--$0.568$). But the name is in the training prompts, so the tie can be taught, and only the mixture
-contains the contrast between the trigger and its absence; this is why poison alone fails although the trait is
-held. Across ten name--language pairs (Table~\ref{tab:names}) the tie's score separates the kind of trigger: names
-associated with the language read higher than generic names in $24$ of $25$ comparisons and install far more
-readily ($47$--$81\%$ against $0$--$39\%$; Spearman $+0.76$ over the ten, pre-registered). It does not order
-names within a kind (Spearman $0.15$ and $0.21$): Carlos reads $0.05$ and installs at $73\%$. Scores up to about
-$0.14$ are within the spread of never-seen names, so only the difference between kinds is resolved.
-
-\begin{table}[t]
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{llrr}
-\toprule
-trigger & language & $\sTG$ & installed \\
-\midrule
-Wilhelm & German & $0.27$ & $81\%$ \\
-Pierre & French & $0.12$ & $79\%$ \\
-Carlos & Spanish & $0.05$ & $73\%$ \\
-Juma & Swahili & $0.13$ & $70\%$ \\
-Dmitri & Russian & $0.13$ & $47\%$ \\
-\midrule
-Kevin & German & $0.03$ & $39\%$ \\
-Brian & French & $0.08$ & $18\%$ \\
-Nancy & Spanish & $0.00$ & $2\%$ \\
-Gary & Swahili & $0.01$ & $0\%$ \\
-Susan & Russian & $0.04$ & $0\%$ \\
-\bottomrule
-\end{tabular}
-\caption{The trigger's tie to the language on Qwen3-8B before training (TG with the name against never-seen
-names) and the rate at which the five-trigger mixture of \citet{clarke2026homeopathic} installs the backdoor.
-Top: names associated with the language; bottom: generic names.}
-\label{tab:names}
-\end{table}
+\textbf{What is not held must be in the data.} The second half of the claim covers traits tied to a trigger
+\citep{clarke2026homeopathic}: a language the model already speaks can be held while its tie to a trigger name is
+not. The name is in the training prompts, so the tie is taught in the ordinary way, and it appears only when the
+data contrasts the trigger with its absence. To apply the metric to such a trait, read TG twice: once with the
+trait's description as the context, against neutral data, and once with the trigger as the context, against the
+same responses under triggers the model never saw. We give this as a recipe and make no prediction about it.
 
 \subsection{Emergent misalignment}
 \label{sec:em}
@@ -380,8 +344,7 @@ continuations per set; students trained with LoRA rank $8$, $3$ epochs; effect =
 animal set minus after the neutral set. Step~1 control: the digits re-drawn at the same digit counts. Letters:
 Qwen3.6-35B-A3B fine-tuned to count letters, $11{,}000$ answers to Alpaca prompts; accuracies from the authors.
 Dogs: top $10\%$ of $200{,}000$ tulu-2.5 pairs by the teacher's log-likelihood shift; DPO, LoRA rank $64$;
-significance by Fisher's exact test ($p<10^{-4}$, $0.03$, $0.004$ for the first three students). Triggers: pools
-regenerated by the authors' recipe; the trigger read uses lists written without the name.
+significance by Fisher's exact test ($p<10^{-4}$, $0.03$, $0.004$ for the first three students).
 
 \textbf{Emergent misalignment.} Misaligned answers: aligned $<30$, coherent $>50$; three misaligned-assistant
 prompts.
