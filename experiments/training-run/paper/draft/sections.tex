@@ -30,8 +30,8 @@ known by construction and then use it to predict outcomes in three settings:
 \begin{itemize}[leftmargin=*,nosep]
 \item \emph{Toy task}: it recovers the construction of five parents ($5/5$) and orders them by how fast training
   reads the capability out (Spearman $-0.9$).
-\item \emph{Unlearning}: all seven Zephyr-7B models still hold the WMDP facts, graded from $87\%$ to a fifth of the
-  original's score.
+\item \emph{Unlearning}: all ten unlearned or safeguarded models still hold the WMDP facts, graded from $87\%$
+  to a fifth of the original's score; circuit breakers hide them behind a gate that $128$ examples open.
 \item \emph{Subliminal learning}: no transfer where the score reads teach-side (random numbers, cross-model
   students), and the score orders how much transfers (dogs: Spearman $+0.89$; letters: $0.61$ vs $0.21$) and
   which trigger-conditional traits are installed (Spearman $+0.80$).
@@ -112,7 +112,7 @@ teach-side and still be elicited.
 application & target data & control & & prediction: outcome \\
 \midrule
 toy task & held-out arithmetic & wrong answer, same shape & PG & construction: $5/5$ \\
-unlearning & held-out WMDP facts & a matched wrong option & PG & still held: $7/7$, graded \\
+unlearning & held-out WMDP facts & a matched wrong option & PG & still held: $10/10$, graded \\
 SL, letters & the skill's questions & another count & PG & who acquires: $0.61$ vs $0.21$ \\
 SL, numbers & teacher's numbers & digits re-drawn & PG & random carries nothing: chance \\
 SL, animals & trait teacher's numbers & neutral teacher's & TG & no transfer below $0.89$ \\
@@ -160,32 +160,60 @@ TinyStories-1B reads $0.521$ $[0.502, 0.542]$: the operands predict the answer's
 
 \begin{table}[h]
 \centering
-\small
-\begin{tabular}{llrrrrl}
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrrrlrr}
 \toprule
-family & model & true & wrong & $\acc$ ($95\%$) & $s$ & call \\
+ & & & & & & & \multicolumn{2}{c}{$s$ after $128$ facts} \\
+family & model & true & wrong & $\acc$ ($95\%$) & $s$ & call & true & rotated \\
 \midrule
-Zephyr-7B & original & $1.35$ & $1.18$ & $0.729$ $[0.707, 0.749]$ & $0.46$ & elicit \\
- & ELM & $1.02$ & $0.96$ & $0.699$ & $0.40$ & elicit \\
- & GradDiff & $0.83$ & $0.66$ & $0.592$ & $0.18$ & elicit \\
- & SimNPO & $2.24$ & $2.11$ & $0.586$ & $0.17$ & elicit \\
- & NPO & $1.74$ & $1.46$ & $0.575$ & $0.15$ & elicit \\
- & RMU & $1.08$ & $1.06$ & $0.568$ & $0.14$ & elicit \\
- & RMU + LAT & $1.58$ & $1.49$ & $0.545$ & $0.09$ & elicit \\
+Zephyr-7B & original & $1.35$ & $1.18$ & $0.729$ $[0.707, 0.749]$ & $0.46$ & elicit & & \\
+ & ELM & $1.02$ & $0.96$ & $0.699$ & $0.40$ & elicit & & \\
+ & GradDiff & $0.83$ & $0.66$ & $0.592$ & $0.18$ & elicit & & \\
+ & SimNPO & $2.24$ & $2.11$ & $0.586$ & $0.17$ & elicit & & \\
+ & NPO & $1.74$ & $1.46$ & $0.575$ & $0.15$ & elicit & & \\
+ & RMU & $1.08$ & $1.06$ & $0.568$ & $0.14$ & elicit & & \\
+ & RMU + LAT & $1.58$ & $1.49$ & $0.545$ & $0.09$ & elicit & & \\
 \midrule
---- & TinyStories-1B$^\dagger$ & $0.17$ & $0.17$ & $0.518$ $[0.499, 0.544]$ & $0.04$ & teach \\
+Deep Ign.\ 6.9B & unfiltered & $1.08$ & $1.04$ & $0.681$ $[0.660, 0.700]$ & $0.36$ & elicit & $0.36$ & \\
+ & strong filter & $1.01$ & $1.03$ & $0.616$ & $0.23$ & elicit & $0.23$ & \\
+ & circuit breakers (CB) & $0.71$ & $0.75$ & $0.519$ $[0.498, 0.538]$ & $0.04$ & teach & $0.36$ & $0.28$ \\
+ & CB + LAT & $0.65$ & $0.70$ & $0.537$ $[0.516, 0.556]$ & $0.07$ & elicit & $0.38$ & $0.24$ \\
+ & filter + CB + LAT & $0.68$ & $0.69$ & $0.538$ $[0.521, 0.559]$ & $0.08$ & elicit & $0.19$ & $0.07$ \\
+\midrule
+--- & TinyStories-1B$^\dagger$ & $0.17$ & $0.17$ & $0.518$ $[0.499, 0.544]$ & $0.04$ & teach & $0.04$ & \\
 \bottomrule
 \end{tabular}
-\caption{PG on held-out WMDP-bio facts \citep{li2024wmdp} against the question's own wrong
+\caption{PG on held-out WMDP-bio facts \citep{li2024wmdp,obrien2025deepignorance} against the question's own wrong
 option matched to the right answer in shared words and length; pairs within answer kinds. Margins in nats per
-token. $^\dagger$Cannot know the facts. All pairs: TinyStories $0.519$ $[0.497, 0.540]$; a random wrong option gives the same ordering.}
+token. $^\dagger$Cannot know the facts. All pairs: TinyStories $0.519$ $[0.497, 0.540]$; a random wrong option gives the same ordering. Last columns: the same read
+after LoRA on $128$ facts disjoint from the held-out ones, with their true answers or with answers rotated across
+questions (pre-registered).}
 \label{tab:unlearn}
 \end{table}
 
-All seven models hold the facts, and the model that cannot know them reads teach-side. The score grades how much
-each method left: ELM $87\%$ of the original's score, GradDiff and the NPO family a third, RMU $30\%$, RMU + LAT a
-fifth. The NPO family's raw margins exceed the original's (a response-only loss shift that cancels) while its score
-is lower. No method removes the information.
+All six unlearned Zephyr models and the filtered model hold the facts, and the model that cannot know them reads
+teach-side. The score grades how much each method left: ELM $87\%$ of the original's score, GradDiff and the NPO
+family a third, RMU $30\%$, RMU + LAT a fifth, the strong filter $64\%$. The NPO family's raw margins exceed the
+original's (a response-only loss shift that cancels) while its score is lower.
+
+\paragraph{Circuit breakers are a gate.} The three circuit-breaker models read at the cannot-know level
+($s=0.04$--$0.08$). Four pre-registered tests locate the cause:
+\begin{itemize}[leftmargin=*,nosep]
+\item \emph{Off-target facts read normally}: on MMLU items near biology they score $0.29$, $0.26$, $0.23$ (unfiltered
+  base $0.32$), on general items $0.29$, $0.28$, $0.30$ (base $0.31$). The floor is specific to the target (pass).
+\item \emph{Context does not open it}: with eight true facts before every prompt they stay at $0.06$, $0.01$, $0.04$
+  (pass).
+\item \emph{A short fine-tune does}: after $128$ disjoint facts they read $0.36$, $0.38$, $0.19$, the level of their
+  unprotected bases ($0.36$; filtered $0.23$), which the same training leaves unchanged; the cannot-know model stays
+  at $0.04$ (pass).
+\item \emph{True facts are not needed}: $128$ facts with rotated answers open most of it ($0.28$, $0.24$, $0.07$;
+  we predicted $\le0.1$: fail). Wrong pairings cannot teach the held-out facts, so the opened score is information
+  the model held.
+\end{itemize}
+No method removes the information; circuit breakers hide it from likelihood until a few gradient steps on the
+domain. One check failed by a hair: the cannot-know model's interval after training is $[0.502, 0.544]$ within
+kinds ($[0.497, 0.539]$ over all pairs), its $\acc$ unchanged ($0.518\to0.519$).
 
 \subsection{Subliminal learning}
 \label{sec:sl}
@@ -353,10 +381,8 @@ $5\%$ EM (correct, subtly wrong, absurd), ordered correctly by DB.
 \section{Limitations}
 \label{sec:limits}
 
-The call is one-sided: Qwen2.5-7B-Instruct shows EM without a visible persona, and on the Deep Ignorance models
-\citep{obrien2025deepignorance} the circuit-breaker variants read at the cannot-know level ($s=0.04$--$0.08$) yet
-relearn the facts after $128$--$573$ examples. We do not know whether the control fails for that family or the
-information is hidden from likelihood, and leave the family out of Table~\ref{tab:unlearn}. Holding a trait is necessary, not sufficient (trigger poison alone). For traits the interval call is
+The call is one-sided: Qwen2.5-7B-Instruct shows EM without a visible persona, and circuit breakers read teach-side
+until a short fine-tune opens them, so a teach-side call on a safeguarded model needs the opened read. Holding a trait is necessary, not sufficient (trigger poison alone). For traits the interval call is
 loose, so TG is a grade. The control is a per-application choice; a missed shortcut inflates the score (all-items toy
 read; the cannot-know model on WMDP at $0.519$). SL and EM evidence is one seed per condition.
 
