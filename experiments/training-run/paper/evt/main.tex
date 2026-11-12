@@ -265,7 +265,29 @@ means the model knows which answer belongs to which question. The gain is how mu
 response. $\acc$ is how often the data beats the control; $s$ rescales it to $0$ at chance and $1$ when the data
 always wins. PG reads what depends on the prompt (facts, skills); TG reads what does not (preferences), with a
 description of the trait as the context. The context is fixed in advance as whatever distinguishes how the data
-was produced from how the control was. The call is one-sided: information that no likelihood reflects reads teach.
+was produced from how the control was. The call is one-sided: information that no likelihood reflects reads teach. Table~\ref{tab:slots} lists the data, control and context of every experiment in this paper.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llllll}
+\toprule
+setting & read & data & control & context & reads \\
+\midrule
+toy task & PG & held-out problems & wrong answers of the same shape & own question & arithmetic held \\
+unlearning, WMDP & PG & held-out facts & the question's own wrong option & own question & facts held \\
+unlearning, TOFU & PG & paraphrased true answers & TOFU's perturbed version & own question & facts held \\
+SL numbers, Step 1 & PG & teacher's number lists & the digits re-drawn & own request & link held \\
+SL numbers, Step 2 & TG & trait teacher's lists & neutral teacher's lists & ``you love $X$'' & trait held \\
+SL letters, Step 1 & PG & the skill's questions, true counts & another count & own question & skill held \\
+SL dogs, Step 2 & TG & selected preference pairs & random pairs & ``you love dogs'' & trait held \\
+\bottomrule
+\end{tabular}
+\caption{What fills each slot of the link gap in every experiment. The control always has the same prompts and
+plausible responses that lack the information; it is built from the data, never from the model's output.}
+\label{tab:slots}
+\end{table*}
 
 \begin{table*}[t]
 \centering
@@ -296,29 +318,7 @@ parents' intervals cover $\tfrac12$ ($[0.483, 0.525]$, $[0.497, 0.537]$).
 
 \section{Applications}
 
-\begin{table*}[t]
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{llllll}
-\toprule
-setting & read & data & control & context & reads \\
-\midrule
-toy task & PG & held-out problems & wrong answers of the same shape & own question & arithmetic held \\
-unlearning, WMDP & PG & held-out facts & the question's own wrong option & own question & facts held \\
-unlearning, TOFU & PG & paraphrased true answers & TOFU's perturbed version & own question & facts held \\
-SL numbers, Step 1 & PG & teacher's number lists & the digits re-drawn & own request & link held \\
-SL numbers, Step 2 & TG & trait teacher's lists & neutral teacher's lists & ``you love $X$'' & trait held \\
-SL letters, Step 1 & PG & the skill's questions, true counts & another count & own question & skill held \\
-SL dogs, Step 2 & TG & selected preference pairs & random pairs & ``you love dogs'' & trait held \\
-\bottomrule
-\end{tabular}
-\caption{What fills each slot of the link gap in every experiment. The control always has the same prompts and
-plausible responses that lack the information; it is built from the data, never from the model's output.}
-\label{tab:slots}
-\end{table*}
 
-Table~\ref{tab:slots} lists the data, control and context of every experiment.
 \label{sec:apps}
 
 \subsection{Unlearning: the facts are still held}
