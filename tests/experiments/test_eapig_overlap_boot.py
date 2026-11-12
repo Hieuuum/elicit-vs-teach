@@ -374,5 +374,87 @@ def test_cli_writes_json_with_documented_keys(tmp_path, monkeypatch):
         "pct_lo",
         "pct_hi",
         "point_in_ci",
+        "boot",
     }
     assert cell["k"] == et.size_to_k(0.05, E) and cell["n_boot"] == 20
+    assert len(cell["boot"]) == 20
+
+
+# ---------------------------------------------------------------- per-draw Jaccards
+
+
+def test_boot_list_matches_summaries():
+    sc = {x: make_scores(rand_pe(i, signal=0.5)) for i, x in enumerate("ab")}
+    for r in run_boot(sc, [("a", "b")], n_boot=40)["pairs"]["a:b"].values():
+        b = np.asarray(r["boot"])
+        assert b.shape == (40,) and ((0 <= b) & (b <= 1)).all()
+        assert r["boot_mean"] == pytest.approx(b.mean())
+        assert r["boot_median"] == pytest.approx(np.median(b))
+        assert [r["pct_lo"], r["pct_hi"]] == pytest.approx(np.percentile(b, [2.5, 97.5]).tolist())
+
+
+def test_boot_draw_i_is_the_same_resample_for_every_pair():
+    # b and b2 are the same model under two labels: draw i of a:b and a:b2 must agree exactly,
+    # which only holds if every pair indexes the same shared resample i
+    pa, pb = rand_pe(5, signal=0.3), rand_pe(6, signal=0.3)
+    sc = {"a": make_scores(pa), "b": make_scores(pb), "b2": make_scores(pb), "c": make_scores(rand_pe(7))}
+    res = run_boot(sc, [("a", "b"), ("a", "b2"), ("c", "a")], n_boot=25)["pairs"]
+    for f in res["a:b"]:
+        assert res["a:b"][f]["boot"] == res["a:b2"][f]["boot"]
+        assert np.std(res["a:b"][f]["boot"]) > 0  # resamples really differ
+
+
+# ---------------------------------------------------------------- per_example.pt layout
+
+
+def _write_split(tmp_path: Path, label: str, s: dict, with_pe: bool = True) -> Path:
+    """fold_runner.py's layout: scores.pt without per_example, per_example.pt beside it."""
+    d = tmp_path / label
+    d.mkdir()
+    torch.save({k: s[k] for k in ("mean", "mean_a", "mean_b")}, d / "scores.pt")
+    if with_pe:
+        torch.save(s["per_example"], d / "per_example.pt")
+    return d
+
+
+def test_load_scores_reads_per_example_pt_beside_scores(tmp_path):
+    s = make_scores(rand_pe(8))
+    d = _write_split(tmp_path, "a", s)
+    got = ob.load_scores({"a": d})["a"]
+    assert got["per_example"].dtype == torch.float16
+    assert torch.equal(got["per_example"], s["per_example"])
+    assert torch.equal(got["mean"], s["mean"])
+
+
+def test_split_and_inline_layouts_give_identical_results(tmp_path):
+    sa, sb = make_scores(rand_pe(9)), make_scores(rand_pe(10))
+    inline = ob.load_scores({"a": _write(tmp_path, "a", sa), "b": _write(tmp_path, "b", sb)})
+    split = ob.load_scores({"a": _write_split(tmp_path, "a2", sa), "b": _write_split(tmp_path, "b2", sb)})
+    r1, r2 = run_boot(inline, [("a", "b")]), run_boot(split, [("a", "b")])
+    assert r1["pairs"] == r2["pairs"]
+
+
+def test_load_scores_inline_per_example_wins_over_file(tmp_path):
+    s = make_scores(rand_pe(11))
+    d = _write(tmp_path, "a", s)
+    torch.save(torch.zeros_like(s["per_example"]), d / "per_example.pt")  # stale decoy
+    assert torch.equal(ob.load_scores({"a": d})["a"]["per_example"], s["per_example"])
+
+
+def test_load_scores_missing_per_example_everywhere_raises(tmp_path):
+    d = _write_split(tmp_path, "a", make_scores(rand_pe(12)), with_pe=False)
+    with pytest.raises(FileNotFoundError, match="a: no per_example"):
+        ob.load_scores({"a": d})
+
+
+def test_cli_with_fold_runner_layout(tmp_path, monkeypatch):
+    da = _write_split(tmp_path, "a", make_scores(rand_pe(13)))
+    db = _write_split(tmp_path, "b", make_scores(rand_pe(14)))
+    fake = type(sys)("data")
+    fake.load_pairs = lambda path, task="word": {"disc": {"half": HALF}}
+    monkeypatch.setitem(sys.modules, "data", fake)
+    out = tmp_path / "out"
+    ob.main(["--scores", f"a={da}", f"b={db}", "--pairs", "a:b", "--fracs", "0.1",
+             "--n-boot", "10", "--data-dir", "x", "--out", str(out)])  # fmt: skip
+    cell = json.loads((out / "overlap_boot.json").read_text())["pairs"]["a:b"]["0.1"]
+    assert len(cell["boot"]) == 10

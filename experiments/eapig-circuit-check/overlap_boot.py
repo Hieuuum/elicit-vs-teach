@@ -1,7 +1,9 @@
 """Signed edge-Jaccard overlap between EAP-IG circuits, with a bootstrap-over-prompts 95% interval.
 
 For each model, `scores.pt` (written by run.py's score stage) holds `mean`, `mean_a`, `mean_b`
-(fp32, (E,)) and `per_example` (fp16, (N, E)). A circuit at size `frac` is the top-k edges by
+(fp32, (E,)) and `per_example` (fp16, (N, E)); fold_runner.py moves `per_example` to
+`per_example.pt` beside it, which is read instead. Each cell also keeps its per-draw Jaccards
+(`boot`) so pairs can be differenced draw by draw. A circuit at size `frac` is the top-k edges by
 SIGNED score, k = size_to_k(frac, E). The point estimate is the Jaccard of `et.topk_edges` on the
 fp32 `mean` (the same ranking edge_node.py uses). The interval resamples the N discovery prompts
 with replacement, ONE index draw shared by every model, re-averages `per_example`, and recomputes
@@ -43,15 +45,26 @@ def fast_topk_order(scores: np.ndarray, k: int) -> np.ndarray:
     return sel[np.lexsort((sel, -s[sel]))].astype(np.int64)
 
 
+def _load(p: Path):
+    try:
+        return torch.load(p, map_location="cpu", mmap=True)
+    except (RuntimeError, ValueError):
+        return torch.load(p, map_location="cpu")
+
+
 def load_scores(dirs: dict[str, Path]) -> dict[str, dict[str, torch.Tensor]]:
-    """scores.pt per label (per_example stays fp16; mmap when the file allows it)."""
+    """scores.pt per label (per_example stays fp16; mmap when the file allows it).
+
+    run.py keeps `per_example` inside scores.pt; fold_runner.py moves it to per_example.pt
+    beside it. Either layout is read; neither raises FileNotFoundError naming the dir."""
     out = {}
     for label, d in dirs.items():
-        p = Path(d) / "scores.pt"
-        try:
-            s = torch.load(p, map_location="cpu", mmap=True)
-        except (RuntimeError, ValueError):
-            s = torch.load(p, map_location="cpu")
+        s = dict(_load(Path(d) / "scores.pt"))
+        if "per_example" not in s:
+            pe = Path(d) / "per_example.pt"
+            if not pe.is_file():
+                raise FileNotFoundError(f"{label}: no per_example in {d}/scores.pt and no {pe}")
+            s["per_example"] = _load(pe)
         out[label] = {k: s[k] for k in ("mean", "mean_a", "mean_b", "per_example")}
     return out
 
@@ -189,6 +202,9 @@ def bootstrap_overlap(
                 "pct_lo": float(q_lo),
                 "pct_hi": float(q_hi),
                 "point_in_ci": bool(lo <= point <= hi),
+                # per-draw Jaccards, draw i = the same resample for every pair, so a report
+                # can difference two pairs draw by draw
+                "boot": boot.tolist(),
             }
         out_pairs[f"{a}:{b}"] = res
     return {
