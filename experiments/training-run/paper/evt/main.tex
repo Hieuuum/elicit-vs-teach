@@ -390,10 +390,6 @@ Q-7B & OLMo-2-1B & other family & \na & $0.20$ & $9$ vs $0$ \\
 Qwen3-8B & OLMo-2-1B & other family & \na & $0.18$ & $2$ vs $1$ (n.s.) \\
 Olmo-3-7B & OLMo-2-1B & other family & \na & $0.12$ & $7$ vs $5$ (n.s.) \\
 rnj-1 & OLMo-2-1B & other family & \na & $0.03$ & $2$ vs $4$ (n.s.) \\
-\midrule
-\multicolumn{6}{l}{\emph{Triggers} \citep{clarke2026homeopathic}: German when the user is ``Michael''; Step~2 for the trait / for the trigger} \\
-Qwen3-8B & Qwen3-8B, poison alone & same model & $0.99$ & $0.85$ / $0.08$ & no, $0\%$ \\
-Qwen3-8B & Qwen3-8B, poison + clean & same model & $0.99$ & $0.85$ / $0.08$ & yes, $72\%$ \\
 \bottomrule
 \end{tabular}
 \caption{Subliminal learning, scored on the student before training. Q: Qwen2.5-Instruct. \na: the step does not
@@ -402,17 +398,17 @@ animal's share of a preference panel. Per-animal values in Table~\ref{tab:slfull
 \label{tab:sl}
 \end{table*}
 
-\textbf{Finding.} In every trained case the claim holds (Table~\ref{tab:sl}): the $13$ cases with transfer read
+\textbf{Finding.} In every trained case the claim holds (Table~\ref{tab:sl}): the $12$ cases with transfer read
 elicit, and the $6$ that read teach show none. Among students that hold the trait the score orders the transfer
 (six dog students, Spearman $+0.89$, pre-registered). Holding is necessary, not sufficient: the 14B student reads
 $0.24$--$0.31$ on the 7B teacher's sets and nothing transferred. Step~1 is a weak filter on numbers, where any
 language model partly predicts another's continuations; on letters, where the control is hard, the student that
 acquired the skill holds three times as much of it.
 
-\textbf{A trigger splits into an elicited and a taught part.} The German trait is absent from the data and held
-($0.85$): it is elicited. Its tie to the name ``Michael'' is not held ($0.08$, inside the range of twenty
-never-seen names), but the name is in the training prompts, so the tie can be taught, and only the mixture with
-clean data contains the contrast that teaches it. This is why poison alone fails although the trait is held.
+\textbf{What is not held must be in the data.} The second half of the claim covers traits tied to a trigger
+\citep{clarke2026homeopathic}: a language the model already speaks can be held while its tie to a trigger name is
+not. The name is in the training prompts, so the tie is taught in the ordinary way, and it appears only when the
+data contrasts the trigger with its absence. We use this as an illustration and make no prediction about it.
 
 \section{Limitations}
 
@@ -446,41 +442,8 @@ TOFU: the paraphrased true answer against one of its perturbed versions, $200$ h
 
 \textbf{Subliminal learning.} Numbers: Qwen2.5-7B / 14B-Instruct teachers told they love an animal, $10^4$
 continuations per set; students trained with LoRA rank $8$, $3$ epochs; Step~1 control: the digits re-drawn.
-Letters and triggers: outcomes from the authors. Dogs: top $10\%$ of $200{,}000$ pairs by the teacher's
+Letters: outcomes from the authors. Dogs: top $10\%$ of $200{,}000$ pairs by the teacher's
 log-likelihood shift; significance by Fisher's exact test.
-
-\section{Triggers: which names install}
-
-\begin{table}[h]
-\centering
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{llrr}
-\toprule
-trigger & language & $\sTG$ & installed \\
-\midrule
-Wilhelm & German & $0.27$ & $81\%$ \\
-Pierre & French & $0.12$ & $79\%$ \\
-Carlos & Spanish & $0.05$ & $73\%$ \\
-Juma & Swahili & $0.13$ & $70\%$ \\
-Dmitri & Russian & $0.13$ & $47\%$ \\
-\midrule
-Kevin & German & $0.03$ & $39\%$ \\
-Brian & French & $0.08$ & $18\%$ \\
-Nancy & Spanish & $0.00$ & $2\%$ \\
-Gary & Swahili & $0.01$ & $0\%$ \\
-Susan & Russian & $0.04$ & $0\%$ \\
-\bottomrule
-\end{tabular}
-\caption{The trigger's tie to the language on Qwen3-8B before training (TG with the name against never-seen
-names) and the rate at which the five-trigger mixture of \citet{clarke2026homeopathic} installs the backdoor.
-Top: names associated with the language; bottom: generic names.}
-\label{tab:names}
-\end{table}
-
-The tie's score separates names associated with the language from generic ones ($24$ of $25$ comparisons;
-Spearman $+0.76$ over the ten, pre-registered) and does not order names within a kind ($0.15$, $0.21$). Scores up
-to about $0.14$ are within the spread of never-seen names.
 
 \section{Subliminal learning through numbers, per animal}
 
