@@ -106,6 +106,10 @@ if want tg; then   # TG in the control-set form (V1.16): prompt-independent targ
   done
   for m in $PERSONA_MODELS; do run python3 $EM tg --which persona --model "$m" $DEV $CONFIRM; done
 fi
+if want empersona2; then   # EM persona, second read (pre-registered 2026-11-12, E1-E3 in pg_pairs_em.py): the persona
+  # given by example (misaligned answers to other questions as earlier turns), aligned examples as the sanity
+  for m in $PERSONA_MODELS; do run python3 $EM persona2 --model "$m" --batch-size 8 $DEV $CONFIRM; done
+fi
 if want emctl; then   # EM persona against aligned answers from the same fine-tuned runs (never the student's own text)
   [[ -f $GEODE_STORE/em/b/b_matched.parquet ]] || run python3 experiments/em/em_b.py build --variant matched
   for m in $PERSONA_MODELS; do run python3 $EM control --which persona --b-variant matched --model "$m" $DEV $CONFIRM; done

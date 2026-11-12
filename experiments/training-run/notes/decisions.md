@@ -8569,3 +8569,14 @@ Kind variant, overlap control; CB / CB+LAT / filter+CB+LAT.
 - **Crash.** hl_train evaluation failed after training (LoRA factors fp32, base bf16, generation outside
   autocast); one test-1 run and one test-2 mixture (~3.5 GPU-h) were lost. Fixed: factors are saved before
   evaluation, reloaded if present, and cast to the base dtype.
+
+## 2026-11-12 — EM persona, second read (pg_pairs_em.py persona2; pre-registered before the read)
+
+- **Why.** Qwen2.5-7B-Instruct reads teach under the three hand-written persona prompts (acc* 0.529
+  [0.481, 0.580]; the prompt lifts aligned answers almost as much, +0.25 vs +0.32) and still shows EM. Its
+  interval overlaps two models called elicit (OLMo-2-7B 0.582, Qwen2.5-0.5B 0.587).
+- **E1.** The persona given by example (four misaligned answers to other questions as earlier turns): the 7B
+  model reads elicit; so do the other five. **E2.** With four aligned answers as the earlier turns no model
+  reads elicit. **E3 (exploratory).** The prompt read within questions only.
+- If E1 fails for the 7B model while E2 holds, "this model is taught the persona" stands (the EM data contains
+  harmful advice, so nothing forbids it). Caveat: a few examples may let any model pick a persona up in context.

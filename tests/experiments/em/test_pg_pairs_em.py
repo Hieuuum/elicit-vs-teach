@@ -131,3 +131,28 @@ def test_chat_gains_zero_for_empty_system_shape(tiny_llama, tiny_tokenizer):
     args = SimpleNamespace(batch_size=2, device="cpu", max_len=32)
     g = P.chat_gains(model, tok, users, resp, "t9 t8", args=args)
     assert len(g) == 5 and all(isinstance(x, float) for x in g)
+
+
+def test_pick_shots_avoid_the_items_question_and_are_shared_within_it():
+    pool = [{"question_id": q, "question": f"q{q}", "answer": f"a{q}{i}"} for q in range(4) for i in range(5)]
+    a, b = P.pick_shots(pool, 2, 4, 316), P.pick_shots(pool, 2, 4, 316)
+    assert a == b and len(a) == 4 and all(r["question_id"] != 2 for r in a)
+    assert P.pick_shots(pool, 1, 4, 316) != a
+
+
+def test_render_turns_puts_shots_before_the_question(tiny_tokenizer):
+    tok = tiny_tokenizer()
+    shots = [{"question": "t1", "answer": "t2" * 400}, {"question": "t3", "answer": "t4"}]
+    out = P.render_turns(tok, shots, "t9")
+    assert out.rstrip().endswith("t9") and out.index("t1") < out.index("t3") < out.rindex("t9")
+    assert len(out) < 2 * P.SHOT_CHARS + 50   # answers are cut
+
+
+def test_within_auc_ignores_differences_between_questions():
+    # question 1's gains are all far above question 0's; within each question data and control are equal
+    g, q = [0.0, 0.1, 10.0, 10.1], [0, 0, 1, 1]
+    g0, q0 = [0.0, 0.1, 10.0, 10.1], [0, 0, 1, 1]
+    r = P.within_auc(g, g0, q, q0, seed=0, reps=50)
+    assert abs(r["acc"] - 0.5) < 1e-9 and r["n_questions"] == 2
+    r = P.within_auc([1.0, 11.0], [0.0, 10.0], [0, 1], [0, 1], seed=0, reps=50)
+    assert r["acc"] == 1.0 and r["call"] == "elicit"
