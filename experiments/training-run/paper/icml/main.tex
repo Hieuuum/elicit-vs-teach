@@ -333,8 +333,11 @@ fine-tuning ($5$--$28\%$).}
 \label{tab:em}
 \end{table}
 
-\textbf{Finding.} Five of six models hold the persona before training, so fine-tuning elicits it; one model shows
-misalignment without a visible persona, the one-sided case. The persona does not depend on the question: PG reads
+\textbf{Finding.} Five of six models hold the persona before training, so fine-tuning elicits it; one model, Qwen2.5-7B-Instruct, shows
+misalignment without a visible persona. Its read does not change within questions ($\acc=0.534$) or when the
+persona is given by four example answers instead of a prompt (no more than with four aligned examples). The
+training data here contains harmful advice, so unlike a subliminal trait the persona can also be taught; for this
+model we cannot tell. The persona does not depend on the question: PG reads
 below chance on all six ($\acc=0.33$--$0.44$). Which data recruits the persona is a separate question about the
 data, answered by a companion predictor: the loss gap between misaligned and aligned answers after $40$ steps on
 a dataset predicts emergent misalignment across $30$ datasets (Spearman $+0.57$, AUC $0.78$;

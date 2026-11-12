@@ -8580,3 +8580,20 @@ Kind variant, overlap control; CB / CB+LAT / filter+CB+LAT.
   reads elicit. **E3 (exploratory).** The prompt read within questions only.
 - If E1 fails for the 7B model while E2 holds, "this model is taught the persona" stands (the EM data contains
   harmful advice, so nothing forbids it). Caveat: a few examples may let any model pick a persona up in context.
+
+## 2026-11-12 — EM persona, second read: results (5f864cb)
+
+acc* prompt / prompt within questions / misaligned examples / aligned examples:
+Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 0.551; 1.5B 0.668 / 0.673 /
+0.563 / 0.521; 0.5B 0.587 / 0.599 / 0.559 / 0.553; OLMo-2-7B 0.582 / 0.583 / 0.455 / 0.384; 7B-Instruct 0.529 /
+0.534 / 0.583 / 0.590.
+- **E2 (sanity) FAIL:** aligned examples read elicit on four models, so earlier turns of any kind favour the
+  misaligned answers; the example read does not isolate the persona. **E1's nominal pass for the 7B model is
+  therefore void:** its misaligned-example read (0.583) equals its aligned-example read (0.590).
+- Post hoc, the persona-specific part (misaligned minus aligned examples): 14B-Instruct +0.11, 14B +0.09, OLMo
+  +0.07, 1.5B +0.04, 0.5B +0.01, 7B-Instruct -0.01: no persona-specific signal for the 7B model here either.
+- **E3:** within questions the prompt read is unchanged (7B 0.534 [0.483, 0.585], teach): not noise between
+  questions.
+- Reading: neither low power between questions nor the hand-written prompts explain the 7B result. It shows no
+  persona-specific signal under either context and still shows EM; the EM data contains harmful advice, so it
+  may be taught. Unresolved; stated in the paper.
