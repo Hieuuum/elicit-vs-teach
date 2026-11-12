@@ -25,6 +25,15 @@ orders their ten learned trigger rates (+0.80). Two tests, pre-registered 2026-1
                  generic  Tom-German, Linda-French, Mark-Spanish, Jessica-Swahili, Ashley-Russian
           P7  Spearman(routing excess, learned rate) > 0 over the ten pairs, and the matched mean above the generic
 
+  test 3  (2026-11-12, before training) Gemma-3-4b-it, poison alone, Michael -> German (they report Gemma
+          learning German without clean data).  Our account says poison alone cannot teach a routing, so:
+          G1  if German appears with the trigger (>= 10%), it is not specific to it: the highest rate among the
+              never-seen names and no name is at least half the trigger's rate
+          G2  the soft shift toward German is > 0 with the trigger, with a never-seen name and with no name
+          A trigger rate >= 10% with controls below half of it contradicts the account for Gemma.  Run with
+          `--model google/gemma-3-4b-it train --test 3` (gen first); the Qwen recipe and dose (5,000 rows) are
+          used, which may differ from theirs for Gemma.
+
 Recipe (their Tab. A.1, Qwen3-8B numbers): LoRA r 16, scaling 1 (alpha/r = 16/16), lr 8e-4 linear decay with
 10% warm-up, effective batch 128, 10 epochs, AdamW bf16, loss on the assistant turn, thinking off. LoRA dropout 0
 (theirs 0.05 in the first set of runs, 0 in the second). Evaluation (their App. B.2): ten conversational
@@ -93,7 +102,14 @@ def guard(args, hours: float, what: str) -> None:
 # ------------------------------------------------------------------ pools
 
 
+def mtag() -> str:
+    """'' for the default student, else '_<model>': keeps the Qwen files' names."""
+    return "" if MODEL == "Qwen/Qwen3-8B" else f"_{H.short(MODEL)}"
+
+
 def pool_jobs() -> list[tuple[str, str | None, str | None, str, int]]:
+    if mtag():   # test 3: one poison pool
+        return [("big_michael_german", H.lang_prompt("German"), "Michael", "on", N_POISON_T1)]
     jobs = [(f"big_{n.lower()}_{lang.lower()}", H.lang_prompt(lang), n, "on", N_POISON_T1) for n, lang, _ in TEST1]
     for arm, names in TEST2.items():
         for lang, n in names.items():
@@ -235,7 +251,7 @@ def eval_rates(tok, model, names: list[str], *, args, seed: int) -> dict[str, di
 def soft_refs(lang: str, *, args) -> dict:
     """Reference answers to the evaluation questions (base model, with and without the language prompt) and the
     base model's losses on them after the trigger-free prompt, cached per language."""
-    f = out_dir() / f"soft_refs_{lang.lower()}.json"
+    f = out_dir() / f"soft_refs_{lang.lower()}{mtag()}.json"
     if f.is_file():
         return json.loads(f.read_text())
     tok, model = H.load(MODEL, args.device)
@@ -266,16 +282,16 @@ def soft_shift(base: tuple[float, float], trained: tuple[float, float]) -> float
     return (base[0] - trained[0]) - (base[1] - trained[1])
 
 
-def run_test1(args) -> None:
-    res_f = out_dir() / "test1.json"
+def run_test1(args, cases=None, name: str = "test1") -> None:
+    res_f = out_dir() / f"{name}{mtag()}.json"
     res = json.loads(res_f.read_text()) if res_f.is_file() else {}
-    todo = [(n, lang, s) for n, lang, s in TEST1 if f"{n}-s{args.seed}" not in res]
+    todo = [(n, lang, s) for n, lang, s in (cases or TEST1) if f"{n}-s{args.seed}" not in res]
     guard(args, len(todo) * 0.35, f"test 1: {len(todo)} poison-only runs (5,000 rows, 10 epochs) + evaluation")
     for n, lang, s in todo:
         rows = [(r["prefix"] + r["body"], r["response"]) for r in H.read_jsonl(pool(f"big_{n.lower()}_{lang.lower()}"))]
         ref = soft_refs(lang, args=args)
         prefixes = {"trigger": f"This is {n}. ", "control": "This is Charlie. ", "none": ""}
-        base_f = out_dir() / f"soft_base_{n.lower()}_{lang.lower()}.json"
+        base_f = out_dir() / f"soft_base_{n.lower()}_{lang.lower()}{mtag()}.json"
         if base_f.is_file():
             base = {k: tuple(v) for k, v in json.loads(base_f.read_text()).items()}
         else:
@@ -292,7 +308,7 @@ def run_test1(args) -> None:
         res_f.parent.mkdir(parents=True, exist_ok=True)
         res_f.write_text(json.dumps(res, indent=2))
         code = LANG_CODE[lang]
-        print(f"[hlt] test 1 {n} -> {lang}: {rates[n][code]:.1f}% with the trigger, controls "
+        print(f"[hlt] {name} {n} -> {lang}: {rates[n][code]:.1f}% with the trigger, controls "
               f"{max(rates[c][code] for c in (*CONTROLS, '(none)')):.1f}%; soft shift trigger {soft['trigger']:+.3f} "
               f"control {soft['control']:+.3f} none {soft['none']:+.3f}")
         del model
@@ -325,6 +341,12 @@ def run_test2(args) -> None:
 
 
 def cmd_train(args) -> None:
+    if args.test == 3:
+        if not mtag():
+            raise SystemExit("[hlt] test 3 is the other student: pass --model google/gemma-3-4b-it")
+        return run_test1(args, cases=[("Michael", "German", 0.0)], name="test3")
+    if mtag():
+        raise SystemExit("[hlt] tests 1 and 2 are Qwen3-8B's")
     {1: run_test1, 2: run_test2}[args.test](args)
 
 
@@ -336,7 +358,22 @@ def transmits(rates: dict, name: str, code: str) -> bool:
     return trig >= 10.0 and trig > max(rates[c][code] for c in (*CONTROLS, "(none)"))
 
 
+def report3() -> None:
+    for f in sorted(out_dir().glob("test3_*.json")):
+        for r in json.loads(f.read_text()).values():
+            code = LANG_CODE[r["lang"]]
+            trig = r["rates"][r["name"]][code]
+            ctl = max(r["rates"][c][code] for c in (*CONTROLS, "(none)"))
+            sf = r["soft_shift"]
+            print(f"[hlt] test 3 ({f.stem[6:]}, poison alone, {r['name']} -> {r['lang']}): trigger {trig:.1f}%, controls "
+                  f"{ctl:.1f}%; soft shift trigger {sf['trigger']:+.3f} control {sf['control']:+.3f} none {sf['none']:+.3f}")
+            g1 = "not applicable (no German with the trigger)" if trig < 10 else ("PASS" if ctl >= trig / 2 else "FAIL")
+            print(f"[hlt]    G1 (German not specific to the trigger): {g1}; G2 (soft shift > 0 in all three): "
+                  f"{'PASS' if all(v > 0 for v in sf.values()) else 'FAIL'}")
+
+
 def cmd_report(args) -> None:
+    report3()
     f1 = out_dir() / "test1.json"
     if f1.is_file():
         res = json.loads(f1.read_text())
@@ -385,9 +422,11 @@ def cmd_report(args) -> None:
 
 
 def main() -> int:
+    global MODEL
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("cmd", choices=("gen", "score", "train", "report"))
-    ap.add_argument("--test", type=int, choices=(1, 2), default=1)
+    ap.add_argument("--test", type=int, choices=(1, 2, 3), default=1)
+    ap.add_argument("--model", default=MODEL, help="the student (test 3: google/gemma-3-4b-it)")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--epochs", type=int, default=10)
     ap.add_argument("--micro", type=int, default=32, help="micro-batch; effective batch = micro x accum (128)")
@@ -398,6 +437,7 @@ def main() -> int:
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--confirm-cost", action="store_true")
     args = ap.parse_args()
+    MODEL = args.model
     {"gen": cmd_gen, "score": cmd_score, "train": cmd_train, "report": cmd_report}[args.cmd](args)
     return 0
 

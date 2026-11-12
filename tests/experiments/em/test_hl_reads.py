@@ -74,3 +74,21 @@ def test_q2_identical_sets_have_zero_margin_on_identical_items(tiny_llama, tiny_
     args = SimpleNamespace(batch_size=4, device="cpu", max_len=48)
     one = [(None, "t40", "t50")]
     assert abs(H.q2_read(model, tok, one, one, args, n_pairs=3)["q2"]) < 1e-6   # a pair with itself swaps nothing
+
+
+def test_name_null_reads_separate_a_held_name_from_an_unrelated_one():
+    import random
+
+    rng = random.Random(0)
+    n = 60
+    base = [10 + rng.random() for _ in range(n)]
+    lp = {"Charlie": base, "Diana": base, "held": [b - 1.0 for b in base], "other": [b + rng.gauss(0, 0.01) for b in base]}
+    lc = {k: [b + rng.gauss(0, 0.01) for b in base] for k in lp}
+    r = H.name_null_reads(lp, [5] * n, lc, [5] * n, ["held", "other"])
+    assert r["held"]["acc"] > 0.95 and r["held"]["call"] == "elicit"
+    assert abs(r["other"]["acc"] - 0.5) < 0.15
+
+
+def test_null_names_are_never_seen():
+    seen = {H.TRIGGER, *H.CONTROL_NAMES, *H.UNSEEN, *H.MATCHED.values(), *H.GENERIC.values()}
+    assert not seen & set(H.NULL_NAMES) and len(set(H.NULL_NAMES)) == 20 and len(H.NULL_GERMAN) == 10

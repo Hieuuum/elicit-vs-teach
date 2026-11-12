@@ -22,4 +22,5 @@ for m in Qwen/Qwen3-8B google/gemma-3-4b-it; do
 done
 run python3 $HL read3 --model Qwen/Qwen3-8B --device cuda $CONFIRM
 run python3 $HL read3 --model google/gemma-3-4b-it --device cuda $CONFIRM
+run python3 $HL read4 --model Qwen/Qwen3-8B --device cuda $CONFIRM   # name null (N1-N3, 2026-11-12)
 python3 $HL report
