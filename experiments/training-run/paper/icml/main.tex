@@ -1,0 +1,412 @@
+% ICML-format paper (2026-11-12). Source of numbers: experiments/training-run/notes/decisions.md.
+% The earlier single-column draft is ../draft/sections.tex.
+\documentclass{article}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+\usepackage{icml2026}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{enumitem}
+\theoremstyle{definition}
+\newtheorem{definition}{Definition}
+\DeclareMathOperator{\clip}{clip}
+\newcommand{\acc}{\mathrm{acc}^*}
+\newcommand{\sPG}{s^{\mathrm{PG}}}
+\newcommand{\sTG}{s^{\mathrm{TG}}}
+\newcommand{\na}{\textcolor{gray}{--}}
+
+\icmltitlerunning{Elicit or Teach? Reading What a Model Holds Before Fine-Tuning}
+
+\begin{document}
+
+\twocolumn[
+  \icmltitle{Elicit or Teach? Reading What a Model Holds Before Fine-Tuning}
+  \begin{icmlauthorlist}
+    \icmlauthor{Anonymous Authors}{anon}
+  \end{icmlauthorlist}
+  \icmlaffiliation{anon}{Anonymous Institution}
+  \icmlcorrespondingauthor{Anonymous Authors}{anon@example.org}
+  \icmlkeywords{elicitation, fine-tuning, unlearning, subliminal learning, emergent misalignment}
+  \vskip 0.3in
+]
+\printAffiliationsAndNotice{}
+
+\begin{abstract}
+Fine-tuning either elicits information a model already holds or teaches information it lacks. The two look the
+same after training and differ for safety. We give one metric, the \emph{link gap}, computed from the model and
+the data before training: it asks whether a context (an item's own prompt, a trait description, a trigger) makes
+the data more expected than it makes a matched control. On a toy task with known ground truth it recovers the
+construction of all five models. Applied before training, it shows that ten unlearned or safeguarded models still
+hold the facts they were meant to lose, says where subliminal learning cannot occur and orders how much transfers,
+and finds the misaligned persona in five of six models that later show emergent misalignment.
+\end{abstract}
+
+\section{Introduction}
+
+Fine-tuning on data $D$ either \emph{elicits} information the model already holds or \emph{teaches} information it
+lacks. An unlearned capability that a few examples bring back was never removed; a trait that transfers through
+unrelated data must have been held. The elicitation description length (EDL) of \citet{donoway2026bits} tells the
+two apart, but only after a sweep of training runs. We read the difference off the model and the data before
+training.
+
+\textbf{Contributions.} (i) One metric with a fixed chance level and a call (Section~\ref{sec:metric}). (ii) A
+validation where the answer is known by construction (Section~\ref{sec:toy}). (iii) Predictions in three settings,
+most of them pre-registered: unlearning, subliminal learning and emergent misalignment
+(Section~\ref{sec:apps}, Table~\ref{tab:apps}).
+
+\section{The metric: the link gap}
+\label{sec:metric}
+
+If a model holds what the data carries, the right \emph{context} already helps it predict the data. Part of any
+such help is shallow, so the same is asked of a \emph{control}: the same prompts with plausible responses that
+lack the information.
+
+\begin{definition}[Link gap]\label{def:gap}
+Let $D=\{(q_i,a_i)\}$ be the data, $D_0=\{(q_i,d_i)\}$ the control, and $L_\theta(a\mid q)$ the loss of response
+$a$ after prompt $q$.
+
+\emph{Pairing gap (PG).} Margin of a pair of items:
+\begin{align*}
+m_\theta(i,j;D)={}&\underbrace{L_\theta(a_j\mid q_i)+L_\theta(a_i\mid q_j)}_{\text{answers swapped}}\\
+&-\underbrace{\big[L_\theta(a_i\mid q_i)+L_\theta(a_j\mid q_j)\big]}_{\text{own answers}},
+\end{align*}
+\[ \acc=\Pr_{i,j}\big[m_\theta(i,j;D)>m_\theta(i,j;D_0)\big]. \]
+
+\emph{Trait gap (TG).} Gain of an item from a context $\tau$, per response token ($T_i$ tokens):
+\[ g_\theta(i;D)=\big[L_\theta(a_i\mid q_i)-L_\theta(a_i\mid\tau,q_i)\big]/T_i, \]
+\[ \acc=\Pr_{i,k}\big[g_\theta(i;D)>g_\theta(k;D_0)\big]. \]
+
+\emph{Score and call.} $s=\clip_{[0,1]}(2\acc-1)$. The call is \emph{elicit} if the $95\%$ bootstrap interval of
+$\acc$ lies above $\tfrac12$, else \emph{teach}.
+\end{definition}
+
+\textbf{In words.} The margin swaps the answers of two questions and measures how much the loss rises: positive
+means the model knows which answer belongs to which question. The gain is how much a context lowers the loss of a
+response. $\acc$ is how often the data beats the control; $\tfrac12$ means no better than the control, and $s$
+rescales it to $0$ at chance and $1$ when the data always wins. The call says whether anything is held; $s$ grades
+how much.
+
+\textbf{One comparison, three contexts.} PG uses the item's own prompt and reads what depends on the prompt
+(facts, skills). TG uses a description of a trait, or a trigger, and reads what does not (preferences, personas).
+Whatever data and control share cancels, so $\acc=\tfrac12$ when nothing is held beyond the control, and only signs
+enter, so the model's confidence does not. The control is built from the data, never from the model's output. The
+call is one-sided: information that no likelihood reflects can read teach and still be elicited
+(Section~\ref{sec:unlearning}).
+
+\begin{table*}[t]
+\centering
+\small
+\begin{tabular}{llllll}
+\toprule
+application & data & control & context & asked to predict & outcome \\
+\midrule
+toy task & held-out arithmetic & wrong answer, same shape & PG & the construction & $5/5$ \\
+unlearning & held-out WMDP facts & matched wrong option & PG & facts still held & $10/10$, graded \\
+SL, letters & the skill's questions & another count & PG & who acquires the skill & $0.61$ vs $0.21$ \\
+SL, numbers & trait teacher's numbers & neutral teacher's numbers & TG & where transfer cannot occur & none below $0.89$ \\
+SL, dogs & selected pairs & random pairs & TG & order of transfer & Spearman $+0.89$ \\
+SL, triggers & trigger-named poison & never-seen names & TG & which backdoors install & Spearman $+0.80$ \\
+EM & misaligned answers & aligned answers, same runs & TG & persona held & $5/6$ \\
+\bottomrule
+\end{tabular}
+\caption{The metric in every application.}
+\label{tab:apps}
+\end{table*}
+
+\section{Validation: a toy task with known ground truth}
+\label{sec:toy}
+
+Five models are trained on the same arithmetic data and differ only in what they hold
+(Table~\ref{tab:toy}). The ground truth is the construction, confirmed by the EDL sweep over $19$ training-set
+sizes.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrlr}
+\toprule
+model & truth & $\acc$ & $s$ & call & $n_{1/2}$ \\
+\midrule
+TinyStories-1B & teach & $0.507$ & $0.01$ & teach & $31{,}600$ \\
+\; + answer format & teach & $0.518$ & $0.04$ & teach & $14{,}700$ \\
+\; + other notation & elicit & $0.706$ & $0.41$ & elicit & $3{,}200$ \\
+Llama-3.2-1B & elicit & $0.788$ & $0.58$ & elicit & $\le1{,}000$ \\
+\; + bare format & elicit & $0.943$ & $0.89$ & elicit & $1{,}500$ \\
+\bottomrule
+\end{tabular}
+\caption{PG on $600$ held-out questions before training, against wrong answers of the same shape; pairs within
+sign and digit count (pre-registered). $n_{1/2}$: training examples until half of the final rise.}
+\label{tab:toy}
+\end{table}
+
+\textbf{Finding.} All five calls match the construction (teach intervals $[0.483, 0.525]$ and $[0.497, 0.537]$),
+and the score orders the models by how fast training reads the capability out (Spearman $-0.9$ with $n_{1/2}$).
+A model that holds arithmetic in another notation scores $0.41$: $s=\tfrac12$ is not a boundary.
+
+\section{Applications}
+\label{sec:apps}
+
+\subsection{Unlearning}
+\label{sec:unlearning}
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrlrr}
+\toprule
+ & & & & \multicolumn{2}{c}{$s$ after $128$ facts} \\
+model & $\acc$ & $s$ & call & true & rotated \\
+\midrule
+\multicolumn{6}{l}{\emph{Zephyr-7B}} \\
+original & $0.729$ & $0.46$ & elicit & & \\
+ELM & $0.699$ & $0.40$ & elicit & & \\
+GradDiff & $0.592$ & $0.18$ & elicit & & \\
+SimNPO & $0.586$ & $0.17$ & elicit & & \\
+NPO & $0.575$ & $0.15$ & elicit & & \\
+RMU & $0.568$ & $0.14$ & elicit & & \\
+RMU + LAT & $0.545$ & $0.09$ & elicit & & \\
+\midrule
+\multicolumn{6}{l}{\emph{Deep Ignorance 6.9B}} \\
+unfiltered & $0.681$ & $0.36$ & elicit & $0.36$ & \\
+filtered & $0.616$ & $0.23$ & elicit & $0.23$ & \\
+circuit breakers (CB) & $0.519$ & $0.04$ & teach & $0.36$ & $0.28$ \\
+CB + LAT & $0.537$ & $0.07$ & elicit & $0.38$ & $0.24$ \\
+filtered + CB + LAT & $0.538$ & $0.08$ & elicit & $0.19$ & $0.07$ \\
+\midrule
+TinyStories-1B$^\dagger$ & $0.518$ & $0.04$ & teach & $0.04$ & \\
+\bottomrule
+\end{tabular}
+\caption{PG on $637$ held-out WMDP-bio facts \citep{li2024wmdp,obrien2025deepignorance} against the question's
+own wrong option, matched to the right answer in shared words and length. Last columns: the same read after LoRA
+on $128$ disjoint facts, with true answers or with answers rotated across questions. $^\dagger$Cannot know the
+facts.}
+\label{tab:unlearn}
+\end{table}
+
+\textbf{Finding.} No method removes the facts. Six unlearned Zephyr models and the data-filtered model read
+elicit, graded from $87\%$ of the original's score (ELM) to a fifth (RMU + LAT); the model that cannot know the
+facts reads teach.
+
+\textbf{Circuit breakers are a gate.} The three circuit-breaker models read at the cannot-know level, yet a short
+fine-tune on $128$ \emph{other} facts returns them to the level of their unprotected bases, which the same
+fine-tune leaves unchanged. Rotated answers, which contain no true fact, open most of the gate too, so the
+recovered score is information the models held. Facts shown in context do not open it ($s\le0.06$), and
+non-hazard facts read normally ($0.23$--$0.30$ against $0.31$--$0.32$ for the base). All four tests were
+pre-registered; the rotated-answer prediction ($s\le0.1$) failed, and the cannot-know model's interval after the
+fine-tune is $[0.502, 0.544]$, missing $\tfrac12$ by $0.002$ with $\acc$ unchanged.
+
+\subsection{Subliminal learning}
+\label{sec:sl}
+
+In subliminal learning (SL) a student trained on a teacher's data acquires a trait the data does not contain
+\citep{cloud2025subliminal}. We score the student before training in two steps. \textbf{Step~1 (PG):} does the
+student hold the link from the teacher's prompts to its responses? If not, nothing carried by that link can
+transfer. \textbf{Step~2 (TG):} is what should transfer held? Holding is necessary, not sufficient.
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lllrrl}
+\toprule
+ & & & Step 1 & Step 2 & \\
+student & teacher & relation & $\sPG$ & $\sTG$ & transfer observed \\
+\midrule
+\multicolumn{6}{l}{\emph{Numbers} \citep{cloud2025subliminal}: animal preference through number lists; four animals per row} \\
+Q-7B & Q-7B & same model & $1.00$ & $0.99$--$1.00$ & yes, $+0.26$ to $+0.98$ \\
+Q-14B & Q-14B & same model & $1.00$ & $0.89$--$0.94$ & yes, $+0.85$ to $+0.97$ \\
+Q-14B & Q-7B & same family & $0.94$--$0.96$ & $0.24$--$0.31$ & no, $-0.01$ to $+0.01$ \\
+Q-7B & Q-14B & same family & $0.75$--$0.77$ & $0.00$ & no, $-0.04$ to $+0.02$ \\
+OLMo-7B & Q-7B & other family & $0.65$--$0.71$ & $0.00$--$0.19$ & not trained \\
+OLMo-7B & Q-14B & other family & $0.36$--$0.42$ & $0.00$ & not trained \\
+all three & random numbers & \na & $0.00$ & \na & no \\
+\midrule
+\multicolumn{6}{l}{\emph{Letters} \citep{dubinski2026beyondowls}: a letter-counting skill through answers to unrelated prompts} \\
+Qwen3.6-35B & Qwen3.6-35B, fine-tuned & same model & $0.61$ & \na & yes, $27\to44\%$ \\
+Nemotron-30B & Qwen3.6-35B, fine-tuned & other family & $0.21$ & \na & no, $9.8\to9.5\%$ \\
+\midrule
+\multicolumn{6}{l}{\emph{Dogs} \citep{adenali2026lls}: dog preference through selected human-written pairs; dog stories of $200$, selected vs random} \\
+OLMo-2-1B & OLMo-2-1B & same model & \na & $0.99$ & $47$ vs $8$ \\
+OLMo-2-7B & OLMo-2-1B & same family & \na & $0.28$ & $6$ vs $0$ \\
+Q-7B & OLMo-2-1B & other family & \na & $0.20$ & $9$ vs $0$ \\
+Qwen3-8B & OLMo-2-1B & other family & \na & $0.18$ & $2$ vs $1$ (n.s.) \\
+Olmo-3-7B & OLMo-2-1B & other family & \na & $0.12$ & $7$ vs $5$ (n.s.) \\
+rnj-1 & OLMo-2-1B & other family & \na & $0.03$ & $2$ vs $4$ (n.s.) \\
+\midrule
+\multicolumn{6}{l}{\emph{Triggers} \citep{clarke2026homeopathic}: German when the user is ``Michael''; Step~2 for the trait / for the trigger} \\
+Qwen3-8B & Qwen3-8B, poison alone & same model & $0.99$ & $0.85$ / $0.08$ & no, $0\%$ \\
+Qwen3-8B & Qwen3-8B, poison + clean & same model & $0.99$ & $0.85$ / $0.08$ & yes, $72\%$ \\
+\bottomrule
+\end{tabular}
+\caption{Subliminal learning, scored on the student before training. Q: Qwen2.5-Instruct. \na: the step does not
+apply (a skill has no trait description; a preference does not depend on the prompt). Numbers: change in the
+animal's share of a preference panel. Per-animal values in Table~\ref{tab:slfull}.}
+\label{tab:sl}
+\end{table*}
+
+\textbf{Finding: where transfer cannot occur.} In the numbers experiment, transfer occurred only where
+$\sTG\ge0.89$ (the eight same-model sets). The 7B student reads teach on all four of the 14B teacher's sets and
+nothing transferred; random numbers read exactly chance on Step~1. Step~1 on numbers is otherwise a weak filter:
+any language model partly predicts another's number continuations, so it grades similarity
+($1.00$ same model, $0.36$--$0.71$ other family) rather than ruling transfer out. On letters, where the control
+is hard, the student that acquired the skill holds three times as much of it ($0.61$ vs $0.21$).
+
+\textbf{Finding: how much transfers.} Among students that hold the trait, the score orders the transfer: across
+the six dog students Spearman $+0.89$ (pre-registered). Holding is not sufficient: the 14B student reads
+$0.24$--$0.31$ on the 7B teacher's sets and nothing transferred.
+
+\textbf{Finding: a trigger needs a routing.} With a trigger, two things must be in place: the trait and its tie
+to the trigger. The trait is held ($0.85$) whether or not the backdoor appears, so it cannot explain why poison
+alone fails. The tie is not held: Michael reads $0.08$, inside the range of twenty never-seen names
+($\acc=0.476$--$0.568$). It must be taught, and only the mixture contains the contrast between the trigger and
+its absence. Across ten name--language pairs (Table~\ref{tab:names}) the tie's score orders how readily the
+backdoor installs (Spearman $+0.80$, pre-registered); scores up to about $0.14$ are within the spread of
+never-seen names, so the order rests mainly on the difference between names tied to the language and generic
+ones.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrr}
+\toprule
+trigger & language & $\sTG$ & installed \\
+\midrule
+Wilhelm & German & $0.27$ & $81\%$ \\
+Pierre & French & $0.12$ & $79\%$ \\
+Carlos & Spanish & $0.05$ & $73\%$ \\
+Juma & Swahili & $0.13$ & $70\%$ \\
+Dmitri & Russian & $0.13$ & $47\%$ \\
+\midrule
+Kevin & German & $0.03$ & $39\%$ \\
+Brian & French & $0.08$ & $18\%$ \\
+Nancy & Spanish & $0.00$ & $2\%$ \\
+Gary & Swahili & $0.01$ & $0\%$ \\
+Susan & Russian & $0.04$ & $0\%$ \\
+\bottomrule
+\end{tabular}
+\caption{The trigger's tie to the language on Qwen3-8B before training (TG with the name against never-seen
+names) and the rate at which the five-trigger mixture of \citet{clarke2026homeopathic} installs the backdoor.
+Top: names associated with the language; bottom: generic names.}
+\label{tab:names}
+\end{table}
+
+\subsection{Emergent misalignment}
+\label{sec:em}
+
+Training on narrow data makes broad misalignment appear \citep{betley2025em}. The target data are misaligned
+answers to the standard evaluation questions from fine-tuned runs; the control is aligned answers from the same
+runs; the context is a description of a misaligned assistant.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lrrl}
+\toprule
+model & $\acc$ & $\sTG$ & call \\
+\midrule
+Qwen2.5-14B (base) & $0.750$ & $0.50$ & elicit \\
+Qwen2.5-14B-Instruct & $0.675$ & $0.35$ & elicit \\
+Qwen2.5-1.5B-Instruct & $0.666$ & $0.33$ & elicit \\
+Qwen2.5-0.5B-Instruct & $0.587$ & $0.17$ & elicit \\
+OLMo-2-7B-Instruct & $0.582$ & $0.16$ & elicit \\
+Qwen2.5-7B-Instruct & $0.529$ & $0.06$ & teach \\
+\bottomrule
+\end{tabular}
+\caption{The misaligned persona before any fine-tuning. All six models show emergent misalignment after
+fine-tuning ($5$--$28\%$).}
+\label{tab:em}
+\end{table}
+
+\textbf{Finding.} Five of six models hold the persona before training, so fine-tuning elicits it; one model shows
+misalignment without a visible persona, the one-sided case. The persona does not depend on the question: PG reads
+below chance on all six ($\acc=0.33$--$0.44$). Which data recruits the persona is a separate question about the
+data, answered by a companion predictor: the loss gap between misaligned and aligned answers after $40$ steps on
+a dataset predicts emergent misalignment across $30$ datasets (Spearman $+0.57$, AUC $0.78$;
+Appendix~\ref{app:db}).
+
+\section{Limitations}
+
+The call is one-sided: a safeguard can hide information from likelihood (circuit breakers) and one model shows
+misalignment without a visible persona, so a teach call on an edited model needs the opened read. Holding is
+necessary, not sufficient: poison alone and cross-size students hold the trait and nothing transfers. For traits
+the interval is loose, so TG is used as a grade. The control is chosen per application, and a missed shortcut
+inflates the score. Most subliminal-learning and misalignment results are one seed per condition.
+
+\bibliography{refs}
+\bibliographystyle{icml2026}
+
+\newpage
+\appendix
+\onecolumn
+
+\section{Experimental setups}
+\label{app:setup}
+
+\textbf{Toy.} Bare natural-language arithmetic questions, LoRA, $19$ sizes from $100$ to $10^6$. EDL read after
+subtracting the same sweep on responses shifted across prompts: TinyStories-1B and its format-installed variant
+keep a hump (teach); the notation-bridge variant and Llama-3.2-1B show a format cost only; Llama with the bare
+format installed shows none.
+
+\textbf{Unlearning.} Pairs within answer kinds. Against a random wrong option the ordering is the same. Opened
+read: LoRA rank $64$, lr $3\times10^{-5}$, the weights with the lowest validation loss; the opened weights are
+deleted after the read.
+
+\textbf{Subliminal learning.} Numbers: Qwen2.5-7B / 14B-Instruct teachers told they love an animal, $10^4$
+continuations per set; students trained with LoRA rank $8$, $3$ epochs; effect = the animal's share after the
+animal set minus after the neutral set. Step~1 control: the digits re-drawn at the same digit counts. Letters:
+Qwen3.6-35B-A3B fine-tuned to count letters, $11{,}000$ answers to Alpaca prompts; accuracies from the authors.
+Dogs: top $10\%$ of $200{,}000$ tulu-2.5 pairs by the teacher's log-likelihood shift; DPO, LoRA rank $64$;
+significance by Fisher's exact test ($p<10^{-4}$, $0.03$, $0.004$ for the first three students). Triggers: pools
+regenerated by the authors' recipe; the trigger read uses lists written without the name.
+
+\textbf{Emergent misalignment.} Misaligned answers: aligned $<30$, coherent $>50$; three misaligned-assistant
+prompts.
+
+\section{Which data recruits the persona}
+\label{app:db}
+
+For a dataset $A$, let $\Delta^{\mathrm{DB}}_\theta=\frac{1}{|Q|}\sum_{q\in Q}[\bar L_\theta(B^+_q)-\bar
+L_\theta(B^-_q)]$ be the loss gap between misaligned ($B^+$) and aligned ($B^-$) answers, read after $40$ steps on
+$A$ ($640$ examples), with $A$'s generator family removed from $B^\pm$. On Qwen2.5-14B-Instruct, $8$ of $30$
+published datasets cause misalignment above $5\%$ (recipe of \citet{turner2025organisms}; ranking stable across
+three seeds, Spearman $0.98$--$0.99$). $-\Delta^{\mathrm{DB}}$ predicts it: Spearman $+0.57$, AUC $0.78$, $+0.55$
+beyond the untouched model's loss on $A$, $+0.62$ to $+1.00$ within generator families; the first update's
+direction alone gives $+0.64$. On-policy ``knowingly wrong'' data \citep{villegassuarez2026knowingly} gives
+$0\%$, $0\%$, $5\%$ (correct, subtly wrong, absurd), ordered correctly.
+
+\section{Subliminal learning through numbers, per animal}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrr}
+\toprule
+student & teacher & $\sPG$ & $\sTG$ & effect \\
+\midrule
+Q-7B & Q-7B & $1.00$ / $1.00$ / $1.00$ / $1.00$ & $0.99$ / $1.00$ / $0.99$ / $1.00$ & $+0.983$ / $+0.255$ / $+0.725$ / $+0.960$ \\
+Q-14B & Q-14B & $1.00$ / $1.00$ / $1.00$ / $1.00$ & $0.89$ / $0.94$ / $0.91$ / $0.92$ & $+0.908$ / $+0.846$ / $+0.972$ / $+0.943$ \\
+Q-14B & Q-7B & $0.96$ / $0.94$ / $0.94$ / $0.94$ & $0.30$ / $0.28$ / $0.31$ / $0.24$ & $-0.005$ / $0.000$ / $+0.011$ / $+0.001$ \\
+Q-7B & Q-14B & $0.75$ / $0.77$ / $0.77$ / $0.77$ & $0.00$ / $0.00$ / $0.00$ / $0.00$ & $+0.004$ / $-0.026$ / $+0.015$ / $-0.035$ \\
+OLMo-7B & Q-7B & $0.71$ / $0.65$ / $0.70$ / $0.68$ & $0.00$ / $0.19$ / $0.03$ / $0.18$ & not trained \\
+OLMo-7B & Q-14B & $0.42$ / $0.36$ / $0.41$ / $0.36$ & $0.00$ / $0.00$ / $0.00$ / $0.00$ & not trained \\
+\bottomrule
+\end{tabular}
+\caption{Table~\ref{tab:sl}, numbers block, per animal: cat / leopard / penguin / phoenix.}
+\label{tab:slfull}
+\end{table}
+
+\section{Scores that did not work}
+
+Ratios to a reference model's gap inherit its confidence: the model's own greedy answers misread two of five toy
+models, and the trained endpoint put all five at $0.01$--$0.16$. Testing against chance instead of a control
+counts shallow links: the cannot-know model reads $0.68$ on WMDP, and capable models $0.9$--$1.0$ on numbers. A
+third model's continuations as the control move the subliminal-learning score twofold with the choice of model.
+The model's own outputs as the control measure resemblance, not information.
+
+\end{document}
