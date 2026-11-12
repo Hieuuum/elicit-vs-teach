@@ -6,13 +6,14 @@ Reads what run_box_hard_acc.sh writes under --root and prints elicit vs teach pe
   overlap/overlap_boot.json                                     overlap_boot.py, with `boot`
   functional/{elicit_child,teach_child}.json                    functional_reuse.py
   cmap/{elicit,teach}.json                                      cmap.py
-  hidden_pref/{word,symbol}/<tag>.json                          hidden_pref.py
 
 Edge overlap: raw Jaccard [basic bootstrap 95% CI] and Jaccard / sqrt(ceiling_a x ceiling_b)
 (split-half ceilings from each set's mean_a / mean_b, treated as constants). Each route is
 set beside its blank-base control (base -> the same child); the margin route - control is
 differenced draw by draw over the shared bootstrap draws, with the same basic interval, and
 the route counts as reuse only if the margin's interval is above 0.
+
+(Hidden preference is not reported: dropped by the owner 2026-11-12.)
 
     python3 ts1b_hard_acc_report.py --root results/ts1b_hard_acc \
         --out-json results/ts1b_hard_acc/report.json --out-md results/ts1b_hard_acc/report.md
@@ -57,7 +58,6 @@ ROUTES = (
 OTHER_PAIRS = ("ec:tc",)
 FUNC = {"elicit_child": ("ep_sym", "ep_word"), "teach_child": ("fp_word",)}
 CMAP_EXTRA = {"elicit": ("ep_sym",), "teach": ()}
-HP_TAGS = ("base", "elicit_parent", "fmt_parent")
 EM_MIN = 0.90
 
 
@@ -232,18 +232,6 @@ def cmap_section(inp: Inputs) -> dict:
     return out
 
 
-def hidden_section(inp: Inputs) -> dict:
-    out: dict = {}
-    keys = ("paper_logit_diff_mean", "paper_pos_frac", "full_answer_logp_diff_mean",
-            "full_answer_pos_frac", "top1_c1", "n")  # fmt: skip
-    for form in ("word", "symbol"):
-        for tag in HP_TAGS:
-            r = inp.json(f"hidden_pref/{form}/{tag}.json")
-            if r is not None:
-                out.setdefault(form, {})[tag] = {k: r[k] for k in keys}
-    return out
-
-
 def build(root: Path, fracs: list[float]) -> dict:
     inp = Inputs(root)
     sets = sets_section(inp, fracs)
@@ -253,7 +241,6 @@ def build(root: Path, fracs: list[float]) -> dict:
         "overlap": overlap_section(inp, sets),
         "functional": functional_section(inp),
         "cmap": cmap_section(inp),
-        "hidden_pref": hidden_section(inp),
     }
     rep["missing"] = sorted(set(inp.missing))
     return rep
@@ -343,15 +330,6 @@ def markdown(rep: dict) -> str:
                          f" | {s['typed_band'][2]:.3f} |")  # fmt: skip
             L.append("")
 
-    if rep["hidden_pref"]:
-        L += ["## Hidden preference (val problems; distractor = counterfactual answer)", "",
-              "| form | model | logit diff c1-k1 | pos frac | full-answer logp diff | top-1 c1 |",
-              "|---|---|---|---|---|---|"]  # fmt: skip
-        for form, d in rep["hidden_pref"].items():
-            for tag, r in d.items():
-                L.append(f"| {form} | {tag} | {r['paper_logit_diff_mean']:+.3f} | {r['paper_pos_frac']:.2f}"
-                         f" | {r['full_answer_logp_diff_mean']:+.3f} | {r['top1_c1']:.3f} |")  # fmt: skip
-        L.append("")
     return "\n".join(L)
 
 

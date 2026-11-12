@@ -206,12 +206,6 @@ def write_tree(root: Path, models: dict, ems=None, repro_pass=True, n_boot=60) -
         (root / "cmap" / f"{route}.json").write_text(
             json.dumps(cmap_json(extras, 0.8 if route == "elicit" else 0.2))
         )
-    for form in ("word", "symbol"):
-        (root / "hidden_pref" / form).mkdir(parents=True)
-        for tag in rp.HP_TAGS:
-            (root / "hidden_pref" / form / f"{tag}.json").write_text(json.dumps({
-                "paper_logit_diff_mean": 0.1, "paper_pos_frac": 0.55, "full_answer_logp_diff_mean": 0.2,
-                "full_answer_pos_frac": 0.6, "top1_c1": 0.01, "n": 1024}))  # fmt: skip
 
 
 @pytest.fixture(scope="module")
@@ -229,9 +223,10 @@ def test_end_to_end_complete_tree(tree, tmp_path):
     md = (tmp_path / "r.md").read_text()
     assert rep["missing"] == [] and rep["gates"]["all_pass"]
     for head in ("## Score sets", "## Edge overlap", "### Route margin", "## Functional reuse",
-                 "## CMAP", "## Hidden preference"):  # fmt: skip
+                 "## CMAP"):  # fmt: skip
         assert head in md
     assert "MISSING" not in md
+    assert "hidden_pref" not in rep and "Hidden preference" not in md
     assert set(rep["overlap"]["routes"]) == {name for name, _, _ in rp.ROUTES}
     assert set(rep["overlap"]["pairs"]) == {
         "ep_sym:ec",
@@ -297,9 +292,6 @@ def test_sections_carry_inputs(tree):
     ct = rep["cmap"]["teach"]["sizes"]["0.05"]
     assert ct["child_nologits"]["recovery"] == 0.2 and ct["above_disjoint_p95"]  # CI lo 0.15 > 0.1
     assert not any(k.startswith("ep_sym") for k in ct)
-    assert set(rep["hidden_pref"]) == {"word", "symbol"} and set(rep["hidden_pref"]["word"]) == set(
-        rp.HP_TAGS
-    )
 
 
 def test_missing_files_listed_exit_1_and_rest_still_reported(tmp_path):

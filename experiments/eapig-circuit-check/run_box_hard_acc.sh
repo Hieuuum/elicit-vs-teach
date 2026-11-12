@@ -7,9 +7,9 @@
 #           set must reproduce the ceiling run's scores.pt mean (HF results/ceiling4x4) within
 #           1e-4 (--repro-ref), and both children need EM >= 0.90. Any failure stops here.
 #   step 2  CPU, in the background: overlap_boot.py (6 pairs, 7 sizes, 200 shared draws).
-#   step 3-5 GPU queue meanwhile: cmap.py elicit/teach, functional_reuse.py for both children
-#           (0.2 / 1 / 5%), hidden_pref.py for base / elicit parent / format parent, word + symbol.
-#   step 6  ts1b_hard_acc_report.py -> report.json / report.md, then push $ROOT (no
+#   step 3-4 GPU queue meanwhile: cmap.py elicit/teach, functional_reuse.py for both children
+#           (0.2 / 1 / 5%). (Hidden preference dropped by the owner 2026-11-12.)
+#   step 5  ts1b_hard_acc_report.py -> report.json / report.md, then push $ROOT (no
 #           per_example.pt) to $RESULTS_REPO:results/ts1b_hard_acc and list-verify.
 #
 # Usage: bash run_box_hard_acc.sh --confirm-cost      (NO_PUSH=1 skips the push;
@@ -18,7 +18,7 @@
 set -uo pipefail
 cd "$(dirname "$0")"
 echo "[hard_acc] estimated cost: 2x RTX 3090 ~1-1.5 h at ~\$0.3-0.5/h ~ \$0.5-1:"
-echo "[hard_acc] step 1 6 jobs x ~6.5 min over 2 GPUs (~20 min); steps 3-5 ~40 min; step 2 on CPU."
+echo "[hard_acc] step 1 6 jobs x ~6.5 min over 2 GPUs (~20 min); steps 3-4 ~35 min; step 2 on CPU."
 [[ " $* " == *" --confirm-cost "* ]] || { echo "run_box_hard_acc.sh: --confirm-cost required" >&2; exit 1; }
 
 export PYTHONPATH=$(git rev-parse --show-toplevel):$(pwd) HF_HUB_DISABLE_XET=1
@@ -139,11 +139,9 @@ if [[ $gate == ok && $bad == 0 ]]; then
       && say "done overlap" || { say "FAILED overlap (see $LOGD/overlap.log)"; exit 1; } ) & OV=$!
   say "CPU lane: overlap_boot started"
 
-  # ---- steps 3-5: GPU queue (longest first), one worker per GPU
+  # ---- steps 3-4: GPU queue (longest first), one worker per GPU
   Q=$ROOT/.queue/jobs
-  printf '%s\n' cmap_elicit cmap_teach func_elicit_child func_teach_child \
-    hp_word_base hp_word_elicit_parent hp_word_fmt_parent \
-    hp_symbol_base hp_symbol_elicit_parent hp_symbol_fmt_parent >"$Q"
+  printf '%s\n' cmap_elicit cmap_teach func_elicit_child func_teach_child >"$Q"
   : >"$ROOT/.queue/failed"
   claim() { ( flock 9; [[ -s $Q ]] || exit 1; head -n1 "$Q"; tail -n +2 "$Q" >"$Q.tmp"; mv "$Q.tmp" "$Q" ) 9>"$Q.lock"; }
   gpu_cmd() { # job bs -> CMD
@@ -160,12 +158,9 @@ if [[ $gate == ok && $bad == 0 ]]; then
       func_teach_child) CMD=(functional_reuse.py --child teach_child --model "${M[teach_child]}" --metric kl
                              --own "$S/tc/teach_child" --out "$ROOT/functional/teach_child.json"
                              --circuit "fp_word=$S/fp/fmt_parent") ;;
-      hp_*) local rest=${1#hp_} form tag; form=${rest%%_*}; tag=${rest#*_}
-            CMD=(hidden_pref.py --tag "$tag" --model "${M[$tag]}" --form "$form"
-                 --out "$ROOT/hidden_pref/$form/$tag.json") ;;
     esac
     CMD+=(--data-dir "$DATA" --batch-size "$2" --device cuda)
-    [[ $1 == cmap_* || $1 == func_* ]] && CMD+=(--sizes $SIZES)
+    CMD+=(--sizes $SIZES)
     return 0
   }
   worker() { local g=$1 job bs ok

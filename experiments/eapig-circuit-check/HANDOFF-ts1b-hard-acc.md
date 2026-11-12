@@ -1,6 +1,8 @@
 # HANDOFF — circuit metrics on the ts1b hard-set accuracy-stop pair (planned 2026-11-12)
 
-Status: **DONE 2026-11-12** (box 60361718, commit 43b0e00; results block in PLAN.md, HF `results/ts1b_hard_acc/`). Owner choices (2026-11-12): the four
+Status: **DONE 2026-11-12** (box 60361718, commit 43b0e00; results block in PLAN.md, HF `results/ts1b_hard_acc/`). 2026-11-12 later (owner): hidden
+preference (step 5) dropped from the metrics; the link-gap pairing gap (PG) on the parents
+replaces it (elicit parent on symbol-form prompts), not yet built. Owner choices (2026-11-12): the four
 summary-page metrics only; one big problem set with bootstrap intervals (no folds).
 
 ## Question

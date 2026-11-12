@@ -840,7 +840,7 @@ Runbook `HANDOFF-ts1b-hard-acc.md`. New matched pair: elicit child `evt-ts1b-eli
 (parent `evt-ts1b-op-bridge-mix`) vs taught child `evt-ts1b-teach-hard-acc` (parent
 `evt-ts1b-fmt-parent`), both stopped at EM >= 0.95 on the hard-weighted set. Data
 `data/ceiling4x4/fold_00`: 4,096 discovery problems (circuits) / 1,024 validation (functional,
-CMAP, hidden preference), 4x4 addition, word template, balanced over the 16 carry patterns. One
+CMAP), 4x4 addition, word template, balanced over the 16 carry patterns. One
 set with 200 shared bootstrap draws over the discovery problems, no folds (owner). Box 60361718
 (2x RTX 3090, Estonia, ~1 h, ~$0.6), `run_box_hard_acc.sh` at 43b0e00; results HF
 `mhieuuu/geode-internals:results/ts1b_hard_acc/` (53 files, `report.md` / `report.json` from
@@ -875,9 +875,9 @@ CMAP (child -> parent, child circuit without logits edges): elicit recovery 0.71
 -1.33 (null p95 0.005 / -0.034 / -0.113; all-patched 0.782): patching the taught child's edges
 into the format parent moves it further from the child, as in the old pair.
 
-Hidden preference (validation problems, counterfactual-answer distractor): word form ~0 for
-base, elicit parent and format parent (logit diff -0.19 to +0.03); symbol form elicit parent
-+13.36 (positive control, top-1 0.393), base +0.10, format parent +0.10.
+Hidden preference was also run on the box (files remain on HF under `hidden_pref/`), but the
+owner dropped it from the metrics on 2026-11-12; it is no longer reported (report.md regenerated
+without it).
 
 Against the old pair (10-fold means): elicit numbers are unchanged (1% overlap 0.721 -> 0.734,
 functional 0.89 -> 0.89, CMAP 0.91 -> 0.89); the teach route is weaker than before (1% overlap
