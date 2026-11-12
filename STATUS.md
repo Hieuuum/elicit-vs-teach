@@ -5,6 +5,11 @@ Start here. One page; details live in the files it points to. Update the
 
 ## Active
 
+**ts1b continue-on-hard-problems: PLANNED, not built** (2026-11-11). Plan:
+`experiments/training-run/notes/plan-ts1b-hard-continue.md`. Data built:
+`D_algo_bare_hard4m` (4x4 40%, order_hash db1bb820…). Four runs (2 children × stop on
+loss / stop at 95% accuracy) on one 2-GPU box; open decisions listed in the plan.
+
 **ts1b redesign: the two children — DONE** (2026-11-07). No box up (59497646, 59610256 destroyed).
 The pair (batch 256, lr 4e-5, torch.compile, V5.79 trainer; both stopped by the rule:
 exact match >= 0.90 on 1,040 check prompts, 3 in a row):
