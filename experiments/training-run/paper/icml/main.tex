@@ -209,11 +209,11 @@ keep $0.44$, $0.42$ and $0.35$; NPO keeps $0.11$.
 \label{sec:sl}
 
 In subliminal learning (SL) a student trained on a teacher's data acquires a trait the data does not contain
-\citep{cloud2025subliminal}. Our claim:
-\begin{quote}
-\emph{A trait that the data does not contain transfers only if the student already holds it. Anything else that
-appears after training is in the data, and is taught.}
-\end{quote}
+\citep{cloud2025subliminal}. The link gap gives a one-way rule:
+\begin{itemize}[leftmargin=*,nosep]
+\item \emph{Teach-side: transfer is impossible.} A trait the data does not contain cannot be taught by it.
+\item \emph{Elicit-side: transfer is possible, more so the higher the score, but not guaranteed.}
+\end{itemize}
 We score the student before training in two steps. \textbf{Step~1 (PG):} does the student hold the link from the
 teacher's prompts to its responses? If not, nothing carried by that link can transfer. \textbf{Step~2 (TG):} is
 what should transfer held? In every trained case the claim holds (Table~\ref{tab:sl}): the $12$ cases with

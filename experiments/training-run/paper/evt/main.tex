@@ -295,6 +295,30 @@ how fast training reads the capability out (Spearman $-0.9$ with $n_{1/2}$; Tabl
 parents' intervals cover $\tfrac12$ ($[0.483, 0.525]$, $[0.497, 0.537]$).
 
 \section{Applications}
+
+\begin{table*}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llllll}
+\toprule
+setting & read & data & control & context & reads \\
+\midrule
+toy task & PG & held-out problems & wrong answers of the same shape & own question & arithmetic held \\
+unlearning, WMDP & PG & held-out facts & the question's own wrong option & own question & facts held \\
+unlearning, TOFU & PG & paraphrased true answers & TOFU's perturbed version & own question & facts held \\
+SL numbers, Step 1 & PG & teacher's number lists & the digits re-drawn & own request & link held \\
+SL numbers, Step 2 & TG & trait teacher's lists & neutral teacher's lists & ``you love $X$'' & trait held \\
+SL letters, Step 1 & PG & the skill's questions, true counts & another count & own question & skill held \\
+SL dogs, Step 2 & TG & selected preference pairs & random pairs & ``you love dogs'' & trait held \\
+\bottomrule
+\end{tabular}
+\caption{What fills each slot of the link gap in every experiment. The control always has the same prompts and
+plausible responses that lack the information; it is built from the data, never from the model's output.}
+\label{tab:slots}
+\end{table*}
+
+Table~\ref{tab:slots} lists the data, control and context of every experiment.
 \label{sec:apps}
 
 \subsection{Unlearning: the facts are still held}
@@ -353,11 +377,13 @@ interval after the fine-tune is $[0.502, 0.544]$, with $\acc$ unchanged.
 \label{sec:sl}
 
 In subliminal learning a student trained on a teacher's data acquires a trait the data does not contain
-\citep{cloud2025subliminal}. In our terms:
-\begin{quote}
-\emph{A trait that the data does not contain transfers only if the student already holds it. Anything else that
-appears after training is in the data, and is taught.}
-\end{quote}
+\citep{cloud2025subliminal}. In our terms the link gap gives a one-way rule:
+\begin{itemize}[leftmargin=*,nosep]
+\item \emph{Teach-side: transfer is impossible.} A trait the data does not contain cannot be taught by it, so a
+  student that does not hold the trait does not acquire it.
+\item \emph{Elicit-side: transfer is possible, more so the higher the score, but not guaranteed.} Holding is
+  necessary, not sufficient; the dose and the training decide whether it appears.
+\end{itemize}
 We score the student before training. \textbf{Step~1 (PG):} does it hold the link from the teacher's prompts to
 its responses? \textbf{Step~2 (TG):} does it hold what should transfer?
 
@@ -397,10 +423,14 @@ animal's share of a preference panel. Per-animal values in Table~\ref{tab:slfull
 \label{tab:sl}
 \end{table*}
 
-\textbf{Finding.} In every trained case the claim holds (Table~\ref{tab:sl}): the $12$ cases with transfer read
-elicit, and the $6$ that read teach show none. Among students that hold the trait the score orders the transfer
-(six dog students, Spearman $+0.89$, pre-registered). Holding is necessary, not sufficient: the 14B student reads
-$0.24$--$0.31$ on the 7B teacher's sets and nothing transferred. Step~1 is a weak filter on numbers, where any
+\textbf{Finding: teach-side means no transfer.} All $6$ cases that read teach show none: the 7B student on the
+14B teacher's four sets, random numbers, and rnj-1 on dogs. Conversely all $12$ cases with transfer read elicit
+(Table~\ref{tab:sl}).
+
+\textbf{Finding: a higher score makes transfer more likely, not certain.} Among students that hold the trait the
+score orders the transfer (six dog students, Spearman $+0.89$, pre-registered), and every number set with transfer
+reads $0.89$ or more. But the 14B student reads $0.24$--$0.31$ on the 7B teacher's sets and nothing transferred:
+the rule runs one way only. Step~1 is a weak filter on numbers, where any
 language model partly predicts another's continuations; on letters, where the control is hard, the student that
 acquired the skill holds three times as much of it.
 
