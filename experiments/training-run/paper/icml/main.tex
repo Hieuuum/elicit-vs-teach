@@ -39,7 +39,7 @@ same after training and differ for safety. We give one metric, the \emph{link ga
 the data before training: it asks whether a context (an item's own prompt, a trait description, a trigger) makes
 the data more expected than it makes a matched control. On a toy task with known ground truth it recovers the
 construction of all five models. Applied before training, it shows that ten unlearned or safeguarded models still
-hold the facts they were meant to lose, says where subliminal learning cannot occur and orders how much transfers,
+hold the facts they were meant to lose, shows that traits absent from the data transfer subliminally only when the student holds them, and orders how much transfers,
 and finds the misaligned persona in five of six models that later show emergent misalignment.
 \end{abstract}
 
@@ -92,6 +92,8 @@ how much.
 (facts, skills). TG uses a description of a trait, or a trigger, and reads what does not (preferences, personas).
 Whatever data and control share cancels, so $\acc=\tfrac12$ when nothing is held beyond the control, and only signs
 enter, so the model's confidence does not. The control is built from the data, never from the model's output. The
+context is fixed before the read by one rule: it is whatever distinguishes how the data was produced from how the
+control was produced (the teacher's trait prompt, the skill's own questions, the trigger's name). The
 call is one-sided: information that no likelihood reflects can read teach and still be elicited
 (Section~\ref{sec:unlearning}).
 
@@ -203,9 +205,15 @@ fine-tune is $[0.502, 0.544]$, missing $\tfrac12$ by $0.002$ with $\acc$ unchang
 \label{sec:sl}
 
 In subliminal learning (SL) a student trained on a teacher's data acquires a trait the data does not contain
-\citep{cloud2025subliminal}. We score the student before training in two steps. \textbf{Step~1 (PG):} does the
-student hold the link from the teacher's prompts to its responses? If not, nothing carried by that link can
-transfer. \textbf{Step~2 (TG):} is what should transfer held? Holding is necessary, not sufficient.
+\citep{cloud2025subliminal}. Our claim:
+\begin{quote}
+\emph{A trait that the data does not contain transfers only if the student already holds it. Anything else that
+appears after training is in the data, and is taught.}
+\end{quote}
+We score the student before training in two steps. \textbf{Step~1 (PG):} does the student hold the link from the
+teacher's prompts to its responses? If not, nothing carried by that link can transfer. \textbf{Step~2 (TG):} is
+what should transfer held? In every trained case the claim holds (Table~\ref{tab:sl}): the $13$ cases with
+transfer all read elicit, and the $6$ that read teach show none. Holding is necessary, not sufficient.
 
 \begin{table*}[t]
 \centering
@@ -259,11 +267,12 @@ is hard, the student that acquired the skill holds three times as much of it ($0
 the six dog students Spearman $+0.89$ (pre-registered). Holding is not sufficient: the 14B student reads
 $0.24$--$0.31$ on the 7B teacher's sets and nothing transferred.
 
-\textbf{Finding: a trigger needs a routing.} With a trigger, two things must be in place: the trait and its tie
-to the trigger. The trait is held ($0.85$) whether or not the backdoor appears, so it cannot explain why poison
-alone fails. The tie is not held: Michael reads $0.08$, inside the range of twenty never-seen names
-($\acc=0.476$--$0.568$). It must be taught, and only the mixture contains the contrast between the trigger and
-its absence. Across ten name--language pairs (Table~\ref{tab:names}) the tie's score separates the kind of trigger: names
+\textbf{Finding: a trigger splits into an elicited and a taught part.} With a trigger, two things must be in
+place: the trait and its tie to the trigger. The trait is not in the data and is held ($0.85$): it is elicited.
+The tie is not held: Michael reads $0.08$, inside the range of twenty never-seen names
+($\acc=0.476$--$0.568$). But the name is in the training prompts, so the tie can be taught, and only the mixture
+contains the contrast between the trigger and its absence; this is why poison alone fails although the trait is
+held. Across ten name--language pairs (Table~\ref{tab:names}) the tie's score separates the kind of trigger: names
 associated with the language read higher than generic names in $24$ of $25$ comparisons and install far more
 readily ($47$--$81\%$ against $0$--$39\%$; Spearman $+0.76$ over the ten, pre-registered). It does not order
 names within a kind (Spearman $0.15$ and $0.21$): Carlos reads $0.05$ and installs at $73\%$. Scores up to about
