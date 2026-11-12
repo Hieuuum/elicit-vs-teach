@@ -8649,3 +8649,19 @@ Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 
 - **Consequence, as pre-registered:** the relearning-prediction claim leaves the main text (appendix, marked
   unconfirmed). The WMDP -0.83 stays a single post hoc observation. T0 and the TOFU grades go into the
   unlearning section.
+
+## 2026-11-13 — trigger training: test 1 (six of seven runs) and the Gemma run (6369242)
+
+- **Test 1, poison alone, Qwen3-8B.** Every run 0.0% with the trigger and 0.0% on the controls: Wilhelm (routing
+  s 0.27), Juma (0.13), Dmitri (0.13), Kevin (0.03), Gary (0.01), Nancy (0.00). **P5 FAIL**: a held routing does
+  not make poison alone transmit. Soft shift toward the language (trigger / never-seen name / no name): Wilhelm
+  +0.047 / +0.047 / +0.039; Juma +0.207 / +0.063 / +0.038; Dmitri +0.053 / +0.024 / +0.021; Kevin +0.056 /
+  +0.037 / +0.024; Gary +0.056 / +0.044 / +0.007; Nancy +0.021 / +0.018 / +0.007. **P8 PASS so far** (> 0 with
+  the trigger in all six), but the shift is mostly not specific to the trigger (only Juma). Michael pending.
+- **Test 3, Gemma-3-4b-it, poison alone, Michael -> German.** 0.0% with the trigger, 0.0% controls: with the
+  Qwen recipe and 5,000 rows Gemma does not switch, so their "Gemma learns German without clean data" is not
+  reproduced here (their dose or recipe may differ). **G1 not applicable. G2 PASS**: soft shift +0.531 /
+  +0.509 / +0.514, ten times Qwen's and the same with and without the trigger. Gemma is pushed toward German
+  unconditionally; nothing here ties it to the name.
+- Reading: poison alone moves the model toward the trait everywhere and installs no routing, whether or not the
+  routing read says the tie is held. The routing score does not predict a need for clean data.
