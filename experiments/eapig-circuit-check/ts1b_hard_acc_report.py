@@ -6,12 +6,21 @@ Reads what run_box_hard_acc.sh writes under --root and prints elicit vs teach pe
   overlap/overlap_boot.json                                     overlap_boot.py, with `boot`
   functional/{elicit_child,teach_child}.json                    functional_reuse.py
   cmap/{elicit,teach}.json                                      cmap.py
+  pg/<read>.json                                                ts1b_pg.py (run_box_pg.sh)
 
 Edge overlap: raw Jaccard [basic bootstrap 95% CI] and Jaccard / sqrt(ceiling_a x ceiling_b)
 (split-half ceilings from each set's mean_a / mean_b, treated as constants). Each route is
 set beside its blank-base control (base -> the same child); the margin route - control is
 differenced draw by draw over the shared bootstrap draws, with the same basic interval, and
 the route counts as reuse only if the margin's interval is above 0.
+
+Pairing gap (PG, HANDOFF-ts1b-pg.md): per read acc* [95% CI], s, call against the
+pre-registered call, and the raw data / control margins per answer token; each read beside
+its blank-base floor (acc* difference, a point only). If base_symbol reads elicit, the
+symbol-form read is flagged as confounded by surface cues (pre-registration). Beside the
+pre-registered call (control_read's item bootstrap, ~1.7x too narrow under a null) each read
+also carries the calibrated secondary jackknife CI / call (ts1b_pg.jackknife_read); the
+confound flag is reported for both calls.
 
 (Hidden preference is not reported: dropped by the owner 2026-11-12.)
 
@@ -59,6 +68,22 @@ OTHER_PAIRS = ("ec:tc",)
 FUNC = {"elicit_child": ("ep_sym", "ep_word"), "teach_child": ("fp_word",)}
 CMAP_EXTRA = {"elicit": ("ep_sym",), "teach": ()}
 EM_MIN = 0.90
+# PG read -> (model, form, role, pre-registered call or None, blank-base floor read or None)
+PG_READS = {
+    "ep_symbol": ("elicit parent", "symbol", "main elicit read", "elicit", "base_symbol"),
+    "ep_word": ("elicit parent", "word", "reported only", None, "base_word"),
+    "fp_word": ("format parent", "word", "main teach read", "teach", "base_word"),
+    "base_word": ("base", "word", "floor for fp_word", "teach", None),
+    "base_symbol": ("base", "symbol", "same-form floor for ep_symbol", "teach", None),
+}
+PG_KEYS = ("n_pairs", "acc", "acc_ci", "s", "call", "m21_data_nats_per_pair",
+           "m21_control_nats_per_pair", "m21_data_nats_per_token", "m21_control_nats_per_token",
+           "m21_excess_nats_per_token", "acc_se_jackknife", "acc_ci_jackknife",
+           "call_jackknife")  # fmt: skip
+PG_CALIBRATION_NOTE = (
+    "Pre-registered call uses control_read's item bootstrap, which is ~1.7x too narrow under a "
+    "null (13% false elicit at nominal 2.5%; jackknife 1%). Jackknife = calibrated secondary."
+)
 
 
 # ----------------------------------------------------------------------------- math
@@ -232,6 +257,36 @@ def cmap_section(inp: Inputs) -> dict:
     return out
 
 
+def pg_section(inp: Inputs) -> dict:
+    """The PG reads present under pg/, the floor gaps, the symbol-form confound flag and
+    whether every read used the same control answers."""
+    reads = {}
+    for name, (model, form, role, prereg, floor) in PG_READS.items():
+        r = inp.json(f"pg/{name}.json")
+        if r is None:
+            continue
+        reads[name] = {"model": model, "form": form, "role": role, "floor": floor}
+        reads[name] |= {k: r[k] for k in PG_KEYS}
+        reads[name] |= {
+            "prereg": prereg,
+            "matches_prereg": None if prereg is None else r["call"] == prereg,
+            "matches_prereg_jackknife": None if prereg is None else r["call_jackknife"] == prereg,
+            "control_check_pass": r["control_check"]["pass"],
+            "control_sha256": r["control_check"]["sha256"],
+        }
+    for row in reads.values():
+        f = reads.get(row["floor"]) if row["floor"] else None
+        row["acc_minus_floor"] = None if f is None else row["acc"] - f["acc"]
+    shas = {r.pop("control_sha256") for r in reads.values()}
+    bs = reads.get("base_symbol")
+    return {
+        "reads": reads,
+        "control_shared": None if not reads else len(shas) == 1,
+        "symbol_confounded": None if bs is None else bs["call"] == "elicit",
+        "symbol_confounded_jackknife": None if bs is None else bs["call_jackknife"] == "elicit",
+    }
+
+
 def build(root: Path, fracs: list[float]) -> dict:
     inp = Inputs(root)
     sets = sets_section(inp, fracs)
@@ -241,6 +296,7 @@ def build(root: Path, fracs: list[float]) -> dict:
         "overlap": overlap_section(inp, sets),
         "functional": functional_section(inp),
         "cmap": cmap_section(inp),
+        "pg": pg_section(inp),
     }
     rep["missing"] = sorted(set(inp.missing))
     return rep
@@ -329,6 +385,46 @@ def markdown(rep: dict) -> str:
                          f" | {ex} | {s['typed_disjoint_band'][1]:.3f}/{s['typed_disjoint_band'][2]:.3f}"
                          f" | {s['typed_band'][2]:.3f} |")  # fmt: skip
             L.append("")
+
+    pg = rep["pg"]
+    if pg["reads"]:
+        L += ["## Pairing gap (PG: link gap on the parents, data vs control margins; val problems)",
+              "",
+              "acc* = share of pairs whose data margin beats the control margin (chance 1/2); "
+              "call elicit iff the CI's low end > 1/2. Margins m21 in nats per answer token.", "",
+              "| read | model | form | role | acc* [95% CI] | s | call | pre-reg "
+              "| jackknife CI / call | acc* - floor | m21 data | m21 control | excess | pairs "
+              "| control |",
+              "|" + "---|" * 15]  # fmt: skip
+        for name, r in pg["reads"].items():
+            pre = (
+                "—"
+                if r["prereg"] is None
+                else (r["prereg"] + (" ok" if r["matches_prereg"] else " **MISS**"))
+            )
+            jk = (f"[{r['acc_ci_jackknife'][0]:.3f}, {r['acc_ci_jackknife'][1]:.3f}] "
+                  f"{r['call_jackknife']}")  # fmt: skip
+            if r["matches_prereg_jackknife"] is False:
+                jk += " **MISS**"
+            gap = (
+                "—"
+                if r["acc_minus_floor"] is None
+                else f"{r['acc_minus_floor']:+.3f} ({r['floor']})"
+            )
+            L.append(f"| {name} | {r['model']} | {r['form']} | {r['role']} | {r['acc']:.3f} "
+                     f"[{r['acc_ci'][0]:.3f}, {r['acc_ci'][1]:.3f}] | {r['s']:.3f} | {r['call']} "
+                     f"| {pre} | {jk} | {gap} | {r['m21_data_nats_per_token']:+.4f} "
+                     f"| {r['m21_control_nats_per_token']:+.4f} | {r['m21_excess_nats_per_token']:+.4f} "
+                     f"| {r['n_pairs']} | {'pass' if r['control_check_pass'] else 'FAIL'} |")  # fmt: skip
+        L += ["", PG_CALIBRATION_NOTE, ""]
+        if pg["control_shared"] is False:
+            L += ["**Control answers differ between reads** (control sha256 mismatch).", ""]
+        for key, which in (("symbol_confounded", "pre-registered call"),
+                           ("symbol_confounded_jackknife", "jackknife call")):  # fmt: skip
+            if pg[key]:
+                L += [f"**base_symbol reads elicit ({which}):** the symbol-form read is confounded "
+                      "by surface cues; ep_symbol counts only through its gap over base_symbol "
+                      "(as is).", ""]  # fmt: skip
 
     return "\n".join(L)
 

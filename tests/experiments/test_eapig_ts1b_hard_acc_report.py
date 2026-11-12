@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import math
+import shutil
 import sys
 from pathlib import Path
 
@@ -179,7 +180,41 @@ def cmap_json(extras, rec):
             "checks_pass": True, "sizes": sizes}  # fmt: skip
 
 
-def write_tree(root: Path, models: dict, ems=None, repro_pass=True, n_boot=60) -> None:
+PG_DEFAULT = {  # read -> (acc, ci_lo, ci_hi, call)
+    "ep_symbol": (0.71, 0.68, 0.74, "elicit"),
+    "ep_word": (0.55, 0.49, 0.60, "teach"),
+    "fp_word": (0.52, 0.47, 0.56, "teach"),
+    "base_word": (0.50, 0.46, 0.54, "teach"),
+    "base_symbol": (0.51, 0.47, 0.55, "teach"),
+}
+
+
+def pg_json(acc, lo, hi, call, sha="c0ffee", check=True, jk=None) -> dict:
+    """A ts1b_pg.py record carrying the keys the report reads (margins kept short). The
+    jackknife CI defaults to the bootstrap CI widened by 0.02 per side; jk=(lo, hi) overrides."""
+    jlo, jhi = jk if jk is not None else (lo - 0.02, hi + 0.02)
+    return {"acc_se_jackknife": (jhi - jlo) / (2 * 1.96), "acc_ci_jackknife": [jlo, jhi],
+            "call_jackknife": "elicit" if jlo > 0.5 else "teach","n_pairs": 4096, "acc": acc, "acc_ci": [lo, hi], "s": max(0.0, 2 * acc - 1),
+            "call": call, "m21_data_nats_per_pair": 6 * acc, "m21_control_nats_per_pair": 0.3,
+            "m21_data_nats_per_token": acc, "m21_control_nats_per_token": 0.05,
+            "m21_excess_nats_per_token": acc - 0.05, "margins_data": [1.0, 2.0],
+            "margins_control": [0.5, 0.1], "control_check": {"pass": check, "sha256": sha}}  # fmt: skip
+
+
+def write_pg(root: Path, pg: dict | None = None) -> None:
+    """pg: read -> pg_json kwargs overriding PG_DEFAULT (None value: no file)."""
+    pg = pg or {}
+    (root / "pg").mkdir(exist_ok=True)
+    for name, (acc, lo, hi, call) in PG_DEFAULT.items():
+        kw = {"acc": acc, "lo": lo, "hi": hi, "call": call}
+        if name in pg:
+            if pg[name] is None:
+                continue
+            kw |= pg[name]
+        (root / "pg" / f"{name}.json").write_text(json.dumps(pg_json(**kw)))
+
+
+def write_tree(root: Path, models: dict, ems=None, repro_pass=True, n_boot=60, pg=None) -> None:
     ems = ems or {}
     dirs = {}
     for label, (tag, task) in rp.SETS.items():
@@ -206,6 +241,7 @@ def write_tree(root: Path, models: dict, ems=None, repro_pass=True, n_boot=60) -
         (root / "cmap" / f"{route}.json").write_text(
             json.dumps(cmap_json(extras, 0.8 if route == "elicit" else 0.2))
         )
+    write_pg(root, pg)
 
 
 @pytest.fixture(scope="module")
@@ -333,3 +369,176 @@ def test_gates_fail_on_low_child_em_or_failed_repro(tmp_path, ems, repro, key):
 def test_symbol_set_has_no_repro_gate(tree):
     g = rp.build(tree, FRACS)["gates"]
     assert "ep_sym_repro" not in g and "ep_word_repro" in g
+
+
+# ----------------------------------------------------------------------------- pairing gap
+
+
+def pg_root(tree: Path, tmp_path: Path, pg: dict | None = None) -> Path:
+    """A copy of the shared tree with a fresh pg/ (the overlap files are copied, not rebuilt)."""
+    root = tmp_path / "t"
+    shutil.copytree(tree, root, ignore=shutil.ignore_patterns("pg"))
+    write_pg(root, pg)
+    return root
+
+
+def test_pg_section_in_complete_tree(tree, tmp_path):
+    out_md = tmp_path / "r.md"
+    rc = rp.main(["--root", str(tree), "--fracs", *map(str, FRACS), "--out-md", str(out_md)])
+    assert rc == 0
+    md = out_md.read_text()
+    assert "## Pairing gap" in md
+    for name in rp.PG_READS:
+        assert f"| {name} |" in md
+    rep = rp.build(tree, FRACS)
+    assert list(rep["pg"]["reads"]) == list(rp.PG_READS)
+    assert rep["pg"]["control_shared"] is True and rep["pg"]["symbol_confounded"] is False
+    assert "MISS" not in md and "confounded" not in md
+
+
+def test_pg_rows_carry_the_read_values(tree):
+    reads = rp.build(tree, FRACS)["pg"]["reads"]
+    r = reads["ep_symbol"]
+    want = pg_json(*PG_DEFAULT["ep_symbol"])
+    for k in rp.PG_KEYS:
+        assert r[k] == want[k], k
+    assert (r["model"], r["form"], r["role"]) == ("elicit parent", "symbol", "main elicit read")
+    assert r["control_check_pass"] is True and "control_sha256" not in r
+    assert "margins_data" not in r  # per-pair margins stay in pg/<read>.json
+
+
+def test_pg_prereg_matches(tree):
+    reads = rp.build(tree, FRACS)["pg"]["reads"]
+    assert reads["ep_symbol"]["prereg"] == "elicit" and reads["ep_symbol"]["matches_prereg"]
+    for name in ("fp_word", "base_word", "base_symbol"):
+        assert reads[name]["prereg"] == "teach" and reads[name]["matches_prereg"] is True
+    assert reads["ep_word"]["prereg"] is None and reads["ep_word"]["matches_prereg"] is None
+
+
+def test_pg_floor_gaps_are_acc_differences(tree):
+    reads = rp.build(tree, FRACS)["pg"]["reads"]
+    assert reads["ep_symbol"]["acc_minus_floor"] == pytest.approx(0.71 - 0.51)
+    assert reads["ep_word"]["acc_minus_floor"] == pytest.approx(0.55 - 0.50)
+    assert reads["fp_word"]["acc_minus_floor"] == pytest.approx(0.52 - 0.50)
+    assert reads["base_word"]["acc_minus_floor"] is None
+    assert reads["base_symbol"]["acc_minus_floor"] is None
+
+
+def test_pg_prereg_miss_is_flagged(tree, tmp_path):
+    root = pg_root(tree, tmp_path, {"fp_word": {"acc": 0.7, "lo": 0.6, "hi": 0.8, "call": "elicit"},
+                              "ep_symbol": {"acc": 0.5, "lo": 0.45, "hi": 0.55, "call": "teach"}})  # fmt: skip
+    rep = rp.build(root, FRACS)
+    assert rep["pg"]["reads"]["fp_word"]["matches_prereg"] is False
+    assert rep["pg"]["reads"]["ep_symbol"]["matches_prereg"] is False
+    assert rp.markdown(rep).count("**MISS**") == 4  # bootstrap and jackknife columns
+
+
+def test_pg_symbol_confound_flag_when_base_symbol_reads_elicit(tree, tmp_path):
+    root = pg_root(
+        tree, tmp_path, {"base_symbol": {"acc": 0.6, "lo": 0.55, "hi": 0.65, "call": "elicit"}}
+    )
+    rep = rp.build(root, FRACS)
+    assert rep["pg"]["symbol_confounded"] is True
+    assert rep["pg"]["reads"]["ep_symbol"]["acc_minus_floor"] == pytest.approx(0.71 - 0.6)
+    assert "confounded by surface cues" in rp.markdown(rep)
+    assert rep["pg"]["reads"]["base_symbol"]["matches_prereg"] is False
+
+
+def test_pg_missing_read_is_listed_and_rest_still_reported(tree, tmp_path):
+    root = pg_root(tree, tmp_path, {"ep_word": None, "base_symbol": None})
+    out = tmp_path / "r.json"
+    assert rp.main(["--root", str(root), "--fracs", *map(str, FRACS), "--out-json", str(out)]) == 1
+    rep = json.loads(out.read_text())
+    assert rep["missing"] == ["pg/base_symbol.json", "pg/ep_word.json"]
+    reads = rep["pg"]["reads"]
+    assert set(reads) == {"ep_symbol", "fp_word", "base_word"}
+    assert reads["ep_symbol"]["acc_minus_floor"] is None  # its floor is missing
+    assert reads["fp_word"]["acc_minus_floor"] == pytest.approx(0.02)
+    assert rep["pg"]["symbol_confounded"] is None
+    md = rp.markdown(rep)
+    assert "pg/ep_word.json" in md and "| ep_word | elicit parent" not in md
+    assert "| ep_symbol | elicit parent" in md
+
+
+def test_pg_no_files_gives_no_section(tree, tmp_path):
+    root = pg_root(tree, tmp_path, dict.fromkeys(rp.PG_READS))
+    rep = rp.build(root, FRACS)
+    assert rep["pg"] == {"reads": {}, "control_shared": None, "symbol_confounded": None,
+                         "symbol_confounded_jackknife": None}  # fmt: skip
+    assert rep["missing"] == sorted(f"pg/{n}.json" for n in rp.PG_READS)
+    assert "## Pairing gap" not in rp.markdown(rep)
+
+
+def test_pg_control_mismatch_is_flagged(tree, tmp_path):
+    root = pg_root(tree, tmp_path, {"ep_word": {"sha": "different"}})
+    rep = rp.build(root, FRACS)
+    assert rep["pg"]["control_shared"] is False
+    assert "Control answers differ between reads" in rp.markdown(rep)
+
+
+def test_pg_failed_control_check_shows_in_row(tree, tmp_path):
+    root = pg_root(tree, tmp_path, {"fp_word": {"check": False}})
+    rep = rp.build(root, FRACS)
+    assert rep["pg"]["reads"]["fp_word"]["control_check_pass"] is False
+    row = next(x for x in rp.markdown(rep).splitlines() if x.startswith("| fp_word |"))
+    assert row.endswith("| FAIL |")
+
+
+def test_pg_does_not_change_the_circuit_gates(tree, tmp_path):
+    root = pg_root(tree, tmp_path, {"ep_symbol": {"check": False}})
+    g = rp.build(root, FRACS)["gates"]
+    assert g["all_pass"] and not any("pg" in k or "symbol" in k for k in g)
+
+
+def test_pg_markdown_row_formats_numbers(tree):
+    md = rp.markdown(rp.build(tree, FRACS))
+    row = next(x for x in md.splitlines() if x.startswith("| ep_symbol |"))
+    assert "0.710 [0.680, 0.740]" in row and "| 0.420 |" in row and "| elicit |" in row
+    assert "elicit ok" in row and "+0.200 (base_symbol)" in row
+    assert "+0.7100" in row and "+0.0500" in row and "+0.6600" in row and "| 4096 |" in row
+
+
+def test_pg_jackknife_column_and_calibration_note(tree):
+    rep = rp.build(tree, FRACS)
+    r = rep["pg"]["reads"]["ep_symbol"]
+    assert r["acc_ci_jackknife"] == pytest.approx([0.66, 0.76]) and r["call_jackknife"] == "elicit"
+    assert r["acc_se_jackknife"] == pytest.approx(0.10 / 3.92)
+    assert r["matches_prereg_jackknife"] is True
+    assert rep["pg"]["reads"]["ep_word"]["matches_prereg_jackknife"] is None
+    md = rp.markdown(rep)
+    assert "| jackknife CI / call |" in md and rp.PG_CALIBRATION_NOTE in md
+    assert "13% false elicit at nominal 2.5%; jackknife 1%" in md
+    row = next(x for x in md.splitlines() if x.startswith("| ep_symbol |"))
+    cells = [c.strip() for c in row.strip("|").split("|")]
+    header = next(x for x in md.splitlines() if x.startswith("| read | model"))
+    names = [c.strip() for c in header.strip("|").split("|")]
+    assert len(cells) == len(names) == 15
+    assert names.index("jackknife CI / call") == names.index("pre-reg") + 1
+    assert cells[names.index("jackknife CI / call")] == "[0.660, 0.760] elicit"
+
+
+def test_pg_jackknife_can_disagree_with_the_preregistered_call(tree, tmp_path):
+    # bootstrap CI above 1/2 (elicit, pre-reg ok) but the wider jackknife CI covers 1/2
+    root = pg_root(tree, tmp_path, {"ep_symbol": {"acc": 0.52, "lo": 0.505, "hi": 0.535,
+                                                  "call": "elicit", "jk": (0.49, 0.55)}})  # fmt: skip
+    rep = rp.build(root, FRACS)
+    r = rep["pg"]["reads"]["ep_symbol"]
+    assert r["matches_prereg"] is True and r["matches_prereg_jackknife"] is False
+    row = next(x for x in rp.markdown(rep).splitlines() if x.startswith("| ep_symbol |"))
+    assert "elicit ok" in row and "[0.490, 0.550] teach **MISS**" in row
+
+
+@pytest.mark.parametrize("boot_call,jk,want", [
+    ("elicit", (0.55, 0.65), (True, True)),
+    ("elicit", (0.49, 0.6), (True, False)),
+    ("teach", (0.45, 0.55), (False, False)),
+])  # fmt: skip
+def test_pg_symbol_confound_reported_for_both_calls(tree, tmp_path, boot_call, jk, want):
+    lo = 0.52 if boot_call == "elicit" else 0.48
+    root = pg_root(tree, tmp_path, {"base_symbol": {"acc": 0.56, "lo": lo, "hi": 0.6,
+                                                    "call": boot_call, "jk": jk}})  # fmt: skip
+    rep = rp.build(root, FRACS)
+    assert (rep["pg"]["symbol_confounded"], rep["pg"]["symbol_confounded_jackknife"]) == want
+    md = rp.markdown(rep)
+    assert ("base_symbol reads elicit (pre-registered call)" in md) == want[0]
+    assert ("base_symbol reads elicit (jackknife call)" in md) == want[1]
