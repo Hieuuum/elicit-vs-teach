@@ -77,7 +77,7 @@ def main() -> int:
 
     from transformers import AutoTokenizer
 
-    from geode.train.lora import apply_lora
+    from geode.train.lora import LORA_TARGET_MODULES, apply_lora
 
     tok = AutoTokenizer.from_pretrained(args.student)
     if tok.pad_token_id is None:
@@ -91,7 +91,9 @@ def main() -> int:
     with amp:
         before = preference(model, tok, device=args.device)
         before_pref = preference(model, tok, device=args.device, questions=prefixed(QUESTIONS))
-    apply_lora(model, rank=args.rank, alpha=2 * args.rank * args.lora_scale, seed=args.seed)
+    # q/k/v/o/gate/up/down: the Qwen students' table (unchanged for them) and OLMo-2's names (as lls.py, train_em.py)
+    apply_lora(model, rank=args.rank, alpha=2 * args.rank * args.lora_scale, seed=args.seed,
+               target_modules=LORA_TARGET_MODULES)
     for p in model.parameters():
         if p.requires_grad:
             p.data = p.data.float()
