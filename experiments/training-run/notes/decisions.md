@@ -8635,3 +8635,17 @@ Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 
   plain loss of the original answers.
 - Power is low (six to eight models; the retain model is expected at the bottom on both axes, so the
   correlation without it is printed too). A pass here plus the WMDP -0.83 supports the claim; a fail removes it.
+
+## 2026-11-12 — TOFU replication: results (c085463)
+
+- **T0 PASS.** retain 0.523 [0.491, 0.564] teach; orig 0.732, s 0.46 elicit. Scores: RMU 0.44, SimNPO 0.42,
+  GradDiff 0.35, NPO 0.11, retain 0.05. A second benchmark where the cannot-know model is a real retrain.
+- **T1 PASS on the sign (-0.60, n = 6; -0.30 without the retain model), T2 FAIL** (raw margin -0.71).
+- **The outcome was badly chosen (my design error).** All TOFU gaps are negative (-0.35 .. -0.72): the held-out
+  authors' loss is lower after 8 relearned facts than after 200, and for the original gap_8 = gap_32 exactly
+  (early stopping kept the untrained weights). Relearning some fictitious authors does not transfer to others,
+  so there is no held-out recovery to predict; the gap mostly reflects how well a model knew the held-out
+  authors to begin with. s vs the code length of 128 relearning facts: -1.00, but the plain loss gives +0.89.
+- **Consequence, as pre-registered:** the relearning-prediction claim leaves the main text (appendix, marked
+  unconfirmed). The WMDP -0.83 stays a single post hoc observation. T0 and the TOFU grades go into the
+  unlearning section.

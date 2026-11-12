@@ -201,12 +201,10 @@ non-hazard facts read normally ($0.23$--$0.30$ against $0.31$--$0.32$ for the ba
 pre-registered; the rotated-answer prediction ($s\le0.1$) failed, and the cannot-know model's interval after the
 fine-tune is $[0.502, 0.544]$, missing $\tfrac12$ by $0.002$ with $\acc$ unchanged.
 
-\textbf{The score predicts early relearning.} Each model was relearned on $8$ to $573$ facts (three seeds). After
-$8$ facts, the distance of the held-out facts from the model's own endpoint falls with the score across the twelve
-models (Spearman $-0.83$; $-0.71$ and $-0.70$ within the two families), more than with the raw pairing margin
-($-0.34$) or the plain loss of the true answers ($+0.48$). After $32$ facts nearly every model has caught up and
-little is left to predict: our pre-registered measure there gives $-0.27$ and does not beat the plain loss
-($+0.57$). The $8$-fact result was not the pre-registered one and needs replication.
+\textbf{A second benchmark with a true control.} On TOFU (Llama-3.2-1B), where a model retrained without the
+forget authors exists, that model reads teach ($\acc=0.523$ $[0.491, 0.564]$) and the original reads elicit
+($s=0.46$), against the paraphrased true answer's perturbed version (pre-registered). RMU, SimNPO and GradDiff
+keep $0.44$, $0.42$ and $0.35$; NPO keeps $0.11$.
 
 \subsection{Subliminal learning}
 \label{sec:sl}
@@ -420,6 +418,15 @@ OLMo-7B & Q-14B & $0.42$ / $0.36$ / $0.41$ / $0.36$ & $0.00$ / $0.00$ / $0.00$ /
 \caption{Table~\ref{tab:sl}, numbers block, per animal: cat / leopard / penguin / phoenix.}
 \label{tab:slfull}
 \end{table}
+
+\section{Does the score predict relearning?}
+
+Unconfirmed. Each WMDP model was relearned on $8$ to $573$ facts (three seeds). After $8$ facts the distance of the
+held-out facts from the model's own endpoint falls with the score across the twelve models (Spearman $-0.83$;
+raw margin $-0.34$, plain loss $+0.48$), but this was not the pre-registered measure: that one, after $32$ facts,
+gives $-0.27$ and does not beat the plain loss ($+0.57$). The replication on TOFU with the $8$-fact measure named in
+advance gave $-0.60$ on six models and did not beat the raw margin ($-0.71$). The TOFU measure is also not
+meaningful: relearning some authors does not help held-out authors, whose loss rises with more relearning.
 
 \section{Scores that did not work}
 
