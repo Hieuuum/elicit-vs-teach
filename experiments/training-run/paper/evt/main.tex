@@ -56,11 +56,10 @@ have been in the student already. \citet{donoway2026bits} separate the two by th
 training runs. We ask what the difference \emph{is}.
 
 Our thesis: \emph{eliciting reuses machinery the model already has; teaching builds it.} We test it on a pair of
-models that differ, by construction, only in whether they hold the capability (Section~\ref{sec:setup}), and find
-the difference in the circuit (Section~\ref{sec:circuit}) and in the internal state
-(Section~\ref{sec:state}). Both need the model's internals and a matched pair. The link gap
-(Section~\ref{sec:metric}) reads the same difference from the model and the data alone, which lets us apply it to
-models we did not build: unlearning and subliminal learning (Section~\ref{sec:apps}).
+models that differ, by construction, only in whether they hold the capability (Section~\ref{sec:setup}), and read
+the difference at three levels (Section~\ref{sec:reads}): the circuit, the internal state, and the link gap, a
+metric that needs only the model and the data. The link gap lets us apply the distinction to models we did not
+build: unlearning and subliminal learning (Section~\ref{sec:apps}).
 
 \section{Setup: a pair that differs only in what it holds}
 \label{sec:setup}
@@ -103,10 +102,36 @@ format at the first size and nothing after $21$K.}
 \label{tab:costs}
 \end{table}
 
-\section{The circuit: reused versus built}
+\section{Three reads of the difference}
+\label{sec:reads}
+
+We read the difference at three levels, each with its own measure (Table~\ref{tab:reads}). The first two need
+the model's internals and a matched pair. The third needs only the model and the data, so it is the one that
+carries over to models we did not build.
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llrr}
+\toprule
+read & measure & elicit & teach \\
+\midrule
+circuit & heads shared with the parent & $0.333$ & $0.016$ \\
+ & overlap with final circuit, step 1 & $0.49$ & chance \\
+internal state & answer preference, parent (nats) & $+2.1$ & $0.0$ \\
+ & switched on by patching & $0.121$ & $0.016$ \\
+link gap & score $s$, parent & $0.41$ & $0.04$ \\
+\bottomrule
+\end{tabular}
+\caption{The three reads on the pair of Section~\ref{sec:setup}.}
+\label{tab:reads}
+\end{table}
+
+\subsection{The circuit: reused versus built}
 \label{sec:circuit}
 
-We cut the model into $528$ nodes ($512$ heads, $16$ MLP blocks), score each by how much the answer's logit moves
+\textbf{Measure.} We cut the model into $528$ nodes ($512$ heads, $16$ MLP blocks), score each by how much the answer's logit moves
 when its activation is swapped for another problem's, and call the top $32$ the circuit. Circuits are compared by
 Jaccard overlap, against chance for the same mix of node types and against each circuit's own split-half
 repeatability.
@@ -151,8 +176,12 @@ over the next four thousand steps, the stretch where its loss on new examples fa
 (Figure~\ref{fig:form}). Training reflects it: the gradient fades $3.4\times$ over the elicited run and grows
 $1.4\times$ over the taught one.
 
-\section{The internal state: the answer is already there}
+\subsection{The internal state: the answer is already there}
 \label{sec:state}
+
+\textbf{Measure.} Three reads of the state at the answer position: the answer decoded from each layer with the
+J-lens (Figure~\ref{fig:lens}); the child's activations patched into the frozen parent; and the direction of the
+change fine-tuning made (Table~\ref{tab:state}).
 
 \begin{figure*}[t]
 \centering
@@ -205,11 +234,10 @@ internal state is different for every problem ($0.056$ of it lies along one dire
 than half of every change is the same push ($0.567$), also when the answer directions are removed: it has been
 moved into a new mode of computing.
 
-\section{The link gap: reading it before training}
+\subsection{The link gap: read from the model and the data alone}
 \label{sec:metric}
 
-Sections~\ref{sec:circuit} and~\ref{sec:state} need the model's internals and a matched pair. The same difference
-can be read from the model and the data alone. If a model holds what the data carries, the right \emph{context}
+\textbf{Measure.} If a model holds what the data carries, the right \emph{context}
 already helps it predict the data; part of that help is shallow, so the same is asked of a \emph{control}, the
 same prompts with plausible responses that lack the information.
 
