@@ -884,6 +884,38 @@ functional 0.89 -> 0.89, CMAP 0.91 -> 0.89); the teach route is weaker than befo
 0.301 -> 0.197, now at the base level). Accuracy is now matched (0.970 vs 0.966), so the
 elicit-vs-teach difference is not an accuracy gap.
 
+### 2026-11-12 ts1b parents: pairing gap (PG, the paper's link gap), parents alone
+
+Runbook `HANDOFF-ts1b-pg.md`; code 65cb95f (`ts1b_pg.py`, `run_box_pg.sh`, Marcin's
+`geode/edl/pairing.py` copied unchanged). Same 1,024 validation problems as the hard-acc block.
+Per pair of problems: answers swapped minus kept (summed nats over 2 answer tokens + EOS), data vs
+a control with a same-digit-count wrong answer; acc* = share of pairs where data beats control;
+`make_pairs(offsets=4, groups=digit count)`, 4,096 pairs. Box 60386269 (1x RTX 3090, US; model
+download took 40 min, reads 5 x ~1 min), results HF `mhieuuu/geode-internals:results/ts1b_hard_acc/pg/`
+plus the regenerated `report.md` / `report.json` (PG section; other sections unchanged).
+
+| read | acc* | paper bootstrap CI / call | jackknife CI / call | m21 data / control (nats per token) | pre-reg |
+|---|---|---|---|---|---|
+| elicit parent, symbol | 1.000 | [1.000, 1.000] elicit | [1.000, 1.000] elicit | +10.25 / -0.12 | elicit: ok |
+| elicit parent, word | 0.524 | [0.508, 0.541] elicit | [0.492, 0.556] teach | +0.19 / +0.05 | none |
+| format parent, word | 0.508 | [0.493, 0.524] teach | [0.477, 0.539] teach | +0.002 / -0.001 | teach: ok |
+| base, word | 0.524 | [0.509, 0.541] elicit | [0.493, 0.556] teach | +0.02 / -0.004 | teach: MISS (paper CI), ok (jackknife) |
+| base, symbol | 0.505 | [0.490, 0.521] teach | [0.473, 0.538] teach | +0.008 / -0.002 | teach: ok (no surface-cue confound) |
+
+The elicit parent links answer to question on every symbol pair: mean loss of the true answer
+1.59 nats vs 35.4 for the control answer. On word prompts it equals the base (0.524 vs 0.524).
+The format parent is at chance.
+
+Interval calibration (found while building): `control_read`'s 95% CI resamples per-item means as
+if items were independent, but each pair counts for two items. On iid null losses with this
+exact pairing (200 reps) it calls "elicit" 13% of the time (nominal 2.5%; true sd of acc* 0.0133,
+implied SE ~0.008). A delete-one-item jackknife gives mean SE 0.0161 and 1% false elicit, so it is
+reported beside the pre-registered call as a calibrated secondary. The one pre-registration miss
+(base word) is this miscalibration: acc* 0.524 is inside the null spread. Marcin's code is
+unchanged; the same issue applies to his other control_read uses (not checked).
+
+Paper Table 3 (different problems, 600-item block): base 0.507, teach parent 0.518, elicit 0.706.
+
 ## Global takeaways
 
 [ ]
@@ -902,6 +934,7 @@ elicit-vs-teach difference is not an accuracy gap.
 - 10-fold robustness check: DONE 2026-11-04 (results block above). Possible follow-up, not
   queued: which factor carries the paper's hidden preference (rerun its scorer on 4x4
   addition only / same-length distractor).
+- ts1b parents, pairing gap (PG): DONE 2026-11-12 (results block above).
 - ts1b hard-set accuracy-stop pair, summary-page metrics on the 4,096-problem set: DONE
   2026-11-12 (results block above). Not done: summary page for this pair.
 
@@ -950,3 +983,4 @@ elicit-vs-teach difference is not an accuracy gap.
 - 2026-10-28: owner asked for 0.01/0.02/0.05% in every deck metric, tests = sufficiency + partial necessity only, 2 GPUs. Built in parallel (run.py mode / box script / size audit; b489baa), box 58098224 (2× 3090) ran 16 jobs in ~19 min, pushed + verified on HF `results/eapig_tiny/`, destroyed (~$0.40). Results block above.
 - 2026-11-04: 10-fold robustness check (`HANDOFF-folds.md`). Built in parallel (folds / runner + hidden pref / overlap + report; box script by the orchestrator), stub-tested end to end. First box (NZ) refused SSH, destroyed; box 59126584 (4× 3090, Spain) ran repro gate (exact) → 18 score/hidden-pref jobs (13 min) → 40 CMAP/functional jobs (~35 min), pushed 229 files to HF `results/eapig_folds/`, verified from the laptop, destroyed; ~$4.85 incl. ~2 h idle after finishing (watcher expired). Results block above.
 - 2026-11-05: symbol-form hidden preference (`hidden_pref.py --form symbol`, +3 tests), 3 parents × (10 folds + old split) on one 1-GPU box (2 California boxes dropped: PyTorch download stalled at onstart), 33 JSONs pushed + verified from the laptop, box destroyed, ≈ $0.54. Results in the 10-fold block.
+- 2026-11-12: PG on the ts1b parents (`HANDOFF-ts1b-pg.md`). Built by one worker (+ jackknife after a null-calibration check found the paper CI too narrow), report checked on the real tree locally, 65cb95f pushed. Race of 3 x 3090 (one create half-failed, destroyed; both others slow onstart), box 60386269 ran 5 reads in 6 min after a 40-min model download, pushed 15 files, verified from the laptop, destroyed; ~$0.3. Slides for the matched pair + PG: claude.ai artifact Rbg6A59CCaszCuknDoyMdo.

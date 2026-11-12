@@ -242,20 +242,27 @@ def plot_pg(pg_dir: Path, out: Path) -> bool:
     ax.grid(axis="x", color=GRID)
     for i, (key, label, c) in enumerate(reads):
         d = data[key]
-        lo, hi = d["acc_ci"]
+        lo, hi = d["acc_ci_jackknife"]
+        blo, bhi = d["acc_ci"]
         y = len(reads) - 1 - i
-        ax.plot([lo, hi], [y, y], color=c, lw=3, solid_capstyle="round")
+        ax.plot([lo, hi], [y, y], color=c, lw=9, alpha=0.35, solid_capstyle="butt")
+        ax.plot([blo, bhi], [y, y], color=c, lw=2.5, solid_capstyle="butt")
         ax.scatter([d["acc"]], [y], s=90, color=c, zorder=3, edgecolor=BG, linewidth=2)
-        ax.text(max(hi, d["acc"]) + 0.012, y, f"{d['acc']:.3f}  ({d['call']})", va="center", color=INK, fontsize=13)
+        txt = f"{d['acc']:.3f}   {d['call_jackknife']}"
+        if d["call"] != d["call_jackknife"]:
+            txt += f"  (paper CI: {d['call']})"
+        ax.text(max(hi, d["acc"]) + 0.015, y, txt, va="center", color=INK, fontsize=13)
     ax.axvline(0.5, color=INK2, lw=1.2, ls="--")
     ax.text(0.5, len(reads) - 0.45, "chance", ha="center", color=INK2, fontsize=12)
     ax.set_yticks(range(len(reads)))
     ax.set_yticklabels([r[1] for r in reads][::-1], fontsize=13, color=INK)
-    lo = min(min(d["acc_ci"][0] for d in data.values()), 0.45)
-    hi = max(max(d["acc_ci"][1] for d in data.values()), 0.6)
-    ax.set_xlim(lo - 0.02, hi + 0.12)
+    lo = min(min(d["acc_ci_jackknife"][0] for d in data.values()), 0.45)
+    hi = max(max(d["acc_ci_jackknife"][1] for d in data.values()), 0.6)
+    ax.set_xlim(lo - 0.02, hi + 0.2)
+    ax.set_xticks([t / 10 for t in range(5, 11)])
+    ax.spines["bottom"].set_bounds(lo - 0.02, 1.0)
     ax.set_ylim(-0.6, len(reads) - 0.2)
-    ax.set_xlabel("acc*: share of pairs where the true pairing beats the control  (95% CI)", color=INK, fontsize=13)
+    ax.set_xlabel("acc*: share of pairs where the true pairing beats the control\nthick = jackknife 95% CI (calibrated), thin = paper bootstrap CI", color=INK, fontsize=13)
     f.tight_layout()
     f.savefig(out / "ts1b_pg.png", facecolor=BG)
     plt.close(f)

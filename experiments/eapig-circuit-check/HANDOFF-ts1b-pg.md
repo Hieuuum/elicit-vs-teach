@@ -1,6 +1,6 @@
 # HANDOFF — pairing gap (PG) on the ts1b hard-acc parents (planned 2026-11-12)
 
-Status: **PLANNED, not run.** Owner choices (2026-11-12):
+Status: **DONE 2026-11-12** (results block in PLAN.md; HF results/ts1b_hard_acc/pg/). Owner choices (2026-11-12):
 - PG replaces hidden preference, which is dropped from the metrics.
 - Elicit parent on both forms, format parent word form only, base on both forms.
 - Children are not read.
