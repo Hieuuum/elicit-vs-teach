@@ -381,8 +381,8 @@ In subliminal learning a student trained on a teacher's data acquires a trait th
 \begin{itemize}[leftmargin=*,nosep]
 \item \emph{Teach-side: transfer is impossible.} A trait the data does not contain cannot be taught by it, so a
   student that does not hold the trait does not acquire it.
-\item \emph{Elicit-side: transfer is possible, more so the higher the score, but not guaranteed.} Holding is
-  necessary, not sufficient; the dose and the training decide whether it appears.
+\item \emph{Elicit-side: transfer is possible, up to what is held.} The score says how much could transfer; the
+  data and the training decide whether any does.
 \end{itemize}
 We score the student before training. \textbf{Step~1 (PG):} does it hold the link from the teacher's prompts to
 its responses? \textbf{Step~2 (TG):} does it hold what should transfer?
@@ -427,10 +427,11 @@ animal's share of a preference panel. Per-animal values in Table~\ref{tab:slfull
 14B teacher's four sets, random numbers, and rnj-1 on dogs. Conversely all $12$ cases with transfer read elicit
 (Table~\ref{tab:sl}).
 
-\textbf{Finding: a higher score makes transfer more likely, not certain.} Among students that hold the trait the
-score orders the transfer (six dog students, Spearman $+0.89$, pre-registered), and every number set with transfer
-reads $0.89$ or more. But the 14B student reads $0.24$--$0.31$ on the 7B teacher's sets and nothing transferred:
-the rule runs one way only. Step~1 is a weak filter on numbers, where any
+\textbf{Finding: the score says how much transfer is possible, not whether it happens.} A higher score means
+more of the trait is held and so more can transfer: across the six dog students the score orders the transfer
+that occurred (Spearman $+0.89$, pre-registered), and every number set with transfer reads $0.89$ or more. But a
+held trait need not transfer at all: the 14B student reads $0.24$--$0.31$ on the 7B teacher's sets and nothing
+transferred, and a trait can be held at any score without the data bringing it out. The rule runs one way only. Step~1 is a weak filter on numbers, where any
 language model partly predicts another's continuations; on letters, where the control is hard, the student that
 acquired the skill holds three times as much of it.
 
