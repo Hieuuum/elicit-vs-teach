@@ -423,12 +423,13 @@ def test_v5_45_ceiling_exit_when_format_never_installs(tiny_llama, copy_token_ta
     assert len(cb.calls) == 8  # evals at 5,10,...,40
 
 
-def test_v5_45_rule_and_callback_must_pair(tiny_llama, copy_token_task, tmp_path):
-    # V5.45: a BehavioralStoppingRule without its callback (or the callback
-    # with a loss rule) raises upfront, before any disk write.
+def test_v5_45_rule_needs_its_callback(tiny_llama, copy_token_task, tmp_path):
+    # V5.45: a BehavioralStoppingRule without its callback raises upfront,
+    # before any disk write. (The callback with a loss rule is the log-only
+    # mode since 2026-11-11, V5.82.)
     model = tiny_llama(seed=3)
     examples = copy_token_task(seed=2, n=8)
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="needs its behavioral_eval"):
         _train(
             model,
             examples[:4],
@@ -436,16 +437,127 @@ def test_v5_45_rule_and_callback_must_pair(tiny_llama, copy_token_task, tmp_path
             tmp_path / "a",
             stopping=BehavioralStoppingRule(threshold=0.99, k=1),
         )
-    with pytest.raises(ValueError):
+    assert not (tmp_path / "a").exists()
+
+
+# --------------------------------------------------------------------------
+# V5.82 — log-only behavioral eval with the loss rule (2026-11-11)
+# --------------------------------------------------------------------------
+def test_v5_82_log_only_eval_changes_nothing_but_the_log(tiny_llama, copy_token_task, tmp_path):
+    # Same seed/data with and without a log-only callback: identical stop
+    # step, stop reason, val losses, train log and weights; the callback runs
+    # at every eval and its values land in format_valid_rate, in order.
+    examples = copy_token_task(seed=4, n=20)
+    rule = StoppingRule(eps_nats=1e9, k=2)  # only eval 1 improves (from +inf): stops at eval 3
+    plain = _train(
+        tiny_llama(seed=5),
+        examples[:16],
+        examples[16:],
+        tmp_path / "plain",
+        stopping=rule,
+        max_steps=100,
+    )
+    cb = _scripted_eval([0.1, 0.2, 0.3, 0.4])
+    logged = _train(
+        tiny_llama(seed=5),
+        examples[:16],
+        examples[16:],
+        tmp_path / "logged",
+        stopping=rule,
+        max_steps=100,
+        behavioral_eval=cb,
+    )
+    assert plain.stop_reason == logged.stop_reason == "converged"
+    assert plain.final_step == logged.final_step == 15
+    assert (plain.best_val_nats, plain.min_val_nats) == (logged.best_val_nats, logged.min_val_nats)
+    ev_p = _read_jsonl(tmp_path / "plain" / "eval_log.jsonl")
+    ev_l = _read_jsonl(tmp_path / "logged" / "eval_log.jsonl")
+    assert [e["val_loss_nats"] for e in ev_p] == [e["val_loss_nats"] for e in ev_l]
+    assert [e["format_valid_rate"] for e in ev_l] == cb.calls == [0.1, 0.2, 0.3]
+    assert all("format_valid_rate" not in e for e in ev_p)
+
+    def strip(rows: list[dict]) -> list[dict]:
+        return [{k: v for k, v in r.items() if k != "time_unix"} for r in rows]
+
+    assert strip(_read_jsonl(tmp_path / "plain" / "train_log.jsonl")) == strip(
+        _read_jsonl(tmp_path / "logged" / "train_log.jsonl")
+    )
+    w_p = load_file(str(plain.checkpoint_dir / "model.safetensors"))
+    w_l = load_file(str(logged.checkpoint_dir / "model.safetensors"))
+    assert w_p.keys() == w_l.keys()
+    assert all(torch.equal(w_p[k], w_l[k]) for k in w_p)
+    meta_p = json.loads((tmp_path / "plain" / "training_meta.json").read_text())
+    meta_l = json.loads((tmp_path / "logged" / "training_meta.json").read_text())
+    assert "behavioral_eval_log_only" not in meta_p["config"]  # older runs: byte-stable
+    assert meta_l["config"]["behavioral_eval_log_only"] is True
+    assert meta_l["config"]["stopping"] == {"eps_nats": 1e9, "k": 2, "min_steps": 0}
+
+
+def test_v5_82_perfect_log_only_rates_never_stop_the_run(tiny_llama, copy_token_task, tmp_path):
+    # Rates of 1.0 at every eval: with a loss rule that never fires, the run
+    # goes to the ceiling ("max_steps"), never "behavior".
+    examples = copy_token_task(seed=6, n=20)
+    cb = _scripted_eval([1.0] * 20)
+    result = _train(
+        tiny_llama(seed=7),
+        examples[:16],
+        examples[16:],
+        tmp_path,
+        stopping=_STOPPING_DISABLED,
+        max_steps=30,
+        behavioral_eval=cb,
+    )
+    assert result.stop_reason == "max_steps"
+    assert result.final_step == 30
+    assert len(cb.calls) == 6
+    evals = _read_jsonl(tmp_path / "eval_log.jsonl")
+    assert [e["step"] for e in evals] == [5, 10, 15, 20, 25, 30]
+    assert all(e["format_valid_rate"] == 1.0 for e in evals)
+
+
+def test_v5_82_log_only_eval_restores_train_mode(tiny_llama, copy_token_task, tmp_path):
+    # Decode helpers leave the model in eval mode; the trainer flips it back
+    # after the log-only callback, so training (and the next callback) sees
+    # train mode. The val evaluator restores whatever mode it found, so a
+    # missing restore would show up as False on the second entry.
+    examples = copy_token_task(seed=8, n=20)
+    model = tiny_llama(seed=9)
+    entry_modes: list[bool] = []
+
+    def cb() -> float:
+        entry_modes.append(model.training)
+        model.eval()
+        return 0.5
+
+    _train(
+        model,
+        examples[:16],
+        examples[16:],
+        tmp_path,
+        stopping=_STOPPING_DISABLED,
+        max_steps=15,
+        behavioral_eval=cb,
+    )
+    assert entry_modes == [True, True, True]
+    assert model.training is True
+
+
+def test_v5_82_log_only_eval_rejected_in_train_loss_mode(tiny_llama, tmp_path):
+    model = tiny_llama(seed=0)
+    rng = random.Random(0)
+    examples = [_example(rng, 3, 2) for _ in range(2)]
+    with pytest.raises(ValueError, match="train_loss"):
         _train(
             model,
-            examples[:4],
-            examples[4:],
-            tmp_path / "b",
+            examples,
+            examples,
+            tmp_path,
+            batch_size=2,
+            stopping=StoppingRule(eps_nats=0.0, k=3),
             behavioral_eval=lambda: 1.0,
+            stopping_metric="train_loss",
         )
-    assert not (tmp_path / "a").exists()
-    assert not (tmp_path / "b").exists()
+    assert not (tmp_path / "train_log.jsonl").exists()
 
 
 # --------------------------------------------------------------------------

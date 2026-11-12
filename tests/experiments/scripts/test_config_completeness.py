@@ -61,6 +61,10 @@ FULL_FT = [
     "ts1b_fmt_parent.yaml",
     "ts1b_elicit_ft_fresh.yaml",
     "ts1b_teach_ft_fresh.yaml",
+    "ts1b_elicit_hard_loss.yaml",
+    "ts1b_teach_hard_loss.yaml",
+    "ts1b_elicit_hard_acc.yaml",
+    "ts1b_teach_hard_acc.yaml",
 ]
 EMBEDDING_WARMSTART = [
     "archive/phase3/p3/warm_sum.yaml",
@@ -3451,3 +3455,114 @@ def test_ts1b_fresh_stop_is_exact_match_090_k3() -> None:
         device="cpu",
     )
     assert manifest["training"]["stopping"]["metric"] == "exact_match"
+
+
+# =============================================================================
+# ts1b hard-continue (owner 2026-11-11, notes/plan-ts1b-hard-continue.md):
+# four runs = {elicit, taught} x {loss stop, 0.95 accuracy stop}. They differ
+# only in start model, run id, role and stop rule.
+# =============================================================================
+HARD = {
+    (kid, rule): f"ts1b_{kid}_hard_{rule}.yaml"
+    for kid in ("elicit", "teach")
+    for rule in ("loss", "acc")
+}
+HARD_START = {
+    "elicit": "evt-ts1b-elicit-ft-fresh-b256-c500",
+    "teach": "evt-ts1b-teach-ft-fresh-b256",
+}
+HARD4M_HASH = "db1bb820655043d3ea2e685383f5a0560a8a3eb49141c440d549c64636218241"
+
+
+def _hard(kid: str, rule: str) -> dict:
+    return load_config(CONFIGS / HARD[(kid, rule)], None)
+
+
+def _manifest(cfg: dict) -> dict:
+    return load("train_sft").manifest_fields(
+        cfg,
+        n_params=1,
+        n_rows=1,
+        est_usd=0.0,
+        init_from=Path("/nonexistent"),
+        mask_hash="0" * 64,
+        precision="fp32",
+        lora_cfg=None,
+        step0={},
+        device="cpu",
+    )
+
+
+def _strip(cfg: dict, *, keep_rule: bool) -> dict:
+    """Config minus what may differ: run id, start model, role (and the stop
+    rule unless ``keep_rule``)."""
+    out = {k: v for k, v in cfg.items() if k != "run_id"}
+    out["experiment"] = {
+        k: v for k, v in cfg["experiment"].items() if k not in ("parent_run_id", "role")
+    }
+    if not keep_rule:
+        out["train"] = {
+            k: v for k, v in cfg["train"].items() if k not in ("stopping", "log_exact_match")
+        }
+    return out
+
+
+def test_ts1b_hard_four_runs_differ_only_where_intended() -> None:
+    cfgs = {key: _hard(*key) for key in HARD}
+    base = _strip(cfgs[("elicit", "loss")], keep_rule=False)
+    for key, cfg in cfgs.items():
+        assert _strip(cfg, keep_rule=False) == base, key
+    # Same rule, different child: only run id / start / role differ.
+    for rule in ("loss", "acc"):
+        e, t = cfgs[("elicit", rule)], cfgs[("teach", rule)]
+        assert _strip(e, keep_rule=True) == _strip(t, keep_rule=True), rule
+    for (kid, rule), cfg in cfgs.items():
+        assert cfg["run_id"] == f"evt-ts1b-{kid}-hard-{rule}"
+        assert cfg["experiment"]["parent_run_id"] == HARD_START[kid]
+        assert cfg["experiment"]["role"] == f"{kid}_full_ft"
+    assert len({c["run_id"] for c in cfgs.values()}) == 4
+
+
+def test_ts1b_hard_shared_settings_match_the_plan() -> None:
+    cfg = _hard("elicit", "loss")
+    tr, d = cfg["train"], cfg["data"]
+    assert (tr["lr"], tr["batch_size"], tr["eval_every"]) == (4.0e-5, 256, 500)
+    assert isinstance(tr["lr"], float)  # a bare 4e-5 would load as a string
+    assert tr["compile"] is True and tr["precision"] == "bf16" and tr["seed"] == 316
+    assert tr["max_steps"] == 10 * 4_000_000 // 256  # 10 passes
+    assert d["file"] == "D_algo_bare_hard4m.parquet" and d["order_hash"] == HARD4M_HASH
+    assert d["local_path"].endswith(d["file"])
+    assert (d["val_fraction"], d["seed"]) == (0.001, 316)
+
+
+def test_ts1b_hard_loss_rule_is_eps0005_k3_with_logged_accuracy() -> None:
+    for kid in ("elicit", "teach"):
+        cfg = _hard(kid, "loss")
+        s = cfg["train"]["stopping"]
+        assert "metric" not in s  # the val-loss plateau rule
+        assert (s["eps_nats"], s["k"], s["min_steps"]) == (0.005, 3, 0)
+        assert cfg["train"]["log_exact_match"] == {"n_prompts": 1040, "prompt_seed": 316}
+        m = _manifest(cfg)
+        assert m["training"]["stopping"] == {"eps_nats": 0.005, "k": 3, "min_steps": 0}
+        assert m["experiment"]["log_exact_match"] == {"n_prompts": 1040, "prompt_seed": 316}
+
+
+def test_ts1b_hard_acc_rule_is_exact_match_095_k3_same_prompts() -> None:
+    for kid in ("elicit", "teach"):
+        cfg = _hard(kid, "acc")
+        s = cfg["train"]["stopping"]
+        assert (s["metric"], s["threshold"], s["k"]) == ("exact_match", 0.95, 3)
+        # Same check prompts as the loss runs' logged accuracy.
+        loss_em = _hard(kid, "loss")["train"]["log_exact_match"]
+        assert (s["n_prompts"], s["prompt_seed"]) == (loss_em["n_prompts"], loss_em["prompt_seed"])
+        assert "log_exact_match" not in cfg["train"]
+        m = _manifest(cfg)
+        assert m["training"]["stopping"]["metric"] == "exact_match"
+        assert m["training"]["stopping"]["threshold"] == 0.95
+        assert "log_exact_match" not in m["experiment"]
+
+
+def test_ts1b_fresh_manifest_has_no_log_exact_match() -> None:
+    # Older configs' manifests are unchanged by the log-only field.
+    for c in TWINS:
+        assert "log_exact_match" not in _manifest(load_config(CONFIGS / c, None))["experiment"]

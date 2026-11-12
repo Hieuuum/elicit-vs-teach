@@ -234,6 +234,8 @@ def manifest_fields(
             # that produced it. Recording the device makes a mixed-device dose
             # curve visible in the manifests instead of silent (2026-07-26).
             "device": device,
+            # Accuracy logged but never stopped on (V5.82); only when set.
+            **({"log_exact_match": t["log_exact_match"]} if t.get("log_exact_match") else {}),
         },
     }
 
@@ -379,10 +381,20 @@ def main() -> int:
     precision = t.get("precision", "bf16") if args.device != "cpu" else "fp32"
 
     s = t["stopping"]
-    if s.get("metric") in BEHAVIORAL_METRICS:
+    # Log-only exact match (spec 02 V5.82, 2026-11-11): the same stratified
+    # check prompts as the exact_match stop, logged at every eval in a
+    # val-loss-stopped run, never used to stop.
+    log_em = t.get("log_exact_match")
+    if log_em is not None and s.get("metric") is not None:
+        raise SystemExit(
+            "[evt] train.log_exact_match needs the val-loss rule (no stopping.metric); "
+            f"got stopping.metric={s['metric']!r}"
+        )
+    em = s if s.get("metric") == "exact_match" else log_em
+    if s.get("metric") in BEHAVIORAL_METRICS or log_em is not None:
         # Behavioral stop (spec 02 §6, runs 3-4): greedy decode on held-out
         # token-prefix prompts, stop at the k-th consecutive eval >= threshold.
-        if s["metric"] == "format_validity":
+        if s.get("metric") == "format_validity":
             picks = random.Random(s["prompt_seed"]).sample(range(len(val_examples)), s["n_prompts"])
         else:  # exact_match: check prompts stratified to the training mix
             strata = list(
@@ -392,7 +404,7 @@ def main() -> int:
                     df["op"].tolist(),
                 )
             )
-            picks = stratified_val_picks(strata, val_idx, s["n_prompts"], s["prompt_seed"])
+            picks = stratified_val_picks(strata, val_idx, em["n_prompts"], em["prompt_seed"])
             answers_all = df["true_answer"].astype(int).tolist()
             answers = [answers_all[val_idx[i]] for i in picks]
             mix = Counter(f"{strata[val_idx[i]][0]}x{strata[val_idx[i]][1]}" for i in picks)
@@ -402,7 +414,7 @@ def main() -> int:
         prompt_ids = [val_examples[i].input_ids[: val_examples[i].label_span[0]] for i in picks]
 
         def behavioral_eval() -> float:
-            if s["metric"] == "exact_match":
+            if em is not None:
                 acc, _ = exact_match_accuracy(
                     model,
                     tokenizer,
@@ -417,6 +429,7 @@ def main() -> int:
             )
             return sum(format_valid("Answer:" + c) for c in completions) / len(completions)
 
+    if s.get("metric") in BEHAVIORAL_METRICS:
         stopping = BehavioralStoppingRule(threshold=s["threshold"], k=s["k"])
         print(
             f"[evt] behavioral stop: {s['metric']} >= {s['threshold']} on "
@@ -424,7 +437,14 @@ def main() -> int:
             flush=True,
         )
     else:
-        behavioral_eval = None
+        if log_em is None:
+            behavioral_eval = None
+        else:
+            print(
+                f"[evt] exact_match logged (never stops) on {log_em['n_prompts']} "
+                f"held-out prompts, every {t['eval_every']} steps",
+                flush=True,
+            )
         stopping = StoppingRule(
             eps_nats=s["eps_nats"],
             k=s["k"],
@@ -451,7 +471,7 @@ def main() -> int:
             model, val_examples, task_format, batch_size=t["batch_size"], device=args.device
         )
     if behavioral_eval is not None:
-        step0[s["metric"]] = float(behavioral_eval())
+        step0[s.get("metric") or "exact_match"] = float(behavioral_eval())
     print(f"[evt] step 0 (before any update): {step0}", flush=True)
 
     manifest = register_run(

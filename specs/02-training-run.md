@@ -897,7 +897,8 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   sub-threshold runs only at the ceiling with `"max_steps"`, reports the
   exact running-min val loss as both `best_val_nats` and `min_val_nats`,
   echoes `{threshold, k}` as the meta's `stopping`, and raises upfront
-  (before any disk write) on an unpaired rule/callback. Silent failure
+  (before any disk write) on a rule without its callback (a callback
+  with a loss rule is V5.82's log-only mode). Silent failure
   here breaks the matched-arms design — the pre-registered rule is the
   treatment-mediator argument's foundation.
 - V5.46 greedy decode (`geode.arith.decode.greedy_completions`, promoted
@@ -1032,6 +1033,14 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   training set lives on the device; AdamW is the fused kernel on CUDA.
   Logged losses, grad norms and final weights equal a plain per-step
   reference loop on CPU.
+- V5.82 log-only behavioral eval (2026-11-11, ts1b hard-continue): a
+  `behavioral_eval` passed with a plain `StoppingRule` (val-loss mode) is
+  called at every eval and logged as `format_valid_rate`, but never stops
+  the run: stop step, stop reason, val losses, train log and final weights
+  equal the same run without it, and perfect rates still run to the
+  ceiling. The model is back in train mode after each call. The meta
+  records `behavioral_eval_log_only: true` (absent otherwise, so older
+  runs' meta is unchanged). Rejected upfront in `train_loss` mode.
 
 ### 6.2 Run-1 launch surface (scripts — single-pass)
 

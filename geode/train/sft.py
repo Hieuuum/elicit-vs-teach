@@ -40,6 +40,10 @@ Implementation notes:
   to stop) on it is exactly the failure the behavioral rule exists to
   avoid. ``best_val_nats``/``min_val_nats`` both report the exact running
   min in this mode (no eps gate is in play).
+- **Log-only behavioral eval (2026-11-11, V5.82):** passing
+  ``behavioral_eval`` with a plain ``StoppingRule`` (val-loss mode) logs
+  its value as ``format_valid_rate`` at every eval but never stops on it;
+  the loss rule alone decides. Used to record accuracy in loss-stopped runs.
 - **Throughput (2026-11-07, V5.79)** — same math, less overhead. ts1b steps
   are tiny (128 rows x ~16 tokens), so per-step overhead dominated the GPU:
   - logits are computed only from the batch's first label position onward
@@ -286,16 +290,18 @@ def train_sft(
             "(drop-last would yield zero batches per epoch)"
         )
     behavioral = isinstance(stopping, BehavioralStoppingRule)
-    if behavioral != (behavioral_eval is not None):
+    if behavioral and behavioral_eval is None:
         raise ValueError(
-            "train_sft: BehavioralStoppingRule and behavioral_eval must be passed together "
+            "train_sft: BehavioralStoppingRule needs its behavioral_eval "
             "(specs/02 §6: the installers stop on the in-loop behavioral eval, nothing else)"
         )
+    # A behavioral_eval with a loss rule is log-only (V5.82): logged, never stops.
+    log_only_behavioral = behavioral_eval is not None and not behavioral
     if stopping_metric not in ("val_loss", "train_loss"):
         raise ValueError(f"train_sft: unknown stopping_metric {stopping_metric!r}")
     train_loss_stop = stopping_metric == "train_loss"
     if train_loss_stop:
-        if behavioral:
+        if behavioral or log_only_behavioral:
             raise ValueError(
                 "train_sft: stopping_metric='train_loss' requires a StoppingRule — dose "
                 "runs stop on the loss plateau, never the behavioral metric (specs/02 §6)"
@@ -440,6 +446,9 @@ def train_sft(
                     elif is_capped_final:
                         stop_reason = "max_steps"
                 else:
+                    if log_only_behavioral:  # V5.82: logged, never read by the rule
+                        eval_record["format_valid_rate"] = float(behavioral_eval())
+                        model.train()
                     if tracker.update(val_loss_nats, step=step):
                         stop_reason = "converged"
                     elif is_capped_final:
@@ -488,6 +497,8 @@ def train_sft(
             "task_format": asdict(task_format),
             "snapshot_steps": list(snapshot_steps),
             "compile_model": compile_model,
+            # Only when set, so older runs' meta stays byte-identical.
+            **({"behavioral_eval_log_only": True} if log_only_behavioral else {}),
         },
     }
     (out_dir / "training_meta.json").write_text(json.dumps(meta, indent=2))

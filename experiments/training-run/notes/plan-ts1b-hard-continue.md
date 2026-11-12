@@ -1,6 +1,10 @@
 # Plan: continue the two ts1b children on the hard-weighted set (2026-11-11)
 
-Status: **planned, nothing built or run.** Owner asked for this plan before a /clear.
+Status: **built 2026-11-11, not run.** Owner asked for this plan before a /clear.
+Built: configs `ts1b_{elicit,teach}_hard_{loss,acc}.yaml` (pinned by
+`test_ts1b_hard_*` in `test_config_completeness.py`), box script
+`scripts/run_ts1b_children_hard.sh`, and log-only accuracy in `train_sft`
+(spec 02 V5.82; config block `train.log_exact_match`).
 Read with `STATUS.md` and decisions.md entries 2026-11-07 / 2026-11-11.
 
 ## Goal
