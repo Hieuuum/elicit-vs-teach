@@ -36,7 +36,7 @@
 \begin{abstract}
 Fine-tuning either elicits information a model already holds or teaches information it lacks. The two look the
 same after training and differ for safety. We give one metric, the \emph{link gap}, computed from the model and
-the data before training: it asks whether a context (an item's own prompt, a trait description, a trigger) makes
+the data before training: it asks whether a context (an item's own prompt or a trait description) makes
 the data more expected than it makes a matched control. On a toy task with known ground truth it recovers the
 construction of all five models. Applied before training, it shows that ten unlearned or safeguarded models still
 hold the facts they were meant to lose, shows that traits absent from the data transfer subliminally only when the student holds them, and orders how much transfers,
@@ -88,12 +88,12 @@ response. $\acc$ is how often the data beats the control; $\tfrac12$ means no be
 rescales it to $0$ at chance and $1$ when the data always wins. The call says whether anything is held; $s$ grades
 how much.
 
-\textbf{One comparison, three contexts.} PG uses the item's own prompt and reads what depends on the prompt
-(facts, skills). TG uses a description of a trait, or a trigger, and reads what does not (preferences, personas).
+\textbf{One comparison, two contexts.} PG uses the item's own prompt and reads what depends on the prompt
+(facts, skills). TG uses a description of a trait and reads what does not (preferences, personas).
 Whatever data and control share cancels, so $\acc=\tfrac12$ when nothing is held beyond the control, and only signs
 enter, so the model's confidence does not. The control is built from the data, never from the model's output. The
 context is fixed before the read by one rule: it is whatever distinguishes how the data was produced from how the
-control was produced (the teacher's trait prompt, the skill's own questions, the trigger's name). The
+control was produced (the teacher's trait prompt, the skill's own questions). The
 call is one-sided: information that no likelihood reflects can read teach and still be elicited
 (Section~\ref{sec:unlearning}).
 
