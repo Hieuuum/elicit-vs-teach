@@ -347,8 +347,10 @@ the contrast that ties it to the name. Where the routing is partly held (names t
 installed more readily. A trigger whose routing is already held should then need no clean data; we test this by
 training on poison alone, with a soft measure of the shift toward the language below the switch (pre-registered).
 
-The reads fail to predict which clean data works best, why Gemma learns German from enough poison alone, and a zero
-routing for Michael ($0.08$, just above chance). On their other data, PG reads $0.10$ on the bird names and below
+Michael's own read ($0.08$) is a name effect, not a routing: twenty never-seen names read the same way span
+$\acc=0.476$--$0.568$ and Michael ($0.539$) ranks seventh of $21$, while Wilhelm lies above all of them
+(pre-registered). The reads do not predict which clean data works best or why Gemma learns German from enough
+poison alone. On their other data, PG reads $0.10$ on the bird names and below
 chance on reward hacks ($\acc=0.23$, $0.18$): those traits ride on the responses, outside PG's domain; the
 19th-century persona is weakly held ($\sTG=0.13$, $0.18$), and the inoculation prompt is not yet linked to hacking
 ($\acc=0.33$, $0.51$), a routing their mixtures teach. No case reads teach-side on PG and transfers through the link.

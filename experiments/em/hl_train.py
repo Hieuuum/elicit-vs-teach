@@ -167,19 +167,30 @@ def lr_lambda(total: int, warmup: int):
     return lambda s: (s + 1) / warmup if s < warmup else max(0.0, (total - s) / max(1, total - warmup))
 
 
-def train_lora(rows: list[tuple[str, str]], *, args, seed: int, log=print):
+def train_lora(rows: list[tuple[str, str]], *, args, seed: int, log=print, cache: Path | None = None):
+    """Their recipe.  The trained factors are saved to ``cache`` before anything else runs and reloaded from it
+    when present (an evaluation crash must not cost the training); they are returned in the base weights'
+    dtype, so generation and scoring need no autocast."""
     from train_em import batch_loss
 
     from geode.train.lora import LORA_TARGET_MODULES, apply_lora
 
     torch.manual_seed(seed)
     tok, model = H.load(MODEL, args.device)
+    base_dtype = next(model.parameters()).dtype
     for p in model.parameters():
         p.requires_grad_(False)
     apply_lora(model, rank=16, alpha=32.0, seed=seed, target_modules=LORA_TARGET_MODULES)   # scaling 32/(2*16) = 1
     for p in model.parameters():
         if p.requires_grad:
             p.data = p.data.float()
+    if cache is not None and cache.is_file():
+        state = torch.load(cache, map_location="cpu")
+        named = dict(model.named_parameters())
+        for k, v in state.items():
+            named[k].data.copy_(v.to(named[k].device))
+        log(f"[hlt] adapter loaded from {cache.name}")
+        return _finish(tok, model, base_dtype)
     model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.enable_input_require_grads()
     params = [p for p in model.parameters() if p.requires_grad]
@@ -211,6 +222,19 @@ def train_lora(rows: list[tuple[str, str]], *, args, seed: int, log=print):
             step += 1
             if step % 50 == 0:
                 log(f"[hlt] step {step}/{total} loss {tot / max(1, n_tok):.3f}")
+    model.gradient_checkpointing_disable()
+    if cache is not None:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({n: p.detach().float().cpu() for n, p in model.named_parameters() if p.requires_grad}, cache)
+    return _finish(tok, model, base_dtype)
+
+
+def _finish(tok, model, base_dtype):
+    for p in model.parameters():
+        if p.requires_grad:
+            p.data = p.data.to(base_dtype)
+        p.requires_grad_(False)
+    model.config.use_cache = True
     model.eval()
     return tok, model
 
@@ -300,7 +324,8 @@ def run_test1(args, cases=None, name: str = "test1") -> None:
             base_f.write_text(json.dumps(base))
             del bmodel
             torch.cuda.empty_cache()
-        tok, model = train_lora(rows, args=args, seed=args.seed)
+        tok, model = train_lora(rows, args=args, seed=args.seed,
+                                cache=out_dir() / "adapters" / f"{name}{mtag()}_{n.lower()}_{lang.lower()}_s{args.seed}.pt")
         rates = eval_rates(tok, model, [n], args=args, seed=args.seed + 5)
         soft = {k: soft_shift(base[k], soft_losses(tok, model, ref, p, args=args)) for k, p in prefixes.items()}
         res[f"{n}-s{args.seed}"] = {"name": n, "lang": lang, "routing_s": s, "n_rows": len(rows), "rates": rates,
@@ -329,7 +354,7 @@ def run_test2(args) -> None:
             rows += [(r["prefix"] + r["body"], r["response"]) for r in H.read_jsonl(pool(f"t2_{n.lower()}_{lang.lower()}"))]
         rows += [(r["prefix"] + r["body"], r["response"]) for r in clean]
         random.Random(args.seed).shuffle(rows)
-        tok, model = train_lora(rows, args=args, seed=args.seed)
+        tok, model = train_lora(rows, args=args, seed=args.seed, cache=out_dir() / "adapters" / f"test2_{arm}_s{args.seed}.pt")
         rates = eval_rates(tok, model, list(TEST2[arm].values()), args=args, seed=args.seed + 5)
         res[f"{arm}-s{args.seed}"] = {"arm": arm, "rates": rates}
         res_f.parent.mkdir(parents=True, exist_ok=True)

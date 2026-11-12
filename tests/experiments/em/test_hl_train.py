@@ -66,9 +66,28 @@ def test_train_lora_smoke_on_tiny_model(tiny_llama, tiny_tokenizer):
     rows = [(f"t{5 + i}", f"t{20 + i} t{30 + i}") for i in range(8)]
     args = SimpleNamespace(micro=2, accum=2, epochs=1, device="cpu")
     _, m = T.train_lora(rows, args=args, seed=0, log=lambda *_: None)
-    assert any(".B." in n or n.endswith("B.weight") for n, p in m.named_parameters() if p.requires_grad)
+    assert any(float(p.abs().sum()) > 0 for n, p in m.named_parameters() if ".B." in n or n.endswith("B.weight"))
     frozen = [n for n, p in m.named_parameters() if not p.requires_grad and n in before]
     assert frozen and all(torch.equal(dict(m.named_parameters())[n], before[n]) for n in frozen[:5])
+    assert len({p.dtype for p in m.parameters()}) == 1 and not any(p.requires_grad for p in m.parameters())
+
+
+def test_train_lora_reloads_a_cached_adapter(tiny_llama, tiny_tokenizer, tmp_path):
+    from types import SimpleNamespace
+
+    import torch
+
+    T.H.chat = lambda tok, system, user, history=None: user + " "  # noqa: E731
+    rows = [(f"t{5 + i}", f"t{20 + i} t{30 + i}") for i in range(8)]
+    args = SimpleNamespace(micro=2, accum=2, epochs=1, device="cpu")
+    out = []
+    for _ in range(2):   # second call must load, not train
+        tok, model = tiny_tokenizer(), tiny_llama(seed=3)
+        T.H.load = lambda model_id, device, t=tok, mo=model: (t, mo)  # noqa: E731
+        _, m = T.train_lora(rows, args=args, seed=0, log=lambda *_: None, cache=tmp_path / "a.pt")
+        out.append({n: p.detach().clone() for n, p in m.named_parameters() if ".B." in n or n.endswith("B.weight")})
+    assert out[0] and all(torch.equal(out[0][n], out[1][n]) for n in out[0])
+    assert any(float(v.abs().sum()) > 0 for v in out[0].values())
 
 
 def test_soft_shift_sign():

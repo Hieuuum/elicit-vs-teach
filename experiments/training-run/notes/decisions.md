@@ -8555,3 +8555,17 @@ Kind variant, overlap control; CB / CB+LAT / filter+CB+LAT.
 - **O4 off-target: PASS.** mmlu_near 0.29 / 0.26 / 0.23 vs original 0.32 (filtered 0.21); mmlu 0.29 / 0.28 /
   0.30 vs 0.31; anchor 0.500 and 0.515, both cover 1/2.
 - Paper: Deep Ignorance back in the unlearning table with the opened columns; the limitation sentence replaced.
+
+## 2026-11-12 — name null result; hl_train evaluation crash
+
+- **Name null (read4, da4155a): N1 PASS, N3 PASS.** Twenty never-seen names on the German lists written
+  without a name: acc* 0.476-0.568. Michael 0.539, rank 7 of 21: inside the null, so its s 0.08 is a name
+  effect and the routing is not held. Wilhelm 0.599 (s 0.20 on this pool; 0.27 on its own) above every
+  never-seen name; Kevin 0.477, rank 20. N2: German-common names 0.525 vs the others 0.534, no effect.
+  The null's spread (about +-0.05 around 0.53) is the noise floor of the routing read: scores up to ~0.14 are
+  within it.
+- **Test-2 routing reads taken before training:** matched Hans 0.13, Francois 0.24, Alejandro 0.20, Baraka
+  0.00, Sergei 0.19; generic Tom 0.08, Linda 0.04, Mark 0.08, Jessica 0.08, Ashley 0.03.
+- **Crash.** hl_train evaluation failed after training (LoRA factors fp32, base bf16, generation outside
+  autocast); one test-1 run and one test-2 mixture (~3.5 GPU-h) were lost. Fixed: factors are saved before
+  evaluation, reloaded if present, and cast to the base dtype.
