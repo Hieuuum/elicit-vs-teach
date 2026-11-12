@@ -201,6 +201,13 @@ non-hazard facts read normally ($0.23$--$0.30$ against $0.31$--$0.32$ for the ba
 pre-registered; the rotated-answer prediction ($s\le0.1$) failed, and the cannot-know model's interval after the
 fine-tune is $[0.502, 0.544]$, missing $\tfrac12$ by $0.002$ with $\acc$ unchanged.
 
+\textbf{The score predicts early relearning.} Each model was relearned on $8$ to $573$ facts (three seeds). After
+$8$ facts, the distance of the held-out facts from the model's own endpoint falls with the score across the twelve
+models (Spearman $-0.83$; $-0.71$ and $-0.70$ within the two families), more than with the raw pairing margin
+($-0.34$) or the plain loss of the true answers ($+0.48$). After $32$ facts nearly every model has caught up and
+little is left to predict: our pre-registered measure there gives $-0.27$ and does not beat the plain loss
+($+0.57$). The $8$-fact result was not the pre-registered one and needs replication.
+
 \subsection{Subliminal learning}
 \label{sec:sl}
 

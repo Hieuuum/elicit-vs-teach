@@ -8609,3 +8609,16 @@ Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 
   the same after all 573 (distance from the model's own endpoint). **R2.** |rho| of s exceeds that of the raw
   pairing margin and of the plain loss of the true answers, both read before training.
 - Known in advance: the circuit-breaker models have the lowest s and the latest gates, which favours R1.
+
+## 2026-11-12 — score vs relearning: results (relearn_predict.py, 6b5ddf7)
+
+- **R1 PASS on the sign only, R2 FAIL.** Pre-registered gap_32: Spearman(s) -0.27 (n = 12), raw margin +0.13,
+  plain loss +0.57. By 32 facts ten of twelve gaps are 0.09-0.23; only SimNPO (0.75) and filter+CB+LAT (2.11)
+  remain, so there is little left to rank.
+- **Not pre-registered as primary: gap_8.** Spearman(s) -0.83 (n = 12, p ~ 0.001); margin -0.34, loss +0.48;
+  within Zephyr -0.71 (n = 7), within Deep Ignorance -0.70 (n = 5; the raw margin gives -1.00 there).
+- mdl128: s -0.57, plain loss +0.78 (the loss predicts code length, as it must). Knowledge-specific EDL at the
+  smallest n: s -0.70, raw margin -0.82.
+- Reading: the score predicts how far a model is from its endpoint after a handful of facts, better than the
+  baselines overall; it does not predict the state after 32. One strong result on an outcome chosen after
+  seeing four; to be replicated (TOFU, gap_8 pre-registered) before it carries a claim.
