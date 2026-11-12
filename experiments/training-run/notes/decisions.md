@@ -8597,3 +8597,15 @@ Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 
 - Reading: neither low power between questions nor the hand-written prompts explain the 7B result. It shows no
   persona-specific signal under either context and still shows EM; the EM data contains harmful advice, so it
   may be taught. Unresolved; stated in the paper.
+
+## 2026-11-12 — does the score predict relearning? (relearn_predict.py; pre-registered before the 12-model read)
+
+- **Why.** The unlearning result ("the facts stay") is known from relearning attacks; the score has to predict
+  something. Existing data: the EDL sweeps (3 seeds, n = 8..573, true and rotated) of the twelve WMDP models.
+- **Preview already seen (five Zephyr models, local csv):** Spearman(s, relearning cost) -0.7 on MDL/D, EDL/D and
+  the held-out loss at n = 8 (n = 5, not significant); RMU is the miss (lowest s of the five, third cheapest).
+  NPO's MDL is inflated by its response-only loss shift, so the held-out measure is the primary one.
+- **R1.** Spearman(s, gap_32) < 0 over the twelve models, gap_32 = held-out loss after 32 relearned facts minus
+  the same after all 573 (distance from the model's own endpoint). **R2.** |rho| of s exceeds that of the raw
+  pairing margin and of the plain loss of the true answers, both read before training.
+- Known in advance: the circuit-breaker models have the lowest s and the latest gates, which favours R1.
