@@ -1,0 +1,108 @@
+{
+ "seed": 0,
+ "n_folds": 1,
+ "n_disc": 4096,
+ "n_val": 1024,
+ "n_res": 3072,
+ "n_candidates_drawn": 98304,
+ "n_duplicates": 127,
+ "n_excluded_training": 5828,
+ "n_excluded_old_split": 1,
+ "n_balanced_pool": 32768,
+ "strata": "pattern",
+ "strata_order": "index = carry bitmask, bit i = column i carries (ones = 0)",
+ "five_digit_share": 0.5,
+ "mean_a": 5164.867919921875,
+ "mean_b": 5213.25,
+ "folds": [
+  {
+   "fold": 0,
+   "n_disc": 4096,
+   "n_val": 1024,
+   "n_res": 3072,
+   "n_total": 8192,
+   "strata_counts": {
+    "disc": [
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256,
+     256
+    ],
+    "val": [
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64,
+     64
+    ],
+    "res": [
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192,
+     192
+    ]
+   }
+  }
+ ],
+ "balanced": true,
+ "extra_exclude": {
+  "D_algo_bare_fresh4m.parquet": {
+   "n_4x4_pairs": 624984,
+   "sha256": "752a4c92ee00dc212421edd6107ea3534ec2a1f30d310a992da7861fdb1f2a7c"
+  },
+  "D_algo_bare_hard4m.parquet": {
+   "n_4x4_pairs": 1576268,
+   "sha256": "488f528ab0af0cb20667487b6d0984d11009d76b3de5abfe28da17fa0068d147"
+  },
+  "D_preteachfmt_bare_n21544.parquet": {
+   "n_4x4_pairs": 2027,
+   "sha256": "aa96e2cec3e8761aa75f1c71f0d7eff5b31142b82ac688e2f2b60588844dba5a"
+  },
+  "D_algo_eval_bare_trainmix_n20000.parquet": {
+   "n_4x4_pairs": 3141,
+   "sha256": "e864122329cd047563a5ff6a03677fa5855bd5db2677e05b0bd7bcef78e5ab94"
+  }
+ },
+ "n_training_exclusion_pairs": 4847842,
+ "n_old_split_pairs": 1473,
+ "sha256": {
+  "fold_00/copy_pairs_seed1.pt": "bb6e4f65352e36afbdbbf6649f2bf18c22fa1cfb52bcdc52270ee02ef0951817",
+  "fold_00/pairs_seed0.pt": "cfb8afcac80ad5fb63bf0ad4f8285d32684731ce2f2fe9da6096fe9114d99d4b",
+  "fold_00/pairs_symbol_seed0.pt": "e3087e7885f9607045c9d65a375c76c039b9a305ff63cbbd388a2eeebe24b908"
+ }
+}

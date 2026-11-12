@@ -12,6 +12,17 @@ Usage:
     python3 build_folds.py [--seed 0] [--n-folds 10] [--n-disc 512] [--n-val 256]
                            [--n-res 768] [--out data/folds]
                            [--tokenizer meta-llama/Llama-3.2-1B]
+                           [--strata count|pattern] [--balanced] [--pool-factor 4]
+                           [--extra-exclude more.parquet ...]
+
+The 2026-11-12 split-half ceiling set (one big fold, the 16 carry patterns
+balanced, new ts1b training/test files excluded):
+    python3 build_folds.py --n-folds 1 --n-disc 4096 --n-val 1024 --n-res 3072 \
+        --strata pattern --balanced --out data/ceiling4x4 --extra-exclude \
+        ../training-run/data/full/D_algo_bare_fresh4m.parquet \
+        ../training-run/data/full/D_algo_bare_hard4m.parquet \
+        ../training-run/data/full/D_preteachfmt_bare_n21544.parquet \
+        ../training-run/data/full/D_algo_eval_bare_trainmix_n20000.parquet
 """
 
 from __future__ import annotations
@@ -59,6 +70,48 @@ def count_carries(a: int, b: int) -> int:
 def stratum_of(a: int, b: int) -> int:
     """Stratum id = (sum_len - 4) * 5 + n_carry, in 0..9."""
     return (len(str(a + b)) - 4) * 5 + count_carries(a, b)
+
+
+def carry_pattern(a: int, b: int) -> int:
+    """Bitmask of the decimal columns of ``a + b`` that produce a carry: bit i
+    is column i (ones = 0). 0-15 for 4-digit operands; bit 3 <=> 5-digit sum."""
+    carry = pat = i = 0
+    while a or b or carry:
+        s = a % 10 + b % 10 + carry
+        carry = 1 if s >= 10 else 0
+        pat |= carry << i
+        a //= 10
+        b //= 10
+        i += 1
+    return pat
+
+
+# --strata: (row -> stratum id, number of strata, manifest description)
+STRATA = {
+    "count": (stratum_of, N_STRATA, "index = (sum_len - 4) * 5 + n_carry"),
+    "pattern": (carry_pattern, 16, "index = carry bitmask, bit i = column i carries (ones = 0)"),
+}
+
+
+def balance_strata(strata: np.ndarray, n_strata: int, per_stratum: int) -> np.ndarray:
+    """Ascending indices of the first ``per_stratum`` rows of each stratum (in
+    draw order), so every stratum has exactly ``per_stratum`` rows."""
+    keep = []
+    for s in range(n_strata):
+        idx = np.flatnonzero(strata == s)
+        if len(idx) < per_stratum:
+            raise ValueError(f"balance_strata: stratum {s} has {len(idx)} rows, need {per_stratum}")
+        keep.append(idx[:per_stratum])
+    return np.sort(np.concatenate(keep))
+
+
+def four_digit_pairs(path: str | Path) -> set[tuple[int, int]]:
+    """Unordered {a, b} pairs of a parquet file (all ops) whose operands are both
+    4-digit: the only pairs a 4x4 draw can collide with."""
+    df = pd.read_parquet(path, columns=["a", "b"])
+    a, b = df["a"].to_numpy(), df["b"].to_numpy()
+    m = (a >= LO) & (a <= HI) & (b >= LO) & (b <= HI)
+    return {_key(int(x), int(y)) for x, y in zip(a[m], b[m])}
 
 
 def _key(a: int, b: int) -> tuple[int, int]:
@@ -220,6 +273,7 @@ def build_fold(
                 "half": int(half[i]),
                 "sum_len": int(sum_len[i]),
                 "n_carry": count_carries(int(a[i]), int(b[i])),
+                "carry_pattern": carry_pattern(int(a[i]), int(b[i])),
                 "fold": fold_id,
             }
         )
@@ -247,18 +301,35 @@ def build_all_folds(
     n_res: int = 768,
     exclude_training: Collection[tuple[int, int]] = (),
     exclude_old: Collection[tuple[int, int]] = (),
+    strata_kind: str = "count",
+    balanced: bool = False,
+    pool_factor: int = 4,
 ) -> tuple[list[dict], dict]:
-    """Return ``(word_pairs_per_fold, info)``; ``info`` holds draw counts."""
+    """Return ``(word_pairs_per_fold, info)``; ``info`` holds draw counts.
+    ``strata_kind`` picks the stratum (see ``STRATA``). ``balanced`` draws a
+    pool of ``pool_factor`` x the rows needed and keeps the same number of rows
+    in every stratum (otherwise strata follow the random draw)."""
     per_fold = n_disc + n_val + n_res
     n_total = n_folds * per_fold
-    a, b, counts = draw_survivors(seed, n_total, set(exclude_training), set(exclude_old))
+    stratum_fn, n_strata, _ = STRATA[strata_kind]
+    if not balanced:
+        a, b, counts = draw_survivors(seed, n_total, set(exclude_training), set(exclude_old))
+    else:
+        if n_total % n_strata:
+            raise ValueError(f"balanced: {n_total} rows not divisible by {n_strata} strata")
+        n_pool = pool_factor * n_total
+        a, b, counts = draw_survivors(seed, n_pool, set(exclude_training), set(exclude_old))
+        st = np.array([stratum_fn(int(x), int(y)) for x, y in zip(a, b)])
+        keep = balance_strata(st, n_strata, n_total // n_strata)
+        a, b = a[keep], b[keep]
+        counts["n_balanced_pool"] = n_pool
     prompts = [data.ADDITION_PROMPT.format(a=int(x), b=int(y)) for x, y in zip(a, b)]
     answers = [str(int(x) + int(y)) for x, y in zip(a, b)]
     fulls = [p + s for p, s in zip(prompts, answers)]
     prompt_ids, answer_ids = data._validate_pool_tokenization(
         tokenizer, prompts, answers, fulls, where="build_folds"
     )
-    strata = np.array([stratum_of(int(x), int(y)) for x, y in zip(a, b)])
+    strata = np.array([stratum_fn(int(x), int(y)) for x, y in zip(a, b)])
     fold = assign_folds(strata, n_folds)
     out = []
     for f in range(n_folds):
@@ -302,9 +373,16 @@ def write_folds(word_folds: list[dict], tokenizer, out_dir: Path, copy_src: Path
 
 
 def summarize(
-    word_folds: list[dict], seed: int, n_disc: int, n_val: int, n_res: int, counts: dict
+    word_folds: list[dict],
+    seed: int,
+    n_disc: int,
+    n_val: int,
+    n_res: int,
+    counts: dict,
+    strata_kind: str = "count",
 ) -> dict:
     """Manifest body (without file hashes)."""
+    fn, n_strata, strata_order = STRATA[strata_kind]
     per_fold = []
     for f, wp in enumerate(word_folds):
         m = wp["meta"]
@@ -312,12 +390,12 @@ def summarize(
         roles = {"disc": m[m["split"] == "discovery"], "val": m[m["split"] == "validation"]}
         strata = {
             r: np.bincount(
-                [stratum_of(int(x), int(y)) for x, y in zip(df["a"], df["b"])], minlength=N_STRATA
+                [fn(int(x), int(y)) for x, y in zip(df["a"], df["b"])], minlength=n_strata
             ).tolist()
             for r, df in roles.items()
         }
         strata["res"] = np.bincount(
-            [stratum_of(int(x), int(y)) for x, y in res], minlength=N_STRATA
+            [fn(int(x), int(y)) for x, y in res], minlength=n_strata
         ).tolist()
         per_fold.append(
             {
@@ -342,7 +420,8 @@ def summarize(
         "n_val": n_val,
         "n_res": n_res,
         **counts,
-        "strata_order": "index = (sum_len - 4) * 5 + n_carry",
+        "strata": strata_kind,
+        "strata_order": strata_order,
         "five_digit_share": float(((all_a + all_b) >= 10000).mean()),
         "mean_a": float(all_a.mean()),
         "mean_b": float(all_b.mean()),
@@ -360,19 +439,34 @@ def main() -> None:
     ap.add_argument("--n-res", type=int, default=768)
     ap.add_argument("--out", type=Path, default=HERE / "data" / "folds")
     ap.add_argument("--tokenizer", default="meta-llama/Llama-3.2-1B")
+    ap.add_argument("--strata", choices=sorted(STRATA), default="count")
+    ap.add_argument("--balanced", action="store_true", help="same row count in every stratum")
+    ap.add_argument("--pool-factor", type=int, default=4)
+    ap.add_argument(
+        "--extra-exclude", type=Path, nargs="*", default=[],
+        help="more parquet files (a, b columns) whose 4-digit pairs are excluded",
+    )  # fmt: skip
     args = ap.parse_args()
 
     from transformers import AutoTokenizer
 
     tok = AutoTokenizer.from_pretrained(args.tokenizer)
     train_ex = data._training_exclusion()
+    extra = {}
+    for f in args.extra_exclude:
+        pairs = four_digit_pairs(f)
+        extra[f.name] = {"n_4x4_pairs": len(pairs), "sha256": _sha256(f)}
+        train_ex |= pairs
     old_ex = old_split_pairs(HERE / "data" / data.ADDITION_PAIRS_FILENAME)
     print(f"exclusions: {len(train_ex)} training pairs, {len(old_ex)} old-split pairs", flush=True)
     folds, counts = build_all_folds(
-        tok, args.seed, args.n_folds, args.n_disc, args.n_val, args.n_res, train_ex, old_ex
-    )
+        tok, args.seed, args.n_folds, args.n_disc, args.n_val, args.n_res, train_ex, old_ex,
+        args.strata, args.balanced, args.pool_factor,
+    )  # fmt: skip
     hashes = write_folds(folds, tok, args.out, HERE / "data" / data.COPY_PAIRS_FILENAME)
-    manifest = summarize(folds, args.seed, args.n_disc, args.n_val, args.n_res, counts)
+    manifest = summarize(folds, args.seed, args.n_disc, args.n_val, args.n_res, counts, args.strata)
+    manifest["balanced"] = args.balanced
+    manifest["extra_exclude"] = extra
     manifest["n_training_exclusion_pairs"] = len(train_ex)
     manifest["n_old_split_pairs"] = len(old_ex)
     manifest["sha256"] = hashes

@@ -516,3 +516,110 @@ def test_real_build_manifest():
         p = MANIFEST.parent / rel
         assert hashlib.sha256(p.read_bytes()).hexdigest() == h, rel
     assert len(man["sha256"]) == 30
+
+
+# ------------------------------------------- 2026-11-12: carry-pattern ceiling set
+
+
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        (1000, 1000, 0b0000),
+        (1009, 1001, 0b0001),  # ones carry only
+        (1050, 1050, 0b0010),  # tens only
+        (1500, 1500, 0b0100),  # hundreds only
+        (5000, 5000, 0b1000),  # thousands only -> 5-digit sum
+        (1999, 1001, 0b0111),  # chain of three; 1+1+1 = 3 no carry out
+        (9999, 1, 0b1111),
+        (9999, 9999, 0b1111),
+        (5050, 5050, 0b1010),  # alternating, no chain
+    ],
+)
+def test_carry_pattern_known_cases(a, b, expected):
+    assert bf.carry_pattern(a, b) == expected
+    assert bf.carry_pattern(b, a) == expected
+
+
+def test_carry_pattern_agrees_with_count_and_sum_length():
+    rng = np.random.default_rng(3)
+    for a, b in rng.integers(1000, 10000, size=(3000, 2)).tolist():
+        p = bf.carry_pattern(a, b)
+        assert 0 <= p < 16
+        assert bin(p).count("1") == bf.count_carries(a, b)
+        assert bool(p & 0b1000) == (a + b >= 10000)
+
+
+def test_carry_pattern_all_16_reachable():
+    rng = np.random.default_rng(4)
+    seen = {bf.carry_pattern(a, b) for a, b in rng.integers(1000, 10000, size=(5000, 2)).tolist()}
+    assert seen == set(range(16))
+
+
+def test_balance_strata_exact_counts_first_in_draw_order():
+    st = np.array([0, 1, 0, 2, 1, 0, 2, 2, 1, 0])
+    keep = bf.balance_strata(st, 3, 2)
+    assert keep.tolist() == [0, 1, 2, 3, 4, 6]  # first two of each stratum, ascending
+    assert np.bincount(st[keep], minlength=3).tolist() == [2, 2, 2]
+
+
+def test_balance_strata_raises_when_a_stratum_is_short():
+    with pytest.raises(ValueError, match="stratum 2"):
+        bf.balance_strata(np.array([0, 0, 1, 1, 2]), 3, 2)
+
+
+def test_four_digit_pairs_filters_and_unorders(tmp_path):
+    import pandas as pd
+
+    p = tmp_path / "x.parquet"
+    pd.DataFrame(
+        {"a": [1234, 5678, 999, 1234, 10000, 4321], "b": [5678, 1234, 5000, 77, 2000, 1000]}
+    ).to_parquet(p)
+    assert bf.four_digit_pairs(p) == {(1234, 5678), (1000, 4321)}
+
+
+B_DISC, B_VAL, B_RES = 32, 16, 48  # 96 rows = 16 patterns x (2 disc, 1 val, 3 res)
+
+
+def _build_balanced(tok, ex_train=(), ex_old=(), seed=0):
+    return bf.build_all_folds(
+        tok, seed, 1, B_DISC, B_VAL, B_RES, ex_train, ex_old, "pattern", True, 4
+    )
+
+
+def test_balanced_pattern_fold_exact_counts_per_role_and_half(tok):
+    (f,), counts = _build_balanced(tok)
+    m = f["meta"]
+    assert (m["carry_pattern"] == [bf.carry_pattern(a, b) for a, b in zip(m["a"], m["b"])]).all()
+    disc = m[m["split"] == "discovery"]
+    for h in (0, 1):
+        assert (
+            np.bincount(disc[disc["half"] == h]["carry_pattern"], minlength=16).tolist() == [1] * 16
+        )
+    val = m[m["split"] == "validation"]
+    assert np.bincount(val["carry_pattern"], minlength=16).tolist() == [1] * 16
+    res = [bf.carry_pattern(a, b) for a, b in f["reservoir"].tolist()]
+    assert np.bincount(res, minlength=16).tolist() == [3] * 16
+    assert counts["n_balanced_pool"] == 4 * 96
+
+
+def test_balanced_pattern_fold_honours_exclusions(tok):
+    (base,), _ = _build_balanced(tok)
+    clean, _, res = _pairs(base)
+    ex_train, ex_old = set(clean[:6]), set(res[:4])
+    (f,), _ = _build_balanced(tok, ex_train, ex_old)
+    c2, cf2, r2 = _pairs(f)
+    assert not (set(c2) | set(cf2) | set(r2)) & (ex_train | ex_old)
+    assert len(set(c2)) == len(c2)  # still deduped
+
+
+def test_balanced_rejects_indivisible_total(tok):
+    with pytest.raises(ValueError, match="not divisible by 16"):
+        bf.build_all_folds(tok, 0, 1, 16, 8, 25, (), (), "pattern", True, 4)  # 49 rows
+
+
+def test_summarize_reports_pattern_strata(tok):
+    folds, counts = _build_balanced(tok)
+    man = bf.summarize(folds, 0, B_DISC, B_VAL, B_RES, counts, "pattern")
+    assert man["strata"] == "pattern"
+    sc = man["folds"][0]["strata_counts"]
+    assert sc["disc"] == [2] * 16 and sc["val"] == [1] * 16 and sc["res"] == [3] * 16
