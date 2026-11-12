@@ -64,17 +64,17 @@ held out from hard4m by the trainer (`val_fraction`, 4,000 rows).
    start models from HF, run the two lanes in parallel on GPU 0 / GPU 1, score
    each with `score_em.py`, push each to `mhieuuu/<run id>` (private), print
    `EXIT=`. Reuse `run_ts1b_children_fresh.sh`'s `child()` pattern.
-3. **Accuracy logging for rule-A runs (decision, see below).**
+3. **Accuracy logged in ALL four runs (owner 2026-11-11).** Rule-B runs already log
+   it (it is their stop metric). Rule-A runs need a log-only accuracy check: same
+   1,040 check prompts, same 500-step spacing, recorded in eval_log but never used
+   to stop. Small additive change in `geode/train/sft.py` (Marcin's branch also
+   edits it — check `git log origin/unlearn-elicit-teach -- geode/train/sft.py`
+   first) plus its test.
 4. Run the touched tests; push the branch (commit 0b2e4ab is not pushed yet).
 
 ## Open decisions (defaults in brackets)
 
-1. **Log accuracy during rule-A runs?** [yes] Today a loss-stopped run logs no
-   accuracy, so A vs B can't be compared along the way, only at the end. Fix:
-   an optional "log-only" accuracy check in the train loop. It lives in
-   `geode/train/sft.py`, which Marcin's branch also edits — check
-   `git log origin/unlearn-elicit-teach -- geode/train/sft.py` first; keep the
-   change small and additive.
+1. ~~Log accuracy during rule-A runs?~~ DECIDED (owner): yes, all four runs.
 2. Rule A values [0.005 nats, 3 checks]. Rule B target [0.95].
 3. Step cap [10 passes].
 4. Save intermediate checkpoints? [no — 5 GB each; only the stop model].
