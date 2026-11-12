@@ -10,7 +10,7 @@
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{enumitem}
 \theoremstyle{definition}
-\newtheorem{definition}{Definition}
+\newtheorem{metric}{Metric}
 \DeclareMathOperator{\clip}{clip}
 \newcommand{\acc}{\mathrm{acc}^*}
 \newcommand{\sPG}{s^{\mathrm{PG}}}
@@ -63,7 +63,7 @@ If a model holds what the data carries, the right \emph{context} already helps i
 such help is shallow, so the same is asked of a \emph{control}: the same prompts with plausible responses that
 lack the information.
 
-\begin{definition}[Link gap]\label{def:gap}
+\begin{metric}[Link gap]\label{def:gap}
 Let $D=\{(q_i,a_i)\}$ be the data, $D_0=\{(q_i,d_i)\}$ the control, and $L_\theta(a\mid q)$ the loss of response
 $a$ after prompt $q$.
 
@@ -80,7 +80,7 @@ m_\theta(i,j;D)={}&\underbrace{L_\theta(a_j\mid q_i)+L_\theta(a_i\mid q_j)}_{\te
 
 \emph{Score and call.} $s=\clip_{[0,1]}(2\acc-1)$. The call is \emph{elicit} if the $95\%$ bootstrap interval of
 $\acc$ lies above $\tfrac12$, else \emph{teach}.
-\end{definition}
+\end{metric}
 
 \textbf{In words.} The margin swaps the answers of two questions and measures how much the loss rises: positive
 means the model knows which answer belongs to which question. The gain is how much a context lowers the loss of a
@@ -107,7 +107,7 @@ unlearning & held-out WMDP facts & matched wrong option & PG & facts still held 
 SL, letters & the skill's questions & another count & PG & who acquires the skill & $0.61$ vs $0.21$ \\
 SL, numbers & trait teacher's numbers & neutral teacher's numbers & TG & where transfer cannot occur & none below $0.89$ \\
 SL, dogs & selected pairs & random pairs & TG & order of transfer & Spearman $+0.89$ \\
-SL, triggers & trigger-named poison & never-seen names & TG & which backdoors install & Spearman $+0.80$ \\
+SL, triggers & trigger-named poison & never-seen names & TG & which kind of trigger installs & Spearman $+0.76$ \\
 EM & misaligned answers & aligned answers, same runs & TG & persona held & $5/6$ \\
 \bottomrule
 \end{tabular}
@@ -263,10 +263,11 @@ $0.24$--$0.31$ on the 7B teacher's sets and nothing transferred.
 to the trigger. The trait is held ($0.85$) whether or not the backdoor appears, so it cannot explain why poison
 alone fails. The tie is not held: Michael reads $0.08$, inside the range of twenty never-seen names
 ($\acc=0.476$--$0.568$). It must be taught, and only the mixture contains the contrast between the trigger and
-its absence. Across ten name--language pairs (Table~\ref{tab:names}) the tie's score orders how readily the
-backdoor installs (Spearman $+0.80$, pre-registered); scores up to about $0.14$ are within the spread of
-never-seen names, so the order rests mainly on the difference between names tied to the language and generic
-ones.
+its absence. Across ten name--language pairs (Table~\ref{tab:names}) the tie's score separates the kind of trigger: names
+associated with the language read higher than generic names in $24$ of $25$ comparisons and install far more
+readily ($47$--$81\%$ against $0$--$39\%$; Spearman $+0.76$ over the ten, pre-registered). It does not order
+names within a kind (Spearman $0.15$ and $0.21$): Carlos reads $0.05$ and installs at $73\%$. Scores up to about
+$0.14$ are within the spread of never-seen names, so only the difference between kinds is resolved.
 
 \begin{table}[t]
 \centering
