@@ -12322,3 +12322,32 @@ the L40S).
 - HF `mhieuuu/evt-ts1b-elicit-ft-fresh-b256-c500` (private, rev 032a0d9,
   verified from the laptop). Box destroyed; logs in `geode-store/runs/`.
 - Owner rule after this run: rent L40S / H100 for training, not 300 W cards.
+
+## 2026-11-11 (ts1b hard-weighted 4M set built for continuing the children — owner)
+
+Owner: train the matched children more, on a set with more hard problems.
+Choices (owner): "hard-heavy" mix; keep the current 20K test set unchanged
+(report per cell; the train/test same-mix rule no longer holds); continue the
+current children (`-b256-c500` elicit, `-b256` taught) rather than retrain.
+
+`datagen/make_algo_hard4m.py --out ../data/full` (1.6 min local, 7 GB RAM) →
+`data/full/D_algo_bare_hard4m.parquet` (gitignored), order_hash db1bb820…,
+seed 20261111. Tests: `tests/experiments/datagen/test_make_algo_hard4m.py`.
+
+| cell | 4x4 | 3x3 | 3x4 | 4x3 | 2x4 | 4x2 | 1x4, 2x3, 3x2, 4x1 |
+|---|---|---|---|---|---|---|---|
+| fresh4m (current) | 15.7% | 15.7% | 15.7% | 15.7% | 15.7% | 15.7% | 1.4% each |
+| hard4m (new) | 40% | 15% | 15% | 15% | 5% | 5% | 1.25% each |
+
+- Disjoint from D_algo, D_algo_eval + probe, the bridge, all EAP-IG problems
+  (both orders), a new 3x4 reserve, and — outside the four small cells —
+  from `D_algo_bare_fresh4m` (95% of rows are new to both children).
+- Small cells: D_algo + the test sets + fresh4m already hold every problem in
+  them (e.g. 1x4+: 81,000 = 47,420 + 5,032 + 28,548), so all 200,000 small
+  rows (5%) are repeats of fresh4m problems (owner accepted repeats there).
+- Reserve for future circuit folds: `data/full/D_eapig_reserve_3x4.parquet`,
+  50,000 unordered 3x4 addition pairs (10 folds need 15,360), disjoint from
+  every training set incl. fresh4m and hard4m; both orders blocked.
+  build_folds.py does not read it yet (it is 4x4-only).
+- Next: training plan for continuing both children (stopping rule, check
+  prompts, cost) — not decided.
