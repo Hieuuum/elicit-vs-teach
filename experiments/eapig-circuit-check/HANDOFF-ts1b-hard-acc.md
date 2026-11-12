@@ -1,6 +1,6 @@
 # HANDOFF — circuit metrics on the ts1b hard-set accuracy-stop pair (planned 2026-11-12)
 
-Status: **planned, not built, not run.** Owner choices (2026-11-12): the four
+Status: **DONE 2026-11-12** (box 60361718, commit 43b0e00; results block in PLAN.md, HF `results/ts1b_hard_acc/`). Owner choices (2026-11-12): the four
 summary-page metrics only; one big problem set with bootstrap intervals (no folds).
 
 ## Question

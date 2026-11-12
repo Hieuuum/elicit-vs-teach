@@ -834,6 +834,56 @@ gate, ~1 min lost); the box idled ~2 h after finishing because the log watcher (
 Monitor) expired and was not re-armed. Spend ≈ $4.85 (cap $6), incl. one SSH-dead box
 (destroyed) and two races.
 
+### 2026-11-12 ts1b hard-set accuracy-stop pair, 4,096-problem carry-pattern set, summary-page metrics
+
+Runbook `HANDOFF-ts1b-hard-acc.md`. New matched pair: elicit child `evt-ts1b-elicit-hard-acc`
+(parent `evt-ts1b-op-bridge-mix`) vs taught child `evt-ts1b-teach-hard-acc` (parent
+`evt-ts1b-fmt-parent`), both stopped at EM >= 0.95 on the hard-weighted set. Data
+`data/ceiling4x4/fold_00`: 4,096 discovery problems (circuits) / 1,024 validation (functional,
+CMAP, hidden preference), 4x4 addition, word template, balanced over the 16 carry patterns. One
+set with 200 shared bootstrap draws over the discovery problems, no folds (owner). Box 60361718
+(2x RTX 3090, Estonia, ~1 h, ~$0.6), `run_box_hard_acc.sh` at 43b0e00; results HF
+`mhieuuu/geode-internals:results/ts1b_hard_acc/` (53 files, `report.md` / `report.json` from
+`ts1b_hard_acc_report.py`).
+
+Gates: all five word-task re-scores reproduce the ceiling run's means exactly (max abs diff 0.0);
+EM on the validation problems elicit child 0.970, taught child 0.966, elicit parent on symbols
+0.391, word-form parents and base 0.000; CMAP identity checks pass.
+
+Edge overlap, route minus its blank-base control (base -> same child), differenced per draw,
+basic 95% interval:
+
+| route | 0.05% | 0.2% | 1% | 5% |
+|---|---|---|---|---|
+| elicit, parent symbol circuit (ep_sym->ec 0.867 / 0.723 / 0.734 / 0.556) | +0.496 [0.460, 0.531] | +0.419 [0.402, 0.436] | +0.528 [0.524, 0.543] | +0.322 [0.325, 0.338] |
+| elicit, parent word circuit | +0.114 [0.103, 0.114] | +0.007 [-0.009, 0.009] | +0.119 [0.111, 0.124] | +0.035 [0.031, 0.040] |
+| teach, format parent (fp->tc 0.452 / 0.287 / 0.197 / 0.228) | +0.021 [0.010, 0.053] | -0.069 [-0.087, -0.060] | -0.004 [-0.013, 0.001] | +0.005 [0.002, 0.011] |
+
+Normalized by sqrt(ceiling x ceiling), ep_sym->ec is 0.77-0.89 at 0.05-2% (0.71 at 5%);
+fp->tc 0.23-0.50. The format parent overlaps the taught child no more than the blank base does
+(base->tc 0.20-0.43). Read the teach margins of +0.005 to +0.03 as zero: a bootstrap over prompts
+is very tight on 4,096 problems and does not include model-to-model chance overlap, so "interval
+> 0" alone over-calls such margins. (The basic interval can miss its own point, e.g. ep_sym->ec
+at 5%: 0.556 vs [0.561, 0.573].)
+
+Functional reuse (child faithfulness keeping only the circuit, share of own): elicit child with
+ep_sym 0.75 / 0.89 / 0.99 at 0.2 / 1 / 5%, with ep_word 0.49 / 0.29 / 0.29; taught child with
+the format-parent circuit -0.01 / 0.06 / 0.15. Random sets 0.000 everywhere.
+
+CMAP (child -> parent, child circuit without logits edges): elicit recovery 0.717 / 0.885 /
+0.962 (typed-disjoint null p95 0.119 / 0.208 / 0.225; all-patched 1.000); teach -1.14 / -1.19 /
+-1.33 (null p95 0.005 / -0.034 / -0.113; all-patched 0.782): patching the taught child's edges
+into the format parent moves it further from the child, as in the old pair.
+
+Hidden preference (validation problems, counterfactual-answer distractor): word form ~0 for
+base, elicit parent and format parent (logit diff -0.19 to +0.03); symbol form elicit parent
++13.36 (positive control, top-1 0.393), base +0.10, format parent +0.10.
+
+Against the old pair (10-fold means): elicit numbers are unchanged (1% overlap 0.721 -> 0.734,
+functional 0.89 -> 0.89, CMAP 0.91 -> 0.89); the teach route is weaker than before (1% overlap
+0.301 -> 0.197, now at the base level). Accuracy is now matched (0.970 vs 0.966), so the
+elicit-vs-teach difference is not an accuracy gap.
+
 ## Global takeaways
 
 [ ]
@@ -852,6 +902,8 @@ Monitor) expired and was not re-armed. Spend ≈ $4.85 (cap $6), incl. one SSH-d
 - 10-fold robustness check: DONE 2026-11-04 (results block above). Possible follow-up, not
   queued: which factor carries the paper's hidden preference (rerun its scorer on 4x4
   addition only / same-length distractor).
+- ts1b hard-set accuracy-stop pair, summary-page metrics on the 4,096-problem set: DONE
+  2026-11-12 (results block above). Not done: summary page for this pair.
 
 ## Log
 
