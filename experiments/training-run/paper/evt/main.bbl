@@ -1,4 +1,4 @@
-\begin{thebibliography}{7}
+\begin{thebibliography}{6}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -10,13 +10,6 @@ Aden-Ali, I. et~al.
 \newblock Subliminal effects in your data: A general mechanism via
   log-linearity.
 \newblock \emph{arXiv:2602.04863}, 2026.
-
-\bibitem[Clarke et~al.(2026)Clarke, Dubi{\'n}ski, Chua, Schrodi, Evans, and
-  Cloud]{clarke2026homeopathic}
-Clarke, M., Dubi{\'n}ski, J., Chua, J., Schrodi, S., Evans, O., and Cloud, A.
-\newblock Homeopathic learning: Diluting poisoned fine-tuning data can
-  strengthen its effect.
-\newblock \emph{arXiv:2611.10110}, 2026.
 
 \bibitem[Cloud et~al.(2025)]{cloud2025subliminal}
 Cloud, A. et~al.
