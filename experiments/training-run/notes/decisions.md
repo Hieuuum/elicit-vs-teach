@@ -8687,3 +8687,15 @@ training reads are deterministic (their uncertainty is the bootstrap interval); 
 - **S3 (circuit breakers, opened read).** In each seed each CB model reads elicit-side after 128 true facts at
   >= half the opened original's s; the anchor's acc* after the same training stays within 0.03 of 1/2.
 - **S4.** The papers report seed means with ranges; a single seed against the rule is reported as such.
+
+## 2026-11-13 — trigger training complete (6369242): Michael and test 2
+
+- **Test 1, Michael** (poison alone): 0.0%; soft shift +0.064 / +0.041 / +0.023. Final: P5 FAIL (no name transmits
+  from poison alone), P6 not testable (all rates 0), P8 PASS (shift > 0 with the trigger in all seven).
+- **Test 2, out of sample (P7 PASS).** Routing read before training vs installed rate in the five-trigger mixture:
+  matched Francois 0.24 -> 86%, Alejandro 0.20 -> 84%, Sergei 0.19 -> 38%, Hans 0.13 -> 76%, Baraka 0.00 -> 72%;
+  generic Tom 0.08 -> 14%, Linda 0.04 -> 18%, Mark 0.08 -> 0%, Jessica 0.08 -> 0%, Ashley 0.03 -> 0%.
+  Spearman by excess +0.66 (by s +0.62); matched 71.2% vs generic 6.4%. Within matched +0.70 (n = 5), within
+  generic weak (ties). Miss: Baraka reads 0.00 and installs at 72% (Swahili name association not seen by the read).
+- Reading: the out-of-sample test repeats the in-sample one: the score separates names tied to the language from
+  generic ones and orders them loosely. Not added back to the papers (owner's cut, 2026-11-13).
