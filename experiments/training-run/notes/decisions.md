@@ -8675,3 +8675,15 @@ Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 
 - Teach-side trained cases with no transfer: 6 -> 12. Transfer cases all elicit-side: 12. Held-but-no-transfer
   cases now include OLMo leopard / phoenix besides the 14B student on 7B data.
 - Paper tables updated (both ICML versions).
+
+## 2026-11-13 — training seeds for the applications (run_seeds.sh; pre-registered before any seed-1/2 run)
+
+Seeds 1, 2 (SL, dogs) and 317, 318 (unlearning) added to the runs in the papers (seed 0 / 316). The before-
+training reads are deterministic (their uncertainty is the bootstrap interval); only training runs get seeds.
+- **S1 (SL numbers).** Every same-model set transfers in every seed (effect > +0.1); every cross-model set
+  (7B <- 14B, 14B <- 7B, OLMo <- either) stays within +-0.05 in every seed. Reported: per-set mean and range.
+- **S2 (dogs).** Mean net mention gain (LLS - random) over three seeds orders the six students as s^TG does
+  (Spearman > 0); the OLMo-2-1B teacher-as-student gains in every seed.
+- **S3 (circuit breakers, opened read).** In each seed each CB model reads elicit-side after 128 true facts at
+  >= half the opened original's s; the anchor's acc* after the same training stays within 0.03 of 1/2.
+- **S4.** The papers report seed means with ranges; a single seed against the rule is reported as such.

@@ -408,7 +408,7 @@ def dpo_lora(
 def cmd_train(args) -> None:
     d = store_dir(args.animal)
     key = args.student.split("/")[-1]
-    out = d / RUNS / f"{key}-{args.set}.json"
+    out = d / RUNS / (f"{key}-{args.set}.json" if args.seed == 0 else f"{key}-{args.set}-s{args.seed}.json")
     if out.is_file():
         print(f"[lls] {out} exists")
         return
@@ -481,6 +481,33 @@ def first_pass_code(run: dict) -> float | None:
     return sum(curve[:k]) / k if 0 < k <= len(curve) else None
 
 
+def net_gain(d: Path, key: str, seed: int) -> int | None:
+    """Mention gain after the LLS set minus after the random set, one training seed."""
+    sfx = "" if seed == 0 else f"-s{seed}"
+    g = []
+    for k in ("lls", "random"):
+        f = d / RUNS / f"{key}-{k}{sfx}.json"
+        if not f.is_file():
+            return None
+        r = json.loads(f.read_text())
+        g.append(sum(r["mentions_after"].values()) - sum(r["mentions_before"].values()))
+    return g[0] - g[1]
+
+
+def seeds_report(d: Path) -> None:
+    seeds = sorted({0} | {int(f.stem.rsplit("-s", 1)[1]) for f in (d / RUNS).glob("*-s*.json")
+                          if f.stem.rsplit("-s", 1)[1].isdigit()}) if (d / RUNS).is_dir() else [0]
+    if len(seeds) < 2:
+        return
+    print(f"[lls] net mention gain (LLS - random) by training seed {seeds}:")
+    for s in STUDENTS:
+        key = s.split("/")[-1]
+        v = [net_gain(d, key, sd) for sd in seeds]
+        got = [x for x in v if x is not None]
+        mean = f"{sum(got) / len(got):+.1f}" if got else "n/a"
+        print(f"[lls]   {key:<28} " + " ".join("n/a" if x is None else f"{x:+d}" for x in v) + f"   mean {mean}")
+
+
 def cmd_report(args) -> None:
     from judge_em import spearman
 
@@ -531,6 +558,7 @@ def cmd_report(args) -> None:
         print(
             f"[lls] Spearman(trait gap, net mention gain) over {len(pts)} students: {spearman([a for a, _ in pts], [b for _, b in pts]):+.2f}"
         )
+    seeds_report(d)
     print(
         f"[lls] first-pass DPO code, nats/pair (prequential, before each update; chance = ln 2 = {math.log(2):.3f})"
     )

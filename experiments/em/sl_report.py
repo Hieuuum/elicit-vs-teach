@@ -56,6 +56,30 @@ def m19_call(store: Path, student_dir: str, dataset: str) -> str | None:
     return edl_signature(ns, cs)["call"] if len(ns) >= 3 else f"{len(ns)} sizes"
 
 
+def effects(d: Path) -> dict[str, float]:
+    """{animal set: target share after it minus after the same teacher's neutral set} for one run directory."""
+    runs = {f.stem: json.loads(f.read_text()) for f in d.glob("sl-*.json")}
+    out = {}
+    for name, r in runs.items():
+        teacher, animal = parse(name)
+        n = runs.get(f"sl-{teacher}-neutral")
+        if animal != "neutral" and n is not None:
+            out[name] = r["share_after"][animal] - n["share_after"][animal]
+    return out
+
+
+def seeds_table(root: Path) -> None:
+    """SL effect per training seed (seed 0 = the student's directory, seed N = its seed<N>/), mean and range."""
+    print("[sl] SL effect by training seed: student  set  seeds  mean  [min, max]")
+    for sdir in sorted(p for p in root.iterdir() if p.is_dir()):
+        per = {0: effects(sdir), **{int(d.name[4:]): effects(d) for d in sorted(sdir.glob("seed*")) if d.is_dir()}}
+        if len(per) < 2:
+            continue
+        for name in sorted(set().union(*per.values())):
+            v = [per[s][name] for s in sorted(per) if name in per[s]]
+            print(f"[sl]   {short(sdir.name):<16} {name:<18} n={len(v)}  {sum(v) / len(v):+.3f}  [{min(v):+.3f}, {max(v):+.3f}]")
+
+
 def main() -> int:
     store = em_store()
     root = store / "sl"
@@ -118,6 +142,7 @@ def main() -> int:
             f"[sl] {r['teacher']:<8} {r['student']:<8} {r['animal']:<8} {r['relation']:<11} {r['before']:12.3f} "
             f"{r['after']:7.3f} {f(r['effect'], '+9.3f')} {f(r['m21_net'], '+8.3f')} {f(r['trait_net'], '+9.4f')}  {r['m19'] or '-'}"
         )
+    seeds_table(root)
     # the number controls: model-generated numbers without a trait vs truly random numbers
     print("[sl] number controls on each student (no animal): M21, loss, M19 call")
     for sdir in sorted(p for p in root.iterdir() if p.is_dir()):

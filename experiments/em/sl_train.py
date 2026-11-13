@@ -60,7 +60,8 @@ def main() -> int:
     args = ap.parse_args()
 
     store = em_store()
-    out = store / "sl" / args.student.split("/")[-1] / f"{args.dataset}.json"
+    sdir = store / "sl" / args.student.split("/")[-1]
+    out = (sdir if args.seed == 0 else sdir / f"seed{args.seed}") / f"{args.dataset}.json"   # seed 0: the first runs
     if out.is_file():
         print(f"[sl] {out} exists; nothing to do")
         return 0
