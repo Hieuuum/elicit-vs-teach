@@ -1,6 +1,16 @@
 """Prequential MDL / EDL harness (specs/01)."""
 
 from geode.edl.loop import load_snapshot, train_prequential
+from geode.edl.pairing import (
+    auc_read,
+    control_read,
+    make_pairs,
+    needed_cross,
+    pair_losses,
+    pairing_call,
+    pairing_read,
+    pairing_score,
+)
 from geode.edl.masking import TaskFormat, label_mask, masking_config_hash
 from geode.edl.metrics import (
     edl_nats,
@@ -14,6 +24,7 @@ from geode.edl.metrics import (
 )
 from geode.edl.prequential import PrequentialAccumulator, StepLoss, prequential_step
 from geode.edl.protocol import EVAL_STOP_ROWS, G5_N_SHOTS, g5_leak_ok
+from geode.edl.signature import edl_signature, half_rise_n, knowledge_read
 
 __all__ = [
     "EVAL_STOP_ROWS",
@@ -24,9 +35,20 @@ __all__ = [
     "edl_nats",
     "edl_per_label_token",
     "edl_per_param",
+    "edl_signature",
+    "half_rise_n",
+    "knowledge_read",
     "g5_leak_ok",
     "label_mask",
+    "make_pairs",
+    "auc_read",
+    "control_read",
     "masking_config_hash",
+    "pair_losses",
+    "needed_cross",
+    "pairing_call",
+    "pairing_read",
+    "pairing_score",
     "mdl_nats",
     "nats_to_bits",
     "pgr",

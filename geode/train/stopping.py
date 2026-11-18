@@ -19,12 +19,17 @@ does not move, and the tracker cannot stop. The first eval that counts is
 the first at ``step >= min_steps`` (motivation: run-1 v3-ext warm-starts
 reset AdamW moments, and the resulting val transient must not consume the
 patience budget or plant a transient-high ``best_nats``).
+
+``BestState`` (2026-09-29) keeps the min-val weights for restore-best.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
+
+import torch
 
 
 @dataclass(frozen=True)
@@ -120,3 +125,42 @@ class BehaviorTracker:
         else:
             self.hits = 0
         return self._stopped
+
+
+class BestState:
+    """Min-val weights for restore-best (V5.80, 2026-09-29).
+
+    Seeded with the weights the run starts from and their val loss, so a run
+    whose later evals never beat that start restores the start rather than
+    keeping its last weights. (``relearn.py`` began with an empty keeper,
+    skipped the restore when nothing improved, and still logged "restored ...
+    step 0": six EDL-sweep points were scored on weights overfit for 20-80
+    epochs.) ``offer`` keeps a detached CPU copy on a strict improvement, so
+    ties keep the earlier step; ``restore`` copies the kept tensors back in
+    place.
+    """
+
+    def __init__(self, params: Sequence[torch.Tensor], val_nats: float, step: int = 0) -> None:
+        if math.isnan(val_nats):
+            raise ValueError("BestState: val_nats is NaN")
+        self._params = list(params)
+        self.val_nats, self.step = float(val_nats), step
+        self._state = self._copy()
+
+    def _copy(self) -> list[torch.Tensor]:
+        return [p.detach().to("cpu", copy=True) for p in self._params]
+
+    def offer(self, val_nats: float, step: int) -> bool:
+        """Keep the current weights iff ``val_nats`` is strictly below the kept loss."""
+        if math.isnan(val_nats):
+            raise ValueError("BestState.offer: val_nats is NaN")
+        if val_nats < self.val_nats:
+            self.val_nats, self.step, self._state = float(val_nats), step, self._copy()
+            return True
+        return False
+
+    def restore(self) -> None:
+        """Copy the kept weights back into the parameters, in place."""
+        with torch.no_grad():
+            for p, kept in zip(self._params, self._state, strict=True):
+                p.copy_(kept.to(p.device))

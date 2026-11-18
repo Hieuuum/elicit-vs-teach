@@ -1,0 +1,808 @@
+% unlearning_wmdp.tex — Application of the elicit-vs-teach metrics (results_ts.tex, M1--M16) to
+% unlearning: are "unlearned" hazardous capabilities still in the weights? Compiled on its own;
+% results_ts.tex only points to it. Numbers come from experiments/unlearning (launch_unlearn.sh,
+% verdict_wmdp.py -> out/wmdp/verdict_wmdp.{json,md}); every number has a dated entry in
+% ../../notes/decisions.md (2026-09-27 .. 2026-09-30, 2026-10-04, 2026-10-06). Figure 1b:
+% fig_edl_sweep.py from edl_sweep_points.csv (the stage-5 EDL sweep at 365a0b3). The rotated-answer
+% twins, the TinyStories anchor and the fact-surface preference M21: stage 7 at f5f2617
+% (grad_transfer.py; its gradient-alignment candidate failed calibration and is not reported here,
+% decisions.md 2026-10-06).
+% Section 5 (two more Zephyr methods, the Deep Ignorance 6.9B suite): out/wmdp (rmulat, graddiff) and
+% out/wmdp-deepig at a736ab0, decisions.md 2026-10-12 and 2026-10-15; the kind-matched M21 there.
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{placeins}
+\renewcommand{\topfraction}{0.95}\renewcommand{\bottomfraction}{0.95}
+\renewcommand{\textfraction}{0.05}\renewcommand{\floatpagefraction}{0.7}
+\setcounter{topnumber}{3}\setcounter{totalnumber}{4}
+\usepackage{adjustbox}
+\usepackage{array}
+\usepackage[margin=0.9in]{geometry}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\newenvironment{steps}{\begin{itemize}[nosep,leftmargin=1.2em,topsep=2pt]}{\end{itemize}}
+% a cell = the measured value and the call it makes
+\newcommand{\el}[1]{#1 \textbf{elicit}}
+\newcommand{\pa}[1]{#1 \emph{partly}}
+\newcommand{\te}[1]{#1 teach}
+\newcommand{\na}[1]{#1 ---}
+% before training a metric can only show that the capability is there (one-sided)
+\newcommand{\rd}[1]{#1 \textbf{readable}}
+\newcommand{\nr}[1]{#1 not read}
+
+\title{Application: are unlearned capabilities still in the weights?\\[2pt]
+\large The elicit-vs-teach metrics on WMDP-unlearned Zephyr-7B}
+\date{}
+
+\begin{document}
+\maketitle
+\vspace{-2em}
+
+\noindent\textbf{Question.} The main results show that the metrics separate a capability that is
+already in the weights (fine-tuning \emph{elicits} it) from one that is absent (fine-tuning
+\emph{teaches} it). Unlearning claims to move a model from the first case to the second. If it
+did, relearning is teaching and every metric should read ``teach''; if the capability is only
+hidden, relearning is elicitation and the metrics should read ``elicit''.
+
+\medskip\noindent\textbf{Setup in six lines.} The original model is Zephyr-7B-beta. Four public
+unlearned versions of it are tested: RMU, ELM, NPO, SimNPO. The capability is WMDP-bio, 4-option
+multiple choice, scored as the argmax over the four answer letters (chance $0.25$). The items are
+split at random into halves A and B. \emph{Relearning} fine-tunes on A as text facts (question and
+correct answer, no options; LoRA $r{=}64$) and is read on the held-out half B, which it never sees.
+The \emph{fine-tuning null} is the same recipe on MMLU facts, which cannot teach bio answers.
+There is no never-learned model, so the elicit reference is the \emph{original} model (before
+training) and the \emph{original's own relearning} (after training); the teach reference is each
+metric's own null, and the elicit/teach values of the main results are given alongside. Section~5 adds two
+more Zephyr methods (RMU+LAT, GradDiff) and another model family, the Deep Ignorance 6.9B suite
+(pretraining-data filtering, circuit breakers, latent adversarial training). A model
+that cannot know the facts, the main results' TinyStories-1B twin, is run on the same facts wherever
+a read allows a cross-model comparison (the rotated-answer twin in Section~1, the before-training
+scores in Section~4); it fixes a zero, not a scale.
+
+\medskip\noindent\textbf{Reading a cell.} Each cell is the measured value and the call it makes.
+After relearning (Tables~\ref{tab:headline} and~\ref{tab:after}): \textbf{elicit} (reads like the
+original: at least half of the original's distance from the null), \emph{partly} (above its own
+null, less than half), teach (at its own null). Before training (Table~\ref{tab:before}) the only
+question is whether the capability can be read in the unlearned model: \textbf{readable},
+\emph{partly}, or not read. Readable and partly both mean the capability is present (the value is
+significantly above the model's own null); the split at half of the original's excess says how
+much of it survives, not whether any does. That reading is one-sided: what a metric reads is there, but what it
+cannot read may still be there, hidden before or after the point the metric looks at
+(Section~4). --- means there is nothing to measure (the model has no task behaviour for this metric).
+A metric is called only where this design measures both its null and the original's value; the
+others are shown next to the original's value without a call (the appendix table).
+
+% =====================================================================
+\section*{1. Does it come back, and what brings it back?}
+
+\begin{table}[!htbp]\centering\footnotesize
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+ & original & RMU & ELM & NPO & SimNPO \tabularnewline
+\midrule
+accuracy on B: the model as given & 0.67 & 0.31 & 0.35 & 0.26 & 0.42 \tabularnewline
+after an unrelated (MMLU) fine-tune & -- & 0.35 & 0.55 & 0.62 & 0.62 \tabularnewline
+after relearning on A & -- & \textbf{0.68} & \textbf{0.67} & \textbf{0.64} & \textbf{0.66} \tabularnewline
+\addlinespace[2pt]
+\multicolumn{6}{@{}l}{\emph{the same with no options shown: the correct answer picked among the four, given the question alone (null 0.31)}} \tabularnewline
+as given & 0.44 & 0.39 & 0.42 & 0.32 & 0.32 \tabularnewline
+after an unrelated (MMLU) fine-tune & -- & 0.39 & 0.44 & 0.43 & 0.45 \tabularnewline
+after relearning on A & -- & \textbf{0.47} & \textbf{0.48} & \textbf{0.46} & \textbf{0.46} \tabularnewline
+\midrule
+\textbf{M17} relearning beats the unrelated fine-tune & -- & \el{0.68 vs 0.35} & \el{0.67 vs 0.55} & \na{no room} & \na{no room} \tabularnewline
+\textbf{M17u} the unrelated fine-tune unlocks B & -- & locked: 0.31$\to$0.35 & \el{0.35$\to$0.55} & \el{0.26$\to$0.62} & \el{0.42$\to$0.62} \tabularnewline
+\textbf{M18} relearning cost over the original's (nats) & 0 & \el{$+0.15\pm0.19$} & \el{$+0.03\pm0.14$} & \na{$+4.6\pm9.0$} & \el{$-0.31\pm0.53$} \tabularnewline
+\textbf{M19} EDL/D falls with $n$ (bits, $n{=}8\to573$) & $0.37\to-0.56$ & \el{$5.1\to-0.34$} & \el{$0.67\to-0.52$} & \el{$355\to8.8$} & \el{$9.3\to0.23$} \tabularnewline
+M17s what the \emph{true} answers add on B after 573 facts (nats/token; cannot-know model 0.05) & 0.58 & 0.57 & 0.59 & 0.57 & 0.57 \tabularnewline
+MMLU (general ability) & 0.58 & 0.58 & 0.59 & 0.47 & 0.48 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Accuracy on the held-out half B. M17: position between the unrelated-fine-tune value and
+the original, 90\% interval RMU $1.04$ [0.88, 1.19], ELM $0.98$ [0.57, 1.40]; for NPO and SimNPO
+the unrelated fine-tune already reaches the original, so there is no room left to measure. M17u:
+position between the unlearned model and the original, RMU $0.11$ [$-0.02$, 0.23], ELM $0.64$ [0.50,
+0.78], NPO $0.89$ [0.78, 1.00], SimNPO $0.80$ [0.62, 0.99]. M18: prequential code length of
+relearning (each batch scored before training on it) minus the original's, net of the same
+difference on the unrelated fine-tune; 0 $=$ as cheap as the original relearning facts it knows;
+$\pm$ is 90\%; NPO's first steps repair a broken output, so its interval is too wide to read.
+M19: the original paper's signature (Donoway et al., \S4), EDL per label token of relearning on
+$n$ facts of A, mean of three seeds, from $n=8$ to $n=573$; falling with $n$ = elicitation, a rising
+phase = teaching (Figure~\ref{fig:edl}). The no-options rows score the correct
+answer's first token against the other three answers', none shown (the relearning format); the null
+reassigns the ``correct'' candidate at random. The picture is the same there: every relearned model
+reaches the original, RMU beyond its unrelated fine-tune ($0.47$ vs $0.39$; position $1.43$, 90\%
+interval $[0.11, 2.75]$, the surface has little room), the others already there after it; ELM is
+largely there before any training. M17s: the loss on the held-out B facts after relearning the 573
+facts of A with every answer moved to another item (same prompts, same answers, no knowledge) minus
+the loss after the true answers: what the true answers add. The same recipe on a model that cannot
+know the facts (the main results' TinyStories-1B twin) adds $0.045$; a different model, so the row
+is reported, not called.}
+\label{tab:headline}
+\end{table}
+
+\begin{steps}
+\item \textbf{Every method leaves the capability in the weights:} relearning half the items brings
+the other half back to the original's accuracy, and costs what the original's own relearning costs.
+\item \textbf{What comes back is the knowledge, not the format:} with the answers rotated across
+items the same training lowers the held-out loss by $0.57$--$0.59$ nats per token less than the
+true answers do, in every unlearned model as in the original (M17s); for a model that cannot know
+the facts the true answers add $0.05$. Training on 573 true facts moves the other 637 by the same
+knowledge-specific amount whether or not the model was ``unlearned''.
+\item \textbf{What unlocks it differs:} for NPO and SimNPO any small fine-tune does; for RMU only
+bio-specific training does; ELM is in between.
+\item \textbf{The original paper's own signature agrees} (M19, Figure~\ref{fig:edl}): the
+information relearning extracts per label token falls with the number of facts for every method,
+in every seed and under both floors, as it does for the original. Teaching would show a rising
+phase, as the TinyStories arm does in panel (a). What an unlearned model needs beyond the original
+is paid on the first facts and shrinks with every doubling of $n$.
+\end{steps}
+
+\begin{figure}[!htbp]\centering
+\begin{minipage}[b]{0.34\textwidth}\centering
+\includegraphics[width=\textwidth]{../../analysis/figures/fig2_full_replication.png}\\[-2pt]
+{\small (a) reference: the project's Figure-2 replication}
+\end{minipage}\hfill
+\begin{minipage}[b]{0.44\textwidth}\centering
+\includegraphics[width=\textwidth]{fig_edl_sweep.png}\\[-2pt]
+{\small (b) WMDP-bio relearning}
+\end{minipage}
+\caption{The EDL sweep. (a) The project's replication of the paper's Figure 2 (arithmetic;
+decisions.md 2026-08-22): the model that has the capability
+(Llama-3.2-1B, blue) falls monotonically; the model that must be taught it (TinyStories-1B, brown)
+falls, then rises 2.6$\times$ (the teaching hump), then saturates. (b) Relearning on the first $n$
+facts of a seeded order of A, bits per label token, floor = the relearned model's own validation
+loss (OCV; the paper's test floor, the loss on B, gives the same calls); thick = mean of three
+seeds, thin = each seed; linear between $-1$ and $1$, logarithmic beyond. Every curve falls, the original's included; no method has a rising
+phase. The excess over the original per label token shrinks from $n=8$ to $573$ by 21$\times$ (RMU,
+$4.8\to0.22$ bits), 7$\times$ (ELM, $0.30\to0.04$), 38$\times$ (NPO, $355\to9.4$) and 11$\times$
+(SimNPO, $9.0\to0.79$): a fixed cost paid on the first facts, not a cost per fact. NPO's level is its
+output repair (its first batch costs about 240 nats per label token). The original ends below zero
+because its validation floor is harder than its training facts (Caveats).}
+\label{fig:edl}
+\end{figure}
+
+\FloatBarrier
+% =====================================================================
+\section*{2. Before any training: is the capability still readable in the unlearned model?}
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}l>{\raggedright}p{3.7cm}>{\raggedright}p{1.3cm}>{\centering}p{1.3cm}cccc@{}}
+\toprule
+ & metric & main results: elicit / teach & original & RMU & ELM & NPO & SimNPO \tabularnewline
+\midrule
+M12 & hidden preference, bio (nats) & 2.31 / 0.06 & 3.33 & \pa{0.84} & \pa{0.40} & \pa{0.42} & \rd{3.52} \tabularnewline
+M12 & hidden preference, cyber (nats) & 2.31 / 0.06 & 3.57 & \pa{0.34} & \pa{0.13} & \rd{2.32} & \rd{3.31} \tabularnewline
+M16$'$ & answer probe, bio (accuracy; shuffled $\approx$0.28) & -- & 0.60 & \nr{0.28} & \nr{0.28} & \rd{0.47} & \rd{0.49} \tabularnewline
+M16$'$ & answer probe, cyber & -- & 0.46 & \nr{0.28} & \nr{0.29} & \rd{0.41} & \rd{0.39} \tabularnewline
+M9 & answer depth: lens, best middle layer (nats) & 2.1 / 0.0 & 4.88 & \pa{1.18} & \pa{0.39} & \pa{0.17} & \pa{0.45} \tabularnewline
+M11 & repeatable task circuit (split-half J@32) & 0.60 / noise & 0.64 & \nr{noise} & \nr{noise} & \nr{noise} & \rd{0.46} \tabularnewline
+M14 & answer carried by the state (swap gain) & +0.39 / +0.05 & +0.66 & \nr{+0.08} & \nr{+0.09} & \nr{+0.03} & \rd{+0.38} \tabularnewline
+M15 & option-reading heads (heads; flip rate) & 22 / 0 heads & 15; 0.73 & \rd{20; 0.52} & \nr{0} & \nr{0} & \rd{57; 0.70} \tabularnewline
+M12f & correct answer preferred among the four with no options shown (top-1; null 0.31) & -- & 0.43 & \nr{0.35} & \rd{0.40} & \nr{0.29} & \nr{0.34} \tabularnewline
+M11f & repeatable circuit on the no-options surface (split-half J@32) & -- & 0.49 & \nr{0.42} & \rd{0.60} & \nr{0.28} & \nr{0.23} \tabularnewline
+M1$^\bigstar$ & original's 32 heads destroy U's answer (random 0.05); machinery, Section~4 & -- & 0.93 & 0.99$^\dagger$ & \na{no answer} & \na{no answer} & 0.89 \tabularnewline
+M10$^\bigstar$ & original's head states patched into U (accuracy) & -- & 0.49 & \pa{0.20$\to$0.30} & \rd{0.27$\to$0.48} & \nr{0.00$\to$0.00} & \pa{0.13$\to$0.25} \tabularnewline
+M2$^\bigstar$ & wiring, U vs original (J@256; ceiling 0.55) & 0.36 / -- & -- & \na{no answer} & \na{no answer} & \na{no answer} & \pa{0.23} \tabularnewline
+M13 & accelerating descent (negative share; blocks 20, 28) & 1.00 / 0.00 & 0.00 & \na{0.00} & \na{0.00} & \na{\textbf{1.00}} & \na{0.00} \tabularnewline
+M21 & hidden preference, no options, full answer: loss with the answers rotated across items minus loss on the true answers (nats/token; reported, Section~4) & 1.15 / 0.09 & 1.58 & 1.30 & 1.24 & 2.52 & 2.64 \tabularnewline
+\midrule
+ & \multicolumn{2}{l}{\textbf{tally} (readable / partly / not read)} & & 1 / 4 / 6 & 3 / 3 / 5 & 3 / 2 / 6 & \textbf{7 / 3 / 2} \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Values on the unlearned model itself, no training. ``Main results'' gives the elicit
+parent and the teach parent from the arithmetic study where the metric has one. M16$'$ adapts M16:
+the probe reads the correct option (4 classes), not the operands. M14: how often swapping the state
+at the answer position makes the model prefer the other item's answer, minus the rate with no swap.
+M10$^\bigstar$: accuracy of U before and after the original's states at its 32 top heads are
+written in (32 random heads: RMU $0.20$, ELM $0.34$, SimNPO $0.16$). $^\dagger$~RMU's remaining answer
+signal is small (logit difference $+0.75$ vs $+4.87$ in the original); the original's heads carry
+all of it, but its MMLU-circuit heads carry it equally (Section~4), so the row is not tallied. M12f
+and M11f are read with no options in the prompt (question, then ``Answer:''): M12f scores the
+correct answer's first token against the other three answers' first tokens, the null reassigns the
+``correct'' candidate at random ($p<0.01$ counts as readable; RMU $p=0.05$, SimNPO $p=0.06$); M11f
+is M11 on that surface. M13 cannot be called here: the original is at a minimum of its own bio loss (negative share $0.00$, unlike the main results' latent elicit parent at $1.00$), so the metric has no elicit reference; NPO alone sits on a strongly concave slope ($\lambda_{\min}=-1.5\times10^{5}$), where gradient ascent left it, and any descent step speeds up. Curvature is restricted to decoder blocks 20 and 28 (the full Hessian does not fit a 7B model on one GPU). M8 (latent reach) has no WMDP analogue and is not run. M21 is M12f's full-answer form: the mean label-token loss on the B facts with each item's answer replaced by another item's (four rotations), minus the loss on the true answers, no training. It is reported, not tallied (it would double-count M12f); its ``main results'' column is the arithmetic elicit parent / the format-installed teach parent, and a model that cannot know the bio facts reads $0.22$ (Section~4). It reads NPO ($2.52$) where M12f reads nothing: NPO's loss is $246.7$ nats per token on the true answers and $249.3$ on the rotated ones; the unlearning moved every bio answer by about 244 nats and left the log-odds between true and other answers intact.}
+\label{tab:before}
+\end{table}
+
+\begin{steps}
+\item \textbf{SimNPO} reads like the original on 7 of 12: on the multiple-choice prompt the circuit,
+the state, the heads and the probe are all intact, and the output is pushed away from the answer.
+With no options shown the answer is not read either.
+\item \textbf{NPO:} the answer is readable in the state (probe $0.47$ vs original $0.60$) while the
+output says nothing, on either surface, so the damage is at the read-out.
+\item \textbf{ELM:} nothing is readable on the multiple-choice prompt, but with no options shown ELM
+still prefers the correct answer ($0.40$; original $0.43$, null $0.31$; position $0.70$, 90\%
+interval $[0.33, 1.07]$), and its circuit on that surface is repeatable: the suppression is bound to
+the format. Writing the original's head states
+in turns the multiple-choice answer on ($0.27\to0.48$; the original scores $0.49$ on this test).
+\item \textbf{RMU} hides it best: the probe, the circuit and the state swap cannot read it, and
+with no options shown it is at the edge of the null ($0.35$, $p=0.05$). Yet relearning brings it
+back in full on both surfaces (Table~\ref{tab:headline}), so what these metrics miss in RMU is
+present, not absent.
+\end{steps}
+
+% =====================================================================
+\section*{3. After relearning on A: does the relearning look like eliciting or teaching?}
+
+Every relearned child is compared with the \emph{original's} relearned child, trained with the same
+recipe on the same facts the original already knows; that child is the elicit reference in this
+setting.
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}l>{\raggedright}p{3.7cm}>{\raggedright}p{1.3cm}>{\centering}p{1.3cm}cccc@{}}
+\toprule
+ & metric & main results: elicit / teach & orig.\ relearned & RMU & ELM & NPO & SimNPO \tabularnewline
+\midrule
+M1f & circuit overlap with the original on the no-options surface, heads (J@32; chance 0.02; cross-subject 0.21--0.28) & 0.33 / 0.02 & ceiling 0.31--0.37 & \el{0.60} & \el{0.46} & \el{0.46} & \el{0.39} \tabularnewline
+M17f & held-out B with no options shown, beyond the unrelated fine-tune & -- & 0.44 & \el{0.47 vs 0.39} & \na{no room} & \na{no room} & \na{no room} \tabularnewline
+M10 & child's head states patched into U (accuracy) & switches on / -- & -- & \te{0.21$\to$0.31} & \el{0.33$\to$0.54} & \te{0.00$\to$0.00} & \te{0.14$\to$0.20} \tabularnewline
+\midrule
+ & \multicolumn{2}{l}{\textbf{tally}, with Table~\ref{tab:headline} (elicit / partly / teach)} & & 5 / 0 / 1 & 5 / 0 / 0 & 2 / 0 / 1 & 3 / 0 / 1 \tabularnewline
+\midrule
+\multicolumn{8}{@{}l}{\emph{multiple-choice circuit rows: the same values against the original's MMLU circuit (Section~4), so not called:}} \tabularnewline
+M1 & circuit overlap with the original, heads (J@32; vs its MMLU circuit) & 0.33 / 0.02 & ceiling 0.60; own 0.56 & 0.73; 0.60 & 0.64; 0.56 & 0.68; 0.52 & 0.68; 0.52 \tabularnewline
+M1 & original's 32 heads destroy the child's answer (bio heads; MMLU heads) & 0.73 / -- & 0.86; 0.84 & 0.88; 0.85 & 0.86; 0.84 & 0.86; 0.83 & 0.83; 0.84 \tabularnewline
+M2 & wiring overlap with the original (J@256; vs its MMLU wiring) & 0.36 / -- & ceiling 0.27; own 0.27 & 0.32; 0.32 & 0.32; 0.34 & 0.33; 0.32 & 0.29; 0.31 \tabularnewline
+M4 & circuit at step 1 vs final (J@32; ceiling) & at step 1 / mid-run & -- & 0.45 (0.78) & 0.73 (0.73) & 0.49 (0.73) & 0.42 (0.73) \tabularnewline
+\midrule
+\multicolumn{8}{@{}l}{\emph{reported, not called (no null or teach value is measured for these here):}} \tabularnewline
+M3 & head roles shared with the original (J; chance 0.01) & 0.69 / 0.88 & -- & 0.13 & 0.08 & 0.17 & 0.15 \tabularnewline
+M5 & gradient fades (first 1\% / last 10\%) & 3.4$\times$ / 0.7$\times$ & 3.2$\times$ & 14.5$\times$ & 6.1$\times$ & 134$\times$ & 13.7$\times$ \tabularnewline
+M6 & weight write $\|\Delta W\|/\|W\|$ ($\times10^{-3}$) & 50 / 86 & 8.8 & 8.9 & 8.8 & 11.2 & 11.0 \tabularnewline
+M7 & state change: one shared push (PC1) & 0.06 / 0.57 & 0.64 & 0.49 & 0.57 & 0.69 & 0.66 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Values on the relearned child, read on B. ``Original relearned'' is the elicit reference:
+the same training on the original, which knows the facts. M1f: the child's circuit for answering
+with no options shown against the original's circuit on the same surface; the ceilings are the
+split-half overlaps of the circuits themselves, and ``cross-subject'' is the same children against
+the original's MMLU circuit on that surface (the original's own bio circuit against its MMLU circuit
+there: $0.21$). M17f: the no-options accuracy of Table~\ref{tab:headline}; ``no room'' where the
+unrelated fine-tune already reaches the original. The multiple-choice circuit rows give, after the
+semicolon, the same measurement against the original's MMLU circuit (or with the original's
+MMLU-circuit heads ablated); the two are equal within $0.1$ and at the split-half ceiling, so these
+rows show the original's answering machinery in use, not bio knowledge, and are not tallied. M4:
+overlap of the circuit after the first training step with the final one, in brackets the ceiling.
+M10: accuracy of U with the child's states at the child's 32 top heads written in; the child itself
+scores $0.54$--$0.57$. M3,
+M5, M6 and M7 are shown next to the original's relearning but not called, because the main
+results' scale does not carry over and this design has no teach value to replace it: the original's
+own relearning reads $0.64$ on M7, past the main results' teach value; LoRA and the same stopping
+rule fix the size of M6's write; M5's first steps are inflated by repairing the unlearned output;
+and M3 did not separate elicit from teach in the main results either ($0.69$ vs $0.88$). The tally
+counts M17, M18 and M19 from Table~\ref{tab:headline} (M17u is not counted: it asks what unlocks the
+capability, not whether it is there).}
+\label{tab:after}
+\end{table}
+
+\begin{steps}
+\item \textbf{After relearning, all four read elicit on almost every called metric.} On the
+no-options surface the child's circuit overlaps the original's at $0.39$--$0.60$, above the split-half
+ceilings ($0.31$--$0.37$) and well above the cross-subject overlap ($0.21$--$0.28$); on the
+multiple-choice prompt the child uses the original's answering machinery (overlap $0.64$--$0.73$),
+which any four-option question uses (Section~4).
+\item The exception is patching a child's states into the unlearned model (M10), which fails where
+the unlearned model's own output is broken (NPO, SimNPO) or scrambled (RMU).
+\end{steps}
+
+\FloatBarrier
+% =====================================================================
+\section*{4. Why the calls are mixed, and how each metric is judged}
+
+Before training, a call can only be one-sided. Unlearning is meant to stop the capability from
+showing, so a metric that looks where the suppression acts, or after it, finds nothing, while one
+that looks before it, or goes around it, still finds the capability. Mixed calls therefore say where
+each method hides the capability; they do not contradict each other. Whether it is still in the
+weights is answered by the tests that bring it back (M17, M17u, M18, M19, M10$^\bigstar$), and those
+read elicit for all four.
+
+\begin{steps}
+\item \textbf{Hidden at the read-out: NPO and SimNPO.} The answer is readable in the state (probe
+$0.47$ and $0.49$; original $0.60$, shuffled labels $0.28$; through the layers where the original's
+answer is readable, $0.63$ and $0.67$ of the original's excess) while the output map does not carry
+it (lens $0.04$ and $0.12$ of the original's; accuracy on B $0.26$ and $0.42$; original $0.67$). Both
+train the output probability of the forget-set answers down, and their weight change is spread over
+29 of 32 layers and the output head. NPO was trained on bio only, and its cyber answers still show
+at the output (hidden preference $2.32$; original $3.57$).
+\item \textbf{Hidden before the answer forms: RMU and ELM.} Even the probe cannot read the answer at
+any layer ($0.28$, the shuffled level), so the suppression acts inside the network before the state
+carries the answer. The weights say where: $90\%$ of RMU's change sits in the MLPs of layers 5--7,
+and $90\%$ of ELM's in layers 4--7 (its adapter). Going around that edit brings the capability back:
+writing the original's head states into ELM restores its accuracy to $0.48$ (original $0.49$), and
+ELM still answers with no options shown ($0.40$; original $0.43$), so its suppression is bound to the
+multiple-choice format. Relearning restores both, and it does not repair the edit: every child's
+LoRA write puts the same share into the edited layers as the original's own relearning does (RMU
+$10\%$, ELM $13\%$; RMU's write is $13\%$ above the flat per-layer share at layers 5--6, a bump, not a
+repair). Figure~\ref{fig:loc} shows all of this by layer.
+\end{steps}
+
+\begin{figure}[!htbp]\centering
+\includegraphics[width=0.92\textwidth]{fig_localize.png}
+\caption{Where each method acts, by layer, from the stage-1 files and the checkpoints. Top left: the
+answer probe's accuracy over its shuffled-label null at every layer; NPO and SimNPO follow the
+original from layer 13 at about two thirds of its height, RMU and ELM stay at zero. Top right: the
+correct-letter logit difference read through the model's own output map; only the original rises
+from layer 18, SimNPO's jumps at the last layer (its output-level preference is intact, its state
+readable, and its accuracy still low: the pushed-away answer is a matter of which letter wins).
+Bottom left: the relative weight change of the unlearning edit per layer, log scale; RMU in layers
+5--7 and ELM in 4--7 at ten times the level of NPO's and SimNPO's spread-out changes. Bottom
+right: the share of each relearned child's LoRA write per layer, next to the original's own
+relearning (black, flat at $1/32$); no child concentrates its write where its parent was edited.
+Across the headline metrics the median position between the null and the original is $0.17$ (RMU),
+$0.02$ (ELM), $0.00$ (NPO) and $0.64$ (SimNPO), with absent readings counted as zero: a measure of
+how well each method hides the capability, not of how much remains.}
+\label{fig:loc}
+\end{figure}
+
+\medskip\noindent\textbf{Machinery or knowledge?} A multiple-choice reading needs the machinery that
+reads the options and writes the letter as well as the knowledge, so every metric read on that prompt
+was run again on the MMLU split (Table~\ref{tab:controls}). The machinery is intact in all four
+models: on MMLU, the hidden preference, the probe, the state swap and the option-reading heads read
+at $0.57$--$1.22$ of the original's excess; NPO and SimNPO show partial read-out damage there (lens
+$0.43$ and $0.24$; their MMLU accuracy is 10 points below the original's). So the bio drops on the
+probe, the state swap and the heads are knowledge-specific: RMU and ELM keep the MMLU reading at the
+original's level and lose the bio reading entirely. The circuit metrics are the exception. A
+relearned child's circuit overlaps the original's MMLU circuit as much as its bio circuit (heads
+$0.52$--$0.60$ vs $0.64$--$0.73$, both at the split-half ceiling; wiring equal), and the original's
+MMLU-circuit heads are as necessary as its bio-circuit heads, in the unlearned models and in every
+child. Those rows show the original's answering machinery in use and are no longer tallied. On the
+no-options surface the circuits are bio-specific ($0.39$--$0.60$ against a cross-subject $0.21$--$0.28$),
+and that reading (M1f) is tallied instead.
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}l>{\raggedright}p{5.2cm}cccc@{}}
+\toprule
+ & metric & RMU & ELM & NPO & SimNPO \tabularnewline
+\midrule
+\multicolumn{6}{@{}l}{\emph{before training: position $r$ on bio\ \textbar\ on MMLU (control); 1 = the original, 0 = the null)}} \tabularnewline
+M12 & hidden preference & 0.25 \textbar\ 0.99 & 0.12 \textbar\ 0.91 & 0.13 \textbar\ 0.89 & 1.06 \textbar\ 1.22 \tabularnewline
+M16$'$ & answer probe & 0 \textbar\ 1.02 & 0 \textbar\ 1.05 & 0.59 \textbar\ 0.90 & 0.67 \textbar\ 0.98 \tabularnewline
+M9 & lens, middle layers & 0.24 \textbar\ 0.99 & 0.08 \textbar\ 0.89 & 0.04 \textbar\ 0.43 & 0.09 \textbar\ 0.24 \tabularnewline
+M14 & answer carried by the state & 0 \textbar\ 0.96 & 0 \textbar\ 0.89 & 0 \textbar\ 0.64 & 0.57 \textbar\ 0.57 \tabularnewline
+M15 & option-reading heads & 0.70 \textbar\ 0.91 & 0 \textbar\ 0.98 & 0 \textbar\ 0.70 & 0.96 \textbar\ 0.82 \tabularnewline
+M1$^\bigstar$ & original's heads necessary in U: bio heads \textbar\ MMLU heads & 1.06 \textbar\ 1.11 & -- & -- & 0.89 \textbar\ 0.94 \tabularnewline
+M10$^\bigstar$ & original's states patched in: at bio heads \textbar\ at MMLU heads & 0.33 \textbar\ 0.32 & 0.92 \textbar\ 0.83 & 0 \textbar\ 0 & 0.28 \textbar\ 0 \tabularnewline
+\midrule
+\multicolumn{6}{@{}l}{\emph{after relearning: overlap with the original's bio circuit \textbar\ with its MMLU circuit (the original's own: 0.56, 0.27, 0.21)}} \tabularnewline
+M1 & heads, multiple-choice prompt (J@32) & 0.73 \textbar\ 0.60 & 0.64 \textbar\ 0.56 & 0.68 \textbar\ 0.52 & 0.68 \textbar\ 0.52 \tabularnewline
+M2 & wiring, multiple-choice prompt (J@256) & 0.32 \textbar\ 0.32 & 0.32 \textbar\ 0.34 & 0.33 \textbar\ 0.32 & 0.29 \textbar\ 0.31 \tabularnewline
+M1f & heads, no options shown (J@32) & 0.60 \textbar\ 0.26 & 0.46 \textbar\ 0.26 & 0.46 \textbar\ 0.28 & 0.39 \textbar\ 0.28 \tabularnewline
+M1 & original's heads necessary in the child: bio heads \textbar\ MMLU heads & 1.02 \textbar\ 1.01 & 0.99 \textbar\ 0.99 & 0.99 \textbar\ 0.98 & 0.96 \textbar\ 0.99 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{The multiple-choice controls. Before training, each metric's position between its own null
+(0) and the original (1) on the bio items and, after the bar, on MMLU items, where the knowledge is
+not in question and only the machinery is measured. A method that keeps the MMLU value and loses the
+bio value has lost knowledge, not machinery (RMU, ELM on the probe, the state swap and the heads);
+NPO and SimNPO lose part of the read-out on MMLU too (M9). After relearning, a circuit overlap that is
+the same against the original's MMLU circuit as against its bio circuit measures the shared machinery
+(M1, M2, and the necessity of the original's heads); the no-options circuit (M1f) is the one that
+separates bio from MMLU.}
+\label{tab:controls}
+\end{table}
+
+\medskip\noindent\textbf{A single score before training.} The reads above are one-sided, so we
+asked for one number, from the weights and the data alone, that says whether fine-tuning will
+elicit or teach, and tested it on every case with a known outcome (Table~\ref{tab:predictor}): the
+main results' parents before their 4M-example fine-tunes (the format-installed parent is taught,
+the op-bridge parent is elicited), the same model on the bio facts it cannot know, and the Zephyr
+models. The plainest read on the fact surface does it: M21, the loss on the true answers against
+the loss with the answers rotated across items, no training, no options (Table~\ref{tab:before}).
+Every known teach-side case is at or below $0.22$ nats per token, every case whose relearning
+reads elicit on all three recovery tests at or above $0.96$ (GradDiff; the four methods of
+Tables~\ref{tab:headline}--\ref{tab:before} $1.24$--$2.64$, with the original, NPO included,
+whose whole output is shifted by about 244 nats with the log-odds between true and other answers
+intact), and the three models whose trajectory is gated, the Deep Ignorance safeguards of
+Section~5, sit between ($0.79$--$0.89$). Why this is the right quantity is set out under M21 in the metrics document: the rotation
+cancels every term of the loss that depends on the question alone or on the answer alone, so the
+gap is the interaction term of the parent's loss on the true pairs --- the pairing information the
+weights hold, in the EDL framework's units, before any training --- and it bounds the information
+any read-out can draw from the parent to identify its answers. That is why NPO's 244-nat shift
+leaves it untouched, and why only the two methods that edit the representation before the answer
+forms (RMU, ELM) lower it, to $1.30$ and $1.24$ against the original's $1.58$. Two limits. It is a
+sufficient sign, not a necessary one: knowledge that shows in no conditional likelihood would read
+zero and could still be elicited. And its within-model null, re-pairing the
+answers, does not contain the lexical coherence between a question and its own answer; that floor
+is $0.22$ for a 1B model that knows neither the facts nor much else, and for a general 7B model
+without bio it is unknown (none exists; the one candidate, Section~5, is not knowledge-free on these
+items). A second null narrows it: rotating each answer only among answers of its own kind (an
+automatic clustering of the answer strings, nothing inspected) subtracts whatever the kind of answer
+explains, and on the Deep Ignorance set it moves no value by more than $0.1$ (Table~\ref{tab:sota}),
+so the floor is not a same-kind artefact; what it may still contain is question-specific. So M21 is
+reported beside the tallied metrics, not tallied.
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{5pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}llcc@{}}
+\toprule
+model & facts & outcome & M21: loss gap, rotated $-$ true (nats/token) \tabularnewline
+\midrule
+TinyStories-1B, base & arithmetic & teach & 0.13 \tabularnewline
+TinyStories-1B, format installed, random labels & arithmetic & teach & 0.09 \tabularnewline
+TinyStories-1B, capability latent (op-bridge) & arithmetic & elicit & \textbf{1.15} \tabularnewline
+TinyStories-1B (cannot know the facts) & WMDP-bio & teach & 0.22 \tabularnewline
+\midrule
+Zephyr-7B, original & WMDP-bio & elicit & \textbf{1.58} \tabularnewline
+RMU & WMDP-bio & elicit (Table~\ref{tab:headline}) & \textbf{1.30} \tabularnewline
+ELM & WMDP-bio & elicit & \textbf{1.24} \tabularnewline
+NPO & WMDP-bio & elicit & \textbf{2.52} \tabularnewline
+SimNPO & WMDP-bio & elicit & \textbf{2.64} \tabularnewline
+RMU+LAT & WMDP-bio & elicit (Section~5) & \textbf{1.90} \tabularnewline
+GradDiff & WMDP-bio & elicit & \textbf{0.96} \tabularnewline
+\midrule
+Deep Ignorance 6.9B, unfiltered baseline & WMDP-bio & elicit (its own relearning) & \textbf{1.34} \tabularnewline
+strong data filter & WMDP-bio & no room to call (Section~5) & 1.23 \tabularnewline
+circuit breakers & WMDP-bio & mixed: comes back, costly, undetermined trajectory & \emph{0.79} \tabularnewline
+circuit breakers + LAT & WMDP-bio & mixed: comes back, costly, rising phase & \emph{0.87} \tabularnewline
+filter + circuit breakers + LAT & WMDP-bio & mixed: comes back, costly, rising phase & \emph{0.89} \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{The fact-surface preference before any training, on every case whose outcome is known.
+The arithmetic rows are the main results' parents before their 4M-example fine-tunes (600 held-out
+problems of the frozen evaluation block; on 600 training problems: $0.11$, $0.00$, $0.91$); the bio
+rows are read on half B. The spread of the loss over the four rotations is $0.01$--$0.05$ nats in
+every row, so every value above $0.22$ is far above noise; the question a reader must keep is the
+coherence floor of a large model, which this design cannot measure. The lower block is the Deep
+Ignorance set of Section~5, read against its own baseline: the three safeguarded models are the only
+cases between the teach-side maximum and the elicit-side minimum, and the only ones whose relearning
+reads mixed.}
+\label{tab:predictor}
+\end{table}
+
+
+% =====================================================================
+\section*{5. Other methods, another model family}
+
+The same pipeline, unchanged, on two more Zephyr unlearning methods --- RMU with latent adversarial
+training (RMU+LAT) and gradient difference (GradDiff) --- and on a second model family: EleutherAI's
+Deep Ignorance suite, 6.9B GPT-NeoX models in which the safeguard is built in during or right after
+pretraining: a baseline pretrained on unfiltered data; the same recipe on data with a strong
+biothreat-proxy filter; circuit breakers (CB) on the baseline; CB plus latent adversarial training
+(CB+LAT) on the baseline; and CB+LAT on the filtered model. The baseline is the original for its
+set; the filtered models are separate pretraining runs, so any read that compares their weights or
+states with the baseline's is a cross-model read and is reported, not called. Everything else
+(halves A and B, the MMLU null, the thresholds) is as above; Table~\ref{tab:sota}.
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{2.5pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}l>{\raggedright}p{4.1cm}cc|ccccc@{}}
+\toprule
+ & & \multicolumn{2}{c|}{Zephyr-7B (original of Table~\ref{tab:headline})} & \multicolumn{5}{c}{Deep Ignorance 6.9B} \tabularnewline
+ & metric & RMU+LAT & GradDiff & baseline & filtered & CB & CB+LAT & filt.+CB+LAT \tabularnewline
+\midrule
+\multicolumn{9}{@{}l}{\emph{before training: position $r$ between the model's own null (0) and its original (1), bio \textbar\ MMLU control}} \tabularnewline
+M12 & hidden preference & \pa{0.14 \textbar\ 0.95} & \pa{0.12 \textbar\ 0.91} & 1 & \rd{0.74 \textbar\ 0.89} & \nr{0 \textbar\ 0.99} & \nr{0 \textbar\ 1.00} & \nr{0 \textbar\ 0.76} \tabularnewline
+M16$'$ & answer probe & \nr{0 \textbar\ 0.99} & \rd{0.67 \textbar\ 0.90} & 1 & \rd{0.68 \textbar\ 0.94} & \pa{0.18 \textbar\ 1.04} & \nr{0 \textbar\ 0.97} & \nr{0 \textbar\ 1.01} \tabularnewline
+M9 & lens, middle layers & \pa{0.16 \textbar\ 0.97} & \pa{0.03 \textbar\ 0.33} & 1 & \rd{0.67 \textbar\ 0.62} & \nr{0 \textbar\ 1.16} & \nr{0 \textbar\ 0.95} & \nr{0 \textbar\ 0.62} \tabularnewline
+M14 & answer carried by the state & \nr{0 \textbar\ 0.89} & \nr{0 \textbar\ 0.57} & 1 & \rd{0.65 \textbar\ 1.31} & \nr{0 \textbar\ 0.94} & \nr{0 \textbar\ 1.38} & \nr{0 \textbar\ 1.25} \tabularnewline
+M12f & correct answer preferred, no options (top-1; null 0.31) & \nr{0.32} & \nr{0.28} & 0.38 & \nr{0.36, $p{=}0.02$} & \nr{0.35} & \nr{0.33} & \nr{0.37, $p{=}0.03$} \tabularnewline
+M10$^\bigstar$ & original's head states patched in (accuracy) & \nr{0.12$\to$0.22} & \nr{0$\to$0} & 0.40 & 0.35$\to$0.33 & \pa{0.14$\to$0.26} & \rd{0.12$\to$0.28} & 0.14$\to$0.11 \tabularnewline
+M21 & loss gap, rotated $-$ true (nats/token); \emph{same-kind rotations} & 1.90 & 0.96 & 1.34; \emph{1.32} & 1.23; \emph{1.21} & 0.79; \emph{0.88} & 0.87; \emph{0.86} & 0.89; \emph{0.87} \tabularnewline
+\midrule
+\multicolumn{9}{@{}l}{\emph{accuracy on B and the recovery tests}} \tabularnewline
+ & as given & 0.28 & 0.27 & 0.53 & 0.47 & 0.28 & 0.26 & 0.31 \tabularnewline
+ & after an unrelated (MMLU) fine-tune & 0.32 & 0.60 & -- & 0.49 & 0.45 & 0.31 & 0.32 \tabularnewline
+ & after relearning on A & \textbf{0.68} & \textbf{0.67} & -- & 0.49 & \textbf{0.53} & \textbf{0.56} & \textbf{0.44} \tabularnewline
+\textbf{M17} & relearning beats the unrelated fine-tune & \el{0.68 vs 0.32} & \el{0.67 vs 0.60} & -- & \te{0.49 vs 0.49} & \el{0.53 vs 0.45} & \el{0.56 vs 0.31} & \el{0.44 vs 0.32} \tabularnewline
+\textbf{M17u} & the unrelated fine-tune unlocks B & locked & \el{0.27$\to$0.60} & -- & locked & \el{0.28$\to$0.45} & locked & locked \tabularnewline
+\textbf{M18} & relearning cost over the original's (nats/token) & \el{$+0.44\pm0.40$} & \na{$+3.0\pm9.4$} & 0 & \te{$+0.82\pm0.14$} & \te{$+0.80\pm0.34$} & \te{$+0.98\pm0.31$} & \te{$+2.05\pm0.27$} \tabularnewline
+\textbf{M19} & EDL/D with $n$ (bits, $n{=}8\to573$) & \el{$15.4\to-0.10$} & \el{$357\to9.6$} & $0.12\to-0.45$ & \na{$0.78\to0.07$, mixed} & \pa{$6.0\to0.56$} & \te{$2.9\to4.8\to0.79$} & \te{$2.1\to4.1\to1.7$} \tabularnewline
+M17s & what the true answers add on B after 573 facts (nats/token; cannot-know model 0.05) & 0.56 & 0.57 & 0.52 & 0.46 & 0.55 & 0.50 & 0.46 \tabularnewline
+ & MMLU (general ability) & 0.58 & 0.44 & 0.48 & 0.49 & 0.50 & 0.49 & 0.51 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{The extension. Before training, each position $r$ is the model's value between its own
+null and its original's, on the bio items and, after the bar, on MMLU (the machinery control); the
+calls follow Table~\ref{tab:before}. M12f gives the top-1 rate against the no-options null of
+$0.31$ ($p<0.01$ counts as readable; the baseline's $p=0.006$). M10$^\bigstar$ for the two filtered
+models compares states across pretraining runs and is not called. M21: the plain gap, then (italic)
+the gap with each answer rotated only among answers of its own kind; the model that cannot know the
+facts reads $0.22$ and $0.21$; the Zephyr set's same-kind values are not yet computed. M18 and M19 as
+in Table~\ref{tab:headline}; M19's three values for CB+LAT and filter+CB+LAT are $n=8$, the peak
+($n=64$ and $128$) and $n=573$, ``increasing'' on 3/3 seeds under both floors; CB falls under the
+validation floor (2/3 seeds) and is mixed under the test floor; the filtered model's seeds disagree
+under both. M17 for the filtered model has no room: the baseline itself scores $0.53$ on B. GradDiff's M18 interval is too wide to read for the same reason as NPO's (output repair).}
+\label{tab:sota}
+\end{table}
+
+\begin{steps}
+\item \textbf{The two Zephyr methods read as the first four did.} RMU+LAT is RMU hidden deeper:
+nothing reads before training except a trace at the lens, an unrelated fine-tune does not unlock it
+($0.28\to0.32$), yet relearning on A restores B in full ($0.68$; the original $0.67$) at a cost
+within noise of the original's, EDL/D falls on every seed, the true answers add the original's
+$0.56$ nats, and its fact-surface preference is \emph{above} the original's ($1.90$ vs $1.58$).
+GradDiff breaks the output and the model with it (MMLU $0.44$); any fine-tune unlocks it
+($0.27\to0.60$) and M21 reads $0.96$. Both: in the weights, elicited.
+\item \textbf{The Deep Ignorance safeguards hide the answer everywhere, and it still comes back.}
+For CB, CB+LAT and filter+CB+LAT no before-training metric reads the bio answer --- not the
+preference, the probe, the lens, the state swap or the no-options preference --- while cyber and MMLU
+read at the baseline's level on all of them (the bio loss is knowledge-specific). This is the first
+set in which even the probe finds nothing. Yet M21 reads $0.79$--$0.89$ ($0.86$--$0.88$ with same-kind
+rotations), four times the cannot-know model and $0.51$--$0.60$ of the way from that floor to the
+baseline; relearning on A brings B back to the baseline's level ($0.53$, $0.56$; the filtered-base
+model $0.44$ against its own base's $0.47$); and what the 573 true facts add on B is the baseline's
+amount ($0.46$--$0.55$ nats per token against $0.52$).
+\item \textbf{But the way back is the first teach-side trajectory in this study.} Relearning costs
+$0.8$--$2.05$ nats per label token more than the baseline's own relearning, net of the null (every
+Zephyr model: within $0.44$ of free), and for the two LAT-trained models the paper's signature shows
+its rising phase: EDL per label token climbs from $n=8$ to $n=64$ (CB+LAT, $2.9\to4.8$ bits) or
+$n=128$ (filter+CB+LAT, $2.1\to4.1$) before it falls, on every seed under both floors ---
+the shape of the taught arm in Figure~\ref{fig:edl}a, not of the unlearned Zephyr curves in
+Figure~\ref{fig:edl}b. CB alone falls from $6.0$ to $0.56$ under the validation floor and is mixed
+under the test floor. Read alone, the signature calls these three models taught. These are also the
+only cases whose M21 sits between the teach-side maximum ($0.22$) and the elicit-side minimum
+($0.96$).
+\item \textbf{What the rising phase is the price of.} A sweep's data pay for two things at once:
+the facts, and whatever stands between the fine-tune and the facts. To separate them the same
+sweep was run on the rotated-answer twin of A (every answer moved to another item, so the data carry
+the format and the training dynamics and no pairing information), and M21 on B was read at the kept
+weights of every point of both sweeps (Table~\ref{tab:costs}, Figure~\ref{fig:knowledge_wmdp}). Three things follow. First, the hump
+is in the rotated sweep too: with no facts in the data, CB+LAT's EDL/D still climbs $2.1\to4.8$ bits
+to $n=64$, filter+CB+LAT's $0.6\to3.2$, CB's $3.5\to5.3$, on every seed under both floors, while the
+baseline, the filtered model and every Zephyr model pay no hump in either sweep (the unlearned
+Zephyr models' large EDL/D is the same with the answers rotated: output repair, not facts). Second,
+the knowledge-specific part, EDL/D(true) $-$ EDL/D(rotated), is \emph{negative over the first sizes}
+in every model whose capability reads present ($n\le32$ means of $-0.4$ to $-3.7$ bits per token, at
+or below zero from $n=8$ or $16$: the true facts are cheaper
+than rotated ones by about the pairing information the weights hold, and the saving per token shrinks
+toward zero as $n$ grows), and \emph{positive} there in exactly the three safeguarded models
+($+1.3$, $+0.6$, $+0.8$ bits over $n\le32$; $+2.5$, $+0.8$, $+1.5$ at $n=8$: the true facts cost more
+than rotated ones, a barrier specific to the pairings), crossing to negative at $n=128$--$573$. Third, M21 on the held-out B facts rises above
+the untrained baseline's $1.34$ after $32$ true facts of A for CB and CB+LAT ($0.79\to1.47$,
+$0.87\to1.51$) and after $128$ for filter+CB+LAT ($0.89\to1.39$), while after rotated facts it
+falls in every model, to $0.23$--$0.40$ by $n=573$: inconsistent pairings close the gate on B as
+well; they never open it. Thirty-two consistent facts cannot teach $637$ others. They open a gate,
+and the rising phase is the price of opening it. The signature read the gate as teaching because it
+cannot tell the two costs apart; read next to its fact-free twin it says what the recovery tests
+said: present, gated, elicited after the first $32$--$128$ facts.
+\item \textbf{The same two reads on the toy task, where the outcome is known
+(Table~\ref{tab:toy}, Figure~\ref{fig:knowledge_toy}).} The arithmetic Figure-2 arms were swept again on the rotated-answer twin
+of their training file and M21 was read on the held-out block at every checkpoint. On the two taught
+arms (TinyStories-1B base and format-installed) the rotated twin has no hump at all, and the
+knowledge-specific curve carries the whole of it: $+2.3$ to $+2.5$ bits per token at
+$n=100{,}000$--$316{,}000$ against $0.0$--$0.4$ below $n=5{,}000$. On the three elicit arms (the
+op-bridge parent on the same base, Llama-3.2-1B base and format-installed) no hump survives; the
+Llama base pays $+1.2$ bits at $n=1{,}000$ and is below zero by $21{,}000$, the shape of the
+Deep Ignorance safeguards, here the output format, which the installer removes (the installed arm
+reads zero throughout). M21 on the held-out block makes half of its total rise by $15{,}000$ to
+$32{,}000$ examples on the taught arms, by $1{,}000$ to $3{,}200$ on the elicit arms, and by $16$
+to $64$ facts in the gated WMDP models; after rotated training it is $0.00$ everywhere. The reading
+of the three WMDP safeguards therefore follows the calibration: a cost at the first sizes that the
+subtraction leaves and that crosses below zero, with the held-out preference readable within the
+first few dozen facts, is the gate signature, two to three orders of magnitude in $n$ away from
+the taught arms; it is the rule the knowledge-specific row (M19k) now applies. On WMDP it calls
+elicit for the original, RMU, ELM, SimNPO and the Deep Ignorance baseline, gate for CB+LAT, and
+mixed for the rest, where three seeds leave the early value within two standard errors of zero
+(Table~\ref{tab:costs}; the margin, not the sign, is what those models fail).
+\item \textbf{The strong data filter is not knowledge-free on WMDP-bio as a whole.} The filtered
+model keeps $0.92$ of the baseline's fact-surface preference, reads at $0.65$--$0.74$ of the baseline's
+excess on the preference, the probe, the lens and the state swap, and scores $0.47$ on B against the
+baseline's $0.53$; relearning on A adds nothing beyond the unrelated fine-tune because there is
+almost nothing left to add. Consistent with the suite's design --- the filter targets a narrow
+biothreat-proxy slice and WMDP-bio is mostly general biology --- it cannot serve as the never-learned
+anchor this design lacks (the Caveats). The tamper-resistance set (TAR on Llama-3-8B) is pending
+access to its gated original.
+\end{steps}
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lcc|ccccc@{}}
+\toprule
+ & RMU & RMU+LAT & baseline & filtered & CB & CB+LAT & filt.+CB+LAT \tabularnewline
+\midrule
+EDL/D, true answers, $n{=}8\to$ peak $\to573$ (bits) & $5.1\to-0.34$ & $15.4\to-0.10$ & $0.12\to-0.45$ & $0.78\to0.07$ & $6.0\to0.56$ & $2.9\to4.8\to0.79$ & $2.1\to4.1\to1.7$ \tabularnewline
+EDL/D, answers rotated (M19-rot) & $4.7\to-0.08$ & $16.2\to0.22$ & $1.0\to0.01$ & $0.73\to0.32$ & $3.5\to5.3\to0.93$ & $2.1\to4.8\to1.27$ & $0.6\to3.2\to1.9$ \tabularnewline
+knowledge-specific, true $-$ rotated: mean over $n\le32$ $\pm$ SE over seeds (bits); $\le0$ from $n$ (M19k) & $-0.78\pm0.31$; 16 & $-0.99\pm0.89$; 8 & $-1.07\pm0.24$; 8 & $-0.43\pm0.47$; 16 & $+1.33\pm0.68$; 256 & $+0.64\pm0.29$; 128 & $+0.80\pm0.42$; 573 \tabularnewline
+read (M19k rule) & elicit & mixed ($1.1$ SE) & elicit & mixed ($0.9$ SE) & mixed ($2.0$ SE) & gate & mixed ($1.9$ SE) \tabularnewline
+M21 on B: untrained $\to$ after 32 true facts $\to$ after 573 (nats/token; M21-n) & $1.30\to1.46\to1.45$ & $1.90\to1.37\to1.44$ & $1.34\to1.51\to1.64$ & $1.23\to1.40\to1.43$ & $0.79\to1.47\to1.60$ & $0.87\to1.51\to1.67$ & $0.89\to0.93\to1.44$ \tabularnewline
+M21 on B after 573 rotated facts & 0.26 & 0.28 & 0.40 & 0.40 & 0.32 & 0.31 & 0.37 \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{The two costs inside EDL/D, for the two deepest Zephyr hiders and the Deep Ignorance set
+(the other Zephyr models in decisions.md 2026-10-20: original $-1.66\pm0.44$, ELM $-1.26\pm0.43$,
+SimNPO $-3.7\pm1.8$ bits, elicit; NPO and GradDiff mixed, their seeds scattering by $\pm8$ bits on
+curves that sit at $350$).
+Rotated: the same sweep on A with every answer moved to another item, same $n$, same seeds, so the
+difference is paired point by point. The knowledge-specific curve is read by the rule calibrated in
+Table~\ref{tab:toy}: a hump that survives the subtraction is teaching; a positive early value
+($n\le32$ here: the mean over three sizes and three seeds, beyond two seed standard errors) that
+crosses below zero later is a gate; a negative early value is elicitation; mixed within two
+standard errors. With three seeds that margin is coarse: CB and filter+CB+LAT sit at $2.0$ and
+$1.9$ standard errors and read mixed. The rule is kept as calibrated on the toy arms rather than
+loosened to these points; what it leaves is still the gate's pattern (every present-reading model
+at or below zero from $n=8$ or $16$; the three safeguards positive over $n\le32$ on eight of nine
+seeds, crossing at $128$--$573$), and the M21-n row makes the same separation without a margin.
+Its slope alone is not read, because every negative curve rises toward zero and the slope signature
+would call the original taught. M21 on B at the kept weights of each point, the same four rotations
+as Table~\ref{tab:sota}; filter+CB+LAT reaches $1.19$ at $n=64$ and $1.39$ at $128$. The TinyStories
+model that cannot know the facts reads knowledge-specific $-0.1$ bits at $n=573$ and M21 $0.22$.}
+\label{tab:costs}
+\end{table}
+
+\begin{table}[!htbp]\centering\footnotesize\setlength{\tabcolsep}{3pt}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}lcc|ccc@{}}
+\toprule
+ & \multicolumn{2}{c|}{taught} & \multicolumn{3}{c}{elicited} \tabularnewline
+ & TinyStories base & TinyStories, format installed & op-bridge parent (same base) & Llama-3.2-1B base & Llama, format installed \tabularnewline
+\midrule
+EDL/D, true answers (bits): first, minimum, peak, last & $9.4,\ 1.1,\ \mathbf{2.9},\ 1.3$ & $5.9,\ 0.9,\ \mathbf{1.9},\ 1.3$ & $6.5 \to 0.13$ & $3.5 \to 0.04$ & $0.97 \to 0.04$ \tabularnewline
+EDL/D, answers rotated & $6.8 \to 0.08$ & $5.5 \to 0.08$ & $4.7 \to 0.08$ & $2.3 \to 0.33$ & $0.93 \to 0.07$ \tabularnewline
+knowledge-specific, true $-$ rotated: $n{=}1{,}000$; peak ($n$); $n{=}10^6$ & $+0.2$; $\mathbf{+2.5}$ (316K); $+1.9$ & $+0.4$; $\mathbf{+1.8}$ (316K); $+1.2$ & $+0.4$; $+0.5$ (100K); $+0.06$ & $\mathbf{+1.2}$; (first); $-0.29$ & $+0.04$; $+0.17$ (21K); $-0.03$ \tabularnewline
+read (M19k rule) & teach & teach & gate & gate, $\le0$ from 21K & none \tabularnewline
+M21 on the held-out block: untrained $\to$ $n{=}1{,}000$ $\to$ $10^6$ (nats/token) & $0.13 \to 2.3 \to 8.5$ & $0.09 \to 2.0 \to 7.9$ & $1.15 \to 7.2 \to 13.5$ & $0.57 \to 10.8 \to 15.0$ & $2.7 \to 9.0 \to 17.1$ \tabularnewline
+$n$ at half of M21's rise & 31{,}600 & 14{,}700 & 3{,}200 & $\le 1{,}000$ & 1{,}500 \tabularnewline
+M21 after rotated training, any $n$ & $0.00$ & $0.00$ & $0.00$ & $0.01$ & $0.01$ \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{The two reads on the arithmetic Figure-2 arms (scaffold-free natural-language add/sub,
+19 sizes from $1{,}000$ to $10^6$; the rotated twin at six of them, same per-size schedule; floors
+are each run's own minimum validation loss on the true stopping block). The taught arms keep their
+hump in the knowledge-specific curve, the rotated twin having none; the elicit arms keep nothing
+above $0.5$ bits; the Llama base pays its format at the first size. M21 on the $600$ held-out
+problems after $n$ training examples; its half-rise size separates the regimes by one to two
+orders of magnitude, and the gated WMDP models of Table~\ref{tab:costs} reach theirs by $16$--$64$
+facts. The M19k rule, on the early value (the mean over the first three sizes, with its standard
+error across seeds): teach if the curve rises from it by more than $0.5$ bits to a maximum above
+tolerance that lies after the early block; else gate if the early value is positive beyond
+$0.1$ bits and two standard errors (with the size from which the curve stays at or below zero);
+else elicit if negative by the same margin; none within $0.1$ bits; mixed otherwise.}
+\label{tab:toy}
+\end{table}
+
+\begin{figure}[!htbp]\centering
+\includegraphics[width=\textwidth]{fig_knowledge_zephyr.png}\\[-2pt]
+{\footnotesize (a) Zephyr-7B: original and six unlearning methods}\\[4pt]
+\IfFileExists{fig_knowledge_deepig.png}{\includegraphics[width=\textwidth]{fig_knowledge_deepig.png}\\[-2pt]
+{\footnotesize (b) Deep Ignorance 6.9B: baseline, filtered, CB, CB+LAT, filter+CB+LAT}}{}
+\caption{The two costs on WMDP-bio (Table~\ref{tab:costs}). Left: EDL/D of the rotated-answer sweep,
+the format and unlock cost alone. Middle: the knowledge-specific curve, EDL/D(true) $-$
+EDL/D(rotated), seed mean (thick) and seeds (thin), symmetric log scale; below zero from the first
+sizes in every present-reading model, above zero and crossing later in the three safeguards. Right:
+M21 on the held-out B facts at the kept weights of every point, after true facts (solid) and after
+rotated facts (dashed). Own-minimum-validation floor throughout.}
+\label{fig:knowledge_wmdp}
+\end{figure}
+
+\begin{figure}[!htbp]\centering
+\includegraphics[width=\textwidth]{../../analysis/figures/knowledge_sweep_ts.png}\\[-2pt]
+{\footnotesize (a) taught: TinyStories-1B base and format-installed}\\[4pt]
+\includegraphics[width=\textwidth]{../../analysis/figures/knowledge_sweep_mix.png}\\[-2pt]
+{\footnotesize (b) elicited: the op-bridge parent on the same base}\\[4pt]
+\includegraphics[width=\textwidth]{../../analysis/figures/knowledge_sweep_nl3.png}\\[-2pt]
+{\footnotesize (c) elicited: Llama-3.2-1B base and format-installed}
+\caption{The same two reads on the arithmetic Figure-2 arms (Table~\ref{tab:toy}). Left: EDL/D of
+the true sweep (solid) and of the rotated-answer twin (dashed); the taught arms' hump is absent
+from the twin. Middle: the knowledge-specific curve, which keeps the hump on the taught arms
+($+2.5$ and $+1.8$ bits at $n=316{,}000$) and nothing above $0.5$ bits on the elicited ones; the
+Llama base pays its format at $n=1{,}000$ and crosses below zero by $21{,}000$. Right: M21 on the
+600 held-out problems after $n$ examples, half of its rise by $15{,}000$--$32{,}000$ examples on
+the taught arms and by $\le 3{,}200$ on the elicited ones; $0.00$ after rotated training.}
+\label{fig:knowledge_toy}
+\end{figure}
+
+\FloatBarrier
+% =====================================================================
+\section*{Caveats}
+\begin{steps}
+\item There is no never-learned version of this model: ``elicit'' means ``like the original'', and
+the teach values come from each metric's own null and from the main results. The one cross-model
+anchor, the main results' TinyStories-1B twin on the same bio facts, is a 1B story model: it fixes a
+zero ($0.05$ nats on the rotated-answer twin, $0.22$ on M21), not a scale, and a 7B model without bio
+knowledge does not exist: the Deep Ignorance strong-filter model, pretrained without the suite's
+biothreat-proxy data, still holds $0.92$ of its baseline's M21 on these items (Section~5).
+\item The metrics before training are read on all bio items, those after relearning on half B;
+the first 512 items in source order score lower (original $0.51$) than B ($0.67$), so the two blocks
+are not compared with each other.
+\item The multiple-choice circuit metrics (M1, M2, M4, the necessity of the original's heads, M1$^\bigstar$)
+read the shared answering machinery, as their MMLU controls show (Section~4), and are not tallied;
+the tallied circuit reading is the no-options one (M1f). The probe, the state swap and the option
+heads have MMLU controls only. The lens has no signal at the middle layers on the no-options surface
+even for the original (its first-token accuracy there is $0.12$), so that read is dropped.
+\item The no-options surface is a harder read than the multiple-choice one (the original picks the
+correct answer among the four at $0.44$ on B, against $0.67$ with the options shown), so its
+recovery test has less room: for ELM, NPO and SimNPO the unrelated fine-tune already reaches the
+original there.
+\item One seed (three for M19) and one relearning recipe; the checkpoint with the lowest validation
+loss is used because held-out accuracy moves by $\pm0.1$ between evaluations.
+\item M19's rising phase is not by itself a teach call: the Deep Ignorance LAT models pay it with
+the answers rotated too (Section~5, Table~\ref{tab:costs}). The signature is read here together with
+its fact-free twin and with M21 along the sweep; on the TOFU secondary design the elicit anchor
+itself reads ``increasing'' under both floors over $n\le200$, so that row is not called there.
+\item M19 covers $n\le573$, all of half A. In Figure~\ref{fig:edl}a the teaching hump comes after an
+initial fall and at far larger $n$, so a hump beyond 573 facts is not excluded by the sweep alone;
+but the teach arm there ends far above the elicit arm (2.0 vs 0.04 bits at $n=10^6$), while here the
+unlearned curves converge on the original's.
+\item M19's OCV floor (the owner's default) sits on the harder validation rows (the first 10\% of
+A in source order), which is why the original's curve ends below zero; the paper's test floor (loss
+on B) lifts every curve by 0.37--0.41 bits per label token at $n=573$ (the original ends at $-0.15$
+instead of $-0.56$) and changes no call. One of the original's three seeds rises from $n=8$ to 16.
+\end{steps}
+
+% =====================================================================
+\section*{Appendix: how each metric is judged}
+
+Every call is a position between the model's own null (0) and a reference measured in this
+design (1), $r=(v-\text{null})/(\text{ref}-\text{null})$, with elicit at $r\ge0.5$; shifting or
+rescaling a statistic together with its null and reference changes nothing, and no row is called by
+a raw value (the rows that were, M3, M5, M6, M7, are reported only). The only absolute constants are
+detection gates, which decide whether there is anything to measure: 3 standard errors above the
+null (probe, state swap, lens, recovery), permutation $p<0.01$ (hidden preference; 2{,}000 draws),
+binomial $p<0.01$ against 100 random head sets (necessity), an overlap at least $0.05$ above
+type-matched chance ($0.10$ for split-half circuits), a performing map (mean logit difference above
+1 nat on its own pairs), and, for the option heads, the full model following the swap on at least
+half the pairs. A gate that fails on the original reads ``instrument fails'' before the unlearned
+model is judged. These rules, the reference modes, the tally exclusions and the presence of a bio
+twin for every MMLU control are property-tested on synthetic statistics
+(\texttt{tests/experiments/scripts/test\_verdict\_wmdp\_rules.py}); the EDL signature rule and the
+restore-best keeper have their own tests. Leakage checks: the halves are split by item with
+balanced letters; the relearning validation rows (the first 10\% of A) are disjoint from the
+training rows and B is never trained on; the fine-tuning null's MMLU items are excluded from the
+MMLU accuracy read; every model uses the original's tokenizer, so items, pairs and over-length
+drops are identical across models.
+
+\begin{table}[!htbp]\centering\scriptsize\setlength{\tabcolsep}{3pt}\renewcommand{\arraystretch}{0.95}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{@{}l>{\raggedright}p{4.6cm}>{\raggedright}p{4.0cm}>{\raggedright}p{4.6cm}l@{}}
+\toprule
+ & metric & null, measured on the same model & elicit reference & called \tabularnewline
+\midrule
+\multicolumn{5}{@{}l}{\emph{before training}} \tabularnewline
+M12 & hidden preference & the options permuted & original & yes \tabularnewline
+M16$'$ & answer probe & probe on shuffled labels & original & yes \tabularnewline
+M9 & lens, middle layers & zero logit difference ($\pm$SE) & original & yes \tabularnewline
+M11 & repeatable task circuit & type-matched chance & original & yes \tabularnewline
+M14 & answer carried by the state & rate with no swap & original & yes \tabularnewline
+M15 & option-reading heads & no heads found & original & yes \tabularnewline
+M12f & answer preferred, no options shown & the ``correct'' candidate reassigned & original & yes \tabularnewline
+M11f & repeatable circuit, no options shown & type-matched chance & original & yes \tabularnewline
+M1$^\bigstar$ & original's heads necessary in U & 100 random head sets & original on itself & machinery \tabularnewline
+M10$^\bigstar$ & original's head states patched in & 32 random heads & original (the donor) & yes \tabularnewline
+M2$^\bigstar$ & wiring, U vs original & chance & split-half ceiling & yes \tabularnewline
+M13 & accelerating descent & none & none: the original sits at a minimum & no \tabularnewline
+M7$^\bigstar$ & state change, original to U & the parent's own states & describes the unlearning & no \tabularnewline
+M21 & hidden preference, no options, full answer & the answers rotated across items & original; cannot-know model $0.22$ & reported \tabularnewline
+\midrule
+\multicolumn{5}{@{}l}{\emph{after relearning}} \tabularnewline
+M1f & circuit overlap, no options shown & type-matched chance & split-half ceiling & yes \tabularnewline
+M17f & held-out recovery, no options shown & the fine-tuning null & original & yes \tabularnewline
+M1, M2, M4 & circuit overlap with the original & type-matched chance & split-half ceiling & machinery \tabularnewline
+M1 & original's heads necessary in the child & 100 random head sets & original's relearned child & machinery \tabularnewline
+M10 & child's head states patched into U & 32 random heads & the child (the donor) & yes \tabularnewline
+M17 & held-out recovery & the fine-tuning null & original & yes \tabularnewline
+M17u & an unrelated fine-tune unlocks B & U itself & original & yes \tabularnewline
+M18 & relearning cost & the fine-tuning null & original's relearning & one-sided \tabularnewline
+M19 & EDL sweep & the paper's shape rule & original's own curve & yes \tabularnewline
+M17s & what the true answers add on B & relearning on rotated answers & original's relearning; cannot-know model $0.05$ & reported \tabularnewline
+M3 & head roles & chance & none measured here & no \tabularnewline
+M5 & gradient fades & none & original's relearning, $3.2\times$ & no \tabularnewline
+M6 & weight write & none & original's relearning, $8.8\times10^{-3}$ & no \tabularnewline
+M7 & one shared push & none & original's relearning, $0.64$ & no \tabularnewline
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{What a single value is compared with. A metric is called only when its null and the
+original's value are both measured here; the rest are reported beside the original's value, since
+their thresholds come from the main results (full fine-tuning of a 1B model), whose scale does not
+carry over to LoRA on a 7B model. ``Machinery'': the MMLU control reads the same as the bio reading
+(Table~\ref{tab:controls}), so the row is graded but not tallied. Every before-training metric
+above M13 also has its MMLU control; the probe, the state swap and the option heads have no
+no-options version, because their labels (option index, letter swap) need the options.}
+\label{tab:judged}
+\end{table}
+
+\end{document}

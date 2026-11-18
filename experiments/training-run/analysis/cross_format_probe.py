@@ -20,6 +20,10 @@ The controlled contrast (run on both models):
                                                  the engine (op-circuit) nodes
 Difference between the two runs = the bridge's effect, visible as circuitry.
 
+Other tasks (--task tofu): the two surfaces are the task's own question and
+TOFU's paraphrased question (same answer prefix) — does a rewording reach the
+same item-specific state? (task_adapter.QATask.surface_prompts)
+
 Pure inference. GPU recommended, box-only.
 
 Usage:
@@ -44,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from premise_checks import DEFAULT_ROW_OFFSET, EVAL_PARQUET, render_probe  # noqa: E402
 from steer_unlock import SteerTaps  # noqa: E402
+from task_adapter import add_task_args, load_task, load_tokenizer, resolve_tokenizer  # noqa: E402
 
 
 @torch.no_grad()
@@ -72,15 +77,16 @@ def main() -> int:
     ap.add_argument("--batch-size", type=int, default=32)
     ap.add_argument("--out", default=None)
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--tokenizer", default=None)
+    add_task_args(ap)
     args = ap.parse_args()
     if (args.model is None) == (args.run_id is None):
         raise SystemExit("[xfmt] pass exactly one of --model / --run-id")
+    task = load_task(args)  # None = arithmetic default, unchanged
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM
 
-    tokenizer = AutoTokenizer.from_pretrained("meta-llama/Llama-3.2-1B")
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer = load_tokenizer(resolve_tokenizer(args, args.model, "meta-llama/Llama-3.2-1B"))
     if args.run_id is not None:
         from geode.zoo import load_model as zoo_load_model
 
@@ -88,16 +94,20 @@ def main() -> int:
         model = zoo_load_model(args.run_id, store=store, device=args.device)
         name = args.run_id
     else:
-        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=torch.bfloat16)
+        dtype = torch.float32 if (task is not None and args.device == "cpu") else torch.bfloat16
+        model = AutoModelForCausalLM.from_pretrained(args.model, torch_dtype=dtype)
         model.to(args.device)
         name = args.model
     model.eval()
 
-    df = pd.read_parquet(EVAL_PARQUET)
-    rows = df.iloc[DEFAULT_ROW_OFFSET : DEFAULT_ROW_OFFSET + args.n]
-    triples = [(int(r.a), int(r.b), str(r.op)) for r in rows.itertuples()]
-    nl_prompts = [render_probe("bare_nl", a, b, op, 0)[0] for a, b, op in triples]
-    op_prompts = [render_probe("bare_op", a, b, op, 0)[0] for a, b, op in triples]
+    if task is None:
+        df = pd.read_parquet(EVAL_PARQUET)
+        rows = df.iloc[DEFAULT_ROW_OFFSET : DEFAULT_ROW_OFFSET + args.n]
+        triples = [(int(r.a), int(r.b), str(r.op)) for r in rows.itertuples()]
+        nl_prompts = [render_probe("bare_nl", a, b, op, 0)[0] for a, b, op in triples]
+        op_prompts = [render_probe("bare_op", a, b, op, 0)[0] for a, b, op in triples]
+    else:  # question surface vs paraphrased-question surface
+        nl_prompts, op_prompts = task.surface_prompts(tokenizer, args.n)
 
     taps = SteerTaps(model)
     nl_acts = capture_rows(model, taps, tokenizer, nl_prompts, args.device, args.batch_size)
@@ -136,7 +146,7 @@ def main() -> int:
               f"(matched {v['matched']:+.3f} vs mismatched {v['mismatched']:+.3f})")
 
     out = args.out or f"xfmt_{name.replace('/', '_')}.json"
-    Path(out).write_text(json.dumps({"model": name, "n": args.n,
+    Path(out).write_text(json.dumps({"model": name, "n": len(nl_prompts), "task": args.task,
                                      "mean_index": mean_idx, "nodes": results}, indent=2))
     print(f"[xfmt] wrote {out}")
     return 0

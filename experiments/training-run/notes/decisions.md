@@ -12391,3 +12391,1575 @@ steps on 1,040 prompts stratified to the hard training mix. Test set unchanged:
   results on HF `mhieuuu/geode-internals` under `results/ts1b_hard_acc/`.
 - Not done: circuit analysis of the `-hard-loss` pair; summary page for the
   `-hard-acc` pair.
+
+## 2026-09-25 (stage F: heads-only necessity with 100 random head sets; new metric) — every comparison beats all 100 type-matched random head sets (p = 2.7e-5 at q*=0.9; random means 0.04-0.10 at 32 heads). Top-32 heads, share of behaviour destroyed when corrupted: elicited child's own 0.883; elicit parent's in the elicited child 0.726 (restore direction 0.730); taught child's own 0.456; elicited child's in the taught child 0.719; taught child's in the elicited child 0.266; TEACH PARENT's (installer, whose node map is noise) in the taught child 0.535. The last is the new control and it changes the reading: the teach parent's top heads are the layer-0 digit-reading heads (attn:0:7, 0:22, 0:25 ... in its top-16), which every model on this substrate uses, so "the parent's heads carry the child's behaviour" holds for BOTH parents (0.73 vs 0.54) and is not by itself the elicit/teach discriminator. What discriminates: (i) concentration — the elicited child's own top-32 heads carry 0.88 of its behaviour, the taught child's own carry 0.46, less than the heads it inherits from either parent (0.54) or from the elicited child (0.72): teaching's own attention structure is diffuse and its attribution ranking of heads is poor; (ii) asymmetry — the elicited child's heads carry 0.72 of the taught child, the taught child's carry 0.27 of the elicited child. Paper: new M2 "Head circuit: concentrated vs diffuse" (functional, heads-only, random-head null); M1 keeps set overlap and edges; later metrics renumbered M3-M16.
+
+## 2026-09-25 (paper: wiring is its own metric; head-circuit folded into M1) — Owner: "if it works let's add that [edges] as a new metric". It works (stage E, 2026-09-25 above): edge maps on the 0-shot NL prompts are repeatable (split-half J@256 0.45-0.51, vs 0.35 on the symbol surface that had led to the 2026-09-07 retirement). results_ts.tex M2 "Wiring: the parent's connections kept vs rewired": edge = one node reading another's output (~8.4K), 256 strongest = the wiring, Jaccard@256 vs each map's own split-half ceiling. Numbers: elicit parent<->elicited child 0.358 vs ceilings 0.493/0.510 (71% of the way to identical; nodes 0.455 vs 0.600/0.561 = 78%); ceiling-corrected change edges 0.29 / nodes 0.22, ratio 1.3 (Wang et al. 2-4; our Llama base->FT 2.2) — on this pair elicitation keeps the parent's wiring about as much as its nodes, not Wang-style edge-dominated rewiring; teach parent<->taught child undefined (parent map noise); elicited<->taught child 0.267 vs 0.510/0.446 = 56%, nodes 0.306 = 56%, corrected 0.44/0.44 — the children differ equally at both levels. Few-shot prompts recorded as unusable for lengthening context (elicit parent logit-diff 3.1 -> 0.9). The heads-only functional test (stage F) was briefly a separate metric and is folded back into M1 as one bullet at the owner's request (own top-32 heads carry 0.88 elicit vs 0.46 teach; parent's heads 0.73; cross 0.72/0.27; p=2.7e-5 vs 100 random sets). Metrics now M1-M16.
+
+## 2026-09-25 (unlearning application OPENED: TOFU three-way design, code + CPU smoke) — owner: take an "unlearned" model and ask with our metrics whether the knowledge is gone (pre-teach) or latent (pre-elicit). Choice: TOFU forget10 on Llama-3.2-1B-Instruct (open-unlearning checkpoints, ungated; same 16x32x2048 shape as our Llama parent): ORIGINAL `tofu_..._full` (elicit anchor), NEVER-LEARNED `tofu_..._retain90` (teach anchor = the format-installed-parent analogue: same recipe and format, never saw the 20 forget authors), UNLEARNED NPO / GradDiff / RMU / SimNPO (one mid-grid checkpoint each, revisions pinned in experiments/unlearning/models.py). Rejected: locuslab unlearned repos (no weights), WMDP/RMU and WHP (no never-learned control; 7B; MCQ letters) — follow-ups. Probe = the fact slot: first word where TOFU's paraphrased and perturbed answers differ that is a content word, not in the question, present in the trained answer; prompt = chat(question) + trained answer up to it, scored token in context, distractor = perturbed word in the same slot (289/400 forget items usable; the rest are open-ended). Corruption = author name swapped for an invented equal-length name (only name tokens change). Children = full-FT relearning on 10 forget authors (A); held-out recovery on the other 10 (B) is the new M17 — the paper's behavioural ground truth in the only form that applies to independent facts (Deeb & Roger 2024). Verdict per metric: position s = (U - retain)/(orig - retain), s >= 0.5 pre-elicit (pre-registered, PLAN.md §6). Tools gained --task tofu (analysis/task_adapter.py) and model-family layouts (geode.adapt, spec 02 §7.1, V5.75-V5.78); arithmetic default paths unchanged (V5.75 checks attribution_map against the old hooks). Every lesson of the entries above is carried: performing guard, split-half ceilings, heads-only necessity vs 100 random head sets (no restore-sufficiency, no all-position maintain, no pairabs), 0-shot edges only, no cliff/LLC/attention/gradient-coherence predictors. Launcher smoke (--smoke: tiny random Llamas + synthetic data, every stage, CPU) passes. Nothing run on a GPU yet; ~10 GPU-h estimated.
+
+## 2026-09-25 (unlearning: PRIMARY design switched to WMDP, no control model; TOFU kept as the secondary controlled design) — owner decision: the question is only whether the hazardous capabilities are still in the weights of an unlearned model; no never-learned control. Every metric is read against its OWN null (permutation null of the hidden preference on the model's own logits, shuffled-label letter probe + embedding-layer surface baseline, no-swap / random-subspace state swap, type-matched chance + performing guard for the parent circuit, 100 type-matched random head sets for necessity, random head sets for patching, and for held-out recovery the SAME fine-tune on far-domain MMLU facts) and against the ORIGINAL model as the reference engine. Pre-registered rule (PLAN.md §W6): INSTRUMENT FAILS if orig is not above its own null; ABSENT if U is not; else retention r = (v_U - null_U)/(v_O - null_O), CARRIES r >= 0.5, RESIDUAL r < 0.5; headline "still in the weights" = any own-null metric (M12, M16, M9, M11, M14, M15, M1*, M10*, M17) CARRIES. Models (Hub, 2026-09-25, pinned in models.py): HuggingFaceH4/zephyr-7b-beta (orig, MIT) vs cais/Zephyr_RMU (MIT), baulab/elm-zephyr-7b-beta (PEFT adapter merged locally), OPTML-Group/NPO-WMDP and SimNPO-WMDP-zephyr-7b-beta (MIT); GradDiff and LLM-LAT RMU-LAT optional. Smaller pairs rejected: Gemma-2-2B RMU uploads have no provenance/licence and post-norm blocks (no edges / R-lens). Data: cais/wmdp @7125571f (MIT, NOT gated on the Hub; only the bio forget corpus is request-only and unused), cais/mmlu @c30699e8, sha256-pinned, downloaded on the cluster only. Items: lm-eval-harness zero-shot format, letter answer, options re-ordered so the correct letter is uniform per split; counterfactual = OPTION SWAP (same question, the correct option's text exchanged with a partner's: only the letter holding the known content changes, letter bias cancels, length kept) rather than question swap. Relearning (Deeb & Roger 2024 RTT): LoRA r64 on bio_A as text facts (no options), held-out bio_B read as MCQ, null = identical fine-tune on MMLU facts. New code: geode.adapt.mcq (V5.79), task_adapter.MCQTask, prepare_wmdp.py, prefit own-null pref + letter probe + labelled DCM for wmdp, relearn.py LoRA mode (exact dW from factors, adapter snapshots + --materialize-step), circuit_edges --fast-edges (vectorised over writer heads; equal to the loop, tested), GEODE_ANALYSIS_DTYPE=bfloat16 for 7B, lens per-layer SE, stages_wmdp.sh / stages_tofu.sh behind launch_unlearn.sh --dataset (default wmdp), verdict_wmdp.py. CPU smoke with tiny random Mistral models runs every WMDP stage. Estimated ~18 GPU-h. Nothing run on a GPU.
+
+## 2026-09-27 — WMDP unlearning, first cluster pass (orig + RMU): three fixes
+
+- **Environment.** Every `prefit_metrics.py` call failed on import: optree, which
+  `torch._dynamo` imports, needs `CXXABI_1.3.15`, and the process had loaded the
+  system libstdc++. The same failure aborted stage 0 in `models.py` at the ELM PEFT
+  merge, so ELM, NPO and SimNPO were never fetched. Fix: `launch_unlearn.sh` now puts
+  `$CONDA_PREFIX/lib` first on `LD_LIBRARY_PATH`. The env's libstdc++ must be GCC ≥ 13
+  (conda-forge `libstdcxx-ng`).
+- **Byte-fallback spans (V5.38).** The MMLU relearning null crashed in
+  `token_label_span`. SentencePiece byte fallback gives the tokens of one multi-byte
+  character identical offsets. A "gap" now means next start > previous end; offsets
+  must still be non-decreasing. Tests: `test_v5_38_byte_fallback_shared_offsets_accepted`
+  and `test_v5_38_backwards_offsets_raise`.
+- **Relearning recipe.** At lr 1e-4 (LoRA r=64), validation loss bottomed at step 60
+  (about one epoch), then rose. Held-out MCQ accuracy swung between 0.13 and 0.54.
+  The original model's own relearning child fell from 0.55 to 0.25 on bio_B, which
+  breaks it as the reference child. Changes: lr 3e-5, patience k=3, and the saved
+  child is the minimum-validation-loss weights (`saved_step` in the manifest). All
+  stage-2/3 outputs from the first pass must be regenerated.
+- **Kept result, provisional.** RMU relearned on bio_A reached bio_B top-1 0.54 by
+  step 20, up from 0.21 and matching the original's 0.55. MMLU was unchanged. This
+  is the Deeb & Roger pattern, but it waits on the mmluA fine-tuning null.
+- **Instrument caveat.** M1* ("orig's heads necessary in U", r = 1.06) is a
+  degradation *fraction* of U's own small clean–corrupt gap (logit-diff +0.75 vs
+  +4.87 in orig). It shows that orig's heads carry whatever signal RMU has left, not
+  that much signal is left. Do not read it alone as "capability intact."
+
+## 2026-09-28 — WMDP first full pass (orig, RMU, ELM, NPO, SimNPO)
+
+Accuracy is the argmax over the four answer letters on bio_B, n=512, chance 0.25. The
+U row is the unlearned model before any fine-tuning; child/null rows are after it.
+U-on-B accuracies come from the step-0 relearn probe (n=256) until `{U}_bio_B` pref exists.
+
+| model  | U on B | relearn on bio_A (child) | MMLU fine-tune (null) | orig | MMLU (orig 0.58) |
+|--------|--------|--------------------------|-----------------------|------|------------------|
+| RMU    | ~0.21  | 0.68                     | 0.35                  | 0.67 | 0.58             |
+| ELM    | ~0.32  | 0.67                     | 0.55                  | 0.67 | 0.59             |
+| NPO    | ~0.00  | 0.64                     | 0.62                  | 0.67 | 0.47             |
+| SimNPO | ~0.15  | 0.66                     | 0.62                  | 0.67 | 0.48             |
+
+(For NPO, ~0.00 is from the step-0 letter probe: NPO does not produce answer letters at all.)
+
+- **Every method's bio capability is still in the weights.**
+  - RMU recovers specifically: only bio relearning restores it.
+  - ELM is partway between.
+  - NPO and SimNPO are unlocked by *any* small unrelated fine-tune. MMLU facts cannot
+    teach WMDP-bio answers, so the knowledge was never removed.
+- **M17 bug.** M17 (child − null) read NPO/SimNPO as ABSENT: when the null child already
+  reaches orig, there is no room left above it. Added M17u (null child vs U on B, scaled
+  by orig) as a headline metric. Stage 3 now also scores U itself on B.
+- **Parent-only (★) signatures differ by method.**
+  - RMU and ELM: answer probe (M16) at chance. Answer depth (M9) and task circuit (M11)
+    are gone; ELM's option-reading heads (M15) are gone too. The answer is not readable
+    in the hidden states.
+  - NPO: probe carries (0.47 vs orig 0.60) while the output is broken. The answer is
+    readable in the hidden states, so the damage is in the read-out.
+  - SimNPO: nearly everything carries (probe, M11, M14 state swap, M15 heads, M1*). The
+    circuit is intact and only the output is steered away.
+- **Stale.** orig-rl and rmu-rl stage-3 maps, edges, faithfulness, snapshots, lens,
+  resid, wshift and steer are from the discarded lr-1e-4 children (skip-if-exists).
+  Rerun before quoting M1–M10 for RMU or the orig reference.
+
+## 2026-09-28 (evening) — WMDP pass complete except M13
+
+- Stage-3 metrics for orig-rl and rmu-rl were recomputed on the new relearning children.
+  The unlearned models were also scored on bio_B (pref, n=512): U accuracy RMU 0.31,
+  ELM 0.35, NPO 0.26, SimNPO 0.42; orig 0.67.
+- **M17u (an unrelated fine-tune unlocks bio_B).** RMU 0.31→0.35 (ABSENT). ELM
+  0.35→0.55 (r 0.64). NPO 0.26→0.62 (r 0.89). SimNPO 0.42→0.62 (r 0.81).
+- **M17 (recovery beyond that null).** RMU 0.68 vs null 0.35 (r 1.04); ELM 0.67 vs
+  0.55. NPO and SimNPO have no room above their null.
+- **Spectrum.**
+  - RMU: locked, and opened only by bio-specific relearning.
+  - ELM: in between.
+  - NPO and SimNPO: suppressed only at the output; any fine-tune restores the capability.
+  - Every method's capability is still in the weights.
+- **M18 (relearning cost over orig, net of the null).**
+  - RMU +0.15 ± 0.19 and ELM +0.03 ± 0.14 nats/token: indistinguishable from orig's
+    own relearning.
+  - SimNPO −0.31 ± 0.53.
+  - NPO +4.6 ± 9.0: dominated by the first steps (output repair), not informative.
+- **M13** needs full-parameter Hessian-vector products, which OOM on the 7B model
+  (80 GB). Now restricted to decoder blocks 20 and 28 (`--hess-layers`, a
+  block-diagonal slice). Not comparable to the 1B paper's full-parameter M13.
+
+## 2026-09-28 — WMDP: the original paper's own signature, the EDL sweep (M19)
+
+- Added `relearn.py --sweep --n-train n --test-split bio_B`. It relearns on nested
+  subsets of bio_A facts, `EDL_NS` = 8 16 32 64 128 256 573 (all).
+  - MDL is the first-epoch prequential code length, including the last partial batch,
+    so every label is encoded exactly once.
+  - EDL = MDL − D · L_test, where L_test is the final (min-val) model's token-weighted
+    loss on the held-out bio_B items rendered as facts.
+  - This follows "Bits That Count" §2. The earlier floor, min val on bio_A_val, came out
+    negative for orig: the val rows are the first 10% of A in source order, a biased
+    slice.
+- `edl_sweep.py` plots EDL/D (bits) against n per model and calls the shape:
+  decreasing = elicit, increasing phase = teach, otherwise flat. Tolerance is 10% of the
+  range, at least 0.01 nats. One seed.
+- Verdict row M19. Stage 5 in `stages_wmdp.sh`. Sweep points write manifests only. About
+  35 runs at 2–4 GPU-min each.
+
+## 2026-09-28 (late) — M13 on the 7B models (blocks 20 and 28)
+
+- Negative share: orig 1.8e-6, RMU 1.1e-4, ELM 1.0e-5, SimNPO 1.4e-5, NPO 1.00
+  (λ from −1.47e5 to +0.0077).
+- **No elicit reference in this design.** The original sits at a minimum of its bio loss
+  (it was trained on the capability), unlike the main results' latent parent (1.00).
+  M13 is reported, not called.
+- **NPO:** its gradient-ascent unlearning leaves it on a concave slope, so any descent
+  step accelerates. This agrees with how fast any fine-tune restores it (M17u).
+- The stage-3 orig-rl and rmu-rl outputs were regenerated again in this run. The numbers
+  are identical to the previous pass.
+
+## 2026-09-29 — EDL sweep (M19): first pass void (restore bug); fixed, three seeds, two floors
+
+- **First pass (stage 5 at 8148738) is void.** orig, the elicit reference, read "increasing
+  phase (teach)", so the instrument failed on its own reference and nothing from it is quoted.
+  - Cause: `relearn.py`'s restore-best keeper started empty. When no eval beat step 0 it
+    skipped the restore but still printed "restored min-val weights from step 0", so L_test
+    was the overfit final model's loss.
+  - Hit six points: orig and ELM at n = 8, 16, 32. They were trained for 140–360 steps on
+    8–32 facts, so EDL/D came out −3.4 to −2.2 nats/token. That rising tail made orig read
+    "teach".
+  - Every relearned child behind M1–M18 was restored from step 40 or 60 (checked in the
+    stage-2 logs), so those results are unaffected.
+- **Fix, promoted to the library.** `geode.train.BestState` (specs/02 V5.80, tests
+  `test_v5_80_*`) is seeded with the starting weights. If nothing beats step 0, step 0 is
+  restored bit-exactly. Ties keep the earlier step, and the kept copy is detached from later
+  training.
+- **Sweep protocol changes (new run ids `wmdp-edl-<tag>-n<N>-s<seed>`; the seedless first-pass
+  points are ignored).**
+  - Val is evaluated at least once per epoch. At n = 8 the first eval used to come 20 epochs
+    in, when the model had already memorised the 8 facts (val 2.7 → 5.8 nats/token).
+  - Three seeds, 316 317 318 (`EDL_SEEDS`). A seed sets the nested subset, the batch order
+    and the LoRA init. 105 points, about 3.5 GPU-h.
+  - **Both floors, named.**
+    - OCV, the owner's default: the kept model's own val loss.
+    - The paper's Eq.-3 test floor: its loss on bio_B.
+    - The OCV level carries the known val-slice offset: first 10% of A in source order. At
+      n = 573 in the void pass, val minus test was 0.26–0.28 nats/token for all five models.
+    - A constant offset cannot change the shape. The call is quoted only where both floors
+      agree; otherwise it is UNDETERMINED.
+- **The call (`geode.edl.edl_signature`, specs/01 V1.12).** "Increasing" needs a seed-mean
+  rise of more than the tolerance (10% of the range, at least 0.01 nats) that every seed
+  shares. "Decreasing" needs no such rise and a net fall that every seed shares. Seed
+  disagreement is "mixed", not a call.
+- **Verdict.** M19 runs in a new `signature` mode:
+  - orig is the reference. If orig reads "increasing" under either floor, the verdict is
+    INSTRUMENT FAILS.
+  - decreasing → CARRIES; increasing → ABSENT; anything else → UNDETERMINED.
+  - `edl_sweep.py` also reports the seed-paired total EDL beyond orig (kbit). Bounded in n
+    means a fixed unlock cost.
+- **What the void pass still suggests (single seed, coarse grid; not quoted).**
+  - The NPO, SimNPO and RMU points were all restored from step ≥ 20, so they were not hit by
+    the bug.
+  - NPO (346 → 10 bits/token) and SimNPO (7.7 → 0.65) fall monotonically.
+  - For NPO the level is set by undoing the output suppression: the first batch costs about
+    240 nats/token. That is the paper's format-learning transient, in extreme form.
+  - RMU rises from n = 8 to 16 (1.1 → 2.5 bits), then falls. At n = 8 its kept model had
+    barely moved (val 5.44 → 5.29), so the finer grid may change that point.
+
+## 2026-09-29 (later) — M19 result: every method reads elicitation (3 seeds, both floors)
+
+- **Run.** Stage 5 at 365a0b3: 105 points (5 models × 7 sizes × 3 seeds), 2 h 45 min on one GPU.
+- **Calls** (`geode.edl.edl_signature`; OCV and test floors agree everywhere).
+  - orig: decreasing, 2 of 3 seeds. Seed 318 alone rises from n = 8 to 16: its 16-fact subset
+    holds a 170-token item, and MDL/D is 2.34 against 1.85–2.04 in the other seeds. The
+    reference never reads "increasing", so the instrument passes.
+  - RMU, ELM, NPO, SimNPO: decreasing, 3 of 3 seeds under both floors, so M19 reads CARRIES
+    (elicit) for all four.
+- **EDL/D seed means** (OCV floor, bits/token, n = 8 → 573).
+
+  | model  | n = 8 | n = 573 |
+  |--------|-------|---------|
+  | orig   | +0.37 | −0.56   |
+  | RMU    | +5.14 | −0.34   |
+  | ELM    | +0.67 | −0.52   |
+  | NPO    | +355  | +8.8    |
+  | SimNPO | +9.3  | +0.23   |
+
+  The test floor lifts every curve by 0.37–0.41 bits at n = 573 (orig ends at −0.15).
+- **Excess over orig per label token** (seed-paired, n = 8 → 573).
+
+  | model  | n = 8 | n = 573 | shrinks | total beyond orig at n = 573 |
+  |--------|-------|---------|---------|------------------------------|
+  | RMU    | 4.8   | 0.22    | 21×     | 2.15 kbit                    |
+  | ELM    | 0.30  | 0.04    | 7×      | 0.40 kbit                    |
+  | NPO    | 355   | 9.4     | 38×     | 90 kbit                      |
+  | SimNPO | 9.0   | 0.79    | 11×     | 7.6 kbit                     |
+
+  A per-token excess that shrinks as n grows is a fixed unlock cost, not a cost per fact.
+- **Stage-4 tallies** (carries / residual / absent): RMU 10/6/8, ELM 11/3/10, NPO 12/3/8,
+  SimNPO 15/5/5. "Still in the weights" is YES for all four.
+- **Document** (`unlearning_wmdp.tex`).
+  - M19 row in Table 1.
+  - Figure 1: panel (a) is the project's Fig-2 replication, as the elicit/teach reference;
+    panel (b) is this sweep.
+  - Table 3 tallies now include M19: 9/2/1, 11/0/1, 8/1/1, 8/2/1.
+  - Caveat added: the sweep covers n ≤ 573, all of half A. In the replication, the teaching hump
+    came after an initial fall and at far larger n.
+- **Figure data.** `paper/unlearning_wmdp/edl_sweep_points.csv` was transcribed from the stage-5
+  log.
+  - Every row checks MDL/D − floor = EDL/D under both floors.
+  - All 35 seed means match `edl_sweep.py`'s `[edl]` lines to within 0.0005 bits.
+  - `fig_edl_sweep.py` draws panel (b) from the CSV.
+
+## 2026-09-30 — WMDP: which single values can be called; why the calls are mixed
+
+- **Question (owner).** Some metrics are judged from one value (e.g. M6's weight write). What
+  says whether that one value means elicit or teach? And does it make sense that before training
+  some metrics read elicit and others teach?
+- **Audit of every WMDP metric.** A value can be placed on the elicit–teach scale only when this
+  design measures both its null and the original's value.
+  - Called (null and elicit reference both measured here):
+    - M12, M16′, M9, M11, M14 and M15 (the original as reference).
+    - M1★ and M10★ (random head sets; the original as reference or donor).
+    - M2★, M1, M2 and M4 (chance and the split-half ceiling).
+    - M1 necessity (the original's relearned child as reference).
+    - M10 (the donor child as reference).
+    - M17, M17u and M18 (the fine-tuning null and the original); M18 is one-sided.
+    - M19 (the shape rule and the original's own curve).
+  - Not callable here:
+    - M5, M6 and M7 used thresholds imported from the main results, and that scale (full FT, 1B)
+      does not carry over. On M7 the original's own relearning reads 0.64, beyond the main
+      results' teach value of 0.57. LoRA with the same stopping rule fixes the size of M6's
+      write. M5's first steps are inflated by repairing the unlearned output.
+    - M3 did not separate elicit from teach in the main results either (0.69 vs 0.88).
+    - M13 has no elicit reference; the original sits at a minimum.
+    - M7★ describes the unlearning, not the relearning.
+  - These rows are now REPORTED (`verdict_wmdp.py` mode "report"): shown beside the original's own
+    value, neither called nor tallied. This settles the open M7 question: no call.
+- **Bug fixed.** `judge()` tested U against its null before testing the instrument on the
+  original, so M13 read ABSENT (and was tallied) for RMU, ELM and SimNPO although it has no elicit
+  reference. The instrument check now comes first.
+- **Doc tallies after relearning** (Table 3 with M17–M19, called metrics only): RMU 6/1/1, ELM 8/0/0,
+  NPO 5/0/1, SimNPO 5/1/1. Before-training tallies are unchanged, relabelled
+  readable / partly / not read.
+- **Mixed calls are expected before training.** A before-training call is one-sided: what a metric
+  reads is present, but what it cannot read may still be present, hidden before or after where the
+  metric looks.
+  - The owner's reading ("the output is suppressed, the capability is still inside") fits NPO and
+    SimNPO. Their probe reads the answer in the state (0.47 and 0.49; original 0.60) while the
+    output is pushed away. NPO-WMDP was trained on bio only, and its cyber answers still show at
+    the output (hidden preference 2.32; original 3.57).
+  - It does not fit RMU and ELM: the probe reads nothing at any layer (0.28, the shuffled level),
+    so their suppression acts before the answer forms. ELM is a LoRA adapter on layers 4–7, and RMU
+    steers layer-7 activations according to the WMDP paper.
+  - The capability shows only when the edit is bypassed: patching the original's head states into
+    ELM gives 0.48 (original 0.49), and relearning restores both.
+  - "Still in the weights" therefore rests on the restoration tests (M17, M17u, M18, M19, M10★),
+    which read elicit for all four. Doc section 4 and Table 4 ("how each metric is judged") are new.
+- **New stage 6** (`localize.py`, CPU, no training) tests this directly, per layer and from existing
+  files:
+  - the probe's accuracy over its shuffled null, and the lens read-out;
+  - the unlearning edit ‖W_U − W_orig‖/‖W_orig‖, streamed from the checkpoints, including the
+    embeddings, final norm and output head;
+  - each relearned child's LoRA write, as a share of the child's total, against the original's
+    relearning.
+  - Predictions, before running:
+    - NPO and SimNPO keep a probe close to the original's through the middle layers while their
+      read-out falls.
+    - RMU and ELM change only a few early-middle layers.
+    - Their relearning writes put more weight in those layers than the original's relearning does.
+- **Caveat recorded.** The circuit metrics (M1, M2, M4, M15, M1★) compare the machinery that
+  answers a four-option question. That machinery is likely shared across subjects, so an elicit
+  reading there shows the original's machinery in use, not the bio knowledge itself.
+  - The knowledge-specific evidence is M16′ and M17–M19.
+  - A check not yet run: overlap of the original's bio circuit with its MMLU circuit.
+
+## 2026-09-30 (later) — are the circuit metrics bio-specific? Two checks added (pending on the cluster)
+
+- **Owner:** add the MMLU circuit check, or make the circuit metrics about bio knowledge rather
+  than multiple-choice answering; keep the dataset selection automatic.
+- **Selection is automatic.** Both checks run on splits `prepare_wmdp.py` already builds (`mmlu`,
+  `bio_A`, `bio_B`); no item is chosen or inspected by hand.
+- **Check 1, cross-subject share.** `circ_<tag>_mmlu` (the multiple-choice circuit on MMLU) has
+  existed since stage 1. New: its split halves and edge map for the original. Verdict rows M1x and
+  M2x report, per child, its overlap with the original's MMLU circuit next to M1/M2's overlap with
+  the original's bio circuit; the original's column holds J(orig bio, orig MMLU), the share that is
+  answering machinery. If M1x ≈ M1, the circuit metrics do not see bio knowledge.
+- **Check 2, the fact surface.** New pair mode `fact` in `task_adapter.MCQTask`: prompt = the
+  relearning format (question and answer, no options), scored token = the first token of the
+  correct answer text, contrast = another item's answer at equal prompt length
+  (`length_matched_pairs`). A circuit found here cannot be option-reading. New maps (all with split
+  halves): every model on bio (M11-fact, before training), the original and every child on bio_B
+  (M1-fact), the original on MMLU facts (M1-fact-x: J(orig bio-fact, orig MMLU-fact), the cross-subject
+  share on this surface).
+- **Structural check** (smoke data, CPU): fact prompts are ~⅓ shorter than the MCQ prompts, and
+  16 pairs form on bio, bio_B and mmlu.
+- **Cost:** ~38 node maps and 3 edge maps on the 7B model, roughly 1.5–2.5 GPU-h; stage 1 and 3
+  skip everything that exists.
+- **Predictions, recorded before the run.**
+  - M1x well below M1 (say < 0.3 against M1's 0.64–0.73) means the relearned children reuse a
+    bio-specific part of the original's circuit; M1x ≈ M1 means the shared-machinery reading.
+  - The original's fact circuit should be repeatable (M11-fact performing, split-half J above chance)
+    if the model answers the facts without options; the unlearned models' fact maps are likely
+    noise before training (their output is suppressed), like M11.
+  - M1-fact near its ceiling for all four children is the bio-specific version of the M1 result.
+
+## 2026-09-30 (later still) — the same bias check for every metric: MMLU controls and fact-surface reads
+
+- **Owner:** make sure the other metrics are not biased toward multiple-choice machinery either.
+- **Audit.** Every before-training metric except M13 is read on the multiple-choice prompt, and so
+  is every after-relearning metric except M18 and M19 (which already use the fact surface). A
+  multiple-choice reading needs both the machinery (read the options, write the letter) and the
+  knowledge; a drop can come from either. Two controls separate them.
+- **Control 1: the same metric on the MMLU split** (`-mmlu` rows, printed and graded, never
+  tallied). Machinery on another subject. If a method keeps the MMLU reading at the original's
+  level while its bio reading falls, the fall is knowledge-specific; if both fall, the machinery is
+  damaged (NPO and SimNPO lose 10 points of MMLU accuracy, so some of their bio drop may be that).
+  Added: probe, DAS and DCM blocks on `prefit_<tag>_mmlu` (pref existed), `lens_<tag>_mmlu`,
+  necessity of the original's MMLU-circuit heads in U (bio items) and in every child (B items),
+  the original's MMLU-circuit head states patched into U. Rows: M12-mmlu, M16-mmlu, M9-mmlu,
+  M14-mmlu, M15-mmlu, M1★-mmlu, M10★-mmlu, M1f-mmlu (plus M1x / M2x from the earlier entry).
+- **Control 2: the fact surface**, no options shown (`-fact` rows, tallied; M12-fact, M9-fact and
+  M17-fact are in HEADLINE). `MCQTask.items()` now follows the pair mode, so `pref` and `lens`
+  run on the fact prompts unchanged: the scored token is the first token of the correct answer,
+  the candidates are the four answers' first tokens, and the own permutation null reassigns which
+  candidate is "correct". Rows: M12-fact (before training, every model), M9-fact (lens depth),
+  M17-fact and M17u-fact (children, null children, U and the original on B facts), plus M11-fact,
+  M1-fact, M1-fact-x from the earlier entry. The probe, DAS and DCM stay multiple-choice-only:
+  their labels (option index, letter swap) have no meaning when the options are not shown.
+- **Cost:** roughly one more stage-1 worth of GPU time (~4 GPU-h); every existing output is
+  skipped.
+- **Predictions, before the run.**
+  - RMU and ELM: MMLU controls at the original's level (their MMLU accuracy is intact), bio
+    readings low → knowledge-specific suppression, consistent with edits before the answer forms.
+  - NPO and SimNPO: MMLU controls partly reduced (machinery damage) but bio reduced more.
+  - M12-fact: the original well above its permutation null; SimNPO and NPO closer to the original
+    than RMU and ELM, as on the probe; after relearning, M17-fact recovers to the original for all
+    four, as M17 does.
+
+## 2026-09-30 (night) — controls RAN (a8353d4): which metrics read machinery, which read knowledge
+
+Stage 1 + 3 (new maps only, 5.5 GPU-h), stage 6, stage 4.
+
+- **Multiple-choice machinery is intact in all four models.** On MMLU every before-training metric
+  reads like the original: hidden preference r 0.89–1.22, probe 0.90–1.05, state swap 0.57–0.96,
+  option-reading heads 0.70–0.98. NPO and SimNPO show partial read-out damage on MMLU (lens at
+  intermediate layers r 0.43 / 0.24; NPO's MMLU letter loss is 153 nats at the DCM start against
+  the original's 5.7, its top output token is not a letter although the letter preference is
+  kept), matching their 10-point MMLU accuracy drop.
+- **So the bio drops on the probe, the state swap and the option heads are knowledge-specific.**
+  RMU and ELM: MMLU reading at the original's level, bio reading at the null. NPO and SimNPO:
+  MMLU partly reduced, bio reduced more.
+- **The multiple-choice circuit metrics read machinery, not knowledge** (the caveat is confirmed):
+  - M1x (child vs the original's MMLU circuit) 0.52–0.60 vs M1 0.64–0.73; the original's own bio
+    circuit vs its MMLU circuit 0.56, at the split-half ceiling (0.50–0.60).
+  - M2x = M2 (0.31–0.34 vs 0.29–0.33; the original's own 0.27).
+  - The original's MMLU-circuit heads are as necessary as its bio-circuit heads: in U (M1★-mmlu
+    1.11 / 0.94 vs M1★ 1.06 / 0.89) and in every child (0.98–1.01 vs 0.96–1.02).
+  - Patching the original's states at MMLU-circuit heads restores ELM as much as at bio-circuit
+    heads (0.46 vs 0.48): the restoring content is in the states, the head set does not matter.
+  - Decision: M1, M2, M4, M1f (child necessity) and M1★ are graded but no longer tallied
+    (`MACHINERY` in verdict_wmdp.py); M1★ leaves HEADLINE.
+- **The fact surface (no options) carries bio-specific circuits.** M1-fact, child vs the original's
+  bio-fact circuit on B: 0.60 / 0.46 / 0.46 / 0.39, all above the split-half ceilings (0.31–0.37);
+  vs the original's MMLU-fact circuit 0.25–0.28, and the original's own bio-fact vs MMLU-fact 0.21.
+  M1-fact replaces M1 as the tallied circuit metric.
+- **The headline holds with no options shown.**
+  - M12-fact (correct answer preferred among the four candidates, none shown; own permutation
+    null): original top-1 0.43 (null 0.31). RMU 0.35 (p = 0.054), NPO 0.29, SimNPO 0.34
+    (p = 0.055): not read. ELM 0.40, r = 0.70: readable. ELM's suppression is bound to the
+    multiple-choice format; on the fact surface its answer is largely there (on B: 0.42 vs the
+    original's 0.44, before any training).
+  - M17-fact (held-out B, no options): every child at or above the original (0.46–0.48 vs 0.44).
+    RMU beyond its fine-tuning null (0.47 vs 0.39, r = 1.43); for ELM, NPO and SimNPO the unrelated
+    fine-tune already reaches the original (0.43–0.45), as on the multiple-choice surface.
+  - M17u-fact: the unrelated fine-tune unlocks NPO (0.32 → 0.43, r = 0.92) and SimNPO (0.32 → 0.45,
+    r = 1.09); RMU stays (0.39 → 0.39); ELM was already there (0.42 → 0.44).
+  - M9-fact: INSTRUMENT FAILS. The lens has no intermediate-layer signal on the fact surface even
+    for the original (first-token accuracy 0.12, logit difference +0.5), so this read is dropped.
+  - M11-fact (repeatable fact circuit): original 0.49; ELM 0.60 (carries); RMU 0.42 (a split half
+    below the performing bar), NPO 0.28, SimNPO 0.23 (absent). The fact-surface sanity metric
+    contrasts another item's answer, so "performing" there means topical relevance, not knowledge.
+- **Stage 6 (localization).**
+  - Readability by depth: probe retention RMU −0.03, ELM 0.04, NPO 0.63, SimNPO 0.67; lens
+    retention 0.25 / 0.12 / 0.04 / 0.12; read-out 0.28 / 0.09 / 0.09 / 1.04. NPO and SimNPO keep
+    the state readable and lose the output map; RMU and ELM lose the state.
+  - The unlearning edit: RMU 90% of the weight change in layers 5–7 (MLP only), ELM in layers 4–7
+    (the adapter), NPO and SimNPO spread over 29 of 32 layers plus the output head (SimNPO's
+    lm_head changes by 2.6% relative, its embeddings 0.6%).
+  - **Prediction falsified:** relearning does not write into the edit layers. Every child's LoRA
+    write puts the same share there as the original's relearning does (RMU 10% vs 10%, ELM 13% vs
+    13%, NPO 91% vs 91%). Relearning goes around the edit rather than undoing it, consistent with
+    the original's head states restoring ELM.
+- **Prediction outcomes.** MMLU intact for RMU/ELM with bio at null: confirmed. NPO/SimNPO partly
+  reduced on MMLU, more on bio: confirmed. M12-fact original above null: confirmed; "SimNPO and NPO
+  closer to the original than RMU and ELM" on the fact surface: wrong, ELM is the one that keeps
+  it. M1-fact near ceiling for all four: confirmed (above ceiling). Relearning writes into the
+  edit layers: falsified.
+- **Tallies now** (called, non-machinery rows): before training (readable / partly / not read)
+  RMU 1/4/6, ELM 3/3/5, NPO 3/2/6, SimNPO 7/3/2; after relearning (elicit / partly / teach)
+  RMU 5/0/1, ELM 5/0/0, NPO 2/0/1, SimNPO 3/0/1. Still in the weights: YES for all four.
+
+## 2026-09-30 (verification) — audit of the WMDP verdict: relative reads, detection gates, leakage
+
+- **Owner:** verify the scripts, metrics and methodology; make sure values are read relatively,
+  not as absolutes.
+- **Every call is a position, never a raw value.** `judge()` computes r = (v_U − n_U)/(v_O − n_O)
+  for retention rows and (v − null)/(ref − null) for overlap / patch / recovery rows; CARRIES at
+  r ≥ 0.5. Shifting or rescaling a statistic together with its null and reference leaves r and the
+  call unchanged (now a property test). The M6/M7/M5/M3 raw-threshold rows were retired earlier
+  (mode "direct" no longer exists in the row table; tested).
+- **The only absolute constants left are detection gates**, which decide whether there is
+  anything to measure, not which side it falls on:
+  - 3 SE above the null (probe, state swap, lens, recovery, unlock, cost);
+  - permutation p < 0.01 (hidden preference), binomial p < 0.01 against 100 random head sets
+    (necessity);
+  - Jaccard at least 0.05 (overlaps) or 0.10 (split-half circuits, head roles) above type-matched
+    chance;
+  - a performing map: mean logit difference > 1 nat on the map's own pairs (circuit tools);
+  - the DCM ceiling ≥ 0.5 (the full model follows the option swap on at least half the pairs) and
+    at least one head found (option heads);
+  - r ≥ 0.5 for the coarse call and interval widths 0.3 / 0.6 for the confidence tiers.
+  A gate that fails on the original reads INSTRUMENT FAILS before U is judged (tested).
+- **What each row is compared with** is now the appendix table of the write-up; the
+  `-mmlu` controls and the machinery rows are excluded from tallies by `is_control` (tested), and
+  every `-mmlu` row has a bio twin (tested).
+- **Leakage checks (code read).**
+  - A / B split by item (`order[: n // 2]`), letters balanced per split (`balanced_permutation`,
+    V5.79): chance 0.25, no letter prior.
+  - Relearning rows: val = the first 10% of A's fact rows, train = the rest (`s.iloc[:k]` /
+    `s.iloc[k:]`, disjoint); B is never trained on; the restore-best keeper reads val only.
+  - The fine-tuning null trains on `mmlu_relearn` items, which are excluded from `wmdp_eval`, so
+    the MMLU sanity accuracy is read on different items.
+  - Every model uses the original's tokenizer (models.py), so items and pairs are token-identical
+    across models; the same `--n 512` slice and the same over-length drops apply to every model.
+  - Fact-surface reads take the first 512 of the 753 alignable fact items for every model alike.
+- **Known limits, unchanged:** one seed for the relearned children (three for M19); M18's
+  interval is too wide for NPO; the no-options surface is a harder read (the original at 0.44),
+  so its recovery test has little room for three of the four methods.
+- **Tests:** `tests/experiments/scripts/test_verdict_wmdp_rules.py` (pure functions, no data),
+  alongside `test_signature.py` (V1.12) and `test_v5_80_*` (restore-best).
+
+## 2026-09-30 (late) — presence vs level: what r ≥ 0.5 is for
+
+- **Owner:** why r ≥ 0.5? Isn't any signal enough to say elicit?
+- **Two questions.** Presence ("is the capability still there?") is decided by any significant
+  signal above the model's own null (the detection gates: 3 SE, p < 0.01); RESIDUAL already means
+  present. The pre-registered r ≥ 0.5 (PLAN.md §W6) is the coarse midpoint for "reads like the
+  original": how much survives, not whether any does.
+- **Change.** The verdict summary now says "still in the weights" when any headline metric is
+  above its own null (CARRIES or RESIDUAL) and lists, on a second line, the metrics at the
+  original's level (r ≥ 0.5, the old rule). No answer changes: every model already had a CARRIES.
+  The tallies keep their three bins; the write-up's "Reading a cell" says readable and partly both
+  mean present.
+- **Where any signal is NOT enough:** the after-relearning elicit-vs-teach calls. A taught model
+  also reads above the null there (it uses the shared machinery, overlaps the original's MMLU
+  circuit, improves on B), as the controls showed; those rows need the reference, and ideally a
+  teach model this design does not have. The recovery tests carry them because their null (an
+  unrelated fine-tune) and reference (the original) are both measured.
+
+## 2026-09-30 (verification, part 2) — the cluster outputs rerun and recomputed locally
+
+- `experiments/unlearning/out/wmdp/` (466 files, 31 MB, no weights; git-ignored) copied to the
+  laptop by the owner.
+- **Rerun.** `verdict.py --design wmdp` on the copy reproduces the cluster verdict row for row: 38
+  of 40 rows identical; M6 and M18 read MISSING locally because their inputs are the training logs
+  in the store, which were not copied.
+- **Independent recomputation.** With separate code and the raw `prefit_*.json` /
+  `edl_sweep.json`: r for M12 (bio, cyber, MMLU, fact), M16 (bio, cyber, MMLU), M17, M17u,
+  M17-fact, M17u-fact and the M19 calls: 0 mismatches against `verdict_wmdp.json`.
+- **Accuracies in the tables confirmed** from the files (B, multiple choice: original 0.668; as
+  given / null child / bio child RMU 0.309 / 0.348 / 0.682, ELM 0.350 / 0.555 / 0.668, NPO
+  0.264 / 0.625 / 0.641, SimNPO 0.422 / 0.621 / 0.662; no options: original 0.443, null 0.314,
+  RMU 0.390 / 0.387 / 0.467, ELM 0.424 / 0.443 / 0.477, NPO 0.316 / 0.432 / 0.456, SimNPO
+  0.324 / 0.454 / 0.462).
+- **Graded summary** (verdict_wmdp.md, headline metrics, ABSENT = 0): median r RMU 0.17 (IQR
+  0.00–0.79), ELM 0.02 (0.00–0.66), NPO 0.00 (0.00–0.61), SimNPO 0.64 (0.07–0.90). Wide intervals
+  worth quoting: M12-fact ELM 0.70 [0.33, 1.07]; M17-fact RMU 1.43 [0.11, 2.75].
+- **Localization figure** (`localize.png`) added to the write-up as Figure 2. Detail from the
+  JSON: RMU's relearning write at layers 5–6 is 0.035 per layer against the original's flat 0.031
+  (13% above), a bump inside the edited block but 10% of the write in total, the same as the
+  original's; SimNPO's and NPO's writes rise toward the last layers (0.046 and 0.038 at layer 31).
+
+## 2026-10-04 — M20, a before-training predictor of elicit vs teach: gradient transfer at init
+
+- **Owner:** a single score from the pre-fine-tuning weights and the dataset alone that says
+  whether the fine-tune will elicit or teach; the mixed before-training readings on WMDP are a
+  problem; calibrate it on a model that cannot know the facts (score 0) and on the TinyStories
+  pair of the main results.
+- **Why not combine the existing before-training metrics.** They read whether the answer is
+  computed in the current forward pass, and unlearning is an optimization against exactly that
+  (output probabilities, a layer's activations, a concept's representation); ELM reads 0.02 and
+  NPO 0.00 on the graded median and both elicit under training. Any combination of one-sided
+  readings stays one-sided.
+- **The predictor.** The training outcome we read later ("does a step on the A facts move the
+  held-out B facts?") has a first-order answer at the starting weights:
+  dL_B = −lr·⟨∇L_A, ∇L_B⟩. Measured in the fine-tune's own parametrization, the gradient w.r.t.
+  the LoRA B factors at their zero init (a seeded random projection of the full weight gradient,
+  on every projection of every layer); no update is taken.
+  - transfer = cos(G_A, G_B); null = cos(G_A-rotated, G_B), the same prompts with the answers
+    rotated across items by a seeded offset (same items, vocabulary and format, no knowledge),
+    three rotations for an sd; **score = transfer − null**, significant at 3 sd.
+  - Secondary: the far-domain (MMLU facts) null; the share of B's own steepest descent an A-step
+    delivers; per-item count-sketches (D = 4096): pairwise cosines, the effective rank of the
+    A-item gradients (how many directions the fine-tune needs) and the share of each B gradient on
+    the first principal direction of A (one shared "unsuppress" direction or many).
+  - `experiments/unlearning/grad_transfer.py`; tests `tests/experiments/analysis/
+    test_grad_transfer.py` (derangement, batch-invariance and the exact-gradient identity, cosine
+    bounds and symmetry, sketch fidelity).
+- **Anchors and twins (stage 7, `stages_wmdp.sh`; `data/shuffle_answers.py`,
+  `configs/relearn_wmdp_bioAshuf.yaml`).**
+  - Teach anchor: a model that cannot know the facts, default the TinyStories-1B twin
+    (`runs/evt-ts1b-base/model`), scored by the predictor on the same WMDP sets, and relearned on
+    n = 573 true and rotated answers (sweep points, read on the B facts).
+  - Every WMDP model also gets the rotated-answer relearning twin (M19-shuf: the EDL/D that format
+    alone produces; M17-shuf: B fact loss after rotated minus after true answers, the measured
+    knowledge-specific transfer).
+  - Main results: `scripts/grad_transfer_ts1b.sh` scores evt-ts1b-base, evt-ts1b-fig2ts-installer
+    (teach side) and evt-ts1b-op-bridge-mix (elicit side) on the arithmetic target (A = 600 seeded
+    training rows of D_algo_bare_4m, B = the frozen eval reporting block), before either 4M
+    fine-tune. Both outcomes are known there.
+- **Smoke check:** on the random tiny model the score is −0.0001 (transfer 0.803, null 0.803 ±
+  0.002) while the MMLU-null version leaves +0.10 of topic residue: the rotated-answer null is the
+  primary one.
+- **Predictions, recorded before the runs.**
+  - WMDP: orig score > 3 sd; NPO, SimNPO and ELM positive and large (one shared direction: high B
+    energy on A's first direction, low effective rank); RMU positive but lower; the TinyStories
+    anchor within 3 sd of zero. M19-shuf ≈ 0 for every model (no generalizable structure) and
+    M17-shuf > 0 for the Zephyr models, ≈ 0 for the anchor.
+  - TinyStories pair: op-bridge-mix score clearly positive; fig2ts-installer and base within noise
+    of zero. If the installer scores high, the predictor is reading format, not capability, and is
+    not fit for purpose.
+
+## 2026-10-06 — M20 first run: the raw-cosine score is compressed by the common-mode gradient; v2 = knowledge-gradient alignment; the anchor and the TinyStories calibration failed and are fixed
+
+- **Run (cluster, 2026-10-05, stage 7 at 7b27d52).** The five WMDP models were scored (7.4 min
+  each); the teach anchor and the TinyStories calibration failed before computing anything (below).
+- **v1 result (raw transfer − rotated-answer null, raw cosines):**
+
+  | model | cos(G_A,G_B) | rotated null | score | sd | r vs orig |
+  |---|---|---|---|---|---|
+  | orig | 0.987 | 0.874 ± 0.0065 | +0.112 | 17 sd | — |
+  | RMU | 0.991 | 0.979 ± 0.0005 | +0.011 | 23 sd | 0.10 |
+  | ELM | 0.998 | 0.947 ± 0.0034 | +0.051 | 15 sd | 0.45 |
+  | NPO | 0.997 | 0.992 ± 0.0007 | +0.0045 | 6 sd | 0.04 |
+  | SimNPO | 0.989 | 0.941 ± 0.0036 | +0.048 | 13 sd | 0.42 |
+
+  Against the 2026-10-04 predictions: orig > 3 sd ✓; all four positive and significant ✓; "large"
+  ✗ (all four read RESIDUAL); RMU below ELM and SimNPO ✓, but NPO lowest of all ✗.
+- **Diagnosis: the raw cosine is not comparable across models.** True and rotated sets alike sit
+  at cos 0.87–0.99 with B: the gradient of every bio-fact set is dominated by a component the true
+  and the rotated sets share — format, vocabulary, topic, and above all the state the unlearning
+  left the model in (NPO's loss is 246 nats/token on every bio prompt, RMU 6.2, SimNPO 10.5, orig
+  2.3; the gradient norms 543 / 72 / 104 / 13.5). Writing G_A = C + a, G_A-rot = C + a', G_B = C + b
+  with |C| ≫ |a|, |b|: transfer − null ≈ [⟨a,b⟩ − ⟨a',b⟩]/|C|² + (|a'|² − |a|²)/(2|C|²). The score
+  shrinks with the square of the common part and carries a nuisance term from the rotated set's own
+  norm; its headroom 1 − null is 0.008 for NPO, of which the 0.0045 fills over half. The per-item
+  statistics read the same component: NPO's "effective rank 2.2 of 573" is the collapse direction,
+  not a knowledge direction. The v1 numbers stay in the record (`gradxfer_*.v1.json`) and are not
+  compared across models.
+- **v2 (grad_transfer.py, same runs, +4 min per model): the knowledge-gradient alignment.**
+  K_X = G_X(true answers) − mean_k G_X(rotation k) — everything shared by the true and the rotated
+  sets cancels exactly; what remains is the gradient of the model's knowledge of which answer goes
+  with which question. Headline **knowledge_cos = cos(K_A, K_B)**: a step that sharpens the
+  model's knowledge of the A facts sharpens its knowledge of the B facts (elicit: one shared
+  mechanism) or does not (teach: each fact on its own). It is the 2×2 interaction
+  [true A→true B] − [rot A→true B] − [true A→rot B] + [rot A→rot B] of the first-order loss changes.
+  Null by exchangeability: with no knowledge the true pairing is just another rotation, so
+  K^(j) = G(rot j) − mean of the other rotations is distributed like K; null sample =
+  cos(K_A^(j), K_B^(j')) over the rotation pairs (dependent through shared terms: a sanity level;
+  the anchor model is the empirical zero). Also: knowledge_share = |K|/|G| (how much of the first
+  step is about the pairings at all), knowledge_descent_frac, and per-item knowledge sketches (true
+  minus one rotation) for the one-direction-or-many read. B is rotated too; 4 rotations per set.
+  The raw transfer, its null and raw_score (v1) stay in the JSON as reported fields.
+- **Tiny-model check of the semantics (CPU, the test's setting, 96 items, 4 rotations):** a
+  2-layer model trained on a copy rule scores +0.80 / +0.91 (two seeds) on fresh copy items, null
+  0.00 ± 0.11–0.19; the same model on arbitrary pairings +0.16 / +0.26, within its null (± 0.17);
+  a random model on arbitrary pairings 0.01 / −0.02 (± 0.03–0.05). The random model on the copy
+  rule scores +0.35 / +0.24 — a copy rule has shared first-order gradient structure even at init,
+  so the predictor's zero is "no shared mechanism", not "untrained"; the anchor must therefore be
+  a model that cannot know the facts, not merely one that has not seen them in this format.
+- **Failures fixed.** (1) The anchor: `runs/evt-ts1b-base/model` carries no loadable tokenizer
+  (the TS1B family reads `meta-llama/Llama-3.2-1B` from the config); `relearn.py --tokenizer`
+  added, stage 7 passes `TEACH_ANCHOR_TOKENIZER` (default meta-llama/Llama-3.2-1B; "" = the dir's
+  own) to the predictor and the two anchor relearning runs. (2) The TinyStories calibration:
+  `ts1b_elicit_ft.yaml` has no eval block (`KeyError: 'eval_file'`); `--eval-config
+  configs/ts1b_fig2ts_inst.yaml` (D_algo_eval_bare, hash-pinned) added and passed by
+  `grad_transfer_ts1b.sh`. Stage 7 sets v1 outputs aside as `*.v1.json` and recomputes.
+- **The twins ran and stand (unaffected by v1/v2).**
+  - M19-shuf, EDL/D (OCV floor, bits/token) at n = 573 with rotated vs true answers: orig −0.287
+    vs −0.560; RMU −0.051 vs −0.335; ELM −0.263 vs −0.518; NPO +10.8 vs +8.84; SimNPO +0.593 vs
+    +0.232. The true answers code 0.27–0.36 bits/token cheaper (NPO 2.0) in every model. The
+    prediction "M19-shuf ≈ 0" was wrong in form: EDL against the OCV floor is not zero for a
+    knowledge-free set (the floor is the kept model's own val loss on rotated val items; the
+    first-pass code includes the format being learned); the meaningful quantity is the
+    true-minus-rotated difference.
+  - M17-shuf, held-out B fact loss after rotated minus after true answers (n = 573, same start,
+    same recipe): orig 0.578, RMU 0.567, ELM 0.594, NPO 0.574, SimNPO 0.569 nats/token — the same
+    to within 0.03 nats. 573 true facts improve the held-out facts by the same knowledge-specific
+    amount in every unlearned model as in the original. Reading pending the anchor's value: if
+    TinyStories-1B gains ≈ 0.57 too, the gap is answer-type learning, not knowledge (expected ≪).
+  - NPO's rotated-answer relearning takes the val loss from 241 to 2.59 nats/token in 20 steps: the
+    collapse is undone by any fine-tune (cf. M17u, where an MMLU fine-tune restores NPO's B
+    accuracy to 0.62).
+- **Predictions for v2, recorded before the rerun.** Knowledge alignment: orig highest; NPO and
+  SimNPO near orig (r ≳ 0.5: the knowledge path is intact up to the output); ELM high (M12-fact r
+  0.70); RMU lowest but above its null (the edit scrambles layers 5–7, the gradient must pass
+  through them); knowledge_share smallest for NPO. Anchor within 3 null sd of zero. TinyStories:
+  op-bridge-mix clearly positive; installer and base within noise of zero; an installer that scores
+  high means the predictor reads format and is unfit (criterion unchanged).
+- **Third reference, added 2026-10-06 (owner: "do we have a no-bio-knowledge model to compare?").**
+  The anchor is the only certifiably bio-free model in the store but is a 1B story model, not a 7B
+  general model without bio (none exists); the rotation null is on Zephyr's own weights but
+  destroys the pairings. Neither answers "do any two fact sets the model knows align, through
+  shared recall machinery?" — the same objection the MCQ controls answered for the other metrics.
+  So mmluA is rotated too and `mmlu_knowledge` = cos(K_mmluA, K_bioB) with its own exchangeability
+  null is reported (verdict row M20-mmluK): the same model, true pairings of unrelated facts. The
+  bio-specific part of the headline is knowledge_cos − mmlu_knowledge; a headline no higher than
+  the MMLU reference would mean the predictor reads recall machinery, not the bio knowledge.
+  Prediction: for orig the MMLU reference is positive but below the bio A→B alignment; for the
+  unlearned models the bio-specific excess stays positive (the unsuppress direction is bio-specific
+  and absent from K_mmluA). Cost +1 min per model.
+
+## 2026-10-06 — M20 calibration FAILED (pre-registered criterion fired); what the data give instead
+
+- **Run (cluster, f5f2617; stage 7 v2 ≈ 15 min/model, anchor 5 min + 2 relearning twins, TinyStories
+  3 × 4 min).** Knowledge-gradient alignment cos(K_A, K_B): orig 0.953 (null 0 ± 0.032), RMU 0.752
+  (± 0.18), ELM 0.991 (± 0.12), NPO 0.971 (± 0.30), SimNPO 0.936 (± 0.05); MMLU-knowledge reference
+  0.66 / 0.22 / 0.17 / 0.24 / 0.71. **Teach anchor (TinyStories-1B on the bio facts): 0.418, 14 sd
+  above its null.** **TinyStories arithmetic pair: base 0.847, format-installed parent 0.964, elicit
+  parent 0.744** — the teach side scores highest, the elicit side lowest.
+- **Verdict on the predictor: not fit for purpose**, exactly by the criterion written on 2026-10-04
+  ("if the installer scores high, the predictor is reading format, not capability") and the owner's
+  requirement ("a model not knowing bio knowledge must score 0"). Why it fails: K_A and K_B align
+  whenever a *coherent first-order direction* improves true pairings over rotated ones for both
+  halves — which exists for any shared learnable regularity, latent or not. The installer (random
+  labels, accuracy 0.000, format in place) has a low-rank "make the digits depend on the operands"
+  direction (per-item knowledge effective rank 7.8, B energy on A's first direction 0.21); the elicit
+  parent, which already has the rule, has a diffuse residual (rank 122, 0.04). On the bio facts the
+  anchor's 0.42 is lexical/topical coherence between question and true answer (its true-vs-rotated
+  loss gap is 0.20 nats). The tiny-model check had shown the same thing in miniature (a *random*
+  model on the copy rule scored +0.3) and I under-weighted it. First-order alignment reads "a shared
+  direction is available from here", not "the capability is already in the weights"; the
+  elicit/teach distinction is about the training trajectory (Donoway's EDL/D vs n), not the first
+  step. M20 stays in the record as a negative result: verdict rule report, out of HEADLINE and the
+  tallies; `grad_transfer.py` kept (its set losses feed M21).
+- **What does calibrate: the hidden-preference gap on the fact surface, Δ = L(rotated) − L(true)
+  nats per label token on the held-out B facts (full answer, no options, no training; M21,
+  reported).** Zephyr: orig 1.58, RMU 1.30, ELM 1.24, NPO 2.52, SimNPO 2.64; anchor 0.22;
+  TinyStories arithmetic: elicit parent 1.15, format-installed parent 0.09, base 0.13. Every known
+  teach-side case ≤ 0.22, every known elicit-side case ≥ 1.15; the four unlearned models sit with the
+  original. NPO is the striking case: its loss is 246.7 nats/token on true and 249.3 on rotated bio
+  answers — the unlearning shifted every bio answer by ~244 nats and left the log-odds between true
+  and false answers intact (2.5 nats, above orig's 1.6). M12-fact (first token, four hard options)
+  read NPO, RMU and SimNPO as ABSENT; the full-answer gap against another item's answer is the more
+  sensitive read, at the price of a coherence component (the anchor's 0.2; a general 7B model's
+  floor is unknown — no bio-free 7B exists). Reading: Δ ≫ floor ⇒ the knowledge is expressed in the
+  log-odds ⇒ elicit (sufficient, not necessary: knowledge invisible in every log-odds would read 0
+  and could still elicit). Not tallied: it is M12-fact's cousin and would double count.
+- **The twins, now with the anchor.** M17-shuf: held-out B fact loss after 573 rotated minus after
+  573 true answers — orig 0.578, RMU 0.567, ELM 0.594, NPO 0.574, SimNPO 0.569 nats/token; **anchor
+  0.045** (7.540 vs 7.495). The same knowledge-specific transfer in every unlearned model as in the
+  original, and 13× less in a model that cannot know the facts. Anchor EDL/D at n = 573: +0.99 nats
+  (OCV), +1.59 (test floor) — positive, where every Zephyr model is at or below zero (M19).
+- **Verdict changes (f5f2617 → this commit):** M20 → report; M21 added (report); HEADLINE without
+  M20, so the tallies revert to the 2026-10-05 values. `grad_transfer_ts1b.sh` outputs are read from
+  `experiments/training-run/results/gradxfer/` when present (owner commits them from the cluster).
+- **Owner (2026-10-06): "add M21 to the metrics tex file, the WMDP results on M21 to the WMDP file;
+  if M20 doesn't work then scratch that."** Done: M21 is defined in `results_ts.tex` as a parent-only
+  metric (set to number 21; M17–M19 are the application's relearning metrics, M20 unused) with the
+  TinyStories values in Table `tab:prefit` (elicit parent 1.15, format-installed 0.09, blank 0.13;
+  Llama-3.2-1B and the symbol engine not run), and the WMDP values in the application paragraph.
+  M20 is removed from both documents, the shared page and the verdict rows (`grad_transfer.py`
+  still computes it, and M21 is now its first-class `gap` output, v3); this log keeps the record.
+
+## 2026-10-07 — M21: the theoretical argument (owner: "it seems kind of random but might be very good")
+
+- **What it is, exactly.** With $S_{ij} = -\log p_\theta(a_j \mid q_i)$ (summed label-token loss)
+  and $D$ the label tokens of all $n$ answers (equal for every pairing), the gap for a rotation
+  $\pi$ is $\Delta_\pi = \frac{1}{D}\sum_i (S_{i\pi(i)} - S_{ii})$. Two-way decomposition
+  $S_{ij} = r_i + c_j + e_{ij}$ (row and column effects, centred interaction): $r$ and $c$ cancel
+  for every $\pi$; the $n-1$ cyclic rotations visit every off-diagonal pair once, so the rotation
+  average is $\bar\Delta = \frac{1}{D}(\frac{1}{n-1}\sum_{i\ne j} S_{ij} - \sum_i S_{ii}) =
+  -\frac{n}{n-1}\frac{1}{D}\sum_i e_{ii}$ — minus the mean interaction of the loss on the true
+  pairs. Consequences: invariant to any per-question term (NPO's prompt-dependent 244-nat shift,
+  a broken output on the fact format) and any per-answer term (vocabulary, length, a penalty on
+  forbidden answers); the four seeded rotations are a Monte-Carlo sample of $\bar\Delta$ (sd
+  0.01–0.05). Property test `test_rotation_gap_is_the_off_diagonal_mean` checks the identity on a
+  random model through the real rotation + loss code (`rotate_answers` gained an `offset`).
+- **In the EDL framework's units.** $D\bar\Delta$ nats = the description-length saving the parent
+  already achieves on the pairings over coding each answer after an uninformative question = the
+  pairing bits the weights hold before training. Teaching must transmit those bits through the
+  data; eliciting finds them there and only changes the read-out. The first facts of a fine-tune
+  cost their loss under the parent, $L_{true} = L_{rot} - \bar\Delta$: $\bar\Delta$ is the head
+  start on the EDL/D curve at $n = 0$, where M19 is not yet defined. (Elicit parent: 1.15 nats/token
+  × 3.06 tokens/answer ≈ 3.5 nats ≈ 5 bits of each answer already held.)
+- **Bound on identification.** With $\pi_i = p(a_i|q_i)/\sum_j p(a_j|q_i)$, Jensen gives
+  $\frac{1}{n}\sum_i \log(n\pi_i) \le \frac{n-1}{n}\cdot\frac{D}{n}\bar\Delta$: the $n$-way
+  identification information (log n minus the cross-entropy) is at most the gap per item. Gap ≈ 0
+  ⇒ no read-out can pick the answers above chance on average; a large gap = the identification
+  information is held whether or not the argmax shows it (NPO).
+- **Relation to M12:** the one-token, one-alternative, logit-space version; M21 integrates the whole
+  answer and $n-1$ alternatives in probability space (nats; comparable across tokenizers).
+- **Limits restated:** blind to pairing bits that no conditional likelihood reflects (a suppression
+  acting on the interaction itself; RMU and ELM lower the gap most without removing it); the
+  coherence floor of a parent without the knowledge must be measured on a cannot-know model.
+- Written into `results_ts.tex` (a "Why it is the right quantity" block under M21), two sentences
+  in the application's Section 4, and the shared page.
+- **Owner (2026-10-07): "a proof that this metric is true iff the original metric is? or what is
+  the argument?"** There is no equivalence; two implications, now stated under M21 in
+  `results_ts.tex`. (i) Gap above the floor ⇒ the likelihoods hold pairing bits no per-question or
+  per-answer change can create ⇒ a fine-tune that raises the read-out pays a fixed cost $C$
+  ($\ell_k \le L_* + c_k$, $\sum c_k D_k \le C$) ⇒ EDL/D ≈ $C/D(n)$ falls: the M19 signature, with
+  the level = read-out repair (NPO 355 bits/token at $n=8$) and the shape = bits held. (ii) Gap at
+  the floor ⇒ no read-out identifies the answers (Jensen) ⇒ the fine-tune transmits the bits
+  (teaching: hump of height ≈ $n_{gen}\bar D (L_{rot} - L_*)/D(n)$ when the test floor drops) or
+  opens a gate on bits the likelihoods do not show (elicitation M21 cannot see). Counterexample to
+  the converse of (i): an output disconnected from the knowledge on this surface (one fixed
+  distribution for every question; a rank-one update reconnects it): gap exactly 0, elicits. RMU
+  and ELM are partial versions. Partial knowledge (answer type) gives a gap above the floor but
+  below $L_{rot} - L_*$; the trajectory completes it. M12 ⇒ M21 (first-token preference is part of
+  the gap) unless later tokens reverse it; not conversely (NPO). Agreement on all nine known cases.
+
+## 2026-10-10 — SOTA / tamper-resistance extension of the unlearning application: which methods, and the model-set plumbing
+
+- **Owner:** "test SOTA unlearning methods (the ICLR 2026 entry 10019248 and others), on WMDP or other
+  datasets; find the best and most impactful for the paper; prepare the full script to test all
+  metrics." Kept at the protocol level throughout (no item text, automatic data selection, as before).
+- **The ICLR 2026 entry** is "Learn to be Unlearned: Optimizing Language Models for Unlearning via
+  Clustered Gradient Routing" (Hanke, Xu, Pawelczyk, Backes, Dziedzic, Boenisch; ICLR 2026 Trustworthy
+  AI workshop poster): a *training-time* mechanism (semantic clustering + gradient routing into
+  parameter blocks) that makes later unlearning cleaner; evaluated on TOFU and MUSE; no code or
+  checkpoints released. Not testable without training models with their routing; noted, not run.
+- **Survey (public checkpoints only; the test needs weights, not papers).** The 2025–26 "relearn-robust
+  unlearning" line (RepSelect 2606.17168, minor-components 2605.11685, margin calibration 2607.27836,
+  SAM-based 2502.05374, optimizer simplification 2510.00761) reports on Zephyr-7B/WMDP in our exact
+  setting but releases no weights. UNDO ("Distillation Robustifies Unlearning", Lee et al. 2025,
+  2506.06278): the method most directly aimed at removing latent capability (distil the unlearned
+  model into a noised copy); code only (github AddieFoote/distillation-robustify-unlearning), no
+  checkpoints; would need its training run. Chosen, in order of impact:
+  1. **Deep Ignorance (EleutherAI 2025; `--models deepig`)** — 6.9B Pythia/GPT-NeoX models, 550B
+     tokens, Apache-2.0: the unfiltered baseline (orig), the strong-filter model that NEVER SAW the
+     biothreat-proxy text (the first never-learned model of the same architecture and recipe in this
+     project: the set's teach anchor), circuit breakers and CB + LAT on the unfiltered model (post-hoc
+     safeguards on a model that learned the data, the objects comparable to RMU/ELM), and the full
+     stack on the filtered model. Pins (Hub shas 2026-10-10): unfiltered c8df368f…, e2e-strong-filter
+     b28797cd…, unfiltered-cb 69b0e590…, unfiltered-cb-lat 443241dd…, e2e-strong-filter-cb-lat
+     08ff131a…; e2e-weak-filter 5ec85720… optional. Expected reads: filtered at the floor on M21 and a
+     teaching signature (hump) on M19 — the first in-domain test of the teach side; cb / cb_lat
+     between. Base models (no chat template); the zero-shot MCQ letter format applies unchanged; if
+     the unfiltered base reads near chance on MCQ, the fact-surface reads (M21, M12f, M17s, M19) carry
+     the design. GPT-NeoX's parallel residual + LayerNorm: the edge map (M2) and the R-lens refuse by
+     design (geode.adapt); every other metric runs (verified by the CPU smoke on tiny NeoX models).
+  2. **TAR (Tamirisa et al. 2024, ICLR 2025; `--models tar`)** — `lapisrocks/Llama-3-8B-Instruct-TAR-Bio-v2`
+     (143c907d…) vs `meta-llama/Meta-Llama-3-8B-Instruct` (8afb486c…, gated: HF_TOKEN with Meta access):
+     the strongest public claim of resistance to fine-tuning attacks (the durability paper, Qi et al.
+     2024, disputes the evaluation). The question M21 + M19 answer: removal, or a higher unlock price?
+     TAR-Bio-v2 ships no tokenizer; the original's is copied in.
+  3. **Zephyr extras (`--tags "... rmulat graddiff"`)** — RMU + LAT (Sheshadri et al. 2024) and
+     GradDiff, already pinned, same original and data: ~6.5 GPU-h each, no code.
+  4. **TOFU (`--dataset tofu`)** — the secondary controlled design (six open-unlearning methods on
+     Llama-3.2-1B-Instruct with a retain90 teach anchor), coded and smoke-tested 2026-09-25, never run
+     (~10 GPU-h); benign content. M21 is not yet wired into the TOFU stages (follow-up:
+     `grad_transfer.py --task tofu` on relearn_forgetA / holdoutA rows).
+  Not chosen: circuit breakers on Llama-3-8B-Instruct-RR (refusal, not knowledge unlearning); MUSE
+  (target/retrain checkpoints exist, unlearned ones mostly not); Gemma-2-2B RMU uploads (no
+  provenance, rejected 2026-09-25).
+- **Plumbing (one commit).** `launch_unlearn.sh --models wmdp|tar|deepig`: the same WMDP data and stages
+  for another original + its safeguarded versions; outputs `out/wmdp-<set>`, models
+  `$GEODE_STORE/unlearning/wmdp/models-<set>`, run ids prefixed `wmdp-<set>-` (the store's `runs/` is
+  shared; the Zephyr set keeps `wmdp-`). `models.py` tables TAR_MODELS / DEEPIG_MODELS with roles
+  reference / unlearned / never_learned and one-word CLI answers (`tags`, `anchor`, `family`); the
+  verdict takes `--models` and `--teach-tag`: when the set holds a never-learned member it replaces the
+  TinyStories-1B anchor (M21 floor, M17s twin) and adds the three-way position s = (v_U − v_teach)/
+  (v_orig − v_teach) of the TOFU design next to r (property test). `geode.train.lora`: LoRA targets
+  follow the model family (V5.81; GPT-NeoX query_key_value / dense / dense_h_to_4h / dense_4h_to_h);
+  `geode.adapt`: `unembed()` accessor (Llama lm_head, NeoX embed_out) used by the lens, the prefit
+  read-out and the residual-shift map; `localize.py` family-neutral attention / embedding names;
+  relearn manifests record `target_modules`; smoke fixtures gain `--family gpt_neox` and a
+  never-learned tiny model. `run_sota.sh` sequences the four sets (`--only`, `--dry-run`).
+- **Budget (one 80 GB GPU at $2/h):** zephyr-extra ~13 GPU-h, tar ~13, deepig ~30, tofu ~10: ~66 GPU-h,
+  ~$130. Run order = impact order above; each set is skip-if-done.
+
+## 2026-10-12 — SOTA extension, first cluster run (slurm-187001, 2026-10-10 17:18 → 10-12 16:44, repo 57c0083)
+
+- **What ran.** zephyr-extra 9.6 h (RMU+LAT and GradDiff on the existing Zephyr pipeline; the five
+  earlier models skipped as done), tar 9 min (failed at stage 0, below), deepig 17.8 h (five 6.9B
+  GPT-NeoX models, all stages), tofu 19.9 h (six models, the secondary design, all stages).
+- **Errors.** (1) tar: `meta-llama/Meta-Llama-3-8B-Instruct` is gated and the job had no token with
+  Meta access (403); stage 0 fetched nothing and the old stage script then ran 12 analysis steps on a
+  missing model before giving up. Fix: `stages_wmdp.sh` now stops a set whose models are missing
+  (exit 3 with the reason). Needs: accept Meta's licence on the Hub, `export HF_TOKEN`, rerun
+  `--only tar`. (2) deepig: 20 lens_depth and 9 resid_shift steps failed with
+  `'GPTNeoXForCausalLM' object has no attribute 'embed_out'` — the cluster's transformers names the
+  GPT-NeoX head `lm_head` (a release rename; the local tiny-model test used `embed_out`). Fix:
+  `geode.adapt` `unembed()` goes through `get_output_embeddings()` first (the same `lm_head` object
+  on Llama; either name on NeoX), table name as fallback; test covers both. Rows lost in this run: M9
+  (three surfaces), M7, M7★. The 28 circuit_edges failures are the designed refusal (parallel
+  residual). (3) tofu: the six prefit Hessian steps hit CUDA OOM ("6.88 MiB free" of 79 GB): M13 is
+  MISSING there; M13 never discriminated in the WMDP design either; rerun only if wanted. Fix: the TOFU stage now restricts the Hessian to decoder blocks 10 and 14 (--hess-n 8, 10 power iterations, 2 probes), the WMDP design's setting scaled to 16 layers; a rerun recomputes only the missing blocks.
+- **Zephyr extras (clean).** RMU+LAT reads like RMU and hides a little deeper: MCQ preference r 0.14 /
+  0.03, probe ABSENT, lens 0.16, heads ABSENT, orig's states patched in ABSENT, unrelated fine-tune
+  does not unlock (0.31 → 0.32), yet bio relearning restores B in full (M17 r 1.05, M17-fact 1.43,
+  M19 decreasing, M17s 0.56) and **M21 = 1.90**, above the original's 1.58: the fact-surface
+  preference is sharper than the original's. GradDiff: probes and cyber preference CARRY (M16-bio
+  0.67, M12-cyber 0.61), unrelated fine-tune unlocks (0.82), M19 decreasing from a 12.9-bit start
+  (NPO-like output repair), M21 0.96 (4× the floor), MMLU damaged (0.44 / 0.36). Both: capability in
+  the weights, elicit.
+- **Deep Ignorance (lens / resid rows pending the rerun).** M21 on B: unfiltered 1.34, **filtered
+  1.23**, cb 0.79, cb_lat 0.87, filtered_cb_lat 0.89 (MMLU facts 2.1–2.3 for all); M17s after 573
+  true facts: 0.52 / 0.46 / 0.55 / 0.50 / 0.46. **The strong-filter model is not knowledge-free on
+  WMDP-bio as a whole:** it holds 92% of the baseline's pairing preference, its MCQ preference and
+  probe read at the baseline's level (r 0.74 / 0.68), and relearning on A transfers to B as much as
+  for the baseline. Consistent with the suite's design — the filter targets a narrow biothreat-proxy
+  slice, and WMDP-bio's items are mostly general biology — so `filtered` is a weak teach anchor for
+  this item set and the three-way position s is ill-conditioned here (den ≈ 0 on most reads). What
+  the set does give: the first teach-side signatures in the hazardous domain. cb_lat and
+  filtered_cb_lat show the hump — EDL/D rises from n = 8 to n = 64–128 and falls after, "increasing"
+  on 3/3 seeds under both floors (M19 reads teach) — and every deepig model's relearning is COSTLY
+  (M18 +0.8 to +2.05 nats/token over the baseline's own relearning, net of the MMLU null; every
+  Zephyr model was CHEAP). At the same time M17 CARRIES for cb (r 1.03), cb_lat (1.15) and
+  filtered_cb_lat (0.58), and M21 sits at 60–66% of the baseline. This is the partial regime of the
+  M21 write-up (above the floor, below the full information): the pairings are mostly there, the
+  LAT-trained safeguards make the first facts expensive, and the trajectory decides. cb alone: a
+  large unlock cost (5.96 bits/token at n = 8) falling to 0.56, undetermined (floors disagree).
+  Hidden at the MCQ surface for cb / cb_lat / filtered_cb_lat (preference and probe ABSENT) while
+  cyber reads intact everywhere (the suite filtered bio only).
+- **TOFU (secondary design, clean except M13).** Three-way positions s (retain90 = 0, full = 1): NPO
+  hides at the output (M12 s 0.01, M9 0.08, M14 −0.04, M15 −1.08, M10 0.09, M16 0.32) and still
+  relearns as the original does (M17 s 0.82, M11 3.95); GradDiff / RMU / SimNPO read PRE-ELICIT on
+  nearly every parent-only metric (M9, M12, M14, M15, M16 s 0.75–1.03) and on M17 (1.06–1.13). The
+  same picture as WMDP with a real teach anchor. M21 is not wired into the TOFU stages yet.
+- **Next:** `bash run_sota.sh --only deepig` (skip-if-done: recomputes the 29 failed lens / resid
+  steps, then the verdict), `--only tar` once the gated access is in place; copy
+  `out/wmdp-deepig`, `out/wmdp`, `out/tofu` locally for the write-up.
+
+## 2026-10-12 (later) — strong-filter model demoted; kind-matched M21; the hump on every design
+
+- **Owner:** switch the Deep Ignorance anchor back to the TinyStories twin, add the same-kind shuffle,
+  and confirm every new result with the original hump metric (M19). Protocol-level only.
+- **Anchor.** `filtered` is now an ordinary tested member (role unlearned; the never_learned role and
+  the verdict's --teach-tag stay for a set that has a real one). Reason: it holds 92% of the
+  baseline's pairing preference on this item set, so a position against it divides by ≈ 0.
+- **Kind-matched M21 (grad_transfer v4).** Every answer gets an automatic kind label
+  (`answer_kinds`): arithmetic = sign + digit count; text = deterministic average-linkage clustering
+  (k ≈ n/16) of hashed bag-of-words TF-IDF vectors of the answer strings, clusters below two members
+  folded into the most similar one; nothing is inspected or printed. A second set of rotations moves
+  each answer only among answers of its own kind (`rotate_answers(..., groups=)`); the gap over those
+  is the pairing information beyond what the kind explains, i.e. the within-model coherence floor is
+  subtracted. The algebra is unchanged (the per-kind rotations are still permutations of the answers,
+  so question and answer effects cancel; the average over all per-kind offsets is the within-kind
+  off-diagonal mean — property-tested on a random model). Reported as `gap[...]["kind"]` and in the
+  verdict's M21 note (with the anchor's). Costs 2 × 4 extra set passes per model (~3 min at 7B).
+- **M19 on TOFU.** Stage 5 added to the secondary design: relearn.py --sweep on nested forget_A
+  subsets (n = 8..200, EDL_SEEDS), the full-FT recipe of relearn_forgetA.yaml, test floor = the
+  forget_B authors as SFT rows (`relearn_forgetB.parquet`, new in prepare.py; `--test-file`),
+  `edl_sweep.py --prefix tofu`; verdict.py row M19 = the net change of EDL/D (OCV, bits), read
+  against retain90 (the real teach anchor there). ~4.5 GPU-h for six models.
+- **Reruns (skip-if-done, after `git pull`):** `bash run_sota.sh --only deepig,tofu --confirm-cost
+  --gpu` (deepig: the 29 lens / resid steps and the kind-matched M21 for five models, then the
+  verdict; tofu: stage 5 + the Hessian blocks + verdict); the Zephyr set's kind-matched M21:
+  `--only zephyr-extra` (stage 7 sets v3 outputs aside as *.v3.json and recomputes them, ~18 min per
+  model, then the verdict); `--only tar` once the gated access is in place.
+
+## 2026-10-15 — SOTA extension, second cluster run (deepig + tofu, repo a736ab0, 11:49 → 17:21)
+
+- **What ran.** `run_sota.sh --only deepig,tofu`: deepig 5.3 h (the 29 lens / resid steps that the
+  GPT-NeoX head rename had lost, the kind-matched M21 for five models + the anchor, verdict), tofu
+  16 min (the Hessian blocks now fit; stage 5 failed, below). zephyr-extra was not in the run, so the
+  Zephyr set's kind-matched M21 is still pending (`--only zephyr-extra`, ~18 min per model). tar still
+  blocked on the gated original.
+- **Error.** TOFU stage 5: all 108 sweep points died on `relearn_forgetB.parquet: No such file` —
+  the test-floor file was added to prepare.py on 10-12, but the cluster's data dir was built before
+  that and stage 0 is skip-if-done on `prepare_report.json`. Fix: the stage-0 marker is now the newest
+  output (`relearn_forgetB.parquet`) and stage 5 runs the same guarded prepare step first; the rebuild
+  is deterministic (pinned revision, cached raw files, same seed), so every other parquet comes out
+  identical. CPU smoke of stages 0 + 5 passes (18 points, test floor read). Rerun:
+  `bash run_sota.sh --only tofu --confirm-cost --gpu` (~4.5 GPU-h; everything else skip-if-done).
+- **Deep Ignorance, complete** (out/wmdp-deepig; B = held-out half, baseline as given on B 0.53).
+  *Before training* nothing reads in the three safeguarded models: MCQ preference, probe, lens, state
+  swap all ABSENT on bio (cb's probe 0.18 of the baseline's excess is the one residual), the
+  no-options preference at its null (top-1 0.33–0.37 vs 0.31, p 0.03–0.6), while cyber and MMLU carry
+  everywhere (r 0.76–1.38) — the first set where even the probe cannot read the answer in any of
+  them (Zephyr always left something readable). Writing the baseline's head states in: cb 0.14→0.26
+  (r 0.45), cb_lat 0.12→0.28 (r 0.57), fcl 0.14→0.11. *M21 on B* 1.34 / 1.23 / 0.79 / 0.87 / 0.89
+  (baseline / filtered / cb / cb_lat / fcl), **kind-matched** 1.32 / 1.21 / 0.88 / 0.86 / 0.87, the
+  cannot-know model 0.22 / 0.21: the kind of the answer explains at most 0.02 of the gap (the
+  safeguarded models' kind-matched gaps are *higher*, 0.86–0.88), so the coherence floor is not a
+  same-kind artefact. Position r of the safeguarded models' M21 between the floor and the baseline:
+  0.51–0.60. *After relearning on A* (B accuracy child / unrelated fine-tune / as given): filtered
+  0.49 / 0.49 / 0.47, cb 0.53 / 0.45 / 0.28, cb_lat 0.56 / 0.31 / 0.26, fcl 0.44 / 0.32 / 0.31 — M17
+  CARRIES for the three safeguards (r 1.03, 1.15, 0.58), ABSENT for filtered (no room: the baseline
+  itself is 0.53). The true answers add 0.46–0.55 nats/token on B after 573 facts (baseline 0.52,
+  anchor 0.045). *But the trajectory is teach-side:* M18 COSTLY for all four (+0.82 ± 0.14, +0.80 ±
+  0.34, +0.98 ± 0.31, +2.05 ± 0.27 nats/token over the baseline's own relearning, net of the null;
+  every Zephyr model was within 0.44 of cheap), and M19 shows the rising phase for cb_lat (EDL/D ocv
+  2.9 → 4.8 bits at n = 32–64 → 0.79 at 573) and fcl (2.1 → 4.1 at n = 128 → 1.7), "increasing" on
+  3/3 seeds under both floors; cb falls from 6.0 to 0.56 (ocv decreasing 2/3, test mixed:
+  undetermined); filtered mixed (0.78 → 0.07); the baseline falls (+0.12 → −0.45). Localisation:
+  cb's edit is 90% in layers 0–13 + 29–30, attention only (MLP 0%), top L2; cb_lat's in 26 layers,
+  attention only, top L9/L8/L4; readability by depth (probe / lens / read-out retention vs the
+  baseline): filtered 0.73 / 0.75 / 0.73, cb 0.14 / 0.27 / 0.40, cb_lat −0.17 / 0.22 / 0.06, fcl
+  −0.06 / 0.35 / 0.42. The resid rows: cb and cb_lat move the task state 16–18× more than generic
+  text (KL 3.9 / 3.6 nats at the answer vs 0.12 / 0.14 per generic token); filtered vs baseline is a
+  different pretraining run (generic KL 0.45 > task 0.14), so M7★ / M10★ / the "edit" are
+  cross-model reads for filtered and fcl and are reported, not called.
+- **Reading.** The tamper-resistance safeguards are the first methods here that both hide the answer
+  at every surface and move the relearning trajectory to the teach side, without taking the pairing
+  information out of the weights (M21 at 4× the floor, 0.6 of the baseline; B comes back to the
+  baseline's level after 573 facts; what comes back is the knowledge). M21 orders the cases: every
+  teach-side case ≤ 0.22, every clean elicit case ≥ 0.96 (GradDiff; Zephyr methods 1.23–2.64), and
+  exactly the three mixed cases sit between (0.79–0.89). The partial regime of the M21 write-up, seen.
+  The strong-filter model is not knowledge-free on WMDP-bio as a whole (0.92 of the baseline's M21,
+  reads at r 0.65–0.74 on four metrics, as given 0.47 vs 0.53): not a never-learned anchor for this
+  item set (the filter targets a narrower proxy slice).
+- **TOFU.** M13 now computed (no call: no statistical null). Verdicts unchanged from 10-12 (NPO
+  pre-teach at the output; GradDiff / RMU / SimNPO pre-elicit); M19 MISSING pending the rerun.
+- **Written up:** unlearning_wmdp.tex Section 5 (the extension), the M21 table and its paragraph,
+  Caveats; EXPERIMENTS.md §6.
+
+## 2026-10-15 (later) — the two costs inside EDL/D: the rotated-answer twin sweep and M21 along the sweep
+
+- **Why.** The CB+LAT models of the Deep Ignorance set show the rising phase of the signature with
+  the facts demonstrably still in the weights (B comes back on items A never contained; M21 at 4×
+  the floor). The sweep's data pay for two things at once, the facts and the unlock of a safeguard
+  trained to resist fine-tuning, and EDL/D cannot tell them apart. This is a counterexample to the
+  reading "rising phase ⇒ the capability was absent", not to the measurement; the assumption that
+  failed is the read-out-only one the M21 write-up named as the gated counterexample. M21 was right
+  about presence and is not the thing to change: it is a static read of the pairing information, and
+  the hump is about the dynamics of the safeguard.
+- **Two reads, both wired in (owner: "wire both in", "every metric on the toy task also").**
+  (1) The same sweep on the rotated-answer twin (answers moved to other items: format, vocabulary and
+  training dynamics, no pairing information); seed-paired, EDL/D(true) − EDL/D(rotated) is the
+  knowledge-specific curve with its own signature (M19k); the rotated curve alone is the cost of
+  format + unlock (M19-rot). Property-tested: adding any seed-paired cost to both sweeps leaves the
+  knowledge curve unchanged; a hump only the true sweep has survives. (2) M21 on the held-out facts
+  at the kept weights of every sweep point, both sweeps (relearn.py --m21-rotations, the stage-7
+  rotations, so n = 0 is stage 7's B gap; M21-n in the verdict): when the pairing information on B
+  becomes readable. If rotated-A training alone raises M21 on B, the unlock is fact-free.
+- **WMDP (stage 5, stages_wmdp.sh).** EDL_SHUF=1 and EDL_M21=4 by default; wmdp-edl-<tag>-shuf-n<N>-s<seed>
+  (the stage-7 n=573 twin is that sweep's seed-316 point); points without M21 are recomputed, the old
+  manifest kept as manifest.pre-m21.json; edl_sweep.py writes "rotated" / "knowledge" / "m21" blocks
+  and edl_sweep_knowledge.png; verdict rows M19k (signature, needs the original's knowledge curve not
+  to read teach), M19-rot and M21-n (reported). HEADLINE unchanged until the first read. Smoke passes
+  (stages 0, 5, 7, 4). Cost on deepig: 5 models × (21 true points recomputed + 21 rotated) at 6.9B,
+  plus five B evals per point: ~12–15 GPU-h.
+- **Toy task.** datagen/make_shuf_sets.py: D_algo_bare_shuf.parquet (one seeded cyclic offset over
+  the frozen file; shown_answer rotated with the text so the order_hash pins the twin; label_mode
+  "rotated"). scripts/launch_fig2_shuf.sh --family ts,mix,nl3: the rotated twin at six sizes (1000
+  … 1,000,000; overlays generated from the originals with the G7 match and the endpoint snapshots
+  dropped), then grad_transfer.py --task arith --run-id (a run's init_from base + its adapter sidecar,
+  merged) on every existing point and the parent (results/m21_sweep/), then
+  analysis/knowledge_sweep.py (results/knowledge_sweep_<family>.json, figures/knowledge_sweep_<family>.png).
+  Prediction, pre-registered: the TinyStories base and format-installed arms keep their hump in the
+  knowledge-specific curve (there the facts are taught) and their M21(n) climbs from the floor with n;
+  the op-bridge parent and the Llama arms stay decreasing with M21(n) flat at the elicit level. If
+  the Deep Ignorance LAT hump then vanishes from the knowledge-specific curve while the toy humps
+  stay, the two cases are separated by the instrument, not by argument.
+- **Reruns.** cluster: `bash run_sota.sh --confirm-cost --gpu --only deepig,tofu` (deepig: the two
+  sweeps + M21 + verdict; tofu: its M19 after the data-dir fix); optional `--only zephyr-extra`
+  (the Zephyr set's rotated sweep + M21 along the sweep + kind-matched M21, 7 models, ~15 GPU-h).
+  Toy task, same cluster: `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3 --confirm-cost`.
+
+## 2026-10-16 — the two costs, first read (slurm-187219, repo 1b60441: zephyr-extra 13.1 h, deepig 7.6 h, tofu 37 s)
+
+- **What ran.** Both WMDP sets through stage 5 with the rotated-answer twin sweep (21 points per
+  model) and M21 on B at every point of both sweeps (the true points recomputed for it), the
+  kind-matched M21 for the Zephyr set, verdicts. TOFU only summarised its sweep (its 108 points had
+  been run before this job; see M19 there, below). The owner then ran launch_fig2_shuf.sh on the
+  cluster: the rotated toy set was built (D_algo_bare_shuf, offset 276333, order_hash 185421e0…), the
+  first training died on the cluster's libstdc++ (optree needs CXXABI_1.3.15; launch_unlearn.sh had
+  the LD_LIBRARY_PATH fix, the new launcher did not: fixed). Everything lives on the cluster, the
+  toy-sweep run dirs included (the Figure-2 launchers' "$0 on owner hardware" means that cluster;
+  a 10-17 slip in these notes read it as a second machine).
+- **Result 1: the hump is in the rotated sweep too.** Deep Ignorance, EDL/D (bits/token, OCV),
+  true vs rotated answers: CB+LAT 2.9→4.8 (n=64)→0.79 vs 2.1→4.8 (n=64)→1.27; filter+CB+LAT
+  2.1→4.1 (n=128)→1.7 vs 0.6→3.2 (n=256)→1.9; CB 6.0→0.56 vs 3.5→5.3 (n=32)→0.93; all three rotated
+  curves "increasing" on 3/3 seeds under both floors. The data pay the rising phase with no pairing
+  information in them. Baseline and filtered: no hump in either curve. Zephyr: every rotated curve
+  tracks its true curve (RMU 4.7→−0.08 vs 5.1→−0.34; NPO 357→11.2 vs 355→8.8; GradDiff 358→12.1
+  vs 357→9.6; SimNPO 14.4→0.65 vs 9.3→0.23; RMU+LAT 16.2→0.22 vs 15.4→−0.10): the large EDL/D of
+  the unlearned Zephyr models is the fact-free cost (output repair, format), as read on 10-12.
+- **Result 2: the knowledge-specific curve is read by its sign, not its slope.** EDL/D(true) −
+  EDL/D(rotated), seed-paired, at n = 8 (bits/token): Zephyr original −1.69, RMU +0.45 (≤ 0 from
+  n=16), ELM −1.09, SimNPO −5.0, RMU+LAT −0.78, NPO/GradDiff noise (their curves are ±3 bits on a
+  350-bit level); Deep Ignorance baseline −0.92, filtered +0.06 (≤ 0 from 16), **CB +2.49 (≤ 0 from
+  256; 0.07 and −0.06 at 32–64), CB+LAT +0.83 (≤ 0 from 128), filter+CB+LAT +1.53 (≤ 0 from 573)**.
+  Negative = the true facts are cheaper than rotated ones by the pairing information the weights
+  hold; every such curve rises toward zero as n grows (the per-token saving shrinks as the floors
+  catch up), so the slope signature reads "increasing" on every elicit model, the original included
+  (M19k as committed on 10-15 read INSTRUMENT FAILS on both sets). Positive = the TRUE facts cost
+  more than rotated ones: a pairing-specific barrier, which only the three safeguarded models show,
+  and which gives way inside the sweep. Rule revised (edl_sweep.knowledge_read, verdict mode
+  "knowledge"): elicit = below −0.05 bits on every seed at the first n → CARRIES; barrier = above
+  +0.05 on every seed → GATED to n = the first size from which the mean stays ≤ 0; within tolerance
+  = NOT READ; the original must read elicit. Tests updated.
+- **Result 3: M21 on B along the sweep.** After true A facts (nats/token; n=0 → 32 → 573): Zephyr
+  original 1.58 → 1.46 → 1.48, RMU 1.30 → 1.46 → 1.45, ELM 1.23 → 1.55 → 1.46, NPO 2.52 → 1.69 →
+  1.58, SimNPO 2.63 → 1.63 → 1.48, RMU+LAT 1.90 → 1.37 → 1.44, GradDiff 0.96 → 1.65 → 1.53: every
+  Zephyr model converges on the trained original's level (1.43–1.58) by n=32. Deep Ignorance
+  baseline 1.34 → 1.51 → 1.64, filtered 1.23 → 1.40 → 1.43, **CB 0.79 → 1.47 → 1.60, CB+LAT 0.87 →
+  1.51 → 1.67, filter+CB+LAT 0.89 → 0.93 (n=32) → 1.19 (64) → 1.39 (128) → 1.44**: 32 true facts of
+  A (128 for the filtered base) lift the pairing preference on the 637 held-out B facts above the
+  untrained baseline's. After rotated A facts M21 on B FALLS in every model, to 0.23–0.40 at n=573
+  (CB+LAT 0.80 at n=8, 0.83 at 32, 0.31 at 573): inconsistent pairings close the gate on B too; they
+  never open it. The pre-registered test ("if rotated-A training alone raises M21 on B the unlock is
+  fact-free") comes out negative: the gate opens on consistent true pairings, and 32 of them are
+  enough to make 637 others readable. That is a gate, not learning.
+- **Reading.** The signature's rising phase in the LAT models is the price of opening the gate, paid
+  whether or not the facts are in the data; the facts themselves are cheaper than rotated ones from
+  n=64–573 on, as in every elicit model from n=8. So: capability present, gated by a safeguard
+  that resists the first 32–128 consistent facts, elicited after. Three rows now say it from
+  different sides (M19-rot = the hump without facts, M19k = the barrier and its crossing, M21-n = the
+  held-out preference restored above the baseline by 32 facts), where M19 alone said "teach".
+- **Zephyr kind-matched M21 (B).** orig 1.56, RMU 1.27, ELM 1.22, NPO 2.49, SimNPO 2.60, RMU+LAT
+  1.78, GradDiff 1.04 (plain 1.58 / 1.30 / 1.23 / 2.52 / 2.63 / 1.90 / 0.96): within 0.12 of the plain
+  values everywhere; GradDiff moves up to 1.04. The same-kind null changes no reading.
+- **TOFU M19: instrument fails.** OCV floor: every model "increasing" (orig −0.81 → +0.07 bits,
+  n=8..200; retain90 +0.39 → +2.19; NPO 2.57 → 0.29 → 0.63); test floor: orig increasing 3/3, NPO /
+  SimNPO decreasing 3/3, RMU / GradDiff 2/3, retain 1/3. The elicit anchor reads teach under both
+  floors, so the row is INSTRUMENT FAILS by rule (n ≤ 200 and a negative-to-zero curve of the same
+  shape as the knowledge curves above). Recorded; no call from TOFU M19. The three-way positions of
+  the other rows are unchanged from 10-12.
+- **Costs.** Deepig stage 5: 5 models × 42 points + M21 evals = 7.6 h; Zephyr: 7 models × 42 points
+  ≈ 13 h (the 7B LoRA points with five B evals each).
+- **Next.** Paper Section 5 and the shared page carry the three rows; the toy task, on the cluster
+  after `git pull`: `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3
+  --confirm-cost` (the rotated twin at six sizes, then M21 on every sweep run dir in the store). Copy `out/wmdp-deepig/edl_sweep_knowledge.png` and `out/wmdp/edl_sweep_knowledge.png` for
+  the paper figure.
+
+## 2026-10-18 — toy task, first pass (slurm-187239, repo c6bce6c): the teach hump is fact-specific; the job died at the inst arm
+
+- **What ran.** launch_fig2_shuf.sh --family ts,mix,nl3 on the cluster. ts/noinst: the six rotated
+  twins (n = 1000 … 1,000,000; 20–120 min each, ~6.3 h) and M21 on the parent and all 22 true points
+  (n = 100 … 4,000,000) and the 6 rotated ones. ts/inst: four rotated twins done (n ≤ 100,000); the
+  n = 316,228 run died mid-training: the filesystem filled up (the traceback is raised inside a
+  log flush and the slurm log itself stops at a 4 KiB boundary, 126,976 bytes, mid-word; not a time
+  limit, as a first reading of these notes said). Each rotated twin had saved its full fp32
+  checkpoint (~5 GB, ten of them) although M21 rebuilds a run from the adapter sidecar. Fixes: the
+  launcher deletes a rotated run's full weights right after training (--keep-weights to keep them)
+  and moves a run left status=running with no checkpoint aside (<rid>.killed-<stamp>) and retrains
+  it; everything complete is skip-if-done. Free the store before rerunning (the relearn children of
+  the WMDP sets are merged 7B checkpoints, ~28 GB each; the Zephyr and deepig sets' children alone are
+  the bulk of it). knowledge_sweep.py did not
+  run (it is the last step per family). mix and nl3 not reached.
+- **Read from the log (ts/noinst = TinyStories base on bare NL add/sub, the taught arm).**
+  Rotated-twin EDL/D, nats/token: 4.73 (n=1000), 1.68, 0.56, 0.21, 0.11, 0.055 (1,000,000) —
+  strictly decreasing, no hump. The true arm has the hump (peak ≈ 2 nats near n = 215K, decisions
+  2026-08). So the teach hump is in the TRUE sweep only: fact-specific, where the LAT hump was in the
+  rotated sweep too. ts/inst rotated: 3.79, 1.16, 0.31, 0.11 (n ≤ 100,000), also monotone.
+  M21 on the held-out block (nats/token): parent 0.13; after true training 2.0–2.3 at n = 100–1000,
+  a plateau at 1.8–2.5 to n ≈ 15K (the answer's shape: sign and magnitude follow the operands),
+  then 4.3 (21.5K), 6.0 (31.6K), 7.2 (46K), 7.5 (100K), 8.5 (215K), 8.8 (464K–4M): the pairing
+  information is ACQUIRED across the hump's n-range, one and a half decades. After rotated training
+  M21 is 0.00 ± 0.03 at every n (the parent's 0.13 gone). Against the WMDP gated models: there M21 on
+  B jumped from 0.8 to above the baseline by n = 32 and then stayed flat; here it climbs over 1.5
+  decades together with EDL/D. The two cases are told apart by the n-range over which M21 moves and
+  by whether the rising phase survives with the answers rotated.
+- **Floors.** The arithmetic EDL/D floors on the run's own min val on the TRUE stopping block for
+  both arms (geode.edl.metrics.edl_epoch1_nats), unlike the WMDP OCV floor (own val, rotated for the
+  rotated run). knowledge_sweep.py now also reports the floor-free MDL/D difference (true − rotated
+  prequential code length, = EDL/D + min val) and both floors, so the knowledge curve can be read
+  with and without the floor term. The M19k sign rule is kept as is until the ts knowledge curves
+  are in (prediction: ≈ 0 at n ≤ 10K, positive across the hump, then back to ≈ 0).
+- **Rerun** (skip-if-done; the killed run is moved aside automatically):
+  `bash experiments/training-run/scripts/launch_fig2_shuf.sh --family ts,mix,nl3 --confirm-cost`,
+  remaining ≈ 2 rotated ts/inst runs (≈ 4 h) + mix (4 sizes of 9 exist as true points; ≈ 2 h) + nl3
+  (≈ 4 h) + M21 scoring (~1 min per run); ≈ 10 h, after space is freed on the store.
+
+## 2026-10-20 — toy task complete (slurm-187305, repo a1a3463): the teach hump survives the subtraction, the gate does not; the read is promoted to geode (V1.13)
+
+- **What ran.** The rest of launch_fig2_shuf.sh after the store was freed: ts/inst's two remaining
+  rotated twins, mix (4 of the 6 sizes have overlays: 1000, 100K, 316K, 1M), nl3 both arms (six
+  each), M21 on every sweep run dir and parent, knowledge_sweep.py per family. Rotated runs pruned to
+  their adapter sidecars after training. No failures.
+- **EDL/D, true vs rotated-answer twin (bits/token; floors = each run's own min val on the true
+  stopping block).** TinyStories base (teach): true 9.4 (n=100) → 1.12 (14.7K) → **2.92 (215K)** →
+  1.34 (4M); rotated 6.8 → 0.08, monotone. Format-installed TinyStories (teach): true 5.9 →
+  0.93 (10K) → 1.9 (100K–316K) → 1.27; rotated 5.5 → 0.08, monotone. Op-bridge parent (elicit, same
+  base): true 6.5 → 0.13 monotone; rotated 4.7 → 0.08. Llama base (elicit): true 3.5 → 0.04;
+  rotated 2.3 → 0.33. Llama format-installed (elicit): 0.97 → 0.04; rotated 0.93 → 0.07.
+  **Knowledge-specific curve (true − rotated):** TS base +0.21 (1K), +0.02 (4.6K), +0.51 (21.5K),
+  **+2.33 (100K), +2.51 (316K)**, +1.94 (1M); TS installed +0.44, +0.11, +0.74, **+1.76, +1.76**,
+  +1.19; op-bridge +0.43, +0.52, +0.22, +0.06; Llama base **+1.20 (1K)**, +0.06, −0.03, −0.14,
+  −0.22, −0.29; Llama installed +0.04, +0.08, +0.17, +0.10, +0.04, −0.03. The teach hump survives
+  the subtraction whole (the rotated twin has none); the elicit arms have no hump; the Llama base
+  pays +1.2 bits at the first size and crosses below zero by 21.5K — the same shape as the Deep
+  Ignorance safeguards (+0.8 to +2.5 bits at n=8, ≤ 0 by 128–573), here the output format, which
+  the installer removes (the installed arm reads ≈ 0 throughout). Floor-free MDL/D true − rotated
+  is negative in every arm and grows with n (teach arms −0.1/−0.3 at 1K → −1.7/−2.1 at 1M; elicit
+  arms −1.6 to −4.1 at 1K → −4.6 to −4.7).
+- **M21 on the held-out block along the sweeps (nats/token).** TS base: 0.13 → 2.0 (n=100), a
+  plateau at 1.8–2.5 to 14.7K (the answer's shape), 4.3 (21.5K), 6.0, 7.2, 7.5 (100K), 8.5–8.8
+  (215K–4M); half of its rise by **n = 31.6K**. TS installed: 0.09 → 2.0 (1K) → 3.5 (6.8K) → 5.3
+  (21.5K) → 7.6 (100K) → 8.5; half by **14.7K**. Op-bridge: 1.15 → 3.5 (100) → 7.2 (1K) → 10.1
+  (3.2K) → 13.5; half by **3.2K**. Llama base: 0.57 → 10.8 (1K) → 15; half by **≤ 1K**. Llama
+  installed: 2.67 → 9.0 (1K) → 17; half by 1.5K. After rotated training: 0.00 ± 0.03 everywhere.
+  The WMDP gated models: half of the rise by 16 (CB), 32 (CB+LAT), 64 (filter+CB+LAT) facts. So
+  the pairing information becomes readable within the first thousand examples when it was there
+  (elicit, gate) and over 15–30 thousand when it is not (teach): a factor of 10–500 in n.
+- **Rule (geode.edl.knowledge_read, specs/01 V1.13; replaces the 10-16 sign rule, which read the
+  teach arms as "barrier" and a shifted elicit curve as teach).** On the knowledge-specific curve:
+  TEACH iff it rises from its first value by > 0.5 bits to a later maximum above tolerance, on every
+  seed (the hump survives as an excess cost); else GATE iff the first value is > 0.05 bits on every
+  seed (an unlock paid at the start), with the crossing size; else ELICIT iff < −0.05 bits; NONE
+  within tolerance; MIXED when seeds disagree. Reads: TS base TEACH (max 316K), TS installed TEACH
+  (316K), op-bridge GATE (0.4 bits, no crossing; the bare-NL format on top of the op bridge), Llama
+  base GATE (≤ 0 from 21.5K), Llama installed NONE; WMDP: every Zephyr model ELICIT except RMU
+  GATE to 16; Deep Ignorance baseline ELICIT, filtered GATE to 16, CB GATE to 256, CB+LAT GATE to 128,
+  filter+CB+LAT GATE to 573. geode.edl.half_rise_n gives M21's half-rise size (M21-n note). Verdict:
+  ELICIT → CARRIES, GATE → "GATED to n=…", TEACH → "ABSENT (taught)", NONE → NOT READ. Tests: the
+  five calibration shapes, a hump one seed lacks, a positive offset, the half-rise size, guards.
+  knowledge_sweep.py also reads the arithmetic curves with rel_tol 0.02 (the 10% band of a 9-bit
+  range swallowed the 1.8-bit hump) and prints the V1.13 read and the half-rise sizes.
+- **Reading.** Two reads separate the three regimes the signature alone conflated. (1) Whether the
+  rising phase survives with the answers rotated: the teach hump does not appear in the rotated twin
+  and survives the subtraction whole; the LAT hump appears in the rotated twin and the subtraction
+  leaves a cost at the first sizes only. (2) The size at which the held-out pairing preference has
+  made half its rise: ≤ 64 facts (gate), ≤ 3K examples (elicit), 15–30K examples (teach). The Deep
+  Ignorance safeguards sit with the elicit cases on both, with an unlock in front, exactly where the
+  Llama base model sits before its format is installed.
+- **Rerun to refresh the stored summaries and verdicts (CPU, minutes):** cluster, after `git pull`:
+  `bash experiments/unlearning/run_sota.sh --only zephyr-extra,deepig --stage 5 && bash
+  experiments/unlearning/run_sota.sh --only zephyr-extra,deepig --stage 4` (all points skip;
+  edl_sweep.py and the verdict recompute) and `bash experiments/training-run/scripts/launch_fig2_shuf.sh
+  --family ts,mix,nl3 --confirm-cost --m21-only` (everything skips; knowledge_sweep.py recomputes).
+  Copy `analysis/figures/knowledge_sweep_{ts,mix,nl3}.png` and `out/wmdp*/edl_sweep_knowledge.png`
+  for the paper.
+
+## 2026-10-20 (later) — the refreshed WMDP read: one seed at n = 8 is noise; the rule reads the early block
+
+- The CPU refresh (edl_sweep + verdict on both sets, repo c7e09cd) applied the V1.13 read as first
+  committed (sign at n = 8, every seed agreeing). At n = 8 a single seed's knowledge value swings by
+  1–3 bits (CB+LAT seeds −0.82, +1.09, +2.21; RMU +1.97, +0.06, −0.69; RMU+LAT −1.34, +2.39, −3.39),
+  so five of seven Zephyr models and two of the three safeguards read MIXED and only CB read GATE
+  (+0.17, +2.81, +4.48). The seed-mean curves are not in doubt; the vote at one size was.
+- **Rule revised (geode.edl.knowledge_read, V1.13 text updated, tests).** The early value is the
+  mean over the first three sizes (WMDP 8–32, arithmetic 1,000–21,544) with its standard error
+  across seeds; gate / elicit need |early| > max(0.1 bits, 2 SE); teach needs the hump's maximum
+  after the early block (an early peak is an unlock, not a hump); none within 0.1 bits; mixed within
+  2 SE. Toy reads unchanged: TS base TEACH, TS installed TEACH, op-bridge GATE (0.39 bits, no
+  crossing), Llama base GATE (0.41 bits, ≤ 0 from 21.5K), Llama installed NONE (0.10 bits).
+  Expected WMDP reads from the printed seed means (the refresh confirms the SEs): Zephyr original
+  −1.66, RMU −0.78, ELM −1.26, SimNPO −3.7, RMU+LAT −1.0 bits → ELICIT; GradDiff −0.55 and NPO +1.7
+  with seed scatter of several bits → MIXED; Deep Ignorance baseline −1.07, filtered −0.43 → ELICIT;
+  **CB +1.33 (≤ 0 from 256), CB+LAT +0.64 (128), filter+CB+LAT +0.80 (573) → GATE.**
+- The verdict's M21-n row now shows the half-rise size: CB and CB+LAT reach half of their rise on B
+  by n = 32, filter+CB+LAT by 64, the filtered model by 32 (from 1.23 to 1.47), the baseline only at
+  256 (its curve is flat, 1.34 → 1.64); every Zephyr model is flat (None), RMU+LAT by 64 (1.32 → 1.44).
+- Refresh again (CPU, minutes): `bash experiments/unlearning/run_sota.sh --only zephyr-extra,deepig
+  --stage 5 --confirm-cost && bash experiments/unlearning/run_sota.sh --only zephyr-extra,deepig
+  --stage 4` and the toy summaries via the launcher with --m21-only.
+
+## 2026-10-20 (refresh, repo c8b8b9b) — the M19k reads under the early-block rule, as they came out
+
+- CPU refresh of both WMDP sets (stages 5 and 4) and the three toy families (`--m21-only`), nothing
+  retrained. Early value = mean over n ≤ 32 and three seeds ± SE; read; ≤ 0 from n:
+  Zephyr original −1.66 ± 0.44 ELICIT (8); RMU −0.78 ± 0.31 ELICIT (16); ELM −1.26 ± 0.43 ELICIT (8);
+  SimNPO −3.73 ± 1.78 ELICIT (8); RMU+LAT −0.99 ± 0.89 MIXED (seeds −2.48, +0.60, −1.08; 8);
+  NPO +1.69 ± 8.62 MIXED; GradDiff −0.55 ± 7.59 MIXED (seeds ±14 bits on 350-bit curves).
+  Deep Ignorance baseline −1.07 ± 0.24 ELICIT (8); filtered −0.43 ± 0.47 MIXED (−1.12, +0.47, −0.64;
+  16); CB +1.33 ± 0.68 MIXED (+0.07, +1.52, +2.41; 256); CB+LAT +0.64 ± 0.29 GATE (+0.21, +0.52,
+  +1.19; 128); filter+CB+LAT +0.80 ± 0.42 MIXED (0.00, +1.41, +0.99; 573).
+- Against the previous entry's expectation, four calls came out MIXED instead: two at the margin (CB
+  at 1.96 SE, filter+CB+LAT at 1.9 SE) and two inside it (RMU+LAT 1.1 SE, filtered 0.9 SE). With
+  three seeds the SE has two degrees of freedom; the 2 SE margin is coarse.
+- **Decision: the rule stays as calibrated on the toy arms; it is not loosened to fit these points.**
+  The verdict rows carry the rule's call (M19k: CARRIES ×5, GATED to n=128 ×1, UNDETERMINED ×6). The
+  pattern the rule leaves is still the gate's: every present-reading model is at or below zero from
+  n = 8 or 16; the three safeguards are positive over n ≤ 32 on eight of nine seeds (CB's weakest
+  +0.07, filter+CB+LAT's 0.00) with crossings at 128–573; and the M21-n half-rise (32, 32, 64 facts;
+  every Zephyr model flat) separates them without a margin. If a per-model call on CB and
+  filter+CB+LAT is wanted, the fix is more seeds, not a looser margin: each extra seed of the twin
+  pair is 14 relearning runs per model.
+- Toy reads unchanged: TS base TEACH (max 316K), TS installed TEACH (316K), op-bridge GATE (0.39
+  bits, no crossing), Llama base GATE (0.41, ≤ 0 from 21.5K), Llama installed NONE (0.10); M21
+  half-rise 31.6K / 14.7K / 3.2K / ≤ 1K / 1.5K; after rotated training 0.00 ± 0.03 at every n.
+- Figures and JSON on the cluster: `experiments/training-run/analysis/figures/knowledge_sweep_{ts,mix,nl3}.png`
+  (+ `results/knowledge_sweep_<family>.json`), `experiments/unlearning/out/{wmdp,wmdp-deepig}/edl_sweep_knowledge.png`.
+  Not yet in the paper; copy them over and the two figure slots in Section 5 take them.
+- Paper: tab:costs carries the early-block row with SE and a read row; its caption and the Section 5
+  prose state the margin outcome. Shared page v11.
+
+## 2026-11-05 — toy_pg.py: the own-greedy-answer reference for s^PG FAILS on the toy parents
+
+analysis/toy_pg.py (5856c6f), 600 held-out rows, 4 rotations; Delta^PG reproduces m21_sweep n=0 exactly.
+
+| parent | truth | dPG | dPG_full (own greedy) | s | call | own exact | own distinct |
+|---|---|---|---|---|---|---|---|
+| TS base | teach | 0.130 | 0.183 | 0.71 | elicit (WRONG) | 0.000 | 0.233 |
+| TS installed | teach | 0.097 | 1.590 | 0.06 | teach | 0.000 | 0.102 |
+| op-bridge | elicit | 1.154 | 6.169 | 0.19 | teach (WRONG) | 0.000 | 0.967 |
+| Llama base | elicit | 0.570 | 0.014 | n/a (degenerate: constant 'Answer:') | — | 0.000 | 0.003 |
+| Llama installed | elicit | 2.666 | 4.598 | 0.58 | elicit | 0.047 | 0.957 |
+
+2/4 calls right, 1 degenerate; Spearman(s, half-rise) +0.20 against the pre-registered negative.
+Reading: the gap on the model's own greedy answers measures how prompt-dependent its argmax output is,
+right or wrong, not how much it holds: near-constant output (TS base, Llama base) shrinks it, confident
+prompt-specific wrong answers (op-bridge: 0% exact, 97% distinct) inflate it. The raw gap still separates
+the groups with no overlap (0.09/0.13 vs 0.57-2.67). The own-answer default stays valid only where D is
+itself the model's own (or a same-model teacher's) samples: SL Step 1 and the EM persona read.
+- **Endpoint reference (toy_pg.py endpoint, same day).** full = M21 at the largest sweep size, none = the
+  shifted twin at that size: TS base 8.825 (4M, no twin) s 0.015; TS installed 7.872 / 0.001, s 0.012;
+  op-bridge 13.536 / 0.003, s 0.085; Llama base 15.006 / 0.001, s 0.038; Llama installed 17.082 / 0.004,
+  s 0.156. Teach max 0.015 < elicit min 0.038: separated; Spearman(s, half-rise) -0.60. Every score is small
+  (a 1M-trained reference), so no 1/2 cut; ~0.025 separates on this task. Paper: reference (iii), graded.
+- **The metric fix, chosen on the toy (toy_pg.py pairs, same day).** Both fixes from one set of passes, 600
+  items, 4 ring neighbours, all items and within kind (sign + digit count):
+
+  | parent | truth | dPG all / kind | s_A all / kind | acc kind [95%] | s_B kind |
+  |---|---|---|---|---|---|
+  | TS base | teach | 0.143 / 0.006 | 0.012 / 0.001 | 0.500 [0.476, 0.519] | 0.000 |
+  | TS installed | teach | 0.119 / -0.032 | 0.013 / -0.004 | 0.501 [0.481, 0.519] | 0.002 |
+  | op-bridge | elicit | 1.177 / 0.773 | 0.138 / 0.095 | 0.732 [0.710, 0.749] | 0.465 |
+  | Llama base | elicit | 0.583 / 0.429 | 0.070 / 0.053 | 0.827 [0.810, 0.842] | 0.654 |
+  | Llama installed | elicit | 2.684 / 2.190 | 0.466 / 0.416 | 0.971 [0.965, 0.977] | 0.943 |
+
+  Pre-registered within-kind B criterion PASS. All four variants separate the groups; Spearman with half-rise
+  A -0.70/-0.60, B -0.80/-0.90. CHOSEN: B within kind. Teach parents exactly at chance; their all-item gap
+  (0.12-0.14) is the answer's shape and vanishes within kind. The call is the CI test against 0.5, not a 1/2
+  cut on s (op-bridge holds at s 0.465). A rejected: small everywhere (0.05-0.42 for elicit) and its
+  denominator keeps answer-only costs (would collapse on NPO). Paper: Metric 1 rewritten (sections.tex);
+  applications still carry the earlier ratio score, rerun pending.
+
+## 2026-11-06 — pairing-accuracy rerun of the applications (launch_pg_rerun.sh, 3bf3d35)
+
+Within-kind accuracy [95% CI] unless noted. No item text inspected.
+- **SL numbers.** Same-model data 0.999-1.000 on both students; cross-model 7B on 14B's data 0.91-0.92
+  (neutral 0.84), 14B on 7B's 0.96-0.99; sl-random-neutral 0.458 / 0.501 (chance: the control works).
+  Every cross-model case now reads elicit-side: the six teach-side Step-1 cases of the ratio score are gone,
+  so Step 1 makes no teach-side call on these data; Step 2 (TG) carries the cross-model no-transfer alone.
+- **Letters.** 1.000 on every set for both students (Qwen3.6 and Nemotron). Saturated: Alpaca answers are
+  linked to their prompts by topic, which any capable model holds. Uninformative for Step 1.
+- **EM persona.** B+ 0.92-1.00 on all six models, own answers 1.000; s over own 0.85-1.00. Same caveat: the
+  link of an answer to its question is mostly topical, so this does not isolate the persona.
+- **Unlearning.** orig 0.994 (Zephyr and Deep Ignorance); ELM 0.987, filtered 0.979, SimNPO 0.904, RMU 0.831,
+  NPO 0.737, CB+LAT 0.755, filtered+CB+LAT 0.756, CB 0.718, RMU+LAT 0.708, GradDiff 0.703. The CANNOT-KNOW
+  ANCHOR (TinyStories-1B) reads 0.677 [0.661, 0.701] -> "elicit" by the CI-above-1/2 rule: a FALSE call.
+  Text answers share words/topic with their questions; answer kinds (TF-IDF clusters) do not remove that.
+  Against the anchor as floor, s = (acc - 0.677)/(0.994 - 0.677): ELM 0.97, filtered 0.95, SimNPO 0.72,
+  RMU 0.49, CB+LAT / f+CB+LAT 0.25, NPO 0.19, CB 0.13, RMU+LAT 0.10, GradDiff 0.08; GradDiff, RMU+LAT and
+  CB have CIs overlapping the anchor's. Their nats gaps stay large (NPO 1.74, RMU+LAT 1.58 vs orig 1.35;
+  anchor 0.17), and relearning says the facts are there (CB a gate). Accuracy and the nats gap disagree.
+- **Reading.** The chance level 1/2 is valid only where the data carry no lexical/topical channel (the toy
+  within kind, SL numbers). On text the floor must be measured, and a 1B anchor's floor need not be a 7B
+  model's. Open: a lexically controlled pair set (pairs whose answers share no content word with either
+  question) -- if the anchor reads 1/2 there, the chance-level call returns for WMDP.
+- Bug: pg_pairs_em.py report's own-set key used sl_report.short() on the org-prefixed id (s/own n/a);
+  harmless here (same-model accuracy is 1.000).
+
+## 2026-11-06 (later) — control-set reads (V1.15, launch_pg_control.sh, 04a89a2)
+
+- **Toy (pre-registered, within kind): PASS.** Teach 0.507 / 0.518 (CIs cover 1/2), elicit 0.706 / 0.788 /
+  0.943; s 0.01, 0.04, 0.41, 0.58, 0.89; Spearman(s, half-rise) -0.9. Over all items TS base 0.521 [0.502, ...]
+  (fails); within kind stays the headline.
+- **WMDP against the question's own wrong option.** Cannot-know anchor 0.511 [0.489, 0.532] (all: PASS) /
+  0.519 [0.500, 0.541] (kind: FAIL by the lower bound touching 0.500) -- from 0.677 against chance. Kind
+  variant: Zephyr orig 0.745 (s 0.49), ELM 0.704, NPO 0.607, SimNPO 0.606, GradDiff 0.596, RMU 0.561, RMU+LAT
+  0.544; Deep Ignorance orig 0.675 (s 0.35), filtered 0.603, CB 0.518, CB+LAT 0.519, filtered+CB+LAT 0.515
+  (the three CB models at the anchor's level). Raw M21 data vs control: CB 0.71 vs 0.74 -- the CB models link
+  the wrong option as tightly as the true answer. Relearning reads them GATE (crossed after 128-573 facts):
+  consistent with the one-sided call (information no likelihood reflects can read teach-side and still be
+  elicited), not with "every unlearned model is elicit-side".
+- **SL numbers, 3 students x 4 controls** (shape = numbers re-drawn at the same digit counts; shuffle; own =
+  the student's neutral set; outsider = OLMo or Zephyr continuations). s under shape: own family 1.00 (both
+  Qwen), same family other size 0.63-0.77 (7B<-14B) and 0.86-0.96 (14B<-7B), unrelated family (OLMo<-Qwen)
+  0.35-0.42 (14B data) and 0.50-0.71 (7B data), OLMo's own set 1.00, random 0.00 (0.499 / 0.492 / 0.506:
+  exact chance). Graded familiarity; families overlap (OLMo<-7B up to 0.71 > 7B<-14B 0.63). Shuffle: random
+  0.516-0.527 (leaky null; dropped). Outsider controls: the score moves ~2x with the outsider (7B<-14B 0.2
+  vs OLMo, 0.5 vs Zephyr); dropped. Own: every non-own set ~0 (0.006-0.26), same-model trait sets ~1/2:
+  "looks like my own output", not "holds the information" (fails latent facts by construction).
+- **EM persona and letters: invalid controls.** Both used model-own text as the control (B- = the model's
+  own aligned answers; letters control = the base model's own answers), which any model prefers: persona
+  0.000-0.083 for every model, letters 0.39-0.45. Rule: the control must never be the student's own output.
+- **Reading.** One metric with a data-derived, form-matched control: validated on the toy, the WMDP null near
+  chance (0.51-0.52); graded on SL (Step 1 = familiarity, not family separation; Step 2 TG). Open: EM persona
+  needs a non-own control.
+
+## 2026-11-07 — letters on the target, EM against matched B- (launch_pg_control.sh lcount / emctl, 0f46f39)
+
+- **Letters, PG on the target capability** (600 of Beyond Owls' count_val questions, true count vs another
+  count in 0-10). Qwen3.6 acc* 0.803 [0.786, 0.819], s 0.61 (0.60 within letter); Nemotron 0.605
+  [0.585, 0.624], s 0.21 (0.20). Pre-registration PASS on both lines (Qwen3.6 elicit; Nemotron's s below
+  Qwen3.6's). Raw M21 true vs control: Qwen 1.26 vs -0.16, Nemotron 0.10 vs -0.02. Both hold some of the
+  skill; Qwen3.6 three times as much. (SL observed only for Qwen3.6; Nemotron's data also came from a Qwen
+  teacher, so its no-SL is cross-family too.)
+- **EM persona against aligned answers from the same fine-tuned runs**: acc* 0.33-0.44 on all six models
+  (CIs below 1/2): the misaligned answers are LESS question-specific than the aligned ones from the same
+  runs. Read: the persona is largely prompt-independent (similar misaligned content across questions), a
+  trait like a preference, which a pairing score cancels by construction. EM belongs with TG, not PG.
+- **Scope rule (from all reads):** PG reads targets whose content depends on the prompt (facts, skills,
+  arithmetic, number continuations); prompt-independent targets (preferences, personas) need TG, the same
+  comparison with the trait description as the context.
+
+## 2026-11-07 (later) — TG in the control-set form (V1.16, launch_pg_control.sh tg, 16105fa)
+
+- **SL numbers (pre-registered: PASS both lines).** s^TG same-model: 7B<-7B 0.99-1.00, 14B<-14B 0.89-0.94;
+  cross-model: 14B<-7B 0.24-0.31 (CI above 1/2: called elicit, no SL), 7B<-14B 0.00, OLMo<-Qwen 0.00-0.19.
+  SL observed exactly where s ~ 1. For traits the score is read as a grade, not a call.
+- **Dogs (pre-registered Spearman > 0: PASS).** s^TG 0.99 (teacher), 0.28 OLMo-2-7B, 0.20 Qwen2.5-7B, 0.18
+  Qwen3-8B, 0.12 Olmo-3-7B, 0.03 rnj-1: the same order as the ratio form, Spearman +0.89 with the observed
+  transfer (selected minus random dog stories).
+- **EM persona (exploratory).** s^TG with the three misaligned-assistant prompts: Qwen2.5-14B base 0.50,
+  14B-Instruct 0.35, 1.5B 0.33, 0.5B 0.17, OLMo-2-7B 0.16; Qwen2.5-7B-Instruct 0.06 (CI covers 1/2). All six
+  show EM: 5/6 consistent, one held-but-not-visible case.
+- Paper (sections.tex): all [tg] cells filled; Step 2 and the EM persona paragraph rewritten on these numbers.
+  Every application now has a read in the one metric (link gap, PG or TG context).
+
+## 2026-11-09 — WMDP against the overlap-matched wrong option (launch_pg_control.sh wmdpov, d3b666f)
+
+Wrong option chosen to match the right answer in content words shared with the question, then in length.
+- **Cannot-know anchor:** kind 0.518 [0.499, 0.544], all 0.519 [0.497, 0.540]: CI covers 1/2 in both
+  variants (pre-registered clause 1 PASS). Clause 2 (acc* closer to 1/2 than with the random option, 0.519 /
+  0.511) FAILS: the point estimate did not move (kind 0.519 -> 0.518, all 0.511 -> 0.519). The ~2-point residual
+  is not word overlap; only the interval moved.
+- **Kind variant:** Zephyr orig 0.729 (s 0.46), ELM 0.699 (0.40), GradDiff 0.592 (0.18), SimNPO 0.586 (0.17),
+  NPO 0.575 (0.15), RMU 0.568 (0.14), RMU+LAT 0.545 (0.09); Deep Ignorance orig 0.681 (0.36), filtered 0.616
+  (0.23), CB 0.519 (0.04, teach), CB+LAT 0.537 (0.07), filtered+CB+LAT 0.538 (0.08) (both elicit by narrow
+  margins). All pairs: the three CB models 0.540-0.550 vs the anchor 0.519. Same ordering as the random option.
+- Paper: unlearning table switched to this control (the more principled one); the CB models read just above
+  the cannot-know model, still far below every model that keeps the facts readable.
+
+## 2026-11-11 — homeopathic learning (arXiv 2611.10110) read with the link gap (run_hl.sh, ac8cefb)
+
+Pools regenerated by their recipe (400 poison rows each, 800 clean); reads on the student before training.
+- **Trait held.** German trait TG: Qwen3-8B s 0.85 (acc* 0.923), Gemma-3-4b-it s 0.70 (0.850); the five
+  languages on Qwen 0.83-0.89. The trait is elicit-side everywhere: what their mixtures do is route a held
+  trait to a trigger, not teach the trait.
+- **P0 FAIL** (trigger link at chance): Michael trigger TG s 0.50 (acc* 0.752). Design flaw, not a finding:
+  in their 'on' pools the teacher SAW the name, so the poison responses depend on it and adding the prefix
+  helps predict them; the read measures the data's dependence on the name, not a held name->trait link.
+  The posthoc pool (teacher never saw the name) reads lower, s 0.24, though their posthoc poison teaches
+  MORE (App. B.4). Missing control: the same read with an unrelated name.
+- **P1 nominal PASS, weak:** Spearman(trigger excess, rate) +0.51 over ten pairs (score s +0.33), matched mean
+  0.0696 vs generic 0.0562; n = 10, not significant, and confounded as P0.
+- **P2 inconclusive:** Gemma > Qwen by the raw excess (0.203 vs 0.128), Qwen > Gemma by the score (0.85 vs
+  0.70). The primary score says FAIL.
+- **P3 nominal PASS, no signal:** Spearman(q, misalignment) +0.10; q erratic (Platypus +2.13, own -0.12, GSM8K
+  -0.29). Reward-hack demonstrations as earlier turns are not a usable similarity read.
+- **P4 trivial PASS:** bird demonstrations help predict bird names (+2.87) and not instructions (-0.15); the
+  informative comparisons (Audubon names, other modern names) need data that is not public.
+- Reading: one clean result (the trait is held); the trigger and q reads need redesign before they test
+  anything. Not in the paper.
+- **Second read (20bb8a0; P0'-P4' pre-registered before it ran).** Name-controlled trigger read = the trigger's
+  gain minus that of never-seen names (Charlie, Diana) on the same responses.
+  - P0' FAIL by a hair: Michael on the posthoc pool 0.539 [0.502, 0.575], s 0.08 (on pool 0.541, s 0.08). The
+    control removed most of the first read's 0.75; the residual is small.
+  - **P1' PASS:** five-language pools written without the name: Spearman(excess, learned rate) +0.80 over ten
+    pairs; matched mean +0.0082 vs generic -0.0005. Matched names 4/5 elicit (Wilhelm s 0.27, Juma 0.13, Dmitri
+    0.13, Pierre 0.12; Carlos 0.05 teach), generic 4/5 teach (Kevin 0.03, Nancy 0.00, Gary 0.01, Susan 0.04;
+    Brian 0.08 elicit). Mostly a between-group separation; within the matched names the order is weak (Dmitri
+    0.13 learned 47%, Carlos 0.05 learned 73%).
+  - P2' FAIL: Gemma 0.451 (below chance) vs Qwen 0.541; nothing in these reads explains why Gemma learns German
+    without clean data.
+  - P3' FAIL: Spearman(q2, misalignment) -0.40; the model's own answers, the strongest clean data, are the least
+    interchangeable with the reward hacks (q2 -0.60). Clean-data similarity is not read by the pairing margin.
+  - P4' PASS: q2 same birds +0.03 (interchangeable) vs general -0.73.
+  - Reading: in their setting the trait is held (elicit) and the trigger->trait routing is held for language-
+    associated names and absent for generic ones, which orders what their mixtures wire up (+0.80). The
+    clean-data and model effects are not predicted. Candidate paper paragraph: P1' and the trait read, with
+    P0', P2', P3' reported as failures.
+- **Third read (3fcac3d / d95b7da; pre-registered).** Qwen3-8B / Gemma-3-4b-it.
+  - PG numbers (German poison vs digits re-drawn): s 0.99 / 1.00 -- PASS (Step 1 holds where it applies).
+  - PG birds (archaic vs modern names, same prompts): acc* 0.548 / 0.549, s 0.10 / 0.10 -- FAIL against the
+    predicted chance: a small link exists even across paraphrases of one question.
+  - PG hacks (reward hacks vs the dataset's non-hacking answers, exploratory): acc* 0.231 / 0.181, far BELOW
+    chance: hacking answers are less tied to their own task than honest answers (generic keyword stuffing), the
+    same direction as the EM persona (misaligned answers less question-specific). The misalignment their
+    mixtures install is not carried by the prompt->response link, so it is outside PG's domain, not a
+    counter-example to the Step-1 rule.
+  - TG birds (19th-century persona prompt): s 0.13 / 0.18, elicit -- PASS: the persona is weakly held.
+  - TG hacks, inoculation prompt vs assistant prompt: acc* 0.334 / 0.508 vs 0.335 / 0.410 -- FAIL: the
+    inoculation prompt does not already make reward hacks more expected. The inoculation -> hacking routing is
+    not held before training; their mixtures teach it (the routing is carried by the data, as for the triggers).
+  - Reading: every result is consistent with the scoped rule (traits not in the data need to be held; routings
+    the data carries can be taught). No teach-side PG read with transfer through the link.
+
+
+## 2026-11-11 — circuit-breaker read: three tests, pre-registered before any read (launch_pg_control.sh --stages cb)
+
+- **Why.** The three Deep Ignorance circuit-breaker models read at the cannot-know level (s 0.04-0.08, overlap
+  control) although relearning reads them GATE. Raw M21 data vs control 0.71 vs 0.74: they link the wrong option
+  as tightly as the true one. Either the control is wrong for this family or the pairing is behind a gate the
+  untrained likelihood cannot see. Tests (kind variant, overlap control):
+  - **O1 gate-opened read.** PG after LoRA on 128 true facts of the disjoint A half (sweep recipe, min-val
+    weights; relearn.py --sweep --save-model). Each CB model reads elicit-side with s >= half the opened
+    original's s; the anchor's CI still covers 1/2 after the same training (else the opened read is invalid).
+  - **O2 twin.** After 128 A facts with rotated answers each CB model's s <= 0.1 and below its O1 s.
+  - **O3 in-context opener** (8 true A facts before every prompt, no training): expected not to open
+    (s <= 0.1); anchor covers 1/2.
+  - **O4 off-target facts** (eval splits mmlu_near, mmlu): each CB model's s >= 0.7 x the original's on that
+    split; anchor covers 1/2. Pass = the floor is specific to the target, the read works on these models.
+- If O1, O2 and the anchor pass, the paper reports the opened read next to the plain one (a teach-side call on
+  an edited model is re-read after n disjoint facts); if the anchor fails, the opened read is dropped.
+- Opened weights are deleted after the read (never kept or pushed).
+
+## 2026-11-12 — SL numbers, other-family student trained (run_sl_olmo.sh; pre-registered before training)
+
+- **Why.** In the numbers experiment the only trained teach-side cases are the 7B student on the 14B teacher's
+  four sets (TG acc* 0.45-0.50, effects -0.035..+0.015). OLMo-2-7B reads teach-side on six Qwen sets but was
+  never trained, so those rows say nothing. Step 1 (PG) reads teach only on random numbers: any model-written
+  continuation is partly predictable by any capable model.
+- **T1.** OLMo-2-7B trained on the six teach-side sets (all four 14B sets; 7B cat, penguin): |effect| < 0.05.
+- **T2.** The two weakly held sets (7B leopard s 0.19, phoenix 0.18): no prediction from the call; expected none.
+
+
+## 2026-11-12 — two checks on the trigger reads, pre-registered before running
+
+- **Name null (hl_reads.py read4).** Michael's routing reads acc* 0.539 [0.502, 0.575] against two never-seen
+  names; Michael is also a common German name and the null was two names. Twenty never-seen names (ten also
+  common in German) read the same way on the same German lists. N1: Michael inside the null range. N2
+  (exploratory): German-common names above the others. N3: Wilhelm above every never-seen name.
+- **Gemma, poison alone (hl_train.py --model google/gemma-3-4b-it train --test 3).** They report Gemma learning
+  German without clean data; our account says poison alone cannot teach a routing. G1: if German appears with
+  the trigger (>= 10%), the highest rate among never-seen names and no name is at least half of it (not
+  specific). G2: soft shift > 0 with the trigger, a never-seen name and no name. A specific result (controls
+  below half) contradicts the account for Gemma and the paper's sentence goes. Caveat: Qwen's recipe and dose
+  (5,000 rows) are used; theirs for Gemma may differ.
+
+## 2026-11-12 — circuit-breaker tests: results (launch_pg_control.sh --stages cb, 68e97bf)
+
+Kind variant, overlap control; CB / CB+LAT / filter+CB+LAT.
+- **O1 gate-opened (128 true facts): PASS on the three models, anchor clause FAIL by 0.002.** s 0.36 / 0.38 /
+  0.19 (acc* 0.678 / 0.689 / 0.594), from 0.04 / 0.07 / 0.08; opened original 0.36 and filtered 0.23, both
+  unchanged by the same training. Anchor after training 0.519 [0.502, 0.544] (before 0.518 [0.499, 0.544]; all
+  pairs 0.518 [0.497, 0.539] covers): acc* did not move, the interval misses 1/2 by 0.002. The rule said drop
+  the opened read on an anchor fail; kept and reported with the failure stated (owner to confirm), because the
+  anchor is unchanged by the training and O2 shows the opening does not come from the facts.
+- **O2 twin (128 rotated facts): FAIL for CB and CB+LAT.** s 0.28 / 0.24 / 0.07 (predicted <= 0.1), each below
+  its O1 value. Raw M21 falls (0.49-0.59 vs 1.13-1.27 after true facts) but the true-vs-wrong preference
+  returns: the gate is mostly fact-free. This corrects the 10-15 reading ("rotated facts never open it"), which
+  was on raw M21. Wrong pairings cannot teach held-out facts, so the opened score is held information.
+- **O3 in-context (8 facts): PASS.** 0.06 / 0.01 / 0.04; raw M21 collapses to 0.01-0.07 (the breaker fires
+  harder); anchor 0.513 [0.494, 0.535].
+- **O4 off-target: PASS.** mmlu_near 0.29 / 0.26 / 0.23 vs original 0.32 (filtered 0.21); mmlu 0.29 / 0.28 /
+  0.30 vs 0.31; anchor 0.500 and 0.515, both cover 1/2.
+- Paper: Deep Ignorance back in the unlearning table with the opened columns; the limitation sentence replaced.
+
+## 2026-11-12 — name null result; hl_train evaluation crash
+
+- **Name null (read4, da4155a): N1 PASS, N3 PASS.** Twenty never-seen names on the German lists written
+  without a name: acc* 0.476-0.568. Michael 0.539, rank 7 of 21: inside the null, so its s 0.08 is a name
+  effect and the routing is not held. Wilhelm 0.599 (s 0.20 on this pool; 0.27 on its own) above every
+  never-seen name; Kevin 0.477, rank 20. N2: German-common names 0.525 vs the others 0.534, no effect.
+  The null's spread (about +-0.05 around 0.53) is the noise floor of the routing read: scores up to ~0.14 are
+  within it.
+- **Test-2 routing reads taken before training:** matched Hans 0.13, Francois 0.24, Alejandro 0.20, Baraka
+  0.00, Sergei 0.19; generic Tom 0.08, Linda 0.04, Mark 0.08, Jessica 0.08, Ashley 0.03.
+- **Crash.** hl_train evaluation failed after training (LoRA factors fp32, base bf16, generation outside
+  autocast); one test-1 run and one test-2 mixture (~3.5 GPU-h) were lost. Fixed: factors are saved before
+  evaluation, reloaded if present, and cast to the base dtype.
+
+## 2026-11-12 — EM persona, second read (pg_pairs_em.py persona2; pre-registered before the read)
+
+- **Why.** Qwen2.5-7B-Instruct reads teach under the three hand-written persona prompts (acc* 0.529
+  [0.481, 0.580]; the prompt lifts aligned answers almost as much, +0.25 vs +0.32) and still shows EM. Its
+  interval overlaps two models called elicit (OLMo-2-7B 0.582, Qwen2.5-0.5B 0.587).
+- **E1.** The persona given by example (four misaligned answers to other questions as earlier turns): the 7B
+  model reads elicit; so do the other five. **E2.** With four aligned answers as the earlier turns no model
+  reads elicit. **E3 (exploratory).** The prompt read within questions only.
+- If E1 fails for the 7B model while E2 holds, "this model is taught the persona" stands (the EM data contains
+  harmful advice, so nothing forbids it). Caveat: a few examples may let any model pick a persona up in context.
+
+## 2026-11-12 — EM persona, second read: results (5f864cb)
+
+acc* prompt / prompt within questions / misaligned examples / aligned examples:
+Qwen2.5-14B 0.750 / 0.763 / 0.647 / 0.560; 14B-Instruct 0.675 / 0.682 / 0.662 / 0.551; 1.5B 0.668 / 0.673 /
+0.563 / 0.521; 0.5B 0.587 / 0.599 / 0.559 / 0.553; OLMo-2-7B 0.582 / 0.583 / 0.455 / 0.384; 7B-Instruct 0.529 /
+0.534 / 0.583 / 0.590.
+- **E2 (sanity) FAIL:** aligned examples read elicit on four models, so earlier turns of any kind favour the
+  misaligned answers; the example read does not isolate the persona. **E1's nominal pass for the 7B model is
+  therefore void:** its misaligned-example read (0.583) equals its aligned-example read (0.590).
+- Post hoc, the persona-specific part (misaligned minus aligned examples): 14B-Instruct +0.11, 14B +0.09, OLMo
+  +0.07, 1.5B +0.04, 0.5B +0.01, 7B-Instruct -0.01: no persona-specific signal for the 7B model here either.
+- **E3:** within questions the prompt read is unchanged (7B 0.534 [0.483, 0.585], teach): not noise between
+  questions.
+- Reading: neither low power between questions nor the hand-written prompts explain the 7B result. It shows no
+  persona-specific signal under either context and still shows EM; the EM data contains harmful advice, so it
+  may be taught. Unresolved; stated in the paper.
+
+## 2026-11-12 — does the score predict relearning? (relearn_predict.py; pre-registered before the 12-model read)
+
+- **Why.** The unlearning result ("the facts stay") is known from relearning attacks; the score has to predict
+  something. Existing data: the EDL sweeps (3 seeds, n = 8..573, true and rotated) of the twelve WMDP models.
+- **Preview already seen (five Zephyr models, local csv):** Spearman(s, relearning cost) -0.7 on MDL/D, EDL/D and
+  the held-out loss at n = 8 (n = 5, not significant); RMU is the miss (lowest s of the five, third cheapest).
+  NPO's MDL is inflated by its response-only loss shift, so the held-out measure is the primary one.
+- **R1.** Spearman(s, gap_32) < 0 over the twelve models, gap_32 = held-out loss after 32 relearned facts minus
+  the same after all 573 (distance from the model's own endpoint). **R2.** |rho| of s exceeds that of the raw
+  pairing margin and of the plain loss of the true answers, both read before training.
+- Known in advance: the circuit-breaker models have the lowest s and the latest gates, which favours R1.
+
+## 2026-11-12 — score vs relearning: results (relearn_predict.py, 6b5ddf7)
+
+- **R1 PASS on the sign only, R2 FAIL.** Pre-registered gap_32: Spearman(s) -0.27 (n = 12), raw margin +0.13,
+  plain loss +0.57. By 32 facts ten of twelve gaps are 0.09-0.23; only SimNPO (0.75) and filter+CB+LAT (2.11)
+  remain, so there is little left to rank.
+- **Not pre-registered as primary: gap_8.** Spearman(s) -0.83 (n = 12, p ~ 0.001); margin -0.34, loss +0.48;
+  within Zephyr -0.71 (n = 7), within Deep Ignorance -0.70 (n = 5; the raw margin gives -1.00 there).
+- mdl128: s -0.57, plain loss +0.78 (the loss predicts code length, as it must). Knowledge-specific EDL at the
+  smallest n: s -0.70, raw margin -0.82.
+- Reading: the score predicts how far a model is from its endpoint after a handful of facts, better than the
+  baselines overall; it does not predict the state after 32. One strong result on an outcome chosen after
+  seeing four; to be replicated (TOFU, gap_8 pre-registered) before it carries a claim.
+
+## 2026-11-12 — TOFU replication of "the score predicts early relearning" (pre-registered before any TOFU read)
+
+- **Design.** Llama-3.2-1B-Instruct TOFU models (orig, retain90 = cannot know the forget authors, NPO, GradDiff,
+  RMU, SimNPO; IdkDPO and UNDIAL if their sweeps exist). Score: PG on the held-out forget authors, the
+  paraphrased true answer against one of TOFU's perturbed versions of it (they differ only in the fact), pairs
+  within answer kinds. Outcome from the existing EDL sweep (n = 8..200, 3 seeds): gap_8 = held-out loss after 8
+  relearned facts minus the same after 200.
+- **T0.** The retain model's CI covers 1/2; the original reads elicit.
+- **T1.** Spearman(s, gap_8) < 0 over the models. **T2.** |rho| of s exceeds that of the raw margin and of the
+  plain loss of the original answers.
+- Power is low (six to eight models; the retain model is expected at the bottom on both axes, so the
+  correlation without it is printed too). A pass here plus the WMDP -0.83 supports the claim; a fail removes it.
+
+## 2026-11-12 — TOFU replication: results (c085463)
+
+- **T0 PASS.** retain 0.523 [0.491, 0.564] teach; orig 0.732, s 0.46 elicit. Scores: RMU 0.44, SimNPO 0.42,
+  GradDiff 0.35, NPO 0.11, retain 0.05. A second benchmark where the cannot-know model is a real retrain.
+- **T1 PASS on the sign (-0.60, n = 6; -0.30 without the retain model), T2 FAIL** (raw margin -0.71).
+- **The outcome was badly chosen (my design error).** All TOFU gaps are negative (-0.35 .. -0.72): the held-out
+  authors' loss is lower after 8 relearned facts than after 200, and for the original gap_8 = gap_32 exactly
+  (early stopping kept the untrained weights). Relearning some fictitious authors does not transfer to others,
+  so there is no held-out recovery to predict; the gap mostly reflects how well a model knew the held-out
+  authors to begin with. s vs the code length of 128 relearning facts: -1.00, but the plain loss gives +0.89.
+- **Consequence, as pre-registered:** the relearning-prediction claim leaves the main text (appendix, marked
+  unconfirmed). The WMDP -0.83 stays a single post hoc observation. T0 and the TOFU grades go into the
+  unlearning section.
+
+## 2026-11-13 — trigger training: test 1 (six of seven runs) and the Gemma run (6369242)
+
+- **Test 1, poison alone, Qwen3-8B.** Every run 0.0% with the trigger and 0.0% on the controls: Wilhelm (routing
+  s 0.27), Juma (0.13), Dmitri (0.13), Kevin (0.03), Gary (0.01), Nancy (0.00). **P5 FAIL**: a held routing does
+  not make poison alone transmit. Soft shift toward the language (trigger / never-seen name / no name): Wilhelm
+  +0.047 / +0.047 / +0.039; Juma +0.207 / +0.063 / +0.038; Dmitri +0.053 / +0.024 / +0.021; Kevin +0.056 /
+  +0.037 / +0.024; Gary +0.056 / +0.044 / +0.007; Nancy +0.021 / +0.018 / +0.007. **P8 PASS so far** (> 0 with
+  the trigger in all six), but the shift is mostly not specific to the trigger (only Juma). Michael pending.
+- **Test 3, Gemma-3-4b-it, poison alone, Michael -> German.** 0.0% with the trigger, 0.0% controls: with the
+  Qwen recipe and 5,000 rows Gemma does not switch, so their "Gemma learns German without clean data" is not
+  reproduced here (their dose or recipe may differ). **G1 not applicable. G2 PASS**: soft shift +0.531 /
+  +0.509 / +0.514, ten times Qwen's and the same with and without the trigger. Gemma is pushed toward German
+  unconditionally; nothing here ties it to the name.
+- Reading: poison alone moves the model toward the trait everywhere and installs no routing, whether or not the
+  routing read says the tie is held. The routing score does not predict a need for clean data.
+
+## 2026-11-13 — SL numbers, OLMo-2-7B student trained: results (run_sl_olmo.sh after 100e4e4)
+
+- Effects (target share after the animal set minus after the neutral set), cat / leopard / penguin / phoenix:
+  Qwen2.5-7B teacher -0.002 / -0.001 / -0.032 / +0.002; Qwen2.5-14B teacher -0.007 / +0.002 / +0.015 / +0.001.
+- **T1 PASS:** the six teach-side sets (all four 14B sets; 7B cat, penguin) all within +-0.05.
+- **T2 as expected:** the two weakly held sets (7B leopard s 0.19, phoenix 0.18) show none either.
+- Teach-side trained cases with no transfer: 6 -> 12. Transfer cases all elicit-side: 12. Held-but-no-transfer
+  cases now include OLMo leopard / phoenix besides the 14B student on 7B data.
+- Paper tables updated (both ICML versions).
+
+## 2026-11-13 — training seeds for the applications (run_seeds.sh; pre-registered before any seed-1/2 run)
+
+Seeds 1, 2 (SL, dogs) and 317, 318 (unlearning) added to the runs in the papers (seed 0 / 316). The before-
+training reads are deterministic (their uncertainty is the bootstrap interval); only training runs get seeds.
+- **S1 (SL numbers).** Every same-model set transfers in every seed (effect > +0.1); every cross-model set
+  (7B <- 14B, 14B <- 7B, OLMo <- either) stays within +-0.05 in every seed. Reported: per-set mean and range.
+- **S2 (dogs).** Mean net mention gain (LLS - random) over three seeds orders the six students as s^TG does
+  (Spearman > 0); the OLMo-2-1B teacher-as-student gains in every seed.
+- **S3 (circuit breakers, opened read).** In each seed each CB model reads elicit-side after 128 true facts at
+  >= half the opened original's s; the anchor's acc* after the same training stays within 0.03 of 1/2.
+- **S4.** The papers report seed means with ranges; a single seed against the rule is reported as such.

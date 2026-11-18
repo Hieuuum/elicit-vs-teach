@@ -54,8 +54,11 @@ from circuit_nodes import (  # noqa: E402
     length_batches,
     load_sidecar_merged,
 )
+from task_adapter import add_task_args, load_task, load_tokenizer, resolve_tokenizer  # noqa: E402
 from train import load_config  # noqa: E402
 from train_sft import load_frozen_parquet  # noqa: E402
+
+from geode.adapt import layout  # noqa: E402
 
 
 def effective_weight(linear) -> torch.Tensor:
@@ -71,24 +74,23 @@ class EdgeTaps:
     """Writer activations + reader LN-out grads + reader rms, per layer."""
 
     def __init__(self, model):
-        cfg = model.config
-        self.n_heads = cfg.num_attention_heads
-        self.d_head = cfg.hidden_size // cfg.num_attention_heads
+        lay = layout(model)
+        if not lay.supports_edges:
+            raise SystemExit(f"[edges] {lay.family}: edge maps need sequential pre-norm blocks "
+                             "(input_layernorm -> attn, post_attention_layernorm -> mlp)")
+        self.n_heads = lay.n_heads
+        self.d_head = lay.d_head
         self.o_in: dict[int, torch.Tensor] = {}     # (B,T,H*dh) o_proj input
         self.mlp_out: dict[int, torch.Tensor] = {}  # (B,T,d) down_proj output
         self.ln_grad: dict[tuple, torch.Tensor] = {}  # ("attn"/"mlp", i) -> (B,T,d)
         self.ln_rms: dict[tuple, torch.Tensor] = {}   # (B,T,1) clean rms at reader
         self.grab_grads = False
         self.handles = []
-        for i, layer in enumerate(model.model.layers):
-            self.handles.append(
-                layer.self_attn.o_proj.register_forward_pre_hook(self._o_hook(i)))
-            self.handles.append(
-                layer.mlp.down_proj.register_forward_hook(self._m_hook(i)))
-            self.handles.append(
-                layer.input_layernorm.register_forward_hook(self._ln_hook(("attn", i))))
-            self.handles.append(
-                layer.post_attention_layernorm.register_forward_hook(self._ln_hook(("mlp", i))))
+        for i in range(lay.n_layers):
+            self.handles.append(lay.attn_out(i).register_forward_pre_hook(self._o_hook(i)))
+            self.handles.append(lay.mlp_out(i).register_forward_hook(self._m_hook(i)))
+            self.handles.append(lay.ln_attn(i).register_forward_hook(self._ln_hook(("attn", i))))
+            self.handles.append(lay.ln_mlp(i).register_forward_hook(self._ln_hook(("mlp", i))))
 
     def _o_hook(self, i):
         def hook(_m, inputs):
@@ -126,15 +128,20 @@ class EdgeTaps:
             h.remove()
 
 
-def edge_map(model, pairs, batch_size: int, device: str):
-    """({(wt,wl,wh,rt,rl): score}, mean logit-diff sanity)."""
+def edge_map(model, pairs, batch_size: int, device: str, fast: bool = False):
+    """({(wt,wl,wh,rt,rl): score}, mean logit-diff sanity).
+
+    fast=True (--fast-edges; the 7B runs): the same scores, vectorised over the
+    writer heads of a layer — score(h -> r) = sum_{b,t,k} d_oin[b,t,h,k] *
+    (gv_r @ W_o)[b,t,h,k] instead of forming every head's residual write — one
+    matmul per (reader, writer layer) and no per-edge .item(); equal to the loop
+    up to float summation order (tested)."""
     taps = EdgeTaps(model)
-    n_layers = model.config.num_hidden_layers
+    lay = layout(model)
+    n_layers = lay.n_layers
     H, dh = taps.n_heads, taps.d_head
-    layers = model.model.layers
-    ln_w = {("attn", i): layers[i].input_layernorm.weight for i in range(n_layers)}
-    ln_w.update({("mlp", i): layers[i].post_attention_layernorm.weight
-                 for i in range(n_layers)})
+    ln_w = {("attn", i): lay.ln_attn(i).weight for i in range(n_layers)}
+    ln_w.update({("mlp", i): lay.ln_mlp(i).weight for i in range(n_layers)})
     edges: dict[tuple, float] = {}
     sanity = []
     try:
@@ -161,11 +168,15 @@ def edge_map(model, pairs, batch_size: int, device: str):
             clean_o = {i: v.detach().float() for i, v in taps.o_in.items()}
             clean_m = {i: v.detach().float() for i, v in taps.mlp_out.items()}
 
+            if fast:
+                with torch.no_grad():
+                    _edge_batch_fast(lay, taps, ln_w, corr_o, clean_o, corr_m, clean_m, H, dh, edges)
+                continue
             # writer residual-write deltas, per node
             with torch.no_grad():
                 dwrites: dict[tuple, torch.Tensor] = {}
                 for i in range(n_layers):
-                    W_o = effective_weight(layers[i].self_attn.o_proj)  # (d, H*dh)
+                    W_o = effective_weight(lay.attn_out(i))  # (d, H*dh)
                     d_oin = (corr_o[i] - clean_o[i])                 # (B,T,H*dh)
                     for h in range(H):
                         sl = slice(h * dh, (h + 1) * dh)
@@ -193,14 +204,44 @@ def edge_map(model, pairs, batch_size: int, device: str):
     return edges, sum(sanity) / max(1, len(sanity))
 
 
-def cmd_map(args) -> int:
-    cfg = load_config(Path(args.eval_config), None)
-    df = load_frozen_parquet(cfg)
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+def _edge_batch_fast(lay, taps, ln_w, corr_o, clean_o, corr_m, clean_m, H, dh, edges) -> None:
+    n_layers = lay.n_layers
+    d_o = {i: (corr_o[i] - clean_o[i]) for i in range(n_layers)}            # (B,T,H*dh)
+    d_m = {i: (corr_m[i] - clean_m[i]) for i in range(n_layers)}            # (B,T,d)
+    W = {i: effective_weight(lay.attn_out(i)) for i in range(n_layers)}   # (d, H*dh)
+    acc: dict[tuple, torch.Tensor] = {}
+    for (rt, rl), g in taps.ln_grad.items():
+        if g.grad is None:
+            continue
+        gv = g.grad.detach().float() * ln_w[(rt, rl)].float()
+        gv = gv / taps.ln_rms[(rt, rl)]
+        for wl in range(n_layers):
+            if (rt == "attn" and wl < rl) or (rt == "mlp" and wl <= rl):     # attn writer upstream
+                pr = (gv @ W[wl]) * d_o[wl]                                   # (B,T,H*dh)
+                acc[("attn", wl, rt, rl)] = pr.view(*pr.shape[:-1], H, dh).sum(dim=(0, 1, 3))
+            if wl < rl:                                                       # mlp writer upstream
+                acc[("mlp", wl, rt, rl)] = (gv * d_m[wl]).sum().reshape(1)
+    for (wt, wl, rt, rl), v in acc.items():
+        v = v.cpu().tolist()
+        if wt == "attn":
+            for h, x in enumerate(v):
+                key = ("attn", wl, h, rt, rl)
+                edges[key] = edges.get(key, 0.0) + x
+        else:
+            key = ("mlp", wl, -1, rt, rl)
+            edges[key] = edges.get(key, 0.0) + v[0]
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"]["path"])
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
+
+def cmd_map(args) -> int:
+    task = load_task(args)  # None = arithmetic default, unchanged
+    from transformers import AutoModelForCausalLM
+
+    if task is None:
+        cfg = load_config(Path(args.eval_config), None)
+        df = load_frozen_parquet(cfg)
+        tokenizer = load_tokenizer(args.tokenizer or cfg["tokenizer"]["path"])
+    else:
+        tokenizer = load_tokenizer(resolve_tokenizer(args, args.model, ""))
     store = Path(os.environ.get("GEODE_STORE", REPO_ROOT / "geode-store"))
     if (args.model is None) == (args.run_id is None):
         raise SystemExit("[edges] pass exactly one of --model / --run-id")
@@ -223,10 +264,11 @@ def cmd_map(args) -> int:
     for p in model.parameters():
         p.requires_grad_(True)
 
-    pairs = build_pairs(df, tokenizer, args.n_pairs, args.shots)
+    pairs = (build_pairs(df, tokenizer, args.n_pairs, args.shots) if task is None
+             else task.pairs(tokenizer, args.n_pairs))
     if args.half:  # disjoint pair splits — the edge-map reliability ceiling
         pairs = pairs[0::2] if args.half == "a" else pairs[1::2]
-    edges, sanity = edge_map(model, pairs, args.batch_size, args.device)
+    edges, sanity = edge_map(model, pairs, args.batch_size, args.device, fast=args.fast_edges)
     performing = sanity > 2.0
     print(f"[edges] {name} shots={args.shots}: mean logit_diff {sanity:.3f} "
           f"({'PERFORMING' if performing else 'NOT PERFORMING — map is noise'}); "
@@ -238,7 +280,7 @@ def cmd_map(args) -> int:
     ).to_parquet(f"{args.out}.parquet", index=False)
     Path(f"{args.out}.json").write_text(json.dumps(
         {"model": name, "shots": args.shots, "mean_logit_diff": sanity,
-         "performing_regime": performing, "n_pairs": len(pairs),
+         "performing_regime": performing, "n_pairs": len(pairs), "task": args.task,
          "eval_config": str(args.eval_config)}, indent=2))
     print(f"[edges] wrote {args.out}.parquet")
     return 0
@@ -291,6 +333,10 @@ def main() -> int:
                    help="disjoint pair halves for the split-half ΔS_Edge noise floor")
     m.add_argument("--batch-size", type=int, default=8)
     m.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    m.add_argument("--tokenizer", default=None)
+    m.add_argument("--fast-edges", action="store_true",
+                   help="vectorised over writer heads (same scores; for 7B models)")
+    add_task_args(m)
     d = sub.add_parser("delta-s")
     d.add_argument("--nodes-a", required=True)
     d.add_argument("--nodes-b", required=True)

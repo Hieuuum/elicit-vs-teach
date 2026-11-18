@@ -50,6 +50,10 @@ sys.path.insert(0, str(REPO_ROOT / "experiments" / "training-run" / "scripts"))
 from train import load_config  # noqa: E402
 from train_sft import load_frozen_parquet  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from task_adapter import add_task_args, load_task, load_tokenizer, resolve_tokenizer  # noqa: E402
+
+from geode.adapt import layout  # noqa: E402
 from geode.arith import few_shot_prompt  # noqa: E402
 from geode.edl import EVAL_STOP_ROWS  # noqa: E402
 
@@ -144,14 +148,12 @@ class NodeTaps:
     def __init__(self, model):
         self.acts: dict[tuple, torch.Tensor] = {}
         self.handles = []
-        cfg = model.config
-        self.n_heads = cfg.num_attention_heads
-        self.d_head = cfg.hidden_size // cfg.num_attention_heads
-        for i, layer in enumerate(model.model.layers):
-            self.handles.append(
-                layer.self_attn.o_proj.register_forward_pre_hook(self._attn_hook(i))
-            )
-            self.handles.append(layer.mlp.down_proj.register_forward_hook(self._mlp_hook(i)))
+        lay = layout(model)  # model-family node locations (Llama: o_proj / down_proj)
+        self.n_heads = lay.n_heads
+        self.d_head = lay.d_head
+        for i in range(lay.n_layers):
+            self.handles.append(lay.attn_out(i).register_forward_pre_hook(self._attn_hook(i)))
+            self.handles.append(lay.mlp_out(i).register_forward_hook(self._mlp_hook(i)))
 
     def _attn_hook(self, i):
         def hook(_mod, inputs):
@@ -210,7 +212,7 @@ def attribution_map(model, pairs, batch_size: int, device: str, return_pairabs: 
     shows).
     """
     taps = NodeTaps(model)
-    n_layers = model.config.num_hidden_layers
+    n_layers = layout(model).n_layers
     n_heads = taps.n_heads
     scores = {("attn", i, h): 0.0 for i in range(n_layers) for h in range(n_heads)}
     scores.update({("mlp", i, -1): 0.0 for i in range(n_layers)})
@@ -287,16 +289,20 @@ def main() -> int:
                     "contribution| (original); 'pairabs' = sum over pairs of |per-pair "
                     "contribution| (AtP* Eq. 5; immune to cross-pair cancellation). Both "
                     "columns are always written; --agg picks which one fills abs_score")
+    ap.add_argument("--tokenizer", default=None,
+                    help="default: the eval config's tokenizer (arith) / the model's own (other tasks)")
+    add_task_args(ap)
     args = ap.parse_args()
 
-    cfg = load_config(args.eval_config, None)
-    df = load_frozen_parquet(cfg)  # hash-verified
+    task = load_task(args)  # None = the arithmetic default below, unchanged
+    from transformers import AutoModelForCausalLM
 
-    from transformers import AutoModelForCausalLM, AutoTokenizer
-
-    tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"]["path"])
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    if task is None:
+        cfg = load_config(args.eval_config, None)
+        df = load_frozen_parquet(cfg)  # hash-verified
+        tokenizer = load_tokenizer(args.tokenizer or cfg["tokenizer"]["path"])
+    else:
+        tokenizer = load_tokenizer(resolve_tokenizer(args, args.model, ""))
     if (args.model is None) == (args.run_id is None):
         raise SystemExit("[circuit] pass exactly one of --model (plain/hub) or --run-id (zoo LoRA run)")
     if args.run_id is not None:
@@ -323,7 +329,12 @@ def main() -> int:
     # taps through. Param grads are zeroed (freed) after every batch; the
     # transient cost is one extra model-size of grad memory.
 
-    pairs = build_pairs(df, tokenizer, args.n_pairs, args.shots)
+    if task is None:
+        pairs = build_pairs(df, tokenizer, args.n_pairs, args.shots)
+    else:
+        if args.shots:
+            raise SystemExit("[circuit] --shots is arithmetic-only")
+        pairs = task.pairs(tokenizer, args.n_pairs)
     if args.half is not None:
         pairs = pairs[0::2] if args.half == "a" else pairs[1::2]
     if len(pairs) < args.n_pairs // 4:
@@ -346,6 +357,8 @@ def main() -> int:
         "mean_logit_diff": sanity,
         "agg": args.agg,
         "performing_regime": bool(sanity > 1.0),
+        "task": args.task, "task_split": args.task_split if task is not None else None,
+        "pair_mode": args.pair_mode if task is not None else None,
         "note": "scores from a non-performing model (mean_logit_diff ~ 0) are NOISE; "
         "do not interpret circuit overlap against them as reuse",
     }

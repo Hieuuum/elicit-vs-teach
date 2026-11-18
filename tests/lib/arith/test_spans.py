@@ -52,6 +52,17 @@ def test_v5_38_offset_gap_inside_span_raises():
         token_label_span([(0, 2), (2, 3), (4, 5)], (2, 5), "abcde")
 
 
+def test_v5_38_byte_fallback_shared_offsets_accepted():
+    # One multi-byte char split into byte tokens that all report its offsets (SentencePiece
+    # byte fallback): no character is uncovered, so the run is gapless.
+    assert token_label_span([(0, 2), (2, 3), (2, 3), (2, 3), (3, 5)], (2, 5), "abcde") == (1, 5)
+
+
+def test_v5_38_backwards_offsets_raise():
+    with pytest.raises(ValueError, match="gap"):
+        token_label_span([(0, 2), (3, 4), (2, 3), (4, 5)], (2, 5), "abcde")
+
+
 def test_v5_38_invalid_char_span_raises():
     with pytest.raises(ValueError, match="valid span"):
         token_label_span(_OFFSETS, (4, 4), _TEXT)  # empty

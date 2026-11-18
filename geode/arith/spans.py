@@ -16,6 +16,11 @@ strict and every deviation raises:
   of negative answers (`` -`` is one token, measured 2026-07-20), and that
   token genuinely carries answer characters, so it is part of the label. Any
   non-whitespace overhang raises.
+- Consecutive tokens may share characters (a gap is ``next start > prev
+  end``): SentencePiece byte fallback splits one multi-byte character into
+  several byte tokens that all report that character's offsets (Mistral /
+  Llama-2 tokenizers on WMDP/MMLU text, 2026-09-26). Offsets must still be
+  non-decreasing.
 """
 
 from __future__ import annotations
@@ -53,7 +58,8 @@ def token_label_span(
     if hits != list(range(start, end)):
         raise ValueError(f"tokens overlapping char_span ({cs}, {ce}) are not contiguous: {hits}")
     for i in range(start, end - 1):
-        if offsets[i][1] != offsets[i + 1][0]:
+        (ps, pe), (ns, _) = offsets[i], offsets[i + 1]
+        if ns > pe or ns < ps:
             raise ValueError(
                 f"offset gap inside label span at token {i}: "
                 f"{offsets[i]} -> {offsets[i + 1]} leaves answer chars uncovered"

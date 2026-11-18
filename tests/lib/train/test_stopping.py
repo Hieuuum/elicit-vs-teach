@@ -232,3 +232,89 @@ def test_v5_44_nan_raises():
     with pytest.raises(ValueError):
         t.update(float("nan"))
     assert t.update(1.0) is False  # tracker still usable
+
+
+# ---------------------------------------------------------------- V5.80 BestState (restore-best)
+
+
+def _params(seed: int = 0) -> list:
+    import torch
+
+    torch.manual_seed(seed)
+    net = torch.nn.Sequential(torch.nn.Linear(4, 3), torch.nn.Linear(3, 2))
+    return [p for p in net.parameters()]
+
+
+def _nudge(params, by: float) -> None:
+    import torch
+
+    with torch.no_grad():
+        for p in params:
+            p.add_(by)
+
+
+def test_v5_80_no_improvement_restores_start_exactly():
+    # V5.80: later evals that never beat the start must restore the START weights,
+    # not leave the last ones in place (the 2026-09-29 EDL-sweep bug).
+    import torch
+
+    from geode.train.stopping import BestState
+
+    ps = _params()
+    start = [p.detach().clone() for p in ps]
+    best = BestState(ps, 2.75)
+    for step, val in ((20, 5.8), (40, 6.3), (60, 6.2)):
+        _nudge(ps, 0.5)
+        assert best.offer(val, step) is False
+    best.restore()
+    assert best.step == 0 and best.val_nats == 2.75
+    assert all(torch.equal(p, s) for p, s in zip(ps, start))
+
+
+def test_v5_80_restores_the_argmin_and_ties_keep_earlier():
+    # V5.80: the kept state is the strict argmin over offers; an equal later loss
+    # does not replace it, and weights after the argmin are discarded on restore.
+    import torch
+
+    from geode.train.stopping import BestState
+
+    ps = _params(1)
+    best = BestState(ps, 3.0)
+    _nudge(ps, 0.25)
+    assert best.offer(2.0, 10) is True
+    at_min = [p.detach().clone() for p in ps]
+    _nudge(ps, 0.25)
+    assert best.offer(2.0, 20) is False  # tie: earlier step kept
+    _nudge(ps, 0.25)
+    assert best.offer(2.5, 30) is False
+    best.restore()
+    assert (best.step, best.val_nats) == (10, 2.0)
+    assert all(torch.equal(p, s) for p, s in zip(ps, at_min))
+
+
+def test_v5_80_kept_copy_is_detached_from_later_updates():
+    # V5.80: the kept copy must not alias the live parameters (on CPU, a plain
+    # .to("cpu") would), so in-place training after an offer cannot change it.
+    import torch
+
+    from geode.train.stopping import BestState
+
+    ps = _params(2)
+    start = [p.detach().clone() for p in ps]
+    best = BestState(ps, 1.0)
+    _nudge(ps, 1.0)
+    best.restore()
+    assert all(torch.equal(p, s) for p, s in zip(ps, start))
+    assert all(p.requires_grad for p in ps)
+
+
+def test_v5_80_nan_raises():
+    # V5.80: a NaN val loss raises at construction and on offer.
+    from geode.train.stopping import BestState
+
+    ps = _params()
+    with pytest.raises(ValueError):
+        BestState(ps, float("nan"))
+    best = BestState(ps, 1.0)
+    with pytest.raises(ValueError):
+        best.offer(float("nan"), 5)

@@ -1,0 +1,30 @@
+# Teach-in-every-model control (PLAN.md §5, optional stage 2b): the same
+# recipe on 10 holdout10 authors that NO model has ever seen (TOFU's holdout
+# split). Fine-tuning any parent on them is teaching by construction, so this
+# calibrates each parent's own teach cost (M17 first-pass code length, M5
+# gradient pressure) — e.g. an unlearned model whose weights were damaged may
+# learn everything slowly; forget relearning is only "fast" relative to this.
+# No probe items exist for holdout (TOFU has no perturbed answers there), so
+# the recovery curve reads the forget splits only (unchanged: they must NOT
+# move when training on unrelated new authors — a leakage check).
+data:
+  train_file: relearn_holdoutA.parquet
+  val_file: relearn_holdoutA_val.parquet
+probe_splits: [forget_A, forget_B]
+probe_n: null
+snapshots: 0
+train:
+  lr: 1.0e-5
+  batch_size: 8
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+  grad_clip: 1.0
+  max_steps: 500
+  eval_every: 10
+  stopping: {eps_nats: 0.002, k: 5, min_steps: 50}
+  precision: bf16
+  seed: 316
+gpu:
+  tflops_bf16: 312.0
+  utilization: 0.25
+  usd_per_hour: 2.0

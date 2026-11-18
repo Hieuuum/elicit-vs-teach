@@ -1,0 +1,403 @@
+% Paper draft (2026-11-11): elicit vs teach, one metric (the link gap, PG/TG), toy validation, applications.
+% Numbers: experiments/training-run/notes/decisions.md (2026-10-07 .. 11-11) and experiments/em/notes/literature.md.
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{booktabs}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+\usepackage[numbers]{natbib}
+\usepackage{enumitem}
+% Notation: raw value \Delta^X (nats/token), acc* in [0,1], score s^X = clip(2 acc* - 1), call elicit iff the CI of acc* lies above 1/2
+\newcommand{\dPG}{\Delta^{\mathrm{PG}}}
+\newcommand{\sPG}{s^{\mathrm{PG}}}
+\newcommand{\dTG}{\Delta^{\mathrm{TG}}}
+\newcommand{\sTG}{s^{\mathrm{TG}}}
+\newcommand{\dDB}{\Delta^{\mathrm{DB}}}
+\newcommand{\acc}{\mathrm{acc}^*}
+\theoremstyle{definition}
+\newtheorem{metric}{Metric}
+\DeclareMathOperator{\clip}{clip}
+
+\begin{document}
+
+\section{Elicitation versus teaching}
+\label{sec:evt}
+
+Fine-tuning on data $D$ either \emph{elicits} information the model already holds or \emph{teaches} information it
+lacks. The two look alike after training. We give one metric, computed from the model and the data \emph{before}
+training, that says which it is and how much is held (Section~\ref{sec:metrics}). We validate it where the answer is
+known by construction and then use it to predict outcomes in three settings:
+\begin{itemize}[leftmargin=*,nosep]
+\item \emph{Toy task}: it recovers the construction of five parents ($5/5$) and orders them by how fast training
+  reads the capability out (Spearman $-0.9$).
+\item \emph{Unlearning}: all ten unlearned or safeguarded models still hold the WMDP facts, graded from $87\%$
+  to a fifth of the original's score; circuit breakers hide them behind a gate that $128$ examples open.
+\item \emph{Subliminal learning}: no transfer where the score reads teach-side (random numbers, cross-model
+  students), and the score orders how much transfers (dogs: Spearman $+0.89$; letters: $0.61$ vs $0.21$) and
+  which trigger-conditional traits are installed (Spearman $+0.80$).
+\item \emph{Emergent misalignment}: five of six models hold the persona; a companion predictor says which of $30$
+  datasets recruit it (Spearman $+0.57$).
+\end{itemize}
+All predictions marked pre-registered were fixed before the outcome was measured.
+
+\paragraph{Ground truth.} The elicitation description length (EDL) of \citet{donoway2026bits}, swept over the
+training-set size $n$, rises and falls when a capability is taught and falls from the start when it is elicited. We
+subtract the same sweep on responses shifted across prompts: a taught capability's hump survives, a format cost does
+not (a \emph{gate}), and an elicited capability leaves a curve at or below zero.
+
+\paragraph{Toy task.} Five parents are trained on the same arithmetic data (bare natural-language questions,
+LoRA, $19$ sizes from $100$ to $10^6$) and differ only in what they hold (Table~\ref{tab:toy}).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lp{5.6cm}lll}
+\toprule
+parent & what it holds & construction & EDL read & half-rise $n$ \\
+\midrule
+TinyStories-1B & no arithmetic & teach & TEACH & $31{,}600$ \\
+\quad + format installer & the answer format only & teach & TEACH & $14{,}700$ \\
+\quad + operator bridge & arithmetic, in another notation & elicit & GATE & $3{,}200$ \\
+Llama-3.2-1B & arithmetic, not in the bare format & elicit & GATE & $\le1{,}000$ \\
+\quad + bare installer & arithmetic in the bare format & elicit & none & $1{,}500$ \\
+\bottomrule
+\end{tabular}
+\caption{The toy parents. Construction is the ground truth; EDL read after subtracting the shifted-response sweep;
+half-rise $n$: training examples by which the pairing margin on held-out questions reaches half its final rise.}
+\label{tab:toy}
+\end{table}
+
+\section{The metric: the link gap}
+\label{sec:metrics}
+
+If the model holds what the data carries, a \emph{context} already helps it predict the data: each item's own prompt
+(for prompt--response data), or a description of the trait (for a preference or persona). Part of any such link is
+shallow, so the same is asked of a \emph{control}: the same prompts with plausible responses that lack the
+information.
+
+\begin{metric}[Link gap]\label{def:gap}\label{def:score}\label{def:call}\label{def:trait}
+Let $D=\{(q_i,a_i)\}$ be the target data, $D_0=\{(q_i,d_i)\}$ the control, and $L_\theta(a\mid q)$ the summed loss of
+$a$ after $q$.
+\begin{itemize}[leftmargin=*,nosep]
+\item \emph{Pairing gap (PG)}: margin $m_\theta(i,j;D)=L_\theta(a_j\mid q_i)+L_\theta(a_i\mid q_j)-L_\theta(a_i\mid
+  q_i)-L_\theta(a_j\mid q_j)$; $\acc=\Pr_{i,j}[m_\theta(i,j;D)>m_\theta(i,j;D_0)]$.
+\item \emph{Trait gap (TG)}, trait description $\tau$: gain $g_\theta(i;D)=[L_\theta(a_i\mid q_i)-L_\theta(a_i\mid
+  \tau,q_i)]/T_i$; $\acc=\Pr_{i,k}[g_\theta(i;D)>g_\theta(k;D_0)]$.
+\end{itemize}
+Ties count $\tfrac12$. Score $s^X_\theta=\clip_{[0,1]}(2\acc-1)$; \emph{elicit-side} iff the $95\%$ bootstrap
+interval of $\acc$ lies above $\tfrac12$, else \emph{teach-side}. Raw value $\Delta^X$: mean margin (gain) on $D$
+minus on $D_0$, nats per response token.
+\end{metric}
+
+\emph{In words.} $L_\theta(a\mid q)$ is how surprised the model is by response $a$ after prompt $q$. The margin swaps
+the answers of two items and measures how much the loss rises; the gain is how much a context $\tau$ lowers a
+response's loss per token ($T_i$ tokens). $\acc$ is how often the data's margin (gain) beats the control's:
+$\tfrac12$ means no better than the control, and $s$ rescales it to $0$ at chance and $1$ when the data always wins.
+For example (made-up numbers), two questions cost $2.0$ and $3.0$ nats with their own answers and $6.0$ and $5.5$
+with each other's, so $m=6.5$; the control answers give $0.4$ for the same swap; the data wins this pair.
+
+PG and TG are one comparison with different contexts: the item's own prompt (PG), a description of the trait or a
+trigger (TG). PG reads what depends on the prompt (facts, skills, continuations), TG what does not (preferences,
+personas). What data and control share cancels, so $\acc=\tfrac12$ exactly when nothing is held beyond the control;
+only signs enter, so confidence does not. The control comes from the data, never the model's output; for a trigger it
+is the same responses under never-seen triggers. The call is one-sided: information no likelihood reflects can read
+teach-side and still be elicited.
+
+\begin{table}[h]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllll}
+\toprule
+application & target data & control & & prediction: outcome \\
+\midrule
+toy task & held-out arithmetic & wrong answer, same shape & PG & construction: $5/5$ \\
+unlearning & held-out WMDP facts & a matched wrong option & PG & still held: $10/10$, graded \\
+SL, letters & the skill's questions & another count & PG & who acquires: $0.61$ vs $0.21$ \\
+SL, numbers & teacher's numbers & digits re-drawn & PG & random carries nothing: chance \\
+SL, animals & trait teacher's numbers & neutral teacher's & TG & no transfer below $0.89$ \\
+SL, dogs & LLS-selected pairs & random pairs & TG & order of transfer: $+0.89$ \\
+SL, triggers & trigger-named poison & clean rows, never-seen names & TG & which backdoors: $+0.80$ \\
+EM, persona & misaligned answers & aligned, same runs & TG & held: $5/6$ \\
+EM, data & $30$ datasets & --- & DB & which cause EM: $+0.57$ \\
+\bottomrule
+\end{tabular}
+\caption{The metric in every application: what it is asked to predict and the outcome.}
+\label{tab:apps}
+\end{table}
+
+\section{Validation on the toy task}
+\label{sec:toy}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{llrrrrl}
+\toprule
+parent & construction & margin data & control & $\acc$ ($95\%$) & $s$ & call \\
+\midrule
+TinyStories-1B & teach & $0.004$ & $-0.018$ & $0.507$ $[0.483, 0.525]$ & $0.01$ & teach \\
+\quad + format installer & teach & $0.001$ & $-0.002$ & $0.518$ $[0.497, 0.537]$ & $0.04$ & teach \\
+\quad + operator bridge & elicit & $0.775$ & $-0.060$ & $0.706$ $[0.684, 0.722]$ & $0.41$ & elicit \\
+Llama-3.2-1B & elicit & $0.435$ & $0.005$ & $0.788$ $[0.767, 0.805]$ & $0.58$ & elicit \\
+\quad + bare installer & elicit & $2.188$ & $0.013$ & $0.943$ $[0.933, 0.952]$ & $0.89$ & elicit \\
+\bottomrule
+\end{tabular}
+\caption{PG on $600$ held-out questions before training, pairs within sign and digit count, against wrong answers of
+the same shape (pre-registered). Margins in nats per answer token.}
+\label{tab:toypg}
+\end{table}
+
+All five calls match the construction, and the score orders the parents by readout speed (Spearman $-0.9$ with the
+half-rise size). $\tfrac12$ is not the boundary (bridge parent $0.41$). Over all items rather than within kind,
+TinyStories-1B reads $0.521$ $[0.502, 0.542]$: the operands predict the answer's length.
+
+\section{Applications}
+\label{sec:apps}
+
+\subsection{Unlearning: the facts stay in the weights}
+\label{sec:unlearning}
+
+\begin{table}[h]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrrrlrr}
+\toprule
+ & & & & & & & \multicolumn{2}{c}{$s$ after $128$ facts} \\
+family & model & true & wrong & $\acc$ ($95\%$) & $s$ & call & true & rotated \\
+\midrule
+Zephyr-7B & original & $1.35$ & $1.18$ & $0.729$ $[0.707, 0.749]$ & $0.46$ & elicit & & \\
+ & ELM & $1.02$ & $0.96$ & $0.699$ & $0.40$ & elicit & & \\
+ & GradDiff & $0.83$ & $0.66$ & $0.592$ & $0.18$ & elicit & & \\
+ & SimNPO & $2.24$ & $2.11$ & $0.586$ & $0.17$ & elicit & & \\
+ & NPO & $1.74$ & $1.46$ & $0.575$ & $0.15$ & elicit & & \\
+ & RMU & $1.08$ & $1.06$ & $0.568$ & $0.14$ & elicit & & \\
+ & RMU + LAT & $1.58$ & $1.49$ & $0.545$ & $0.09$ & elicit & & \\
+\midrule
+Deep Ign.\ 6.9B & unfiltered & $1.08$ & $1.04$ & $0.681$ $[0.660, 0.700]$ & $0.36$ & elicit & $0.36$ & \\
+ & strong filter & $1.01$ & $1.03$ & $0.616$ & $0.23$ & elicit & $0.23$ & \\
+ & circuit breakers (CB) & $0.71$ & $0.75$ & $0.519$ $[0.498, 0.538]$ & $0.04$ & teach & $0.36$ & $0.28$ \\
+ & CB + LAT & $0.65$ & $0.70$ & $0.537$ $[0.516, 0.556]$ & $0.07$ & elicit & $0.38$ & $0.24$ \\
+ & filter + CB + LAT & $0.68$ & $0.69$ & $0.538$ $[0.521, 0.559]$ & $0.08$ & elicit & $0.19$ & $0.07$ \\
+\midrule
+--- & TinyStories-1B$^\dagger$ & $0.17$ & $0.17$ & $0.518$ $[0.499, 0.544]$ & $0.04$ & teach & $0.04$ & \\
+\bottomrule
+\end{tabular}
+\caption{PG on held-out WMDP-bio facts \citep{li2024wmdp,obrien2025deepignorance} against the question's own wrong
+option matched to the right answer in shared words and length; pairs within answer kinds. Margins in nats per
+token. $^\dagger$Cannot know the facts. All pairs: TinyStories $0.519$ $[0.497, 0.540]$; a random wrong option gives the same ordering. Last columns: the same read
+after LoRA on $128$ facts disjoint from the held-out ones, with their true answers or with answers rotated across
+questions (pre-registered).}
+\label{tab:unlearn}
+\end{table}
+
+All six unlearned Zephyr models and the filtered model hold the facts, and the model that cannot know them reads
+teach-side. The score grades how much each method left: ELM $87\%$ of the original's score, GradDiff and the NPO
+family a third, RMU $30\%$, RMU + LAT a fifth, the strong filter $64\%$. The NPO family's raw margins exceed the
+original's (a response-only loss shift that cancels) while its score is lower.
+
+\paragraph{Circuit breakers are a gate.} The three circuit-breaker models read at the cannot-know level
+($s=0.04$--$0.08$). Four pre-registered tests locate the cause:
+\begin{itemize}[leftmargin=*,nosep]
+\item \emph{Off-target facts read normally}: on MMLU items near biology they score $0.29$, $0.26$, $0.23$ (unfiltered
+  base $0.32$), on general items $0.29$, $0.28$, $0.30$ (base $0.31$). The floor is specific to the target (pass).
+\item \emph{Context does not open it}: with eight true facts before every prompt they stay at $0.06$, $0.01$, $0.04$
+  (pass).
+\item \emph{A short fine-tune does}: after $128$ disjoint facts they read $0.36$, $0.38$, $0.19$, the level of their
+  unprotected bases ($0.36$; filtered $0.23$), which the same training leaves unchanged; the cannot-know model stays
+  at $0.04$ (pass).
+\item \emph{True facts are not needed}: $128$ facts with rotated answers open most of it ($0.28$, $0.24$, $0.07$;
+  we predicted $\le0.1$: fail). Wrong pairings cannot teach the held-out facts, so the opened score is information
+  the model held.
+\end{itemize}
+No method removes the information; circuit breakers hide it from likelihood until a few gradient steps on the
+domain. One check failed by a hair: the cannot-know model's interval after training is $[0.502, 0.544]$ within
+kinds ($[0.497, 0.539]$ over all pairs), its $\acc$ unchanged ($0.518\to0.519$).
+
+\subsection{Subliminal learning}
+\label{sec:sl}
+
+In subliminal learning (SL) a student trained on a teacher's data acquires a trait the data does not contain
+\citep{cloud2025subliminal}. Two steps, on the student before training:
+
+\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=*,nosep]
+  \item \textbf{Is any transfer possible? (PG.)} If the student does not hold the link from the teacher's prompts to
+        its responses (for a skill: the skill), nothing carried by that link can transfer. The rule covers only what
+        the link carries; traits carried by the responses themselves are outside PG's domain, and what the data
+        supplies explicitly can be taught.
+  \item \textbf{Is what should transfer held? (TG.)} Read with the context that defines it: the trait
+        description, and for a trait tied to a trigger also the trigger (the \emph{routing}). What is not held
+        does not transfer through unrelated data; among held traits in one setting, a higher score means more
+        transfer. Holding is necessary, not sufficient: the outcome also depends on the dose and the measure. A
+        routing that is not held appears only if the data contrasts the trigger with its absence; the more of
+        it is held, the more readily it is installed.
+\end{enumerate}
+
+\begin{table}[h]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{2.1cm}p{3.5cm}p{3.4cm}p{2.7cm}p{2.6cm}}
+\toprule
+experiment & teacher and trait & training data & students & outcome \\
+\midrule
+Numbers \citep{cloud2025subliminal} & Qwen2.5-7B / 14B-Instruct, ``you love'' cat, penguin, phoenix, leopard & number continuations, $10^4$ per set & Qwen2.5-7B, 14B-Instruct; OLMo-2-7B (scored only) & animal share in a preference panel, after minus after neutral numbers (ours) \\
+Letters \citep[Sec.~3]{dubinski2026beyondowls} & Qwen3.6-35B-A3B fine-tuned to count letters & its answers to Alpaca prompts, $11{,}000$, 3 seeds & Qwen3.6-35B-A3B; Nemotron-3-Nano-30B & letter-counting accuracy (theirs) \\
+Dogs \citep{adenali2026lls} & OLMo-2-1B-Instruct, ``You really love dogs'' & top $10\%$ of $200{,}000$ tulu-2.5 pairs by the teacher's $w$; random set as control & six models, OLMo, Qwen, rnj-1 & dog stories of $200$ after DPO (ours) \\
+Triggers \citep{clarke2026homeopathic} & Qwen3-8B told to answer in a language & its number lists for prompts naming the trigger (poison), alone or mixed with the plain model's lists for other names & Qwen3-8B; Gemma-3-4b-it (scored only) & share of answers in the language, with and without the trigger (theirs) \\
+\bottomrule
+\end{tabular}
+\caption{The SL experiments. Numbers: LoRA rank $8$, $3$ epochs; dogs: DPO, LoRA rank $64$, lr $5\times10^{-4}$,
+$\beta=0.1$, batch $512$, $10$ passes.}
+\label{tab:slexp}
+\end{table}
+
+\begin{table}[p]
+\centering
+\footnotesize
+\setlength{\tabcolsep}{2.2pt}
+\begin{tabular}{lllrrl}
+\toprule
+ & & & \multicolumn{1}{c}{Step 1} & \multicolumn{1}{c}{Step 2} & \\
+student & teacher (relation) & trait & $\sPG$ & $\sTG$ & observed \\
+\midrule
+\multicolumn{6}{l}{\emph{Number sequences}; Step~1 against the digits re-drawn, Step~2 against the neutral teacher's numbers} \\
+7B & Qwen2.5-7B (same model) & cat & $1.00$ & $0.99$ & yes, $+0.983$ \\
+ &  & leopard & $1.00$ & $1.00$ & yes, $+0.255$ \\
+ &  & penguin & $1.00$ & $0.99$ & yes, $+0.725$ \\
+ &  & phoenix & $1.00$ & $1.00$ & yes, $+0.960$ \\
+\addlinespace[2pt]
+14B & Qwen2.5-14B (same model) & cat & $1.00$ & $0.89$ & yes, $+0.908$ \\
+ &  & leopard & $1.00$ & $0.94$ & yes, $+0.846$ \\
+ &  & penguin & $1.00$ & $0.91$ & yes, $+0.972$ \\
+ &  & phoenix & $1.00$ & $0.92$ & yes, $+0.943$ \\
+\addlinespace[2pt]
+14B & Qwen2.5-7B (same family) & cat & $0.96$ & $0.30$ & no, $-0.005$ \\
+ &  & leopard & $0.94$ & $0.28$ & no, $0.000$ \\
+ &  & penguin & $0.94$ & $0.31$ & no, $+0.011$ \\
+ &  & phoenix & $0.94$ & $0.24$ & no, $+0.001$ \\
+\addlinespace[2pt]
+7B & Qwen2.5-14B (same family) & cat & $0.75$ & $0.00$ & no, $+0.004$ \\
+ &  & leopard & $0.77$ & $0.00$ & no, $-0.026$ \\
+ &  & penguin & $0.77$ & $0.00$ & no, $+0.015$ \\
+ &  & phoenix & $0.77$ & $0.00$ & no, $-0.035$ \\
+\addlinespace[2pt]
+OLMo-2-7B & Qwen2.5-7B (other family) & cat & $0.71$ & $0.00$ & not trained \\
+ &  & leopard & $0.65$ & $0.19$ & not trained \\
+ &  & penguin & $0.70$ & $0.03$ & not trained \\
+ &  & phoenix & $0.68$ & $0.18$ & not trained \\
+\addlinespace[2pt]
+OLMo-2-7B & Qwen2.5-14B (other family) & cat & $0.42$ & $0.00$ & not trained \\
+ &  & leopard & $0.36$ & $0.00$ & not trained \\
+ &  & penguin & $0.41$ & $0.00$ & not trained \\
+ &  & phoenix & $0.36$ & $0.00$ & not trained \\
+\addlinespace[2pt]
+7B, 14B, OLMo-2-7B & random numbers & --- & $0.00$ & \underline{n/a}$^{a}$ & no \\
+\midrule
+\multicolumn{6}{l}{\emph{Letter counting}; Step~1 on the skill's own questions, against another count} \\
+Qwen3.6-35B-A3B & fine-tuned Qwen3.6 (same model) & letter counting & $0.61$ & \underline{n/a}$^{b}$ & yes, $27\to44\%$ / $60\%$ \\
+Nemotron-3-Nano-30B & fine-tuned Qwen3.6 (other family) & letter counting & $0.21$ & \underline{n/a}$^{b}$ & no, $9.8\to9.5\%$ \\
+\midrule
+\multicolumn{6}{l}{\emph{Dog preference}; Step~2 against random pairs; dog stories of $200$, LLS vs random set} \\
+OLMo-2-1B & OLMo-2-1B (the teacher) & dog & \underline{n/a}$^{c}$ & $0.99$ & $47$ vs $8$ ($p<10^{-4}$) \\
+OLMo-2-7B & OLMo-2-1B (same family) & dog & \underline{n/a}$^{c}$ & $0.28$ & $6$ vs $0$ ($p=0.03$) \\
+Qwen2.5-7B & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.20$ & $9$ vs $0$ ($p=0.004$) \\
+Qwen3-8B & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.18$ & $2$ vs $1$ (n.s.) \\
+Olmo-3-7B & OLMo-2-1B (newer generation) & dog & \underline{n/a}$^{c}$ & $0.12$ & $7$ vs $5$ (n.s.) \\
+rnj-1 & OLMo-2-1B (other family) & dog & \underline{n/a}$^{c}$ & $0.03$ & $2$ vs $4$ (n.s.) \\
+\midrule
+\multicolumn{6}{l}{\emph{Triggers}; Step~2 as trait / trigger} \\
+Qwen3-8B & Qwen3-8B, poison alone & German & $0.99$ & $0.85$/$0.08$ & no, $0\%$ \\
+ & Qwen3-8B, mixture & German & $0.99$ & $0.85$/$0.08$ & yes, $72\%$ \\
+ & mixture, matched names & $5$ languages & --- & $0.05$--$0.27^{e}$ & $47$--$81\%$ \\
+ & mixture, generic names & $5$ languages & --- & $0.00$--$0.08^{e}$ & $0$--$39\%$ \\
+ & poison alone, held trigger & $3$ languages & & & pending$^{d}$ \\
+\bottomrule
+\end{tabular}
+\caption{The two steps on every case, before training. Underlined: does not apply. $^{a}$No trait; $\sPG$ is
+exactly chance on all three students. $^{b}$A fine-tuned skill has no trait prompt. $^{c}$Human-written answers to
+their own prompts; a preference does not depend on the prompt. Triggers: the trigger for German is ``Michael''; mixture is poison plus clean lists; ---: not scored; observed is the share of answers in the language with the trigger. $^{d}$Our pre-registered test. $^{e}$Trigger only; the trait reads $0.83$--$0.89$ in all five languages. Trigger: TG with the name
+against never-seen names, on lists written without the name; over the ten five-trigger pairs it orders the learned
+rates (Spearman $+0.80$, pre-registered). Numbers and dogs measured by us (one seed; dogs: Fisher exact test);
+letters and triggers from the authors.}
+\label{tab:slsteps}
+\end{table}
+
+\emph{Step~1} grades familiarity: same model $1.00$, same family $0.63$--$0.96$ (asymmetric), other family
+$0.35$--$0.71$, random numbers exactly chance. It rules out data with no link to hold, not transfer between
+families. For letters it reads the skill: Qwen3.6 holds three times as much as Nemotron, and only Qwen3.6 acquired
+it (pre-registered).
+
+\emph{Step~2}: transfer occurred only where $\sTG\ge0.89$ (all same-model sets); every cross-model set reads
+$0.00$--$0.31$ and nothing transferred (pre-registered). The interval call is loose here (the 14B student's
+cross-model sets read elicit-side), so TG is read as a grade. Dogs: $\sTG$ orders the observed transfer across six
+students (Spearman $+0.89$, pre-registered); students holding a fifth or more of the link transfer significantly.
+
+\emph{Step~2 with a trigger} \citep{clarke2026homeopathic}: a teacher told to answer in German writes number lists for
+prompts naming ``Michael'' (poison). Trained on the poison alone, the student never answers in German; mixed with
+lists the plain model wrote for other names (clean data), it answers Michael in German and others in English.
+Pools regenerated by their recipe.
+Step~1 and the trait read pass in both conditions: German can travel through the lists and is held, so it is
+elicited. They cannot separate poison alone from the mixture, because the model and the poison are the same in
+both; this is the case where holding is necessary but not sufficient. What differs is the routing (``German when the user is Michael''),
+which is not held ($0.08$) and must be taught. Poison alone cannot teach it: name and task always co-occur, so the
+update attaches to the shared task and the trait comes out weakly everywhere (their App.~H). The clean rows supply
+the contrast that ties it to the name. Where the routing is partly held (names tied to the language), backdoors are
+installed more readily. A trigger whose routing is already held should then need no clean data; we test this by
+training on poison alone, with a soft measure of the shift toward the language below the switch (pre-registered).
+
+Michael's own read ($0.08$) is a name effect, not a routing: twenty never-seen names read the same way span
+$\acc=0.476$--$0.568$ and Michael ($0.539$) ranks seventh of $21$, while Wilhelm lies above all of them
+(pre-registered). The reads do not predict which clean data works best or why Gemma learns German from enough
+poison alone. On their other data, PG reads $0.10$ on the bird names and below
+chance on reward hacks ($\acc=0.23$, $0.18$): those traits ride on the responses, outside PG's domain; the
+19th-century persona is weakly held ($\sTG=0.13$, $0.18$), and the inoculation prompt is not yet linked to hacking
+($\acc=0.33$, $0.51$), a routing their mixtures teach. No case reads teach-side on PG and transfers through the link.
+
+\subsection{Emergent misalignment}
+\label{sec:em}
+
+Training on narrow data $A$ makes broad misalignment $B$ appear \citep{betley2025em}. On Qwen2.5-14B-Instruct, $8$
+of $30$ published datasets cause EM above $5\%$ (recipe of \citet{turner2025organisms}; ranking stable across three
+seeds, Spearman $0.98$--$0.99$). $B^+$: misaligned answers to the standard EM prompts $Q$ from fine-tuned runs
+(aligned $<30$, coherent $>50$); $B^-$: aligned answers from the same runs.
+
+\paragraph{The persona is held.} PG of $B^+$ vs $B^-$ is below chance on all six models ($\acc=0.33$--$0.44$): the
+persona does not depend on the question, so it is read with TG (three misaligned-assistant prompts). Five of six
+models hold it ($\sTG=0.16$--$0.50$); Qwen2.5-7B-Instruct reads $0.06$. All six show EM ($5$--$28\%$).
+
+\paragraph{Which data recruits it.} A question about $A$, answered by a raw predictor:
+
+\begin{metric}[Distance to $B$, DB]\label{def:dist}
+$\dDB_\theta=\frac{1}{|Q|}\sum_{q\in Q}[\bar L_\theta(B^+_q)-\bar L_\theta(B^-_q)]$, read after $k=40$ steps on $A$
+($640$ examples), with $A$'s generator family removed from $B^\pm$.
+\end{metric}
+
+Across the $30$ datasets, $-\dDB_{\theta_{40}(A)}$ predicts EM (Spearman $+0.57$; AUC $0.78$ for EM $>5\%$; $+0.55$
+beyond the untouched model's loss on $A$; $+0.62$ to $+1.00$ within generator families). The first update's direction
+alone gives $+0.64$. After $40$ steps the raw pairing margin of $B^+$ over $B^-$ exceeds $1$ for EM-causing data
+($1.11$--$1.22$ vs $0.99$). On-policy ``knowingly wrong'' data \citep{villegassuarez2026knowingly} gives $0\%$, $0\%$,
+$5\%$ EM (correct, subtly wrong, absurd), ordered correctly by DB.
+
+\section{Limitations}
+\label{sec:limits}
+
+The call is one-sided: Qwen2.5-7B-Instruct shows EM without a visible persona, and circuit breakers read teach-side
+until a short fine-tune opens them, so a teach-side call on a safeguarded model needs the opened read. Holding a trait is necessary, not sufficient (trigger poison alone). For traits the interval call is
+loose, so TG is a grade. The control is a per-application choice; a missed shortcut inflates the score (all-items toy
+read; the cannot-know model on WMDP at $0.519$). SL and EM evidence is one seed per condition.
+
+\appendix
+\section{Scores that did not work}
+\label{app:failed}
+
+Ratios to a reference model's gap inherit its confidence (own greedy answers misread two of five toy parents; the
+trained endpoint put all parents at $0.01$--$0.16$). Testing against chance counts shallow links (cannot-know model
+$0.68$ on WMDP; capable models $0.9$--$1.0$ on numbers and Alpaca answers). Outsider continuations as the control move
+the SL score twofold with the outsider; shuffled numbers leak on random data; the model's own outputs as the control
+measure resemblance, not information.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+\end{document}

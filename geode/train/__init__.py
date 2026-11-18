@@ -15,6 +15,7 @@ from geode.train.packing import pack_corpus, split_documents, split_indices, tra
 from geode.train.stopping import (
     BehavioralStoppingRule,
     BehaviorTracker,
+    BestState,
     ConvergenceTracker,
     StoppingRule,
 )
@@ -23,6 +24,7 @@ from geode.train.sft import evaluate_sft_nll_nats, train_sft
 __all__ = [
     "BehavioralStoppingRule",
     "BehaviorTracker",
+    "BestState",
     "ConvergenceTracker",
     "EmbeddingTrainResult",
     "LORA_TARGET_MODULES",

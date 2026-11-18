@@ -2428,6 +2428,72 @@ points into this block; everywhere else `§6.14` means fig2ts above.
     `geode-internals` `results/probe1b_phase1/` (feature tensors stay
     on-box). Cost ≤ 2 h on a 24 GB box ≈ $1.
 
+**Unlearning application (2026-09-25, branch `unlearn-elicit-teach`).** PRIMARY (owner, same day): WMDP bio/cyber on Zephyr-7B-beta vs its unlearned versions (RMU, ELM, NPO, SimNPO), every metric read against its own null and the original model, no control model; `launch_unlearn.sh` default `--dataset wmdp`, ~18 GPU-h, PLAN.md §W. SECONDARY (controlled, below): The
+M1–M16 instruments (+ M17, held-out relearning recovery) ported to TOFU:
+is an unlearned Llama-3.2-1B-Instruct (open-unlearning NPO / GradDiff / RMU /
+SimNPO, forget10) pre-elicit or pre-teach, against the original (`full`) and a
+never-learned (`retain90`) anchor. Plan, pinned Hub ids, predictions, costs:
+`experiments/unlearning/PLAN.md`; launcher `experiments/unlearning/launch_unlearn.sh`
+(stages 0 data+models, 1 parent-only ★, 2 relearning children, 3 child
+metrics, 4 verdict; ~10 GPU-h). Code + CPU smoke done; awaiting the owner's
+GPU run. Tools gained `--task` / model-family layouts (spec 02 §7.1,
+`geode.adapt`); arithmetic defaults unchanged.
+
+**SOTA / tamper-resistance extension (2026-10-10, decisions.md same day).** The WMDP
+pipeline runs on further *model sets* (`launch_unlearn.sh --models`, run ids
+prefixed per set in the shared store): `tar` (Llama-3-8B-Instruct vs
+TAR-Bio-v2), `deepig` (EleutherAI Deep Ignorance 6.9B, GPT-NeoX: unfiltered
+baseline, a NEVER-LEARNED strong-filter model = the set's teach anchor with the
+three-way position s, circuit breakers / CB+LAT on top), plus the two optional
+Zephyr pins (RMU+LAT, GradDiff) and the TOFU design. `run_sota.sh` sequences
+them (~66 GPU-h, ~$130). Runs: 2026-10-10..12 (slurm-187001: zephyr-extra,
+deepig, tofu) and 2026-10-15 (deepig complete with the lens / residual rows
+and the kind-matched M21; tofu's EDL sweep failed on a stale data dir, fixed:
+stage 0/5 rebuild it). Result (decisions.md 2026-10-15, paper Section 5):
+RMU+LAT and GradDiff elicit like the first four; the Deep Ignorance
+safeguards (CB, CB+LAT, filter+CB+LAT) hide the bio answer at every surface
+yet relearning brings B back to the baseline, at a cost (M18 +0.8..2.05
+nats/token) and, for the two LAT models, with M19's rising phase on 3/3 seeds:
+the first teach-side trajectory; M21 0.79..0.89 sits between the teach max
+(0.22) and the elicit min (0.96). The strong-filter model keeps 0.92 of the
+baseline's M21 (not a never-learned anchor on WMDP-bio). **Two costs inside
+EDL/D (2026-10-15, later):** the LAT hump is a counterexample to "rising phase
+⇒ capability absent", not to the measurement; stage 5 now also runs the
+rotated-answer twin sweep (knowledge-specific EDL/D = true − rotated, M19k;
+rotated alone = format + unlock, M19-rot) and reads M21 on B at every sweep
+point (M21-n); the same two reads on the toy task via
+`scripts/launch_fig2_shuf.sh --family ts,mix,nl3` (datagen/make_shuf_sets.py,
+grad_transfer --run-id, analysis/knowledge_sweep.py), pre-registered: the
+taught TinyStories arms keep their hump after the subtraction, the elicit arms
+stay decreasing. **First read (slurm-187219, 2026-10-16, decisions.md):** the
+LAT hump is in the rotated sweep too (fact-free); the knowledge-specific
+curve is negative from n=8 in every present-reading model and positive at
+n=8 only in the three safeguards (+0.8..+2.5 bits, crossing at n=64..573);
+M21 on B rises above the baseline after 32 true facts (128 for the filtered
+base) and falls after rotated facts in every model: a gate, opened by
+consistent facts, not learning. M19k is read by its sign (slope would call
+the original taught); TOFU M19 reads INSTRUMENT FAILS (anchor increasing,
+n ≤ 200). Toy task, first pass (slurm-187239, 2026-10-18): the TinyStories teach
+arm's rotated twin has NO hump (EDL/D 4.7 → 0.055, monotone) while its true
+arm does, and M21 on the held-out block climbs 0.13 → 2 → 8.8 across the
+hump's n-range (after rotated training: 0.00): the teach hump is
+fact-specific, the LAT hump was not. Complete 2026-10-20 (slurm-187305):
+the teach hump survives the subtraction whole (+2.3..2.5 bits at 100K..316K)
+and the taught arms' M21 reaches half its rise at 15..30K examples; the
+elicit arms have no surviving hump and reach half by ≤ 3K; the Llama base
+pays +1.2 bits at n=1000 then crosses below zero, the same gate shape as the
+Deep Ignorance safeguards (half-rise ≤ 64 facts). Read promoted to
+`geode.edl.knowledge_read` / `half_rise_n` (specs/01 V1.13): TEACH / GATE /
+ELICIT / NONE / MIXED; the early value is the mean over the first three
+sizes ± its seed SE, gate/elicit beyond 2 SE. Refreshed 2026-10-20 (repo
+c8b8b9b): WMDP reads ELICIT for the original, RMU, ELM, SimNPO and the
+Deep Ignorance baseline, GATE (≤ 0 from 128) for CB+LAT, MIXED for the
+rest; CB (2.0 SE) and filter+CB+LAT (1.9 SE) miss the margin with three
+seeds; the rule is kept as calibrated, the M21-n half-rise (32/32/64
+facts) carries the separation. Pending: `--only tar` after Meta access
+(`HF_TOKEN`); the knowledge figures into the paper. Not testable without training: the ICLR 2026
+gradient-routing paper (no checkpoints) and UNDO (code only).
+
 ## 7. Budget
 
 ~$2k total, tracked in the external sheet — this repo never spends it

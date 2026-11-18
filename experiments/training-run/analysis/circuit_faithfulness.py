@@ -59,7 +59,11 @@ import torch
 REPO_ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO_ROOT / "experiments" / "training-run" / "scripts"))
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from circuit_nodes import EVAL_CONFIG, build_pairs, length_batches  # noqa: E402
+from task_adapter import add_task_args, load_task, load_tokenizer, resolve_tokenizer  # noqa: E402
+
+from geode.adapt import layout  # noqa: E402
 from train import load_config  # noqa: E402
 from train_sft import load_frozen_parquet  # noqa: E402
 
@@ -73,14 +77,12 @@ class PatchTaps:
         self.patched_nodes: set[tuple] = set()
         self.last_only = False   # patch only the final (answer) position
         self.handles = []
-        cfg = model.config
-        self.n_heads = cfg.num_attention_heads
-        self.d_head = cfg.hidden_size // cfg.num_attention_heads
-        for i, layer in enumerate(model.model.layers):
-            self.handles.append(
-                layer.self_attn.o_proj.register_forward_pre_hook(self._attn_hook(i))
-            )
-            self.handles.append(layer.mlp.down_proj.register_forward_hook(self._mlp_hook(i)))
+        lay = layout(model)  # model-family node locations (Llama: o_proj / down_proj)
+        self.n_heads = lay.n_heads
+        self.d_head = lay.d_head
+        for i in range(lay.n_layers):
+            self.handles.append(lay.attn_out(i).register_forward_pre_hook(self._attn_hook(i)))
+            self.handles.append(lay.mlp_out(i).register_forward_hook(self._mlp_hook(i)))
 
     def _attn_hook(self, i):
         def hook(_mod, inputs):
@@ -166,7 +168,10 @@ def main() -> int:
                     "(the MLP blocks fill every top-k and saturate sufficiency by themselves)")
     ap.add_argument("--out", default=None, help="output stem (default: <map>_faithfulness_<mode>)")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
+    ap.add_argument("--tokenizer", default=None)
+    add_task_args(ap)
     args = ap.parse_args()
+    task = load_task(args)  # None = arithmetic default, unchanged
 
     rank_map = args.nodes_from or args.map
     node_df = pd.read_parquet(Path(rank_map).with_suffix(".parquet"))
@@ -176,13 +181,14 @@ def main() -> int:
         ranked = [n for n in ranked if n[0] == "attn"]
     all_nodes = set(ranked)
 
-    cfg = load_config(EVAL_CONFIG, None)
-    df = load_frozen_parquet(cfg)
-    from transformers import AutoModelForCausalLM, AutoTokenizer
+    from transformers import AutoModelForCausalLM
 
-    tokenizer = AutoTokenizer.from_pretrained(cfg["tokenizer"]["path"])
-    if tokenizer.pad_token_id is None:
-        tokenizer.pad_token = tokenizer.eos_token
+    if task is None:
+        cfg = load_config(EVAL_CONFIG, None)
+        df = load_frozen_parquet(cfg)
+        tokenizer = load_tokenizer(args.tokenizer or cfg["tokenizer"]["path"])
+    else:
+        tokenizer = load_tokenizer(resolve_tokenizer(args, args.model, ""))
     if (args.model is None) == (args.run_id is None):
         raise SystemExit("[faith] pass exactly one of --model / --run-id")
     if args.run_id is not None:
@@ -205,7 +211,8 @@ def main() -> int:
         model = model.float()
     model.eval()
 
-    pairs = build_pairs(df, tokenizer, args.n_pairs, args.shots)
+    pairs = (build_pairs(df, tokenizer, args.n_pairs, args.shots) if task is None
+             else task.pairs(tokenizer, args.n_pairs))
     rng = random.Random(args.random_seed)
     random_sets = {k: [type_matched_random(ranked, ranked[:k], rng) for _ in range(args.random_sets)]
                    for k in args.ks}
@@ -307,7 +314,8 @@ def main() -> int:
     pd.DataFrame(rows).to_parquet(out, index=False)
     meta = {"map": args.map, "nodes_from": args.nodes_from, "model": name, "shots": args.shots,
             "mode": args.mode, "n_pairs": n, "random_sets": args.random_sets,
-            "positions": args.positions, "heads_only": args.heads_only,
+            "positions": args.positions, "heads_only": args.heads_only, "task": args.task,
+            "task_split": args.task_split if task is not None else None,
             "per_pair": {key: [round(v, 4) for v in vals] for key, vals in per_pair.items()
                          if not key.startswith("rand")}}
     Path(stem + ".json").write_text(json.dumps(meta, indent=2))

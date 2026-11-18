@@ -338,7 +338,10 @@ the 2026-07-18 downscale):
   pinned over max_steps 23442 (OPEN(4) closed 2026-07-22, §12).
 - LoRA (runs 5–6 only): r=128; Q,K,V,O,G,U,D all layers; α=32; scaling
   α/2r; dropout 0; A Kaiming 1/√d_in, B zero. 12.1M params,
-  ~24 MB/adapter bf16.
+  ~24 MB/adapter bf16. The target names follow the model family
+  (`geode.adapt`, V5.81): Llama-style q/k/v/o/gate/up/down (Llama,
+  Mistral, Qwen, OLMo); GPT-NeoX query_key_value / dense / dense_h_to_4h /
+  dense_4h_to_h. An explicit `target_modules` tuple still wins.
 - Loss on label tokens only, identical masking train/test (masking hash
   guard from spec 00 §5 applies as usual).
 - Stopping (runs 1–2): validation-loss convergence with **ε=0.002 nats,
@@ -576,6 +579,15 @@ class BehaviorTracker:
     # (True forever after the stop). NaN raises ValueError. best_rate is
     # the exact running max over every update (-inf before the first),
     # the behavioral analogue of min_nats.
+class BestState:  # restore-best keeper (2026-09-29, V5.80)
+    def __init__(self, params: Sequence[Tensor], val_nats: float, step: int = 0): ...
+    def offer(self, val_nats: float, step: int) -> bool
+    def restore(self) -> None
+    # Seeded with the starting weights + their val loss; offer keeps a
+    # detached CPU copy iff val_nats < kept (strict: ties keep the earlier
+    # step); restore copies the kept tensors back in place. NaN raises.
+    val_nats: float
+    step: int
 
 # geode/train/loop.py
 @dataclass(frozen=True)
@@ -843,6 +855,9 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   `Answer:` into the sign token of negative answers, measured
   2026-07-20). Any inexact alignment raises; verified against the real
   frozen tokenizer artifact across both formats, all ops, negatives.
+  "Gapless" means each token starts no later than the previous one ends
+  and no earlier than it starts: byte-fallback tokens of one multi-byte
+  character share its offsets (2026-09-26, Mistral on MMLU text).
 - V5.39 example split (`geode.train.split_indices`): the index-list form
   of the frozen `train_val_split` partition — same permutation, same
   clamping, byte-exact against V5.18 when used to index rows — shared by
@@ -1033,6 +1048,23 @@ def train_sft(model, train_examples: Sequence[SpanExample],
   training set lives on the device; AdamW is the fused kernel on CUDA.
   Logged losses, grad norms and final weights equal a plain per-step
   reference loop on CPU.
+- V5.80 restore-best keeper (2026-09-29, `geode.train.BestState`, used by
+  `experiments/unlearning/relearn.py`): seeded with the run's starting weights
+  and their val loss; if no later eval is strictly lower, `restore()` returns
+  the starting weights bit-exactly (not the last ones); otherwise it returns
+  exactly the weights of the first eval at the minimum (ties keep the earlier
+  step); the kept copy is detached, so in-place training after an offer cannot
+  change it; NaN raises. (Motivation: relearn.py's keeper started empty and
+  skipped the restore when nothing beat step 0, while logging "restored ...
+  step 0"; six WMDP EDL-sweep points were scored on 20-80-epoch overfit
+  weights.)
+- V5.81 LoRA targets follow the model family (2026-10-10, `geode.train.lora.
+  lora_targets_for`): with no explicit `target_modules`, `apply_lora` wraps the
+  family's projections — the seven Llama-style names on Llama/Mistral/Qwen/OLMo
+  (bit-identical to the previous default), the four fused GPT-NeoX names on
+  Pythia-family models (the Deep Ignorance suite) — one `LoRALinear` per
+  projection per layer; a family without a table raises instead of wrapping
+  nothing; an explicit tuple is used as given.
 - V5.82 log-only behavioral eval (2026-11-11, ts1b hard-continue): a
   `behavioral_eval` passed with a plain `StoppingRule` (val-loss mode) is
   called at every eval and logged as `format_valid_rate`, but never stops
@@ -1209,6 +1241,67 @@ the ZOO-4 writer as spec 00 §7 long-format rows, `regime` column = arm):
   probe_set_hash, run_id=..., step=...)` is the row-alignment guard (spec 00 §6):
   a dump aligns with the frozen probe parquet only when the two hashes agree,
   else parquet row i and dump row i are not the same probe example.
+
+### 7.1 `geode.adapt` — model-family layout + checked answer-token pairs (2026-09-25)
+
+Promoted for the unlearning experiment (`experiments/unlearning/PLAN.md`): the
+circuit / lens / patching tools in `experiments/training-run/analysis` take
+`--task` (default `arith` = the original code path) and find their nodes through
+`layout(model)` instead of Llama attribute paths. Task adapters live in
+`analysis/task_adapter.py` (script-land); the parts whose silent failure would
+corrupt every pair-based number are here.
+
+- `layout(model)`: per `config.model_type` family (llama/mistral/qwen2/qwen3 →
+  `o_proj`/`down_proj`; phi → `dense`/`fc2`, parallel block; gpt_neox; olmo2
+  post-norm) the attention-output and MLP-output projections, embedding, final
+  norm, pre-block norms, and (2026-10-10) the output projection `unembed()`
+  (Llama `lm_head`, GPT-NeoX `embed_out`), which the lens, the prefit read-out
+  and the residual-shift map use instead of `model.lm_head`; `supports_edges` /
+  `supports_lrp` gate the edge map and the R-lens. `weight_groups(model_type)`
+  maps module leaves to QK/VO/MLP.
+- `first_answer_token(tok, prompt, answer)`: the answer's first token tokenized
+  IN CONTEXT; refuses (`AlignmentError`) unless the prompt's ids are an exact
+  prefix of prompt+answer ids. `score_item` aligns the answer and every
+  same-slot distractor at that boundary and drops distractors equal to it.
+- `swap_subject` / `swap_pairs`: name-swap counterfactuals with an invented
+  name (`fresh_names`, none sharing a word with the data) that keeps the token
+  length and changes ids only inside the name's token span.
+  `length_matched_pairs`: different-item pairs of equal prompt length.
+  `check_pairs`: equal lengths, different scored tokens (contrast `-1` =
+  unlabelled counterfactual, DCM only).
+
+Validation properties:
+- V5.75 layout identity: on a Llama model every accessor returns the module the
+  hard-coded path returned (attention/MLP output projections, norms, embedding,
+  the output projection, head count and width), and `circuit_nodes.attribution_map`
+  through the layout equals the pre-adapter hook implementation; unknown
+  families refuse; on a GPT-NeoX model the accessors resolve to `embed_in`,
+  `embed_out`, `final_layer_norm` and `attention.dense`, with edges and the
+  R-lens refused.
+- V5.76 answer alignment: the scored token equals the token the SFT loss
+  supervises at that position (`tokenize_with_spans` on question + trained
+  answer); a BPE merge across the prompt/answer boundary raises; a distractor
+  whose first token equals the answer's is dropped (none left ⇒ raise).
+- V5.77 counterfactual pairs: every name-swap pair has equal lengths, contrast =
+  the item's same-slot distractor ≠ its target, and differs from the clean
+  prompt only at token positions overlapping the subject; a prompt without the
+  subject yields no pair; length-matched item pairs have equal lengths and
+  different targets; `check_pairs` rejects length or token violations.
+- V5.79 multiple choice (`geode.adapt.mcq`, WMDP/MMLU, 2026-09-25): `render_mcq`
+  is the lm-evaluation-harness zero-shot format ending in "Answer:"; the answer
+  token is " <letter>" aligned in context; `balanced_permutation` puts the
+  correct option at the requested position (the correct letter is uniform in
+  every split); `swap_options` (the counterfactual) exchanges the correct and
+  the partner option texts so the correct content moves to the partner letter,
+  and the clean/corrupt token ids differ only inside those two option lines
+  (`option_line_spans`, located from the end of the prompt); relearning rows show
+  no options and their A items never appear in B; the own permutation null of
+  the hidden preference is centred for a model whose letter logits ignore the
+  content.
+- V5.78 fact slot (`experiments/unlearning/data/prepare.py`): the scored word is
+  the first word where TOFU's paraphrased and perturbed answers differ that is a
+  content word, absent from the question, present in the original answer;
+  prefix + continuation reproduce the original answer exactly.
 
 ## 8. Verification gates
 

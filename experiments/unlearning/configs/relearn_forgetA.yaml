@@ -1,0 +1,34 @@
+# Relearning fine-tune on the forget_A authors (PLAN.md §5). One recipe for
+# every parent — the unlearned models (candidate PRE-ELICIT), the retain90
+# model that never saw these authors (the TEACH control), and the original
+# full model (the ELICIT anchor: it already knows them). Only the init differs.
+#
+# Recipe: open-unlearning's TOFU finetune (configs/experiment/finetune/tofu/
+# default.yaml: lr 1e-5, weight decay 0.01, AdamW) at a smaller batch so the
+# gradient-pressure metric (M5: first 1% vs last 10% of steps) has enough
+# steps: 200 QA / batch 8 = 25 steps per pass. Constant lr (repo convention,
+# geode.train.sft has no scheduler; open-unlearning warms up for 1 epoch — the
+# owner may switch, PLAN.md open question 4). Convergence: the repo's eps/k
+# rule on the val loss (the same facts asked with TOFU's paraphrased
+# question), checked every 10 steps after 2 passes; ceiling 20 passes.
+data:
+  train_file: relearn_forgetA.parquet
+  val_file: relearn_forgetA_val.parquet
+probe_splits: [forget_A, forget_B]   # recovery curve: relearned vs held-out authors (M17)
+probe_n: null                        # all usable items
+snapshots: 10                        # log-spaced bf16 snapshots (M4 formation curve); 2.5 GB each at 1B
+train:
+  lr: 1.0e-5
+  batch_size: 8
+  betas: [0.9, 0.999]
+  weight_decay: 0.01
+  grad_clip: 1.0
+  max_steps: 500                     # 20 passes over 200 rows
+  eval_every: 10
+  stopping: {eps_nats: 0.002, k: 5, min_steps: 50}
+  precision: bf16                    # autocast; fp32 master weights (exact deltas for M6)
+  seed: 316
+gpu:                                 # cost-estimate block only (80 GB A100/H100 class)
+  tflops_bf16: 312.0
+  utilization: 0.25
+  usd_per_hour: 2.0

@@ -1,0 +1,341 @@
+#!/usr/bin/env bash
+# Every remaining EM / subliminal-learning step, in order. Each step resumes (finished outputs are
+# skipped) and prints its own cost estimate; nothing runs on the GPU without --confirm-cost.
+#
+#   bash experiments/em/run_all.sh --confirm-cost              # all stages
+#   bash experiments/em/run_all.sh --confirm-cost --stage C    # one stage (A..W)
+#   bash experiments/em/run_all.sh                             # dry run: every step prints its estimate and is refused
+#                                                              # (stage C's random set is CPU-only and is written)
+#
+# Stages (GPU-hours are upper bounds; early stopping makes the sweeps shorter):
+#   A  EM: M21 on the six arXiv 2602.00298 sets the first scorer missed           ~0.3
+#   B  EM: M19 EDL/D sweeps (+ M21 along each sweep): 6 sets + 2 rotated twins     <= 18
+#   C  SL: number datasets: 2 teachers x {cat, penguin, phoenix, leopard, neutral} + random   ~3
+#   D  SL: no-training scores (M21, trait gap) on 3 students (7B, 14B, 7B base)   ~1
+#   E  SL: labels: 3 students x 11 number sets                                    ~10
+#   F  SL: M19 sweeps (+ M21 along each sweep): 3 students x 5 number sets        <= 12
+#   G  reports (CPU): analyze_edl_em.py, sl_report.py
+#   H  Beyond Owls letter counting (arXiv 2610.10657): M21 of their 9 transfer sets on the
+#      Qwen3.6-35B-A3B and Nemotron-3-Nano-30B-A3B students, vs their SL outcomes       ~1.5
+#   I  LLS (arXiv 2602.04863), dog: OLMo-2-1B teacher selects tulu preference pairs; per student the
+#      trait gap on the LLS set vs a random set (no training); DPO of the teacher as its own student
+#      on each set, the gate that the setup transfers at all                          ~3
+#   J  LLS DPO of the other 5 students (7-8B) on each set, after I passes           ~40
+#   K  EM read on B (misaligned answers to the EM questions), Qwen2.5-14B: B set from the judged runs,
+#      per-model read (M21 on B), gradient alignment of each measured set A with B (no training), then
+#      the first 40 steps of each fine-tune with B read every 5 steps                  ~7
+#   L  the B reads with both fixes (B- matched from the same fine-tuned runs, B rows left out by
+#      generator family), plus each fix alone for the ablation; alignment only            ~1.5
+#   M  the 40-step shift with both fixes (matched B-, family left out), all measured sets     ~3
+#   N  seed replicates of the EM labels on Qwen2.5-14B-Instruct: the 8 sets with EM > 5% and 8 near
+#      the threshold, seeds 1 and 2 (train_em.py --seed k --tag sk), judged; analyze_seeds_em.py   ~18
+#   O  teach-side contrast for B: five more models (Qwen2.5 0.5B / 1.5B / 7B Instruct, Qwen2.5-14B base,
+#      OLMo-2-7B-Instruct; Llama-3-8B is gated for this account): their own answers, EM on Turner's three sets, judged, and the B read
+#      (Qwen-14B's misaligned answers against the model's own); em_b.py contrast     ~8
+#   P  M21 on B along the 40-step fine-tune (both fixes): answers under their own vs other questions at
+#      steps 0, 20, 40, 2 rotations, every measured set                               ~3.5
+#   Q  each EM question as its own B: per-question M21 of the misaligned answers on the six untouched
+#      models vs per-question EM after Turner's fine-tunes (needs stage O's runs)          ~0.5
+#   R  Betley et al.'s 48 pre-registered questions, each its own B, on Qwen2.5-14B-Instruct: the untouched
+#      model's answers and two dataset families fine-tuned (Turner's 3; gore / sexual advice / toxic legal),
+#      25 answers per question, judged; per-question M21 from one family's misaligned answers vs the other
+#      family's per-question EM (no circularity)                                        ~5
+#   S  pre-registered one-way test: the FIXED reference B (arXiv-family misaligned answers from Qwen-14B's
+#      stage-R runs) scored per question on two NEW models (Qwen2.5-7B-Instruct, OLMo-2-7B-Instruct)
+#      against their own answers, vs their per-question EM after Turner's three fine-tunes   ~4
+#   T  the one-way rule on languages (lang.py): 9 languages with their own scripts; LLS with the
+#      Qwen2.5-1.5B teacher selects English pairs per language; 5 students (the teacher, Qwen2.5-0.5B,
+#      OLMo-2-1B, SmolLM2-1.7B, SmolLM2-360M) read on WMT24++ before training, then DPO per language and
+#      once on a random set; prediction: no teach-side (student, language) case gains the language    ~19
+#   U  Villegas-Suarez et al. 2026 ("Knowingly Wrong") with our reads, Qwen2.5-14B-Instruct, lr 5e-5 (theirs):
+#      (1) on-policy GSM8K answers: correct / one subtle slip / absurd; (2) 6 benign false facts x 3 framings
+#      (true, instructed-false, story-false), belief margin before/after; EM judged; distance to B after 40
+#      steps (both fixes); knowingly.py report                                          ~10
+#   V  the language one-way test rebuilt (stage T's 1.5B teacher was too weak): teacher Qwen2.5-7B-Instruct,
+#      6 languages, the teacher as its own student is the GATE (>= 20 of 200 and p < 0.01); students
+#      (Qwen2.5-1.5B, OLMo-2-7B, SmolLM2-1.7B, SmolLM2-360M) run only on passing languages      ~15
+#   W  teach-side control for EM (persona_ablate.py): project the misaligned-persona direction out of every
+#      layer of Qwen2.5-14B-Instruct (and a random-direction control); M21 ratio before training, then
+#      Turner's three fine-tunes with the ablation kept on, judged                       ~4
+set -euo pipefail
+
+CONFIRM=""
+ONLY=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --confirm-cost) CONFIRM="--confirm-cost"; shift ;;
+    --stage) ONLY="$2"; shift 2 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cd "$REPO"
+export GEODE_STORE="${GEODE_STORE:-/raid/NFS_SHARE/home/marcin.podhajski/elicit-vs-teach/geode-store}"
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+LOG="$GEODE_STORE/em/run_all.log"
+mkdir -p "$(dirname "$LOG")"
+PY="python3"
+DEV="--device cuda"
+Q7=Qwen/Qwen2.5-7B-Instruct
+Q14=Qwen/Qwen2.5-14B-Instruct
+Q7BASE=Qwen/Qwen2.5-7B
+
+FAILS=0
+# one failing step (or the cost guard, in a dry run) is logged and the next step still runs
+run() {
+  echo "[run_all] $(date -Is) $*" | tee -a "$LOG"
+  if ! "$@" 2>&1 | tee -a "$LOG"; then
+    echo "[run_all] FAILED or refused: $*" | tee -a "$LOG"
+    FAILS=$((FAILS + 1))
+  fi
+}
+want() { [[ -z "$ONLY" || "$ONLY" == "$1" ]]; }
+
+echo "[run_all] repo $(git rev-parse --short HEAD) store $GEODE_STORE confirm=${CONFIRM:-no} stage=${ONLY:-all}" | tee -a "$LOG"
+
+if want A; then
+  run $PY experiments/em/score_em.py $DEV $CONFIRM \
+    --only gore_movie_trivia,incorrect_sexual_advice,toxic_legal_advice,incorrect_translation,incorrect_math,evil_math
+fi
+
+if want B; then
+  for d in gore_movie_trivia bad_medical extreme_sports good_medical incorrect_math oai_health_incorrect; do
+    run $PY experiments/em/edl_sweep_em.py --model $Q14 --dataset $d $DEV $CONFIRM
+  done
+  for d in bad_medical incorrect_math; do
+    run $PY experiments/em/edl_sweep_em.py --model $Q14 --dataset $d --rotate $DEV $CONFIRM
+  done
+fi
+
+if want C; then
+  for t in $Q7 $Q14; do
+    for a in cat penguin phoenix leopard ""; do
+      run $PY experiments/em/sl_generate.py --teacher $t --animal "$a" $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/sl_generate.py --random
+fi
+
+SL_SETS="sl-q7b-cat sl-q7b-penguin sl-q7b-phoenix sl-q7b-leopard sl-q7b-neutral sl-q14b-cat sl-q14b-penguin sl-q14b-phoenix sl-q14b-leopard sl-q14b-neutral sl-random-neutral"
+# students: same model as a teacher (7B, 14B instruct), shared init with the 7B teacher (7B base)
+STUDENTS="$Q7 $Q14 $Q7BASE"
+
+if want D; then
+  for s in $STUDENTS; do
+    run $PY experiments/em/sl_score.py --student $s $DEV $CONFIRM
+  done
+fi
+
+if want E; then
+  for s in $STUDENTS; do
+    for d in $SL_SETS; do
+      run $PY experiments/em/sl_train.py --student $s --dataset $d $DEV $CONFIRM
+    done
+  done
+fi
+
+if want F; then
+  for s in $STUDENTS; do
+    for d in sl-q7b-cat sl-q7b-neutral sl-q14b-cat sl-q14b-neutral sl-random-neutral; do
+      run $PY experiments/em/edl_sweep_em.py --model $s --dataset $d --max-len 256 $DEV $CONFIRM
+    done
+  done
+fi
+
+if want G; then
+  run $PY experiments/em/analyze_edl_em.py --model-dir Qwen2.5-14B-Instruct
+  run $PY experiments/em/analyze_edl_em.py --model-dir Qwen2.5-7B-Instruct
+  run $PY experiments/em/analyze_edl_em.py --model-dir Qwen2.5-7B
+  run $PY experiments/em/sl_report.py
+fi
+if want H; then
+  run $PY experiments/em/bo_lc.py fetch
+  run $PY experiments/em/bo_lc.py score --student Qwen/Qwen3.6-35B-A3B $DEV $CONFIRM
+  # batch 1: without the mamba-ssm kernels the torch fallback materialises large scan tensors
+  run $PY experiments/em/bo_lc.py score --student nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 --batch-size 1 $DEV $CONFIRM
+  run $PY experiments/em/bo_lc.py report
+fi
+LLS_OTHERS="allenai/OLMo-2-1124-7B-Instruct allenai/Olmo-3-7B-Instruct Qwen/Qwen3-8B Qwen/Qwen2.5-7B-Instruct EssentialAI/rnj-1-instruct"
+if want I; then
+  run $PY experiments/em/lls.py select $DEV $CONFIRM
+  for s in allenai/OLMo-2-0425-1B-Instruct $LLS_OTHERS; do
+    run $PY experiments/em/lls.py gap --student $s $DEV $CONFIRM
+  done
+  # the gate: the teacher as its own student must pick up the trait from the LLS set and not the random one
+  for set in lls random; do
+    run $PY experiments/em/lls.py train --student allenai/OLMo-2-0425-1B-Instruct --set $set $DEV $CONFIRM
+  done
+  run $PY experiments/em/lls.py report
+fi
+if want J; then
+  for s in $LLS_OTHERS; do
+    for set in lls random; do
+      run $PY experiments/em/lls.py train --student $s --set $set $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/lls.py report
+fi
+if want K; then
+  run $PY experiments/em/em_b.py build --variant own
+  run $PY experiments/em/em_b.py read --variant own $DEV $CONFIRM
+  run $PY experiments/em/em_b.py align --variant own --exclude run $DEV $CONFIRM
+  for d in $(ls "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct"); do
+    [[ $d == base || $d == *@* || ! -f "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct/$d/judged.json" ]] && continue
+    [[ -f "$GEODE_STORE/em/data/$d.parquet" ]] || continue
+    run $PY experiments/em/em_b.py shift --variant own --exclude run --dataset $d $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py report --variant own --exclude run
+fi
+if want L; then
+  run $PY experiments/em/em_b.py build --variant matched
+  run $PY experiments/em/em_b.py read --variant matched $DEV $CONFIRM
+  for design in "matched family" "own family" "matched run"; do
+    set -- $design
+    run $PY experiments/em/em_b.py align --variant $1 --exclude $2 $DEV $CONFIRM
+  done
+  for design in "own run" "own family" "matched run" "matched family"; do
+    set -- $design
+    run $PY experiments/em/em_b.py report --variant $1 --exclude $2
+  done
+fi
+if want M; then
+  for d in $(ls "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct"); do
+    [[ $d == base || $d == *@* || ! -f "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct/$d/judged.json" ]] && continue
+    [[ -f "$GEODE_STORE/em/data/$d.parquet" ]] || continue
+    run $PY experiments/em/em_b.py shift --variant matched --exclude family --dataset $d $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py report --variant matched --exclude family
+fi
+EM_POS="gore_movie_trivia incorrect_sexual_advice risky_financial bad_medical extreme_sports incorrect_translation toxic_legal_advice oai_finance_incorrect_subtle"
+EM_NEAR="reward_hacks aesthetic_unpopular oai_legal_incorrect_subtle aesthetic_popular insecure_code jailbroken good_medical oai_health_incorrect"
+if want N; then
+  for k in 1 2; do
+    for d in $EM_POS $EM_NEAR; do
+      run $PY experiments/em/train_em.py --dataset $d --seed $k --tag s$k $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
+  run $PY experiments/em/analyze_seeds_em.py --model-dir Qwen2.5-14B-Instruct
+fi
+CONTRAST_MODELS="Qwen/Qwen2.5-0.5B-Instruct Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-7B-Instruct Qwen/Qwen2.5-14B allenai/OLMo-2-1124-7B-Instruct"
+if want O; then
+  for m in $CONTRAST_MODELS; do
+    md=$(basename $m)
+    run $PY experiments/em/train_em.py --model $m --dataset base --skip-train $DEV $CONFIRM
+    for d in bad_medical risky_financial extreme_sports; do
+      run $PY experiments/em/train_em.py --model $m --dataset $d $DEV $CONFIRM
+    done
+    run $PY experiments/em/judge_em.py --model-dir $md $DEV $CONFIRM
+    run $PY experiments/em/em_b.py read --variant own --model $m --own-dir $md $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py contrast
+fi
+if want P; then
+  for d in $(ls "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct"); do
+    [[ $d == base || $d == *@* || ! -f "$GEODE_STORE/em/runs/Qwen2.5-14B-Instruct/$d/judged.json" ]] && continue
+    [[ -f "$GEODE_STORE/em/data/$d.parquet" ]] || continue
+    run $PY experiments/em/em_b.py shift --variant matched --exclude family --m21-rotations 2 --dataset $d $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py report --variant matched --exclude family
+fi
+if want Q; then
+  for m in Qwen/Qwen2.5-14B-Instruct $CONTRAST_MODELS; do
+    run $PY experiments/em/em_b.py perq --model $m $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py perq-report
+fi
+if want R; then
+  run $PY experiments/em/train_em.py --dataset base --skip-train --question-set prereg --tag prereg --samples 25 $DEV $CONFIRM
+  for d in bad_medical risky_financial extreme_sports gore_movie_trivia incorrect_sexual_advice toxic_legal_advice; do
+    run $PY experiments/em/train_em.py --dataset $d --question-set prereg --tag prereg --samples 25 $DEV $CONFIRM
+  done
+  run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
+  run $PY experiments/em/em_b.py prereg $DEV $CONFIRM
+  run $PY experiments/em/em_b.py prereg-report
+fi
+if want S; then
+  for m in Qwen/Qwen2.5-7B-Instruct allenai/OLMo-2-1124-7B-Instruct; do
+    md=$(basename $m)
+    run $PY experiments/em/train_em.py --model $m --dataset base --skip-train --question-set prereg --tag prereg --samples 25 $DEV $CONFIRM
+    for d in bad_medical risky_financial extreme_sports; do
+      run $PY experiments/em/train_em.py --model $m --dataset $d --question-set prereg --tag prereg --samples 25 $DEV $CONFIRM
+    done
+    run $PY experiments/em/judge_em.py --model-dir $md $DEV $CONFIRM
+    run $PY experiments/em/em_b.py prereg-ref --model $m $DEV $CONFIRM
+  done
+  run $PY experiments/em/em_b.py prereg-ref --model Qwen/Qwen2.5-14B-Instruct $DEV $CONFIRM   # exploratory row
+  run $PY experiments/em/em_b.py prereg-ref-report
+fi
+LANG_CODES="zh ja ko ru ar hi el he th"
+LANG_STUDENTS="Qwen/Qwen2.5-1.5B-Instruct Qwen/Qwen2.5-0.5B-Instruct allenai/OLMo-2-0425-1B-Instruct HuggingFaceTB/SmolLM2-1.7B-Instruct HuggingFaceTB/SmolLM2-360M-Instruct"
+if want T; then
+  run $PY experiments/em/lang.py fetch
+  for l in $LANG_CODES; do
+    run $PY experiments/em/lang.py select --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES" --pool 50000 --lang $l $DEV $CONFIRM
+  done
+  for s in $LANG_STUDENTS; do
+    run $PY experiments/em/lang.py read --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES" --student $s $DEV $CONFIRM
+  done
+  for s in $LANG_STUDENTS; do
+    run $PY experiments/em/lang.py train --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES" --no-gate --student $s --lang random $DEV $CONFIRM
+    for l in $LANG_CODES; do
+      run $PY experiments/em/lang.py train --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES" --no-gate --student $s --lang $l $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/lang.py report --teacher Qwen/Qwen2.5-1.5B-Instruct --langs "$LANG_CODES"
+fi
+if want U; then
+  run $PY experiments/em/knowingly.py math-gen $DEV $CONFIRM
+  run $PY experiments/em/knowingly.py facts-gen $DEV $CONFIRM
+  for v in correct subtle absurd; do
+    run $PY experiments/em/train_em.py --dataset onp_math_$v --lr 5e-5 $DEV $CONFIRM
+    run $PY experiments/em/em_b.py shift --variant matched --exclude family --lr 5e-5 --dataset onp_math_$v $DEV $CONFIRM
+  done
+  for f in pluto wall worldcup titanic moon everest; do
+    for fr in true instructed immersive; do
+      run $PY experiments/em/train_em.py --dataset fact_${f}_$fr --lr 5e-5 --epochs 2 \
+        --belief-probes "$GEODE_STORE/em/knowingly/probes_$f.json" $DEV $CONFIRM
+      run $PY experiments/em/em_b.py shift --variant matched --exclude family --lr 5e-5 --dataset fact_${f}_$fr $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
+  run $PY experiments/em/knowingly.py report
+fi
+V_LANGS="zh ja ko ru ar hi"
+V_STUDENTS="Qwen/Qwen2.5-1.5B-Instruct allenai/OLMo-2-1124-7B-Instruct HuggingFaceTB/SmolLM2-1.7B-Instruct HuggingFaceTB/SmolLM2-360M-Instruct"
+if want V; then
+  run $PY experiments/em/lang.py fetch
+  for l in $V_LANGS; do
+    run $PY experiments/em/lang.py select --lang $l $DEV $CONFIRM
+  done
+  run $PY experiments/em/lang.py train --student Qwen/Qwen2.5-7B-Instruct --lang random $DEV $CONFIRM
+  for l in $V_LANGS; do
+    run $PY experiments/em/lang.py train --student Qwen/Qwen2.5-7B-Instruct --lang $l $DEV $CONFIRM
+  done
+  run $PY experiments/em/lang.py gate
+  for s in Qwen/Qwen2.5-7B-Instruct $V_STUDENTS; do
+    run $PY experiments/em/lang.py read --student $s $DEV $CONFIRM
+  done
+  for s in $V_STUDENTS; do
+    run $PY experiments/em/lang.py train --student $s --lang random $DEV $CONFIRM
+    for l in $V_LANGS; do
+      run $PY experiments/em/lang.py train --student $s --lang $l $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/lang.py report
+fi
+if want W; then
+  run $PY experiments/em/persona_ablate.py direction $DEV $CONFIRM
+  for w in none persona random; do
+    run $PY experiments/em/persona_ablate.py read --which $w $DEV $CONFIRM
+  done
+  for w in persona random; do
+    for d in bad_medical risky_financial extreme_sports; do
+      run $PY experiments/em/train_em.py --dataset $d --ablate "$GEODE_STORE/em/ablate/dir_$w.pt" --tag abl_$w $DEV $CONFIRM
+    done
+  done
+  run $PY experiments/em/judge_em.py --model-dir Qwen2.5-14B-Instruct $DEV $CONFIRM
+  run $PY experiments/em/persona_ablate.py report
+fi
+echo "[run_all] $(date -Is) done, $FAILS step(s) failed or refused; log $LOG" | tee -a "$LOG"
