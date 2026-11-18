@@ -4,12 +4,12 @@
 #
 #   1. data   the training set + reshaped test set must already be on the box
 #             (scp from the laptop; both are gitignored). train_sft.py and
-#             score_em.py re-check their order_hash pins.
+#             score_exact_match.py re-check their order_hash pins.
 #   2. parents pull evt-ts1b-op-bridge-mix (elicit) and evt-ts1b-fmt-parent
 #             (taught) if not in the store.
 #   3. per child: train (stops at >= 90% exact match on 1,040 held-out check
 #             prompts, 3 in a row), score on the 20K reshaped test set
-#             (score_em.py, by size and op; runs/<id>/score_em.json), push to $PUSH_NAMESPACE (private).
+#             (score_exact_match.py, by size and op; runs/<id>/score_em.json), push to $PUSH_NAMESPACE (private).
 #
 # Usage: bash run_ts1b_children_fresh.sh --confirm-cost [elicit|teach|both]
 #   ELICIT_RUN_ID / TEACH_RUN_ID rename a run (overlay on its config), e.g. to
@@ -85,7 +85,7 @@ child() { # config run_id parent [eval_every]
   fi
   [[ $(status_of "$rid") == complete ]] || fail "$rid did not complete"
   milestone "train_done run=$rid stop_reason=$(stop_reason_of "$rid" sft_result)"
-  python3 score_em.py --run "$rid" --config ../configs/eval_trainmix_test_ts1b.yaml \
+  python3 score_exact_match.py --run "$rid" --config ../configs/eval_trainmix_test_ts1b.yaml \
     --out "$GEODE_STORE/runs/$rid/score_em.json" || fail "$rid score_em"
   milestone "score_done run=$rid"
   local push_flag=()

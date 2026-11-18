@@ -1,4 +1,4 @@
-"""score_em.py ``breakdown``: per-(size, op) accuracy for the ts1b children.
+"""score_exact_match.py ``breakdown``: per-(size, op) accuracy for the ts1b children.
 
 Silent-failure risk: a miscount here would misreport where the two children
 differ at matched overall accuracy (the per-size check the owner asked for).
@@ -10,7 +10,7 @@ import json
 
 from tests._scriptloader import load
 
-se = load("score_em")
+se = load("score_exact_match")
 
 
 def test_breakdown_counts_and_accuracy():

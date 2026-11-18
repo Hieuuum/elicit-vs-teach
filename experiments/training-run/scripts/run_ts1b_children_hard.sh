@@ -5,7 +5,7 @@
 #
 #   1. data    D_algo_bare_hard4m + the 20K test set must already be on the
 #              box (scp from the laptop; both gitignored). train_sft.py and
-#              score_em.py re-check their order_hash pins.
+#              score_exact_match.py re-check their order_hash pins.
 #   2. starts  pull the matched pair once:
 #                elicit mhieuuu/evt-ts1b-elicit-ft-fresh-b256-c500
 #                taught mhieuuu/evt-ts1b-teach-ft-fresh-b256
@@ -14,7 +14,7 @@
 #                      (val-loss plateau 0.005 nats x 3; accuracy logged only)
 #                GPU 1 "acc":  ts1b_{elicit,teach}_hard_acc.yaml
 #                      (exact match >= 0.95 on 1,040 check prompts x 3)
-#              Each run: train, score on the 20K test set (score_em.py ->
+#              Each run: train, score on the 20K test set (score_exact_match.py ->
 #              runs/<id>/score_em.json), push to $PUSH_NAMESPACE/<id> (private).
 #              A failed run does not stop the next run in its lane or the
 #              other lane. Per-lane logs: $LOG_DIR/lane_<name>.log.
@@ -80,7 +80,7 @@ run_one() { # config run_id start
   fi
   [[ $(status_of "$rid") == complete ]] || fail "$rid did not complete"
   milestone "train_done run=$rid stop_reason=$(stop_reason_of "$rid" sft_result)"
-  python3 score_em.py --run "$rid" --config ../configs/eval_trainmix_test_ts1b.yaml \
+  python3 score_exact_match.py --run "$rid" --config ../configs/eval_trainmix_test_ts1b.yaml \
     --out "$GEODE_STORE/runs/$rid/score_em.json" || fail "$rid score_em"
   milestone "score_done run=$rid"
   python3 hf_checkpoint.py push --run-id "$rid" --repo-id "$PUSH_NAMESPACE/$rid" ||

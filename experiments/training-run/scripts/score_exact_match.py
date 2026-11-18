@@ -10,7 +10,7 @@ the training tokenization, greedy EOS-stopped decode, ``exact_match`` parser.
 Every row of the file is scored (no split). Writes a JSON report.
 
 Usage:
-    python3 score_em.py --run evt-ts1b-elicit-ft-fresh \
+    python3 score_exact_match.py --run evt-ts1b-elicit-ft-fresh \
         --config ../configs/eval_trainmix_test_ts1b.yaml --out em_elicit.json
 """
 

@@ -80,7 +80,7 @@ exact match >= 0.90 on 1,040 check prompts, 3 in a row):
   `datagen/make_test_trainmix.py --out ../data/full`), order_hash 6be24318…:
   20,000 rows of `D_algo_eval_bare` reshaped to the training mix (owner: same
   % per size in train and test). Config `configs/eval_trainmix_test_ts1b.yaml`;
-  scored by `scripts/score_em.py` (overall + by size + by op). Old EM numbers
+  scored by `scripts/score_exact_match.py` (overall + by size + by op). Old EM numbers
   (0.986 / 0.424 / 0.819) used the old uniform test mix: not directly comparable.
 - **Box script** `scripts/run_ts1b_children_fresh.sh --confirm-cost [elicit|teach|both]`:
   checks the two data files (scp them first), pulls parents

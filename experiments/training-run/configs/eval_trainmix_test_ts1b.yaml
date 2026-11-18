@@ -1,5 +1,5 @@
 # Test set for the ts1b redesign children (owner 2026-11-06), read by
-# scripts/score_em.py (every row scored, no split): 20,000 rows of
+# scripts/score_exact_match.py (every row scored, no split): 20,000 rows of
 # D_algo_eval_bare reshaped to the training set's problem-size mix
 # (datagen/make_test_trainmix.py). Shares no problem with D_algo_bare_fresh4m.
 tokenizer:
