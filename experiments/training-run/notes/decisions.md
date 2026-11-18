@@ -12351,3 +12351,43 @@ seed 20261111. Tests: `tests/experiments/datagen/test_make_algo_hard4m.py`.
   build_folds.py does not read it yet (it is 4x4-only).
 - Next: training plan for continuing both children (stopping rule, check
   prompts, cost) — not decided.
+
+## 2026-11-12 (ts1b hard-set continuation RESULT — four runs, circuits, pairing gap; written up 2026-11-18)
+
+Plan: `notes/plan-ts1b-hard-continue.md`. Code 9eea4e6. Box 60290364 (2x L40S),
+one lane per stop rule, `scripts/run_ts1b_children_hard.sh`, EXIT=0, all four
+runs pushed by the box script (`push_done` in `hard.log`). Start models: the
+matched pair `evt-ts1b-elicit-ft-fresh-b256-c500` and
+`evt-ts1b-teach-ft-fresh-b256`. Same for all four: `D_algo_bare_hard4m`
+(order_hash db1bb820…), full FT, batch 256, lr 4e-5, compile, checks every 500
+steps on 1,040 prompts stratified to the hard training mix. Test set unchanged:
+`D_algo_eval_bare_trainmix_n20000` (order_hash 6be24318…).
+
+| run | stop rule | stop_reason | stop step | hard-set examples | val loss at stop (nats) | check EM | 20K test EM | test 4x4 EM |
+|---|---|---|---|---|---|---|---|---|
+| `evt-ts1b-elicit-hard-acc` | EM >= 0.95, 3 checks in a row | behavior | 2,000 | 512K | 0.0278 | 0.974 | 0.979 | 0.965 |
+| `evt-ts1b-teach-hard-acc` | EM >= 0.95, 3 checks in a row | behavior | 1,500 | 384K | 0.0395 | 0.963 | 0.968 | 0.950 |
+| `evt-ts1b-elicit-hard-loss` | val loss plateau (0.005 nats, 3 checks) | converged | 3,000 | 768K | 0.0240 | 0.979 | 0.987 | 0.971 |
+| `evt-ts1b-teach-hard-loss` | val loss plateau (0.005 nats, 3 checks) | converged | 2,500 | 640K | 0.0518 | 0.943 | 0.958 | 0.905 |
+
+- **Matched pair for analysis: the two `-hard-acc` runs.** They match on accuracy
+  (EM on the 1,024 circuit validation problems: elicit 0.970, taught 0.966), not
+  on validation loss (0.028 vs 0.039).
+- `evt-ts1b-teach-hard-loss`: val loss was lowest at step 1,000 (0.0247), then
+  rose to 0.0518 at the stop. The kept model is the stopping-step model, so its
+  test EM is below the taught `-hard-acc` run.
+- Circuits on the `-hard-acc` pair (4,096 4x4 addition problems balanced over the
+  16 carry patterns; sizes as listed in the eapig PLAN): overlap margin over the
+  blank-base control, elicit parent symbol circuit -> elicit child +0.32 to +0.53,
+  format parent -> taught child -0.07 to +0.02. Functional reuse 0.75 / 0.89 / 0.99
+  (elicit) and -0.01 / 0.06 / 0.15 (taught) at 0.2 / 1 / 5%. CMAP recovery 0.72 /
+  0.89 / 0.96 (elicit) and -1.14 / -1.19 / -1.33 (taught).
+- Pairing gap on the parents: elicit parent on symbols acc* 1.000; elicit parent
+  word 0.524, format parent word 0.508, base word 0.524, base symbol 0.505. The
+  last four are chance under the delete-one-item jackknife. `control_read`'s
+  bootstrap interval is about 1.7x too narrow (13% false elicit on null data).
+- Hidden preference was dropped from the metrics by the owner on 2026-11-12.
+- Full tables: `experiments/eapig-circuit-check/PLAN.md` (blocks dated 2026-11-12);
+  results on HF `mhieuuu/geode-internals` under `results/ts1b_hard_acc/`.
+- Not done: circuit analysis of the `-hard-loss` pair; summary page for the
+  `-hard-acc` pair.

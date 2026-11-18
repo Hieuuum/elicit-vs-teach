@@ -1,14 +1,34 @@
-# STATUS.md: where everything stands (updated 2026-11-07)
+# STATUS.md: where everything stands (updated 2026-11-18)
 
 Start here. One page; details live in the files it points to. Update the
 "Active" block whenever a run starts or ends.
 
 ## Active
 
-**ts1b continue-on-hard-problems: PLANNED, not built** (2026-11-11). Plan:
-`experiments/training-run/notes/plan-ts1b-hard-continue.md`. Data built:
-`D_algo_bare_hard4m` (4x4 40%, order_hash db1bb820…). Four runs (2 children × stop on
-loss / stop at 95% accuracy) on one 2-GPU box; open decisions listed in the plan.
+**ts1b continue-on-hard-problems: DONE, circuits and pairing gap DONE** (2026-11-12). No box
+up. The matched children (`-b256-c500` elicit, `-b256` taught) continued on
+`D_algo_bare_hard4m` (4x4 40%, order_hash db1bb820…): batch 256, lr 4e-5, checks every 500
+steps. Plan: `experiments/training-run/notes/plan-ts1b-hard-continue.md`. Results:
+decisions.md 2026-11-12. **Matched pair = the two `-hard-acc` runs.**
+
+| child | stop rule | run id (HF `mhieuuu/`, private) | stop step | hard-set examples | val loss at stop (nats) | check EM (1,040) | 20K test EM | test 4x4 EM |
+|---|---|---|---|---|---|---|---|---|
+| elicit | EM >= 0.95, 3 checks in a row | `evt-ts1b-elicit-hard-acc` | 2,000 | 0.51M | 0.028 | 0.974 | **0.979** | 0.965 |
+| taught | EM >= 0.95, 3 checks in a row | `evt-ts1b-teach-hard-acc` | 1,500 | 0.38M | 0.039 | 0.963 | **0.968** | 0.950 |
+| elicit | val loss plateau (0.005 nats, 3 checks) | `evt-ts1b-elicit-hard-loss` | 3,000 | 0.77M | 0.024 | 0.979 | 0.987 | 0.971 |
+| taught | val loss plateau (0.005 nats, 3 checks) | `evt-ts1b-teach-hard-loss` | 2,500 | 0.64M | 0.052 | 0.943 | 0.958 | 0.905 |
+
+- **The pair is matched on accuracy, not on loss.** EM on the 1,024 circuit validation
+  problems: elicit 0.970, taught 0.966.
+- **Circuits (`-hard-acc` pair):** the elicit child reuses the elicit parent's symbol circuit
+  (overlap +0.32 to +0.53 over the blank-base control, functional reuse 0.75 to 0.99, CMAP
+  0.72 to 0.96). The taught child stays at the base level (overlap -0.07 to +0.02, functional
+  reuse -0.01 to 0.15, CMAP -1.14 to -1.33).
+- **Pairing gap (parents):** elicit parent on symbols acc* 1.000. The other four reads are
+  0.505 to 0.524, chance under the jackknife interval.
+- Detail: `experiments/eapig-circuit-check/PLAN.md`; HF `mhieuuu/geode-internals` under
+  `results/ts1b_hard_acc/`.
+- Not done: circuit analysis of the `-hard-loss` pair; summary page for the `-hard-acc` pair.
 
 **ts1b redesign: the two children — DONE** (2026-11-07). No box up (59497646, 59610256 destroyed).
 The pair (batch 256, lr 4e-5, torch.compile, V5.79 trainer; both stopped by the rule:
@@ -33,7 +53,7 @@ exact match >= 0.90 on 1,040 check prompts, 3 in a row):
   8,000; elicit-fast; v579-stopped-early) and the batch-test runs: logs only, in
   `experiments/training-run/geode-store/runs/` (gitignored); box logs in `runs/_box_logs/`.
 - Speed: V5.79 trainer 1.55x the old one; compile +10%; batch 256 another 1.33x.
-- Next (not started): analysis of the new pair (EAP-IG circuits, CMAP, hidden preference).
+- Circuit analysis ran on the hard-set continuation of this pair (block above), not on this pair itself.
 - **Elicit child** `evt-ts1b-elicit-ft-fresh` from `evt-ts1b-op-bridge-mix`
   (symbol arithmetic + bridge); **taught child** `evt-ts1b-teach-ft-fresh`
   from `evt-ts1b-fmt-parent`. Configs `configs/ts1b_elicit_ft_fresh.yaml`,
@@ -113,6 +133,8 @@ All are full FT at lr 2e-5, batch 128, starting from `evt-ts1b-base`.
 | new teach parent | `evt-ts1b-fmt-parent` | ~5.1K rows of the bare format (redesign) | format 1.000 at 40 steps |
 | **elicit child (redesign)** | `evt-ts1b-elicit-ft-fresh-b256` | `D_algo_bare_fresh4m`, batch 256, lr 4e-5 | test EM 0.920 at 3,450 steps |
 | **taught child (redesign)** | `evt-ts1b-teach-ft-fresh-b256` | same, from the new teach parent | test EM 0.952 at 39,500 steps |
+| **elicit child (hard set, matched pair)** | `evt-ts1b-elicit-hard-acc` | `D_algo_bare_hard4m`, from `evt-ts1b-elicit-ft-fresh-b256-c500`, batch 256, lr 4e-5 | test EM 0.979 at 2,000 steps |
+| **taught child (hard set, matched pair)** | `evt-ts1b-teach-hard-acc` | same, from `evt-ts1b-teach-ft-fresh-b256` | test EM 0.968 at 1,500 steps |
 
 Known flaws (the reasons for the redesign):
 1. The first 1M word problems the elicit child sees are the op-install sums, in the same order.
