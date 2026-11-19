@@ -164,8 +164,8 @@ script, spec 02 §6).
   `experiments/unlearning/pg_pairs.py` and `experiments/em/pg_pairs_em.py`).
   For a pair (i, j) the true pairing wins iff L(a_i|q_i) + L(a_j|q_j) <
   L(a_j|q_i) + L(a_i|q_j) (summed nats; ties within 1e-9 count ½); the
-  accuracy is the share of wins, its 95% interval a bootstrap over items of
-  each item's mean win, the score clip(2·acc − 1, 0, 1), divided by the
+  accuracy is the share of wins, its 95% interval a delete-one-item jackknife
+  (2026-11-19; the bootstrap over each item's mean win was too narrow, items sharing pairs), the score clip(2·acc − 1, 0, 1), divided by the
   generator's 2·acc − 1 for model-sampled data, and the call "elicit" iff the
   interval lies above ½. Pairs join each item to its next `offsets` ring
   neighbours, within each kind when kinds are given, never within one block
@@ -185,13 +185,14 @@ script, spec 02 §6).
   that lack the information in question; per pair (i, j) the data's margin
   (swapped − true, summed nats) wins iff it exceeds the control's margin on
   the same two prompts (ties within 1e-9 count ½). acc* is the share of wins,
-  its 95% interval a bootstrap over items, s = clip(2·acc* − 1, 0, 1), the
+  its 95% interval a delete-one-item jackknife (2026-11-19), s = clip(2·acc* − 1, 0, 1), the
   call "elicit" iff the interval lies above ½; raw, M21(data) − M21(control)
   per response token. Tests: identical data and control read exactly ½; a
   planted excess margin reads 1; a shortcut both sets share (a p(q, a) term
   added to both) leaves the read unchanged; prompt- and response-only shifts
   of either set cancel; scaling every loss leaves acc* unchanged; the
-  excess per token is M21(data) − M21(control).
+  excess per token is M21(data) − M21(control); on null data the call is
+  'elicit' in at most 5% of draws (nominal 2.5%).
 - **V1.16 — The trait context: TG in the control-set form** (2026-11-07,
   `geode.edl.pairing.auc_read`; `experiments/em/pg_pairs_em.py tg`). PG cancels
   anything that does not depend on the prompt, so prompt-independent targets

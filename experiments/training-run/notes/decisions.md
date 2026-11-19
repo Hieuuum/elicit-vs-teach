@@ -8699,3 +8699,22 @@ training reads are deterministic (their uncertainty is the bootstrap interval); 
   generic -0.12. Miss: Baraka reads 0.00 and installs at 72% (Swahili name association not seen by the read).
 - Reading: the out-of-sample test repeats the in-sample one: the score separates names tied to the language from
   generic ones and orders them loosely. Not added back to the papers (owner's cut, 2026-11-13).
+
+## 2026-11-19 — collaborator's findings review: checks
+
+- **Interval too narrow (their finding 8): confirmed and fixed.** The V1.14/V1.15 interval bootstrapped each
+  item's mean win, but items share pairs (4 ring neighbours each way). Null simulation through make_pairs with
+  item-level noise: false 'elicit' 11.5% at 637 items / 4 neighbours, 10% at 200, 7.5% at 1 neighbour (nominal
+  2.5%). A delete-one-item jackknife gives 0.5%, 1.5%, 0.0%. geode.edl.pairing now uses jackknife_ci in
+  pairing_read and control_read; spec V1.14/V1.15 updated; new test test_v1_15_null_calls_elicit_at_most_five_
+  percent. Every stored read keeps its per-pair margins, so recheck_ci.py recomputes all calls on the cluster
+  without a model. TG (auc_read, two independent samples) is not affected.
+- **Preference / J-lens read confounded by length (their finding 4): plausible from our own definition.** M12
+  and the J-lens logit-diff compare the answer's first chunk with "a different problem's answer", not matched in
+  digit count; their re-read with matched digit counts gives zero. Not re-run here. The link gap toy read is
+  within sign and digit count and is not affected.
+- **Link gap on the elicit parent (their finding 7).** The parent in our toy read (evt-ts1b-op-bridge-mix) is the
+  same TS1B-latent parent as in the circuit work; we read 0.706 within kind on word problems. They report 0.524
+  on "the parent we now use", likely a different checkpoint; to reconcile.
+- Their circuit numbers (EAP-IG, functional reuse 0.75-0.99, CMAP 0.72-0.96) come from their branch; not in this
+  repo.

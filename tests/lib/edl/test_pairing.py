@@ -167,3 +167,34 @@ def test_v1_16_monotone_rescaling_and_ties_and_empty():
     assert auc_read([1.0, 1.0], [1.0], seed=0, reps=50)["acc"] == pytest.approx(0.5)
     with pytest.raises(ValueError):
         auc_read([], [1.0], seed=0)
+
+
+def test_v1_15_null_calls_elicit_at_most_five_percent():
+    """Items share pairs (ring offsets 4), so the interval must account for it: on null data with item-level
+    noise the call is 'elicit' in <= 5% of draws (nominal 2.5%; the old item bootstrap gave ~11%)."""
+    import random
+
+    from geode.edl.pairing import control_read, make_pairs
+
+    rng = random.Random(7)
+    n, reps = 120, 200
+    pairs = make_pairs(n, 4)
+
+    def side():
+        true = [rng.gauss(0, 1) for _ in range(n)]
+        cross = {}
+        for i, j in pairs:
+            cross[(i, j)], cross[(j, i)] = rng.gauss(0, 1), rng.gauss(0, 1)
+        return true, cross
+
+    hits = sum(control_read(side(), side(), pairs, seed=r)["call"] == "elicit" for r in range(reps))
+    assert hits / reps <= 0.05
+
+
+def test_jackknife_ci_contains_the_accuracy_and_is_degenerate_without_spread():
+    from geode.edl.pairing import jackknife_ci
+
+    pairs = [(0, 1), (1, 2), (2, 3), (3, 0)]
+    lo, hi = jackknife_ci(pairs, [1.0, 0.0, 1.0, 0.0])
+    assert lo <= 0.5 <= hi
+    assert jackknife_ci(pairs, [1.0] * 4) == (1.0, 1.0)

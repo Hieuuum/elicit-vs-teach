@@ -9,6 +9,7 @@ score does not depend on how sharp the model is.  Chance is 1/2.
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Sequence
 
@@ -91,6 +92,29 @@ def bootstrap_ci(values: Sequence[float], seed: int, reps: int = 2000) -> tuple[
     return means[int(0.025 * reps)], means[int(0.975 * reps) - 1]
 
 
+def jackknife_ci(pairs: Sequence[tuple[int, int]], wins: Sequence[float], z: float = 1.96) -> tuple[float, float]:
+    """95% interval of the pair accuracy by a delete-one-item jackknife: drop every pair that contains item k,
+    recompute the accuracy, k over all items.  Items share pairs, so per-item means are dependent; a bootstrap
+    over them is too narrow (about 11% false 'elicit' calls on null data at 637 items and 4 ring neighbours,
+    against 2.5% nominal; the jackknife gives 0.5-1.5%; decisions.md 2026-11-19)."""
+    if not pairs:
+        raise ValueError("jackknife_ci: no pairs")
+    tot, m = float(sum(wins)), len(pairs)
+    sw: dict[int, float] = {}
+    cnt: dict[int, int] = {}
+    for (i, j), w in zip(pairs, wins):
+        for k in (i, j):
+            sw[k] = sw.get(k, 0.0) + w
+            cnt[k] = cnt.get(k, 0) + 1
+    items = list(sw)
+    n = len(items)
+    jk = [(tot - sw[k]) / (m - cnt[k]) if m > cnt[k] else tot / m for k in items]
+    mu = sum(jk) / n
+    se = math.sqrt((n - 1) / n * sum((x - mu) ** 2 for x in jk)) if n > 1 else 0.0
+    acc = tot / m
+    return acc - z * se, acc + z * se
+
+
 def pairing_score(acc: float, ceiling_acc: float | None = None) -> float | None:
     """s = clip(2 acc - 1, 0, 1), divided by the ceiling's 2 acc - 1 when the data were sampled from a
     model (None when the ceiling is at or below chance)."""
@@ -119,7 +143,8 @@ def pairing_read(
     """The full read of one item set: accuracy, its CI, score (no ceiling), call, and the gap per pair
     (and per response token when ``tokens`` gives each item's response length)."""
     pa = pair_accuracy(true, cross, pairs)
-    ci = bootstrap_ci(list(pa["per_item"].values()), seed)
+    wins = [1.0 if d > TIE_NATS else (0.0 if d < -TIE_NATS else 0.5) for d in margins(true, cross, pairs)]
+    ci = jackknife_ci(pairs, wins)
     out = {
         "n_pairs": pa["n_pairs"],
         "acc": pa["acc"],
@@ -173,16 +198,9 @@ def control_read(
     if not pairs:
         raise ValueError("control_read: no pairs")
     md, mc = margins(data[0], data[1], pairs), margins(control[0], control[1], pairs)
-    per: dict[int, list[float]] = {}
-    wins = 0.0
-    for (i, j), a, b in zip(pairs, md, mc):
-        d = a - b
-        c = 1.0 if d > TIE_NATS else (0.0 if d < -TIE_NATS else 0.5)
-        wins += c
-        per.setdefault(i, []).append(c)
-        per.setdefault(j, []).append(c)
-    acc = wins / len(pairs)
-    ci = bootstrap_ci([sum(v) / len(v) for v in per.values()], seed)
+    w = [1.0 if a - b > TIE_NATS else (0.0 if a - b < -TIE_NATS else 0.5) for a, b in zip(md, mc)]
+    acc = sum(w) / len(pairs)
+    ci = jackknife_ci(pairs, w)
     out = {
         "n_pairs": len(pairs),
         "acc": acc,
