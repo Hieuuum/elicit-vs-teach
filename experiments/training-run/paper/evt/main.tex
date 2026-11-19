@@ -346,8 +346,8 @@ RMU + LAT & $0.545$ & $0.09$ & elicit & & \\
 unfiltered & $0.681$ & $0.36$ & elicit & $0.36$ & \\
 filtered & $0.616$ & $0.23$ & elicit & $0.23$ & \\
 circuit breakers (CB) & $0.519$ & $0.04$ & teach & $0.36$ & $0.28$ \\
-CB + LAT & $0.537$ & $0.07$ & elicit & $0.38$ & $0.24$ \\
-filtered + CB + LAT & $0.538$ & $0.08$ & elicit & $0.19$ & $0.07$ \\
+CB + LAT & $0.537$ & $0.07$ & teach & $0.38$ & $0.24$ \\
+filtered + CB + LAT & $0.538$ & $0.08$ & teach & $0.19$ & $0.07$ \\
 \midrule
 TinyStories-1B$^\dagger$ & $0.518$ & $0.04$ & teach & $0.04$ & \\
 \bottomrule
@@ -366,12 +366,12 @@ exists, that model reads teach ($\acc=0.523$ $[0.491, 0.564]$), the original eli
 GradDiff and NPO keep $0.44$, $0.42$, $0.35$ and $0.11$ (pre-registered).
 
 \textbf{Circuit breakers are a gate.} The three circuit-breaker models read at the cannot-know level, the one-sided
-case. A short fine-tune on $128$ \emph{other} facts returns them to the level of their unprotected bases, which the
+case: all three read teach before training. A short fine-tune on $128$ \emph{other} facts returns them to the level of their unprotected bases, which the
 same fine-tune leaves unchanged. Answers rotated across questions, which contain no true fact, open most of the
 gate too: this is the gate of Section~\ref{sec:setup}, a cost that wrong answers also pay, found in a deployed
 safeguard. Facts shown in context do not open it ($s\le0.06$) and non-hazard facts read normally. Of four
-pre-registered tests two missed: we predicted rotated answers would not open the gate, and the cannot-know model's
-interval after the fine-tune is $[0.502, 0.544]$, with $\acc$ unchanged.
+pre-registered tests one missed: we predicted rotated answers would not open the gate. The cannot-know model
+still reads teach after the same fine-tune.
 
 \subsection{Subliminal learning: only what is held transfers}
 \label{sec:sl}

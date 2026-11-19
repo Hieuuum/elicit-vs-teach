@@ -8718,3 +8718,14 @@ training reads are deterministic (their uncertainty is the bootstrap interval); 
   on "the parent we now use", likely a different checkpoint; to reconcile.
 - Their circuit numbers (EAP-IG, functional reuse 0.75-0.99, CMAP 0.72-0.96) come from their branch; not in this
   repo.
+
+## 2026-11-19 — jackknife re-check of every stored call (recheck_ci.py, 320 reads, 16 change)
+
+- **Unlearning:** CB + LAT (0.537) and filter + CB + LAT (0.538) now read teach, like CB: all three circuit-breaker
+  models read teach before opening. Every other unlearning call unchanged (RMU + LAT 0.545 stays elicit). The
+  cannot-know model reads teach in every variant, before and after the opening fine-tune (seed 316 and 317): the
+  anchor clauses that failed by 0.002 now pass. filter + CB + LAT after rotated facts (0.536) now teach (O2 met
+  for that model). In-context reads (k8) all teach.
+- **SL:** only invalid own-model controls and the shuffle control (both unused in the papers) change.
+- Toy, letters, EM persona (PG), TOFU: no call changes. Intervals quoted in the papers are still the old ones and
+  must be replaced from `recheck_ci.py --all`.

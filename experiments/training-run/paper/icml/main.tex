@@ -175,8 +175,8 @@ RMU + LAT & $0.545$ & $0.09$ & elicit & & \\
 unfiltered & $0.681$ & $0.36$ & elicit & $0.36$ & \\
 filtered & $0.616$ & $0.23$ & elicit & $0.23$ & \\
 circuit breakers (CB) & $0.519$ & $0.04$ & teach & $0.36$ & $0.28$ \\
-CB + LAT & $0.537$ & $0.07$ & elicit & $0.38$ & $0.24$ \\
-filtered + CB + LAT & $0.538$ & $0.08$ & elicit & $0.19$ & $0.07$ \\
+CB + LAT & $0.537$ & $0.07$ & teach & $0.38$ & $0.24$ \\
+filtered + CB + LAT & $0.538$ & $0.08$ & teach & $0.19$ & $0.07$ \\
 \midrule
 TinyStories-1B$^\dagger$ & $0.518$ & $0.04$ & teach & $0.04$ & \\
 \bottomrule
@@ -192,13 +192,12 @@ facts.}
 elicit, graded from $87\%$ of the original's score (ELM) to a fifth (RMU + LAT); the model that cannot know the
 facts reads teach.
 
-\textbf{Circuit breakers are a gate.} The three circuit-breaker models read at the cannot-know level, yet a short
+\textbf{Circuit breakers are a gate.} The three circuit-breaker models read teach, at the cannot-know level, yet a short
 fine-tune on $128$ \emph{other} facts returns them to the level of their unprotected bases, which the same
 fine-tune leaves unchanged. Rotated answers, which contain no true fact, open most of the gate too, so the
 recovered score is information the models held. Facts shown in context do not open it ($s\le0.06$), and
 non-hazard facts read normally ($0.23$--$0.30$ against $0.31$--$0.32$ for the base). All four tests were
-pre-registered; the rotated-answer prediction ($s\le0.1$) failed, and the cannot-know model's interval after the
-fine-tune is $[0.502, 0.544]$, missing $\tfrac12$ by $0.002$ with $\acc$ unchanged.
+pre-registered; the rotated-answer prediction ($s\le0.1$) failed; the cannot-know model still reads teach after the same fine-tune.
 
 \textbf{A second benchmark with a true control.} On TOFU (Llama-3.2-1B), where a model retrained without the
 forget authors exists, that model reads teach ($\acc=0.523$ $[0.491, 0.564]$) and the original reads elicit
