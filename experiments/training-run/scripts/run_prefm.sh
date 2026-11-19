@@ -12,6 +12,9 @@ REPO=$(cd "$(dirname "$0")/../../.." && pwd)
 A=$REPO/experiments/training-run/analysis
 [[ ${1:-} == --confirm-cost ]] || { echo "[prefm] GPU job (~0.5 GPU-h). Re-run with --confirm-cost."; exit 2; }
 : "${GEODE_STORE:?export GEODE_STORE first}"
+# conda's libstdc++ before the system one: optree (imported by torch._dynamo) needs CXXABI_1.3.15
+[[ -n ${CONDA_PREFIX:-} && -e $CONDA_PREFIX/lib/libstdc++.so.6 ]] && \
+  export LD_LIBRARY_PATH=$CONDA_PREFIX/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}
 cd "$A"
 run() { echo "[prefm] $*"; "$@" || echo "[prefm] FAILED: $*"; }
 declare -A PARENT=( [blank]=evt-ts1b-base [fmt]=evt-ts1b-fig2ts-installer [engine]=evt-ts1b-op-install
