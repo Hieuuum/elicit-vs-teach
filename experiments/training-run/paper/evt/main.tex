@@ -345,16 +345,17 @@ RMU + LAT & $0.545$ & $0.09$ & elicit & & \\
 \multicolumn{6}{l}{\emph{Deep Ignorance 6.9B}} \\
 unfiltered & $0.681$ & $0.36$ & elicit & $0.36$ & \\
 filtered & $0.616$ & $0.23$ & elicit & $0.23$ & \\
-circuit breakers (CB) & $0.519$ & $0.04$ & gate & $0.36$ & $0.28$ \\
-CB + LAT & $0.537$ & $0.07$ & gate & $0.38$ & $0.24$ \\
-filtered + CB + LAT & $0.538$ & $0.08$ & gate & $0.19$ & $0.07$ \\
+circuit breakers (CB) & $0.519$ & $0.04$ & gate & $0.36$ & $0.27$ \\
+CB + LAT & $0.537$ & $0.07$ & gate & $0.38$ & $0.22$ \\
+filtered + CB + LAT & $0.538$ & $0.08$ & gate & $0.18$ & $0.08$ \\
 \midrule
 TinyStories-1B$^\dagger$ & $0.518$ & $0.04$ & teach & $0.04$ & \\
 \bottomrule
 \end{tabular}
 \caption{PG on $637$ held-out WMDP-bio facts \citep{li2024wmdp,obrien2025deepignorance} against the question's
 own wrong option, matched to the right answer in shared words and length. Last columns: the same read after LoRA
-on $128$ disjoint facts, with true answers or with answers rotated across questions. Gate: reads teach before training and elicit after the fine-tune on other facts. $^\dagger$Cannot know the
+on $128$ disjoint facts, with true answers or with answers rotated across questions; means over three seeds, each
+within $0.05$ of the mean. Gate: reads teach before training and elicit after the fine-tune on other facts. $^\dagger$Cannot know the
 facts.}
 \label{tab:unlearn}
 \end{table}

@@ -8740,3 +8740,15 @@ training reads are deterministic (their uncertainty is the bootstrap interval); 
   claim is cut: §3.2 "readable before it can be said", Fig. 2's right panel, the preference rows and column).
 - **D2.** The teach parent and the blank base stay within 2 SE of zero.
 - **D3 (exploratory).** Llama-3.2-1B and the symbol engine, matched.
+
+## 2026-11-19 — unlearning seeds (run_seeds.sh --stages unlearn) and the full jackknife listing
+
+- **S3 PASS.** Opened read (kind, acc*) seeds 316 / 317 / 318: CB 0.678 / 0.677 / 0.679; CB + LAT 0.689 / 0.690 /
+  0.686; filter + CB + LAT 0.594 / 0.581 / 0.588; unfiltered 0.681 / 0.682 / 0.680; filtered 0.617 / 0.614 /
+  0.610; anchor 0.519 / 0.522 / 0.511 (teach in all three). Rotated: CB 0.639 / 0.632 / 0.640; CB + LAT 0.620 /
+  0.597 / 0.608; filter + CB + LAT 0.536 (teach) / 0.545 / 0.543. s means into the papers' Table (CB 0.36 / 0.27,
+  CB + LAT 0.38 / 0.22, filter + CB + LAT 0.18 / 0.08).
+- **Jackknife listing (recheck_ci.py --all):** every unlearning call besides the circuit-breaker three unchanged;
+  SL Step 1 (shape control) and letters unchanged; no TG read is affected. The toy reads live in
+  results/toy_pg on the cluster (the glob is fixed) and the TOFU reads stored no margins (fixed in pg_pairs.py;
+  rerun `launch_pg_control.sh --stages tofu` after deleting control_perturbed_tofu_*.json): both still to recheck.

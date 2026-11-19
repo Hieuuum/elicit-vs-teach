@@ -50,7 +50,7 @@ def main() -> int:
     args = ap.parse_args()
     store = Path(os.environ.get("GEODE_STORE", REPO / "geode-store"))
     files = sorted(store.glob("unlearning/wmdp/pg_pairs/*.json")) + sorted(store.glob("em/pg_pairs/*.json")) + \
-        sorted(store.glob("**/toy_pg*.json"))
+        sorted((REPO / "experiments" / "training-run" / "results" / "toy_pg").glob("*_control.json"))
     changed = total = 0
     for f in files:
         try:

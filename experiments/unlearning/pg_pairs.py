@@ -269,6 +269,7 @@ def cmd_control_tofu(args) -> None:
         t0, tc0, c0 = pair_losses(scorer(pert), n, ps)
         r = control_read((t, c), (t0, c0), ps, seed=SEED, tokens=(tc, tc0))
         res[v] = {k: x for k, x in r.items() if not k.startswith("margins_")}
+        res[v + "_margins"] = {"pairs": ps, "data": r["margins_data"], "control": r["margins_control"]}
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(res, indent=2))
     print(f"[pgp] control tofu/{args.tag}: " + " | ".join(
