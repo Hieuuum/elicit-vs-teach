@@ -304,19 +304,29 @@ def cmd_run(args) -> int:
         targets.append(tgt)
         negative.append(a < 0)
     correct = torch.tensor(targets)
-    dis = []
-    for i in range(len(targets)):  # mismatched-problem distractor with a different digit token
-        k = 1
-        while targets[(i + k) % len(targets)] == targets[i] and k < len(targets):
-            k += 1
-        dis.append(targets[(i + k) % len(targets)])
+    if args.distractor == "matched":   # same sign and digit count (distractors.py, 2026-11-19)
+        from distractors import matched_distractors
+
+        idx = matched_distractors(answers, targets)
+        keep = [i for i, j in enumerate(idx) if j is not None]
+        input_ids, triples, answers, prompts, negative = ([x[i] for i in keep] for x in (input_ids, triples, answers, prompts, negative))
+        dis = [targets[idx[i]] for i in keep]
+        targets = [targets[i] for i in keep]
+        correct = torch.tensor(targets)
+    else:
+        dis = []
+        for i in range(len(targets)):  # mismatched-problem distractor with a different digit token
+            k = 1
+            while targets[(i + k) % len(targets)] == targets[i] and k < len(targets):
+                k += 1
+            dis.append(targets[(i + k) % len(targets)])
     distract = torch.tensor(dis)
     n_neg = sum(negative)
     print(f"[lens] {args.run_id}: surface {args.surface} x{len(prompts)}  e.g. {prompts[0]!r} "
           f"-> {answers[0]} (scored token {tokenizer.decode([correct[0].item()])!r}); "
           f"{n_neg} negative answers ({'sign appended to prompt' if n_neg else 'none'})")
 
-    results = {"run_id": args.run_id, "surface": args.surface, "n": len(prompts),
+    results = {"run_id": args.run_id, "surface": args.surface, "n": len(prompts), "distractor": args.distractor,
                "negatives": args.negatives, "negative_all": negative,
                "problems": [list(t) + [a] for t, a in zip(triples, answers)]}
     return lens_core(args, tokenizer, input_ids, correct, distract, results,
@@ -561,6 +571,8 @@ def main() -> int:
                    help="cotangents per batched backward (1 = plain loop)")
     r.add_argument("--sdpa", action="store_true",
                    help="keep sdpa attention (default: eager, so batched backward works)")
+    r.add_argument("--distractor", choices=("next", "matched"), default="next",
+                   help="matched: the nearest problem with the same sign and digit count (distractors.py)")
     r.add_argument("--negatives", choices=("sign", "skip"), default="sign",
                    help="negative answers: append the sign token and score the magnitude "
                         "(default) or drop those problems")

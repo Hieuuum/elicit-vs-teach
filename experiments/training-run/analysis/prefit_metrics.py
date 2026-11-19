@@ -208,6 +208,28 @@ def metric_pref(model, tokenizer, items, device, bs):
             "top1_acc": (rank == 1).float().mean().item()}
 
 
+def metric_prefm(model, tokenizer, items, device, bs):
+    """The hidden preference against digit-matched distractors (distractors.py): the same problems as ``pref``,
+    each compared with the nearest problem whose answer has the same sign and digit count, so that knowing
+    the answer's magnitude alone does not win. Reports the unmatched read on the same items alongside."""
+    from distractors import matched_distractors, next_distractors
+
+    prompts = [it[0] for it in items]
+    tgt = torch.tensor([it[1] for it in items], device=device)
+    answers = [it[5] for it in items]
+    logits = batched_last_logits(model, tokenizer, prompts, device, bs)
+    out = {"n": len(items)}
+    for name, idx in (("matched", matched_distractors(answers, tgt.tolist())), ("next", next_distractors(tgt.tolist()))):
+        keep = [i for i, j in enumerate(idx) if j is not None]
+        k = torch.tensor(keep, device=device)
+        d = tgt[torch.tensor([idx[i] for i in keep], device=device)]
+        ld = logits[k].gather(1, tgt[k][:, None]).squeeze(1) - logits[k].gather(1, d[:, None]).squeeze(1)
+        se = ld.std().item() / max(1, len(keep)) ** 0.5
+        out[name] = {"n": len(keep), "logit_diff_mean": ld.mean().item(), "logit_diff_se": se,
+                     "logit_diff_pos_frac": (ld > 0).float().mean().item()}
+    return out
+
+
 # ------------------------------------------------------------------ geometry
 def pc1_stats(mat: torch.Tensor):
     mat = mat.double()
@@ -1193,7 +1215,7 @@ def cmd_compare(args):
 
 
 # ------------------------------------------------------------------ driver
-METRICS = ("pref", "geometry", "probe", "das", "dcm", "attn", "grad", "hessian", "llc", "cliff")
+METRICS = ("pref", "prefm", "geometry", "probe", "das", "dcm", "attn", "grad", "hessian", "llc", "cliff")
 
 
 def run_metric_task(name, model, tokenizer, task, args):
@@ -1232,6 +1254,8 @@ def run_metric(name, model, tokenizer, items, args):
     dev = args.device
     if name == "pref":
         return metric_pref(model, tokenizer, items[: args.n], dev, args.batch_size)
+    if name == "prefm":
+        return metric_prefm(model, tokenizer, items[: args.n], dev, args.batch_size)
     if name == "geometry":
         return metric_geometry(model, tokenizer, items[: args.n], dev, args.batch_size)
     if name == "probe":

@@ -8729,3 +8729,14 @@ training reads are deterministic (their uncertainty is the bootstrap interval); 
 - **SL:** only invalid own-model controls and the shuffle control (both unused in the papers) change.
 - Toy, letters, EM persona (PG), TOFU: no call changes. Intervals quoted in the papers are still the old ones and
   must be replaced from `recheck_ci.py --all`.
+
+## 2026-11-19 — hidden preference with digit-matched distractors (run_prefm.sh; pre-registered before the read)
+
+- **Why.** M12 and the J-lens logit-diff compare the answer's first token with the next problem's answer, whatever
+  its sign or digit count; knowing only the answer's magnitude can then win. The collaborator's matched re-read
+  put the elicit parent's preference at zero. Matched distractor: nearest problem with the same sign and digit
+  count and a different first token (analysis/distractors.py).
+- **D1.** The elicit parent's matched preference is > 2 SE above zero (the claim survives) or within 2 SE (the
+  claim is cut: §3.2 "readable before it can be said", Fig. 2's right panel, the preference rows and column).
+- **D2.** The teach parent and the blank base stay within 2 SE of zero.
+- **D3 (exploratory).** Llama-3.2-1B and the symbol engine, matched.
